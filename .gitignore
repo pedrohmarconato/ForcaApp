@@ -1,0 +1,155 @@
+# -------------------------------------------------
+# 🔐 Configurações de Ambiente & Segredos
+# -------------------------------------------------
+.env
+.env.*
+!.env.example
+google-services.json
+GoogleService-Info.plist
+*.keystore
+*.jks
+!debug.keystore
+
+# -------------------------------------------------
+# 📦 Node.js & Dependências
+# -------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.yarn/
+.yarnrc
+.npm/
+package-lock.json
+yarn.lock
+
+# -------------------------------------------------
+# 🍎 iOS Específico
+# -------------------------------------------------
+ios/Pods/
+ios/build/
+ios/Podfile.lock
+ios/*.xcworkspace
+ios/*.xcodeproj/*
+!ios/*.xcodeproj/project.pbxproj
+!ios/*.xcodeproj/xcshareddata/
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/Frameworks/
+ios/assets/
+ios/.xcode.env.local
+ios/vendor/
+
+# -------------------------------------------------
+# 🤖 Android Específico
+# -------------------------------------------------
+android/app/build/
+android/build/
+android/.gradle/
+android/gradle/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/captures/
+android/*.apk
+android/app/release/
+android/app/debug/
+android/*.hprof
+android/*.aab
+
+# -------------------------------------------------
+# 📱 React Native Específico
+# -------------------------------------------------
+.buck/
+.metro-health-check*
+.metro/
+.eslintcache
+react-native-config.js
+
+# -------------------------------------------------
+# 🔍 Testes & Coverage
+# -------------------------------------------------
+coverage/
+__tests__/coverage/
+__snapshots__/
+*.snap
+
+# -------------------------------------------------
+# 📝 Editores & IDEs
+# -------------------------------------------------
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# Xcode
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.xcuserstate
+
+# -------------------------------------------------
+# 🧹 Diversos & Temporários
+# -------------------------------------------------
+.DS_Store
+*.DS_Store
+Thumbs.db
+ehthumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+.tmp/
+.cache/
+.history/
+
+# -------------------------------------------------
+# 📊 Builds & Artefatos
+# -------------------------------------------------
+build/
+dist/
+ios/Index/
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/assets/index.android.bundle.meta
+*.bundle
+*.bundle.map
+
+# -------------------------------------------------
+# 🖼️ Recursos Gerados
+# -------------------------------------------------
+# Fonte do CocoaPods
+/ios/Fonts/
+# Recursos gerados automaticamente
+/android/app/src/main/res/drawable-*/
+/android/app/src/main/res/raw/
+
+# Hermes
+/android/app/src/main/assets/index.android.bundle.hbc
+/android/app/src/main/jniLibs/
+
+# Outro
+*.mobileprovision
+*.orig.*
+web-build/
+web-report/

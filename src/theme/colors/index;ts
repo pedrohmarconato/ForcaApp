@@ -1,0 +1,65 @@
+// src/theme/colors/index.ts
+const palette = {
+  // Cores principais
+  yellow: {
+    primary: '#EBFF00',
+    light: '#F0FF4D',
+    dark: '#CCDB00',
+  },
+  black: {
+    primary: '#0A0A0A', 
+    light: '#1A1A1A',
+    dark: '#000000',
+  },
+  white: {
+    primary: '#FFFFFF',
+    opacity60: 'rgba(255, 255, 255, 0.6)',
+    opacity40: 'rgba(255, 255, 255, 0.4)',
+    opacity10: 'rgba(255, 255, 255, 0.1)',
+  },
+  red: {
+    primary: '#FF4D4D',
+    background: 'rgba(255, 77, 77, 0.1)',
+  },
+  green: {
+    primary: '#4DFF88',
+    background: 'rgba(77, 255, 136, 0.1)',
+  },
+  blue: {
+    primary: '#4D88FF',
+    background: 'rgba(77, 136, 255, 0.1)',
+  },
+};
+
+export default {
+  primary: palette.yellow.primary,
+  background: {
+    primary: palette.black.primary,
+    secondary: palette.black.light,
+    card: 'rgba(255, 255, 255, 0.05)',
+    overlay: 'rgba(0, 0, 0, 0.7)',
+  },
+  text: {
+    primary: palette.white.primary,
+    secondary: palette.white.opacity60,
+    tertiary: palette.white.opacity40,
+    accent: palette.yellow.primary,
+  },
+  border: {
+    primary: palette.white.opacity10,
+    active: palette.white.opacity60,
+    accent: palette.yellow.primary,
+  },
+  status: {
+    success: palette.green.primary,
+    error: palette.red.primary,
+    info: palette.blue.primary,
+  },
+  // Mapeamento específico de estados para treinos
+  workout: {
+    completed: palette.green.primary,
+    partial: palette.yellow.primary,
+    missed: palette.red.primary,
+    scheduled: palette.blue.primary,
+  },
+};
