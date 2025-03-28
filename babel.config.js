@@ -1,23 +1,11 @@
-# Criar/atualizar babel.config.js
-cat > babel.config.js << EOL
+//Criar/atualizar babel.config.js
 module.exports = function(api) {
   api.cache(true);
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      [
-        'module:react-native-dotenv',
-        {
-          moduleName: '@env',
-          path: '.env.development',
-          blacklist: null,
-          whitelist: null,
-          safe: false,
-          allowUndefined: true,
-        },
-      ],
-      'react-native-reanimated/plugin',
+      // Removida a entrada 'module:react-native-dotenv'
+      'react-native-reanimated/plugin', // Mantenha este, é necessário!
     ],
   };
 };
-EOL
