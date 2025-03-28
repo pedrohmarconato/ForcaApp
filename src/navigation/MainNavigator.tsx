@@ -1,22 +1,27 @@
-import React from 'react';
+iimport React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 
-// Suas telas principais existentes
+// Importa APENAS a(s) tela(s) principal(is) que existem
 import Home from '../screens/Home';
-import Exercicios from '../screens/Exercicios';
-import Treinos from '../screens/Treinos';
-// Adicione outras telas aqui (Perfil, etc.) quando criá-las
+// As linhas abaixo serão descomentadas/adicionadas QUANDO criarmos essas telas
+// import Exercicios from '../screens/Exercicios';
+// import Treinos from '../screens/Treinos';
+// import ProfileScreen from '../screens/ProfileScreen'; // Exemplo
 
 const Stack = createStackNavigator();
 
 const MainNavigator = () => {
   return (
-    // Por enquanto, usamos a mesma estrutura que estava em App.js
+    // Define a tela inicial para quando o usuário está logado
     <Stack.Navigator initialRouteName="Home">
+      {/* Inclui apenas as telas que existem */}
       <Stack.Screen name="Home" component={Home} />
-      <Stack.Screen name="Exercicios" component={Exercicios} />
-      <Stack.Screen name="Treinos" component={Treinos} />
-      {/* Adicione <Stack.Screen name="Profile" component={ProfileScreen} /> etc. */}
+
+      {/* As linhas abaixo serão descomentadas/adicionadas QUANDO criarmos essas telas */}
+      {/* <Stack.Screen name="Exercicios" component={Exercicios} /> */}
+      {/* <Stack.Screen name="Treinos" component={Treinos} /> */}
+      {/* <Stack.Screen name="Profile" component={ProfileScreen} /> */}
+
     </Stack.Navigator>
   );
 };
