@@ -1,4 +1,4 @@
-iimport React from 'react';
+import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 
 // Importa APENAS a(s) tela(s) principal(is) que existem

@@ -9,7 +9,8 @@ const Stack = createStackNavigator();
 
 const AuthNavigator = () => {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}> // Esconde o header padrão
+        // Opção screenOptions já esconde o header para todas as telas neste navigator
+    <Stack.Navigator screenOptions={{ headerShown: false }}> 
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="SignUp" component={SignUpScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
