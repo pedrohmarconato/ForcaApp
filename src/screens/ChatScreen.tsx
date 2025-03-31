@@ -18,9 +18,8 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
 // Placeholder for the actual API call function
-import { callGeminiApi } from '../../services/geminiService'; // We will create this file/function next
-
-import { theme } from '../../theme';
+import { callGeminiApi } from '../services/api/geminiService'; // We will create this file/function next
+import { theme } from '../theme';
 
 interface Message {
     id: string;

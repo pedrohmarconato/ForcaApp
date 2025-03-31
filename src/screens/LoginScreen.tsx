@@ -1,3 +1,6 @@
+// src/screens/LoginScreen.tsx
+// (Certifique-se de que esta é a versão que você está usando)
+
 import React, { useState } from 'react';
 import {
     View,
@@ -6,28 +9,29 @@ import {
     KeyboardAvoidingView,
     Platform,
     ScrollView,
-    Pressable, // Para simular hover/glow em botões
-    TouchableOpacity, // Para link de cadastro
+    Pressable,
+    TouchableOpacity,
+    ActivityIndicator, // Importar ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-// import { BlurView } from '@react-native-community/blur'; // Descomente se for usar Blur
+// import { BlurView } from '@react-native-community/blur'; // <-- GARANTIR QUE ESTÁ REMOVIDO/COMENTADO
 import {
-    TextInput as PaperTextInput, // Renomear para evitar conflito se usar TextInput normal
+    TextInput as PaperTextInput,
     Button as PaperButton,
     Text,
     HelperText,
-    useTheme, // Ainda pode ser útil para cores secundárias
+    useTheme,
 } from 'react-native-paper';
 import Checkbox from 'expo-checkbox';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext'; // Confirme o caminho
-import { Feather } from '@expo/vector-icons'; // Exemplo de ícone
+import { Feather } from '@expo/vector-icons';
 
-// Cores principais do estilo antigo
+// Cores principais do estilo antigo (mantidas)
 const NEON_YELLOW = '#EBFF00';
 const DARK_GRADIENT_START = '#0A0A0A';
 const DARK_GRADIENT_END = '#1A1A1A';
-const CARD_BG = 'rgba(0, 0, 0, 0.4)';
+const CARD_BG = 'rgba(0, 0, 0, 0.4)'; // Fundo semi-transparente simples
 const BORDER_COLOR = 'rgba(255, 255, 255, 0.1)';
 const BORDER_FOCUS_COLOR = 'rgba(255, 255, 255, 0.3)';
 const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
@@ -38,6 +42,7 @@ const TEXT_TERTIARY_COLOR = 'rgba(255, 255, 255, 0.4)';
 const BUTTON_TEXT_DARK = '#0A0A0A';
 
 const LoginScreen = ({ navigation }) => {
+    // ... (Estados: email, password, loading, error, etc. - MANTENHA TODOS IGUAIS)
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -45,12 +50,11 @@ const LoginScreen = ({ navigation }) => {
     const [passwordVisible, setPasswordVisible] = useState(false);
     const [keepLoggedIn, setKeepLoggedIn] = useState(false);
     const { signIn } = useAuth();
-    const paperTheme = useTheme(); // Pode usar para consistência se necessário
-
-    // Estados para simular "glow" no botão principal
+    const paperTheme = useTheme();
     const [isLoginPressed, setIsLoginPressed] = useState(false);
 
     const handleLogin = async () => {
+        // ... (Lógica handleLogin - MANTENHA IGUAL)
          if (loading) return;
          setLoading(true);
          setError(null);
@@ -77,17 +81,18 @@ const LoginScreen = ({ navigation }) => {
      };
 
     const inputTheme = {
-        ...paperTheme, // Mantém outras propriedades do tema
+        // ... (Tema do Input - MANTENHA IGUAL)
+        ...paperTheme,
         colors: {
             ...paperTheme.colors,
-            primary: BORDER_FOCUS_COLOR, // Cor da borda/label em foco
+            primary: BORDER_FOCUS_COLOR,
             text: TEXT_COLOR,
             placeholder: PLACEHOLDER_COLOR,
-            background: INPUT_BG, // Cor de fundo do input
-            outline: BORDER_COLOR, // Cor da borda normal
-            onSurfaceVariant: PLACEHOLDER_COLOR, // Cor do label quando não focado
+            background: INPUT_BG,
+            outline: BORDER_COLOR,
+            onSurfaceVariant: PLACEHOLDER_COLOR,
         },
-         roundness: 12, // Corresponde a rounded-xl
+         roundness: 12,
     };
 
     return (
@@ -95,7 +100,7 @@ const LoginScreen = ({ navigation }) => {
             colors={[DARK_GRADIENT_START, DARK_GRADIENT_END]}
             style={styles.fullScreenGradient}
         >
-            {/* Elementos Decorativos (Simulados) */}
+            {/* Elementos Decorativos (Simulados - MANTIDOS) */}
             <View style={[styles.decorativeCircle, styles.circleTopLeft]} />
             <View style={[styles.decorativeCircle, styles.circleBottomRight]} />
 
@@ -104,18 +109,15 @@ const LoginScreen = ({ navigation }) => {
                 style={styles.keyboardAvoiding}
             >
                 <ScrollView contentContainerStyle={styles.scrollContainer}>
-                    {/* Card com efeito Glassmorphism */}
                     <View style={styles.card}>
-                        {/* Fundo do Card (Blur ou Cor Transparente) */}
-                        {/* <BlurView style={styles.cardBackground} blurType="dark" blurAmount={10} /> */}
-                        <View style={[styles.cardBackground, { backgroundColor: CARD_BG }]} />
+                        {/* Fundo do Card SEM BlurView */}
+                        <View style={styles.cardBackground} />
 
-                        {/* Conteúdo */}
                         <View style={styles.contentContainer}>
-                            {/* Logo e Header */}
+                            {/* Logo e Header (MANTIDOS) */}
                             <View style={styles.headerContainer}>
                                 <Image
-                                    source={require('../assets/logo.png')} // Ajuste o caminho
+                                    source={require('../../assets/logo.png')} // Ajuste o caminho se necessário
                                     style={styles.logo}
                                     resizeMode="contain"
                                 />
@@ -123,40 +125,39 @@ const LoginScreen = ({ navigation }) => {
                                 <Text style={styles.headerText}>Entre para continuar sua jornada</Text>
                             </View>
 
-                            {/* Formulário */}
+                            {/* Formulário (MANTIDO) */}
                             <View style={styles.formContainer}>
                                 <PaperTextInput
                                     label="Endereço de e-mail"
                                     value={email}
                                     onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
+                                    // ... (outras props mantidas)
                                     style={styles.input}
                                     mode="outlined"
                                     theme={inputTheme}
-                                    // left={<PaperTextInput.Icon icon="email" color={PLACEHOLDER_COLOR} />} // Ícones podem precisar de ajuste de cor
-                                    selectionColor={NEON_YELLOW} // Cor do cursor
+                                    selectionColor={NEON_YELLOW}
                                 />
 
                                 <PaperTextInput
                                     label="Senha"
                                     value={password}
                                     onChangeText={setPassword}
-                                    secureTextEntry={!passwordVisible}
+                                    // ... (outras props mantidas)
                                     style={styles.input}
                                     mode="outlined"
                                     theme={inputTheme}
-                                    // left={<PaperTextInput.Icon icon="lock" color={PLACEHOLDER_COLOR} />}
                                     right={
                                         <PaperTextInput.Icon
                                             icon={passwordVisible ? "eye-off" : "eye"}
                                             onPress={() => setPasswordVisible(!passwordVisible)}
-                                            color={PLACEHOLDER_COLOR}
+                                            color={PLACEHOLDER_COLOR} // Defina a cor do ícone
+                                            size={20} // Ajuste o tamanho se necessário
                                         />
                                     }
                                      selectionColor={NEON_YELLOW}
                                 />
 
+                                {/* Opções (Checkbox e Senha) (MANTIDAS) */}
                                 <View style={styles.optionsRow}>
                                     <View style={styles.checkboxContainer}>
                                         <Checkbox
@@ -172,23 +173,25 @@ const LoginScreen = ({ navigation }) => {
                                             Manter conectado
                                         </Text>
                                     </View>
-                                    <PaperButton
-                                        mode="text"
-                                        onPress={() => !loading && navigation.navigate('ForgotPassword')}
-                                        disabled={loading}
-                                        labelStyle={styles.forgotPasswordLabel}
-                                        style={styles.forgotPasswordButton}
-                                        rippleColor="rgba(255, 255, 255, 0.1)" // Efeito no press
-                                    >
+                                     {/* Botão 'Esqueceu a Senha?' usando PaperButton */}
+                                     <PaperButton
+                                         mode="text"
+                                         onPress={() => !loading && navigation.navigate('ForgotPassword')}
+                                         disabled={loading}
+                                         labelStyle={styles.forgotPasswordLabel}
+                                         style={styles.forgotPasswordButton}
+                                         textColor={TEXT_SECONDARY_COLOR} // Cor explícita
+                                         compact // Tenta reduzir padding
+                                     >
                                         Esqueceu a senha?
                                     </PaperButton>
                                 </View>
-
 
                                 <HelperText type="error" visible={!!error} style={styles.errorText}>
                                     {error}
                                 </HelperText>
 
+                                {/* Botão Entrar (MANTIDO com Pressable) */}
                                 <Pressable
                                     onPress={handleLogin}
                                     disabled={loading}
@@ -201,7 +204,7 @@ const LoginScreen = ({ navigation }) => {
                                      ]}
                                 >
                                     {loading ? (
-                                         <ActivityIndicator color={BUTTON_TEXT_DARK} />
+                                         <ActivityIndicator color={BUTTON_TEXT_DARK} size="small" />
                                     ) : (
                                         <>
                                             <Text style={styles.loginButtonText}>Entrar</Text>
@@ -211,16 +214,15 @@ const LoginScreen = ({ navigation }) => {
                                 </Pressable>
                             </View>
 
-                            {/* Link de Cadastro */}
+                            {/* Link de Cadastro (MANTIDO) */}
                             <View style={styles.signUpContainer}>
                                 <Text style={styles.signUpText}>Não tem uma conta?{' '}</Text>
                                 <TouchableOpacity onPress={() => !loading && navigation.navigate('SignUp')} disabled={loading}>
-                                     {/* Usar Pressable aqui também para efeito de cor */}
                                      <Text style={styles.signUpLink}>Cadastre-se</Text>
                                 </TouchableOpacity>
                             </View>
 
-                            {/* Footer Text */}
+                            {/* Footer Text (MANTIDO) */}
                             <Text style={styles.footerText}>Fabricado no Brasil</Text>
                         </View>
                     </View>
@@ -230,193 +232,41 @@ const LoginScreen = ({ navigation }) => {
     );
 };
 
+// Estilos (MANTENHA os estilos que definimos, certificando-se que cardBackground não usa blur)
 const styles = StyleSheet.create({
-    fullScreenGradient: {
-        flex: 1,
-    },
-    keyboardAvoiding: {
-        flex: 1,
-    },
-    scrollContainer: {
-        flexGrow: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    card: {
-        width: '100%',
-        maxWidth: 400, // Similar a max-w-md
-        borderRadius: 16, // rounded-2xl
-        overflow: 'hidden', // Crucial para background/border
-        borderWidth: 1,
-        borderColor: BORDER_COLOR,
-        // Sombra para iOS - ajuste os valores
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
-        shadowRadius: 20,
-         // Elevação para Android
-         elevation: 10,
-    },
-    cardBackground: {
-        ...StyleSheet.absoluteFillObject, // Cobre o fundo do card
-        // Se não usar BlurView, defina a cor aqui:
-        // backgroundColor: CARD_BG,
-    },
-    contentContainer: {
-        padding: 32, // p-8
-        position: 'relative', // Para conteúdo ficar acima do background
-        zIndex: 1,
-        backgroundColor: CARD_BG, // Aplicar aqui se não usar BlurView
-    },
-    headerContainer: {
-        alignItems: 'center',
-        marginBottom: 32, // mb-8
-    },
-    logo: {
-        width: 192, // w-48
-        height: 80, // Altura precisa ser definida
-        marginBottom: 0,
-    },
-    subLogoText: {
-        color: TEXT_COLOR,
-        fontSize: 14, // text-sm
-        fontStyle: 'italic',
-        marginTop: -8, // -mt-2
-        // Sombra no texto (pode ser menos eficaz que drop-shadow)
-        textShadowColor: 'rgba(255, 255, 255, 0.8)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 8,
-    },
-    headerText: {
-        color: TEXT_SECONDARY_COLOR, // text-white/80
-        marginTop: 16, // mt-4
-        textAlign: 'center',
-        textShadowColor: 'rgba(255, 255, 255, 0.5)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 8,
-    },
-    formContainer: {
-        width: '100%',
-    },
-    input: {
-        marginBottom: 16, // space-y-4 ou 6 (ajustar)
-        backgroundColor: INPUT_BG, // Cor de fundo explícita
-    },
-    optionsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    checkboxContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    checkbox: {
-        marginRight: 8,
-        width: 18, // Tamanho do checkbox
-        height: 18,
-        borderWidth: 1, // Estilo manual se o padrão não agradar
-        borderColor: BORDER_COLOR,
-    },
-    checkboxLabel: {
-        color: TEXT_SECONDARY_COLOR,
-        fontSize: 14,
-    },
-    forgotPasswordButton: {
-        // Remover padding extra do botão de texto se houver
-    },
-    forgotPasswordLabel: {
-        color: TEXT_SECONDARY_COLOR,
-        fontSize: 14,
-        textTransform: 'none', // Remover capitalização padrão do Paper se houver
-        // Efeito de cor no press pode ser adicionado com Pressable ou state
-    },
-    errorText: {
-        color: '#FF4D4D', // Vermelho claro para erro
-        textAlign: 'center',
-        minHeight: 20,
-        marginBottom: 10,
-    },
-     loginButtonBase: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 12, // py-3
-        borderRadius: 12, // rounded-xl
-        marginTop: 10,
-     },
-     loginButtonIdle: {
-        backgroundColor: NEON_YELLOW,
-        // Sombra iOS
-        shadowColor: NEON_YELLOW,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0, // Sem sombra idle
-        shadowRadius: 10,
-        // Elevação Android
-        elevation: 5,
-     },
-     loginButtonPressed: {
-        backgroundColor: '#D4E600', // Um pouco mais escuro no press
-        // Sombra iOS para efeito glow
-        shadowColor: NEON_YELLOW,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5, // Sombra visível no press
-        shadowRadius: 20,
-         // Elevação Android
-         elevation: 15,
-     },
-     loginButtonText: {
-        color: BUTTON_TEXT_DARK,
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginRight: 8, // space-x-2
-    },
-    buttonDisabled: {
-        backgroundColor: 'rgba(235, 255, 0, 0.5)', // Neon com opacidade
-    },
-    signUpContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginTop: 32, // mt-8
-    },
-    signUpText: {
-        color: TEXT_SECONDARY_COLOR,
-    },
-    signUpLink: {
-        color: TEXT_COLOR,
-        fontWeight: 'bold',
-        // Efeito Neon no press pode ser adicionado
-        textShadowColor: 'rgba(255, 255, 255, 0.5)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 8,
-    },
-    footerText: {
-        color: TEXT_TERTIARY_COLOR, // text-white/40
-        fontSize: 12, // text-xs
-        textAlign: 'center',
-        marginTop: 32, // mt-8
-    },
-    // Estilos para círculos decorativos (Simulados)
-     decorativeCircle: {
-        position: 'absolute',
-        width: 500,
-        height: 500,
-        borderRadius: 250,
-        opacity: 0.1, // Ajuste a opacidade
-        // O blur real é difícil, usamos apenas cor/opacidade
-     },
-     circleTopLeft: {
-        top: -250,
-        left: -250,
-        backgroundColor: 'rgba(255, 255, 255, 0.5)', // white/20 -> mais forte aqui
-     },
-     circleBottomRight: {
-        bottom: -250,
-        right: -250,
-        backgroundColor: NEON_YELLOW, // neon/10
-     }
+    // ... (COLE AQUI OS ESTILOS COMPLETOS DA VERSÃO ANTERIOR)
+    fullScreenGradient: { flex: 1 },
+    keyboardAvoiding: { flex: 1 },
+    scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+    card: { width: '100%', maxWidth: 400, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: BORDER_COLOR, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10 },
+    // Apenas o fundo semi-transparente, sem blur
+    cardBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: CARD_BG },
+    contentContainer: { padding: 32, position: 'relative', zIndex: 1 },
+    headerContainer: { alignItems: 'center', marginBottom: 32 },
+    logo: { width: 192, height: 80, marginBottom: 0 }, // Ajuste height conforme necessário
+    subLogoText: { color: TEXT_COLOR, fontSize: 14, fontStyle: 'italic', marginTop: -8, textShadowColor: 'rgba(255, 255, 255, 0.8)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+    headerText: { color: TEXT_SECONDARY_COLOR, marginTop: 16, textAlign: 'center', textShadowColor: 'rgba(255, 255, 255, 0.5)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+    formContainer: { width: '100%' },
+    input: { marginBottom: 16, backgroundColor: INPUT_BG }, // Certifique-se que o fundo está aplicado aqui
+    optionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    checkboxContainer: { flexDirection: 'row', alignItems: 'center' },
+    checkbox: { marginRight: 8, width: 18, height: 18, borderWidth: 1, borderColor: BORDER_COLOR },
+    checkboxLabel: { color: TEXT_SECONDARY_COLOR, fontSize: 14 },
+    forgotPasswordButton: { }, // Estilo mínimo, a cor vem de textColor prop
+    forgotPasswordLabel: { fontSize: 14, textTransform: 'none' },
+    errorText: { color: '#FF4D4D', textAlign: 'center', minHeight: 20, marginBottom: 10 },
+    loginButtonBase: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, marginTop: 10 },
+    loginButtonIdle: { backgroundColor: NEON_YELLOW, elevation: 5, shadowColor: NEON_YELLOW, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0, shadowRadius: 10 },
+    loginButtonPressed: { backgroundColor: '#D4E600', elevation: 15, shadowColor: NEON_YELLOW, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20 },
+    loginButtonText: { color: BUTTON_TEXT_DARK, fontSize: 16, fontWeight: 'bold', marginRight: 8 },
+    buttonDisabled: { backgroundColor: 'rgba(235, 255, 0, 0.5)' },
+    signUpContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 32 },
+    signUpText: { color: TEXT_SECONDARY_COLOR },
+    signUpLink: { color: TEXT_COLOR, fontWeight: 'bold', textShadowColor: 'rgba(255, 255, 255, 0.5)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+    footerText: { color: TEXT_TERTIARY_COLOR, fontSize: 12, textAlign: 'center', marginTop: 32 },
+    decorativeCircle: { position: 'absolute', width: 500, height: 500, borderRadius: 250, opacity: 0.1 },
+    circleTopLeft: { top: -250, left: -250, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
+    circleBottomRight: { bottom: -250, right: -250, backgroundColor: NEON_YELLOW }
 });
 
 export default LoginScreen;
