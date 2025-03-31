@@ -1,6 +1,6 @@
-// src/screens/onboarding/QuestionnaireScreen.tsx (Refatorado)
+// src/screens/onboarding/QuestionnaireScreen.tsx (Refatorado e Integrado)
 
-import React, { useState, useMemo } from 'react'; // Importar useMemo
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,76 +15,47 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigation, useTheme } from '@react-navigation/native'; // <<< IMPORTAR useTheme
-// ^^^ IMPORTANTE: Se você estiver usando outra biblioteca de tema (ex: React Native Paper),
-// importe o useTheme dela (ex: import { useTheme } from 'react-native-paper';)
-import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { useTheme } from 'react-native-paper'; // <<< IMPORTAR useTheme do PAPER
+// import { Feather } from '@expo/vector-icons'; // Não usado neste código
 
-// TODO: Import the actual thunk for submitting data
-// import { submitQuestionnaireData } from '../../store/slices/userSlice';
-import { RootState } from '../../store'; // Assuming RootState is defined
-// REMOVIDO: import { theme } from '../theme'; // <<< Não importar mais diretamente
+import {
+  submitQuestionnaire,
+  selectUserLoading,
+  selectUserError,
+  clearUserError,
+  selectAuthenticatedUserId,
+} from '../store/slices/userSlice'; // <<< CORRIGIDO
+import { RootState } from '../store'; // <<< CORRIGIDO (Assumindo que RootState está em src/store/index.ts)
 
-// --- Placeholder for the Redux Action ---
-const submitQuestionnaireData = (formData: any) => ({
-  type: 'user/submitQuestionnaire',
-  payload: formData,
-});
-// --- End Placeholder ---
-
-// --- Helper Types/Constants ---
-// ... (Seus tipos GENDER_OPTIONS, EXPERIENCE_LEVELS, GOALS, etc. permanecem os mesmos) ...
+// --- Tipos e Constantes (MANTENHA OS SEUS IGUAIS) ---
 type Option = { label: string; value: string };
 type DayOption = { label: string; value: string };
 type TimeOption = { label: string; value: number };
 
-const GENDER_OPTIONS: Option[] = [
-  { label: 'Masculino', value: 'masculino' },
-  { label: 'Feminino', value: 'feminino' },
-  { label: 'Outro', value: 'outro' },
-  { label: 'Prefiro não informar', value: 'nao_informado' },
-];
-
-const EXPERIENCE_LEVELS: Option[] = [
-  { label: 'Iniciante (Nunca treinei ou parei há muito tempo)', value: 'iniciante' },
-  { label: 'Intermediário (Treino consistentemente há alguns meses/anos)', value: 'intermediario' },
-  { label: 'Avançado (Treino há vários anos com técnicas avançadas)', value: 'avancado' },
-];
-
-const GOALS: Option[] = [
-  { label: 'Perder Peso / Gordura Corporal', value: 'perder_peso' },
-  { label: 'Ganhar Massa Muscular (Hipertrofia)', value: 'hipertrofia' },
-  { label: 'Melhorar Condicionamento Físico Geral', value: 'condicionamento' },
-  { label: 'Aumentar Força', value: 'forca' },
-  { label: 'Melhorar Saúde e Bem-estar', value: 'saude_bem_estar' },
-];
-
-const DAYS_OF_WEEK: DayOption[] = [
-  { label: 'Seg', value: 'seg' },
-  { label: 'Ter', value: 'ter' },
-  { label: 'Qua', value: 'qua' },
-  { label: 'Qui', value: 'qui' },
-  { label: 'Sex', value: 'sex' },
-  { label: 'Sáb', value: 'sab' },
-  { label: 'Dom', value: 'dom' },
-];
-
-const TIME_OPTIONS: TimeOption[] = [
-  { label: 'Até 20 min (Muito Curto)', value: 20 },
-  { label: 'Cerca de 30 min (Curto)', value: 30 },
-  { label: 'Cerca de 60 min (Padrão)', value: 60 },
-  { label: 'Cerca de 90 min (Longo)', value: 90 },
-  { label: '120 min ou mais (Muito Longo)', value: 120 },
-];
-// --- End Helper Types/Constants ---
+const GENDER_OPTIONS: Option[] = [ /* ... Mantenha os seus ... */ ];
+const EXPERIENCE_LEVELS: Option[] = [ /* ... Mantenha os seus ... */ ];
+const GOALS: Option[] = [ /* ... Mantenha os seus ... */ ];
+const DAYS_OF_WEEK: DayOption[] = [ /* ... Mantenha os seus ... */ ];
+const TIME_OPTIONS: TimeOption[] = [ /* ... Mantenha os seus ... */ ];
+// --- Fim Tipos e Constantes ---
 
 const QuestionnaireScreen = () => {
   const dispatch = useDispatch();
   const navigation = useNavigation();
-  const theme = useTheme(); // <<< OBTER O TEMA AQUI DENTRO
-  const { loading, error } = useSelector((state: RootState) => state.user);
+  const theme = useTheme(); // <<< OBTIDO DO REACT NATIVE PAPER
+  const paperTheme = useTheme(); // Alias para clareza, se preferir
 
-  // --- Form State ---
+  // --- Seletores Redux ---
+  const loadingStatus = useSelector(selectUserLoading); // Obtém 'idle' | 'pending' | 'succeeded' | 'failed'
+  const submissionError = useSelector(selectUserError);
+  const userIdFromRedux = useSelector(selectAuthenticatedUserId); // Tenta obter ID do Redux
+
+  // --- Contexto de Autenticação (Fallback para obter ID) ---
+   const { user } = useAuth(); // Obtém o usuário do contexto
+   const userId = userIdFromRedux || user?.id; // Usa ID do Redux ou do Contexto
+
+  // --- Estado do Formulário (MANTENHA OS SEUS IGUAIS) ---
   const [nome, setNome] = useState('');
   const [diaNascimento, setDiaNascimento] = useState('');
   const [mesNascimento, setMesNascimento] = useState('');
@@ -95,45 +66,63 @@ const QuestionnaireScreen = () => {
   const [experienciaTreino, setExperienciaTreino] = useState<string | null>(null);
   const [objetivo, setObjetivo] = useState<string | null>(null);
   const [temLesoes, setTemLesoes] = useState<boolean | null>(null);
-  const [lesoes, setLesoes] = useState('');
-  const [descricaoLesao, setDescricaoLesao] = useState('');
+  const [lesoes, setLesoes] = useState(''); // Mantido mesmo se temLesoes=false
+  const [descricaoLesao, setDescricaoLesao] = useState(''); // Mantido mesmo se temLesoes=false
   const [trainingDays, setTrainingDays] = useState<{ [key: string]: boolean }>({});
   const [includeCardio, setIncludeCardio] = useState<boolean | null>(null);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
-  // --- End Form State ---
+  // --- Fim Estado do Formulário ---
 
-  // --- Handlers ---
+  // Limpa o erro ao desmontar a tela ou ao focar nela novamente
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      dispatch(clearUserError());
+    });
+    return unsubscribe;
+  }, [navigation, dispatch]);
+
+  // Exibe alerta de erro vindo do Redux
+  useEffect(() => {
+      if (loadingStatus === 'failed' && submissionError) {
+          Alert.alert('Erro ao Salvar', submissionError);
+          dispatch(clearUserError()); // Limpa o erro após exibir
+      }
+  }, [loadingStatus, submissionError, dispatch]);
+
+
+  // --- Handlers (Adaptados) ---
   const toggleTrainingDay = (dayValue: string) => {
-    setTrainingDays(prev => ({
-      ...prev,
-      [dayValue]: !prev[dayValue],
-    }));
+    setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] }));
   };
 
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
 
   const isFormValid = () => {
-    // ... (lógica de validação permanece a mesma) ...
-     const selectedDaysCount = getSelectedDays().length;
-
-    if (!nome || !diaNascimento || !mesNascimento || !anoNascimento || !genero || !peso || !altura || !experienciaTreino || !objetivo || temLesoes === null || selectedDaysCount === 0 || includeCardio === null || includeStretching === null || averageTrainingTime === null) {
-      return false;
-    }
-    // Removido o bloqueio se lesões for true mas campos não preenchidos, conforme código original
-    // if (temLesoes === true && (!lesoes || !descricaoLesao)) {
-    //   return false;
-    // }
-    return true;
+    const selectedDaysCount = getSelectedDays().length;
+    // Validação básica (ajuste conforme necessidade)
+    return (
+      !!nome && !!diaNascimento && !!mesNascimento && !!anoNascimento && !!genero &&
+      !!peso && !!altura && !!experienciaTreino && !!objetivo && temLesoes !== null &&
+      selectedDaysCount > 0 && includeCardio !== null && includeStretching !== null &&
+      averageTrainingTime !== null
+    );
   };
 
   const handleSubmit = async () => {
-     if (!isFormValid()) {
-        Alert.alert('Campos Incompletos', 'Por favor, preencha todos os campos obrigatórios e selecione ao menos um dia de treino.');
+     if (!userId) {
+        Alert.alert('Erro', 'Usuário não identificado. Por favor, faça login novamente.');
+        // Opcional: Deslogar o usuário ou navegar para Login
+        // Ex: navigation.navigate('Login');
         return;
-      }
-    // ... (lógica de submit permanece a mesma) ...
-     const formData = {
+     }
+
+     if (!isFormValid()) {
+      Alert.alert('Campos Incompletos', 'Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    const formData = {
       nome,
       dataNascimento: { dia: diaNascimento, mes: mesNascimento, ano: anoNascimento },
       genero,
@@ -142,84 +131,85 @@ const QuestionnaireScreen = () => {
       experienciaTreino,
       objetivo,
       temLesoes,
-      lesoes: temLesoes ? lesoes : '',
-      descricaoLesao: temLesoes ? descricaoLesao : '',
+      lesoes: temLesoes ? lesoes : '', // Envia string vazia se não houver lesões
+      descricaoLesao: temLesoes ? descricaoLesao : '', // Envia string vazia se não houver lesões
       trainingDays: getSelectedDays(),
       includeCardio,
       includeStretching,
       averageTrainingTime,
     };
 
-    try {
-      console.log('Submitting Form Data:', formData);
-      // dispatch(submitQuestionnaireData(formData)); // Descomente quando tiver a action real
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulação
-      console.log('Form submitted successfully (simulated)');
-      navigation.reset({ index: 0, routes: [{ name: 'MainNavigator' }] }); // Ajuste nome da rota se necessário
-    } catch (submissionError: any) {
-      console.error("Submission Error:", submissionError);
-      Alert.alert('Erro ao Salvar', submissionError.message || 'Não foi possível salvar seus dados. Tente novamente.');
-    }
+    console.log('[QuestionnaireScreen] Submitting Form Data for user:', userId);
+    // Dispatch da action assíncrona
+    // O 'unwrap()' pode ser usado para tratar o resultado/erro diretamente aqui,
+    // mas como já temos useEffect para erros, apenas despachamos.
+    dispatch(submitQuestionnaire({ userId, formData }))
+        .unwrap() // Opcional: permite .then() e .catch() aqui
+        .then(() => {
+            console.log("[QuestionnaireScreen] Dispatch fulfilled, navigating...");
+             // Navega SOMENTE se o dispatch for resolvido (sucesso)
+            // A navegação pode ser diferente dependendo se você tem um chat pós-questionário
+             // navigation.reset({ index: 0, routes: [{ name: 'MainNavigator' }] }); // Navega para Home
+             navigation.navigate('PostQuestionnaireChat'); // <<< NAVEGA PARA O CHAT
+        })
+        .catch((error) => {
+             console.error("[QuestionnaireScreen] Dispatch rejected:", error);
+             // O erro já deve ser tratado pelo useEffect, mas pode adicionar lógica extra aqui se precisar.
+        });
   };
-  // --- End Handlers ---
+  // --- Fim Handlers ---
 
-  // --- Styles Definition (Moved Inside Component using useMemo) ---
+  // --- Styles Definition (Adapte cores/fontes conforme seu tema Paper) ---
   const styles = useMemo(() => StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: theme.colors.background, // Usando theme do hook
+      backgroundColor: paperTheme.colors.background, // << USA TEMA PAPER
     },
     scrollContainer: {
-      // Assumindo que seu theme tem 'spacing' (ajuste se necessário)
-      padding: theme.spacing?.regular ?? 16,
-      paddingBottom: (theme.spacing?.large ?? 24) * 2,
+      padding: 16, // Use valores fixos ou adapte se seu tema Paper tiver spacing
+      paddingBottom: 48,
     },
     title: {
-      // Assumindo theme.typography e theme.colors
-      fontSize: theme.typography?.sizes?.title ?? 24,
+      fontSize: 24, // Adapte aos tamanhos de fonte do seu tema Paper se definidos
       fontWeight: 'bold',
-      color: theme.colors.text,
-      marginBottom: theme.spacing?.small ?? 8,
+      color: paperTheme.colors.onBackground, // << USA TEMA PAPER
+      marginBottom: 8,
       textAlign: 'center',
     },
     subtitle: {
-      fontSize: theme.typography?.sizes?.regular ?? 16,
-      color: theme.colors.textSecondary ?? theme.colors.text, // Fallback para text
+      fontSize: 16,
+      color: paperTheme.colors.onSurfaceVariant, // << USA TEMA PAPER (cor secundária)
       textAlign: 'center',
-      marginBottom: theme.spacing?.large ?? 24,
+      marginBottom: 24,
     },
     section: {
-      marginBottom: theme.spacing?.medium ?? 16,
+      marginBottom: 16,
     },
     sectionHeader: {
-      fontSize: theme.typography?.sizes?.large ?? 20,
+      fontSize: 20,
       fontWeight: 'bold',
-      color: theme.colors.primary,
-      marginBottom: theme.spacing?.regular ?? 16,
-      marginTop: theme.spacing?.small ?? 8,
+      color: paperTheme.colors.primary, // << USA TEMA PAPER
+      marginBottom: 16,
+      marginTop: 8,
       borderBottomWidth: 1,
-      borderBottomColor: theme.colors.primary + '50', // Pode precisar ajustar
-      paddingBottom: (theme.spacing?.small ?? 8) / 2,
+      borderBottomColor: paperTheme.colors.primary + '50', // Opacidade na cor primária
+      paddingBottom: 4,
     },
     label: {
-      fontSize: theme.typography?.sizes?.medium ?? 18,
-      color: theme.colors.text,
-      marginBottom: theme.spacing?.small ?? 8,
+      fontSize: 18,
+      color: paperTheme.colors.onSurface, // << USA TEMA PAPER
+      marginBottom: 8,
       fontWeight: '600',
     },
     input: {
-      // Manter cores fixas se for intencional (ex: para contraste em tema escuro)
-      // Ou usar cores do tema: theme.colors.inputBackground ?? 'rgba(255, 255, 255, 0.1)'
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-      color: theme.colors.text,
-      paddingHorizontal: theme.spacing?.regular ?? 16,
+      backgroundColor: paperTheme.colors.surfaceVariant, // << Fundo sutil do TEMA PAPER
+      color: paperTheme.colors.onSurfaceVariant, // << Cor do texto no input
+      paddingHorizontal: 16,
       paddingVertical: 12,
-      // Assumindo theme.borderRadius
-      borderRadius: theme.borderRadius?.small ?? 8,
-      fontSize: theme.typography?.sizes?.regular ?? 16,
+      borderRadius: paperTheme.roundness, // << Usa roundness do TEMA PAPER
+      fontSize: 16,
       borderWidth: 1,
-      // borderColor: theme.colors.border ?? 'rgba(255, 255, 255, 0.2)'
-      borderColor: 'rgba(255, 255, 255, 0.2)',
+      borderColor: paperTheme.colors.outline, // << Cor da borda do TEMA PAPER
     },
     textArea: {
         height: 100,
@@ -229,113 +219,89 @@ const QuestionnaireScreen = () => {
         flexDirection: 'row',
         justifyContent: 'space-between',
     },
-    // Combine styles for date inputs if they are identical except width
-    dateInput: {
-        // Herda estilos de 'input', só muda a largura e alinhamento
-        width: '30%',
-        textAlign: 'center',
-    },
-    yearInput: {
-        // Herda estilos de 'input', só muda a largura
-        width: '35%',
-        textAlign: 'center', // Added for consistency
-    },
-    row: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-    },
-    column: {
-        width: '48%',
-    },
+    dateInput: { width: '30%', textAlign: 'center' },
+    yearInput: { width: '35%', textAlign: 'center' },
+    row: { flexDirection: 'row', justifyContent: 'space-between' },
+    column: { width: '48%' },
     optionButton: {
-      backgroundColor: 'rgba(255, 255, 255, 0.1)', // Ou theme.colors.inputBackground
-      padding: theme.spacing?.regular ?? 16,
-      borderRadius: theme.borderRadius?.small ?? 8,
-      marginBottom: theme.spacing?.small ?? 8,
+      backgroundColor: paperTheme.colors.surfaceVariant,
+      padding: 16,
+      borderRadius: paperTheme.roundness,
+      marginBottom: 8,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.2)', // Ou theme.colors.border
+      borderColor: paperTheme.colors.outline,
     },
     optionButtonSelected: {
-      backgroundColor: theme.colors.primary,
-      borderColor: theme.colors.primary, // Manter borda da mesma cor
+      backgroundColor: paperTheme.colors.primary, // << USA TEMA PAPER
+      borderColor: paperTheme.colors.primary,
     },
     optionText: {
-      color: theme.colors.text,
-      fontSize: theme.typography?.sizes?.regular ?? 16,
+      color: paperTheme.colors.onSurfaceVariant,
+      fontSize: 16,
       textAlign: 'center',
     },
     optionTextSelected: {
-      // Usar cor de texto sobre primária se existir no tema
-      color: theme.colors.textOnPrimary ?? '#0A0A0A',
+      color: paperTheme.colors.onPrimary, // << Cor do texto sobre a cor primária
       fontWeight: 'bold',
     },
-    yesNoContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around', // Ou space-between com padding
-    },
-    yesNoButton: {
-        width: '45%', // Para dar espaço entre eles
-        // Herda estilos de optionButton, centraliza o texto
-        alignItems: 'center', // Garante que o texto dentro fique centralizado
-    },
+    yesNoContainer: { flexDirection: 'row', justifyContent: 'space-around' },
+    yesNoButton: { width: '45%', alignItems: 'center' },
     daysContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
-        gap: theme.spacing?.small ?? 8, // Adiciona espaçamento entre botões
+        gap: 8,
     },
     dayButton: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)', // Ou theme.colors.inputBackground
-        paddingVertical: theme.spacing?.small ?? 8,
-        paddingHorizontal: theme.spacing?.regular ?? 12, // Um pouco menos horizontal
-        borderRadius: theme.borderRadius?.large ?? 20, // Mais arredondado
+        backgroundColor: paperTheme.colors.surfaceVariant,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 20, // Mais arredondado
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)', // Ou theme.colors.border
+        borderColor: paperTheme.colors.outline,
         alignItems: 'center',
-        // marginBottom removido, 'gap' no container cuida disso
-        flexBasis: '12%', // Mínimo, pode crescer um pouco
-        minWidth: 45, // Garante um tamanho mínimo clicável
+        flexBasis: '12%',
+        minWidth: 45,
     },
     dayButtonSelected: {
-        backgroundColor: theme.colors.primary,
-        borderColor: theme.colors.primary,
+        backgroundColor: paperTheme.colors.primary,
+        borderColor: paperTheme.colors.primary,
     },
     dayText: {
-        color: theme.colors.text,
-        fontSize: theme.typography?.sizes?.small ?? 14,
+        color: paperTheme.colors.onSurfaceVariant,
+        fontSize: 14,
     },
     dayTextSelected: {
-        color: theme.colors.textOnPrimary ?? '#0A0A0A',
+        color: paperTheme.colors.onPrimary,
         fontWeight: 'bold',
     },
     submitButton: {
-      backgroundColor: theme.colors.primary,
-      padding: theme.spacing?.regular ?? 16,
-      borderRadius: theme.borderRadius?.medium ?? 12,
+      backgroundColor: paperTheme.colors.primary,
+      padding: 16,
+      borderRadius: 12, // Ou paperTheme.roundness * 1.5
       alignItems: 'center',
-      marginTop: theme.spacing?.medium ?? 16,
+      marginTop: 16,
     },
     submitButtonDisabled: {
-      // Usar cor de fundo desabilitada do tema ou um cinza com opacidade
-      backgroundColor: theme.colors.disabledBackground ?? theme.colors.grey ?? 'grey',
-      opacity: 0.6,
+      backgroundColor: paperTheme.colors.surfaceDisabled, // << Cor desabilitada do TEMA PAPER
+      opacity: 0.8, // Ajuste a opacidade se necessário
     },
     submitButtonText: {
-      color: theme.colors.textOnPrimary ?? '#0A0A0A',
-      fontSize: theme.typography?.sizes?.medium ?? 18,
+      color: paperTheme.colors.onPrimary,
+      fontSize: 18,
       fontWeight: 'bold',
     },
-    errorText: {
-      color: theme.colors.error ?? 'red', // Fallback para vermelho
+    errorText: { // Mantido como vermelho explícito para destaque
+      color: '#B00020', // Cor de erro padrão do Material Design
       textAlign: 'center',
-      marginTop: theme.spacing?.regular ?? 16,
+      marginTop: 16,
+      fontSize: 14,
     },
-  }), [theme]); // Recalcula os estilos APENAS se o objeto 'theme' mudar
-  // --- End Styles Definition ---
+  }), [paperTheme]); // Recalcula estilos se o tema Paper mudar
+  // --- Fim Styles Definition ---
 
-  // --- Render Helpers ---
-  // (As funções renderOptions, renderYesNo, renderDaySelector permanecem as mesmas,
-  //  pois elas já usam o objeto 'styles' definido acima)
+    // --- Render Helpers ---
+  // (Estas são as definições reais das suas funções)
 
   // Render Options (String or Number value)
   const renderOptions = (
@@ -426,68 +392,41 @@ const QuestionnaireScreen = () => {
         </View>
     </View>
   );
-  // --- End Render Helpers ---
+  // --- Fim Render Helpers ---
 
 
-  // --- Component Return ---
+  // --- Component Return (Adapte os placeholders e use theme do Paper) ---
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }} // Important for KeyboardAvoidingView to work
+        style={{ flex: 1 }}
       >
         <ScrollView
             contentContainerStyle={styles.scrollContainer}
-            keyboardShouldPersistTaps="handled" // Good practice for forms
+            keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.title}>Conte-nos sobre você</Text>
           <Text style={styles.subtitle}>
             Essas informações nos ajudarão a personalizar sua experiência de treino.
           </Text>
 
-          {/* --- Personal Info --- */}
+          {/* --- Seções do Formulário (MANTENHA IGUAIS) --- */}
+          {/* Use paperTheme.colors.onSurfaceVariant para placeholderTextColor */}
+          {/* Ex: placeholderTextColor={paperTheme.colors.onSurfaceVariant} */}
+
+          {/* Informações Pessoais */}
           <Text style={styles.sectionHeader}>Informações Pessoais</Text>
           <View style={styles.section}>
             <Text style={styles.label}>Nome Completo</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Seu nome"
-              placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder direto no TextInput
-              value={nome}
-              onChangeText={setNome}
-              autoCapitalize="words"
-            />
+            <TextInput style={styles.input} placeholder="Seu nome" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={nome} onChangeText={setNome} autoCapitalize="words" />
           </View>
           <View style={styles.section}>
              <Text style={styles.label}>Data de Nascimento</Text>
              <View style={styles.dateContainer}>
-                 <TextInput
-                    style={[styles.input, styles.dateInput]} // Combinar estilos
-                    placeholder="DD"
-                    placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                    value={diaNascimento}
-                    onChangeText={setDiaNascimento}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                 />
-                 <TextInput
-                    style={[styles.input, styles.dateInput]} // Combinar estilos
-                    placeholder="MM"
-                    placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                    value={mesNascimento}
-                    onChangeText={setMesNascimento}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                 />
-                 <TextInput
-                    style={[styles.input, styles.dateInput, styles.yearInput]} // Combinar estilos
-                    placeholder="AAAA"
-                    placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                    value={anoNascimento}
-                    onChangeText={setAnoNascimento}
-                    keyboardType="number-pad"
-                    maxLength={4}
-                 />
+                 <TextInput style={[styles.input, styles.dateInput]} placeholder="DD" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={diaNascimento} onChangeText={setDiaNascimento} keyboardType="number-pad" maxLength={2} />
+                 <TextInput style={[styles.input, styles.dateInput]} placeholder="MM" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={mesNascimento} onChangeText={setMesNascimento} keyboardType="number-pad" maxLength={2} />
+                 <TextInput style={[styles.input, styles.dateInput, styles.yearInput]} placeholder="AAAA" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={anoNascimento} onChangeText={setAnoNascimento} keyboardType="number-pad" maxLength={4} />
              </View>
           </View>
           {renderOptions(GENDER_OPTIONS, genero, (v) => setGenero(v as string), 'Gênero')}
@@ -495,94 +434,65 @@ const QuestionnaireScreen = () => {
               <View style={styles.row}>
                  <View style={styles.column}>
                     <Text style={styles.label}>Peso (kg)</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Ex: 75"
-                        placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                        value={peso}
-                        onChangeText={setPeso}
-                        keyboardType="numeric"
-                    />
+                    <TextInput style={styles.input} placeholder="Ex: 75" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={peso} onChangeText={setPeso} keyboardType="numeric" />
                  </View>
                  <View style={styles.column}>
                     <Text style={styles.label}>Altura (cm)</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Ex: 180"
-                        placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                        value={altura}
-                        onChangeText={setAltura}
-                        keyboardType="numeric"
-                    />
+                    <TextInput style={styles.input} placeholder="Ex: 180" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={altura} onChangeText={setAltura} keyboardType="numeric" />
                  </View>
               </View>
           </View>
 
-          {/* --- Training Experience & Goals --- */}
+          {/* Experiência e Objetivos */}
           <Text style={styles.sectionHeader}>Experiência e Objetivos</Text>
           {renderOptions(EXPERIENCE_LEVELS, experienciaTreino, (v) => setExperienciaTreino(v as string), 'Qual seu nível de experiência com treinos?')}
           {renderOptions(GOALS, objetivo, (v) => setObjetivo(v as string), 'Qual seu objetivo principal?')}
 
-          {/* --- Training Preferences --- */}
+          {/* Preferências de Treino */}
           <Text style={styles.sectionHeader}>Preferências de Treino</Text>
           {renderDaySelector()}
           {renderOptions(TIME_OPTIONS, averageTrainingTime, (v) => setAverageTrainingTime(v as number), 'Quanto tempo você tem disponível para treinar em média?')}
           {renderYesNo(includeCardio, setIncludeCardio, 'Gostaria de incluir exercícios de Cardio no seu plano?')}
           {renderYesNo(includeStretching, setIncludeStretching, 'Gostaria de incluir Alongamentos no seu plano?')}
 
-          {/* --- Health & Restrictions --- */}
+          {/* Saúde e Restrições */}
           <Text style={styles.sectionHeader}>Saúde e Restrições</Text>
           {renderYesNo(temLesoes, setTemLesoes, 'Possui alguma lesão ou restrição médica?')}
-          {temLesoes === true && ( // Renderização condicional
+          {temLesoes === true && (
             <>
               <View style={styles.section}>
                 <Text style={styles.label}>Quais lesões/restrições? (Opcional)</Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Ex: Dor no joelho direito, Hérnia de disco L5"
-                    placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                    value={lesoes}
-                    onChangeText={setLesoes}
-                 />
+                <TextInput style={styles.input} placeholder="Ex: Dor no joelho direito, Hérnia de disco L5" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={lesoes} onChangeText={setLesoes} />
               </View>
               <View style={styles.section}>
                 <Text style={styles.label}>Descreva brevemente (Opcional)</Text>
-                <TextInput
-                    style={[styles.input, styles.textArea]} // Combinar estilos
-                    placeholder="Ex: Dor ao agachar, evitar impacto"
-                    placeholderTextColor={theme.colors.textSecondary ?? '#888'} // <<< Placeholder
-                    value={descricaoLesao}
-                    onChangeText={setDescricaoLesao}
-                    multiline
-                 />
+                <TextInput style={[styles.input, styles.textArea]} placeholder="Ex: Dor ao agachar, evitar impacto" placeholderTextColor={paperTheme.colors.onSurfaceVariant} value={descricaoLesao} onChangeText={setDescricaoLesao} multiline />
               </View>
             </>
           )}
+          {/* --- Fim Seções do Formulário --- */}
 
-          {/* Submit Button */}
+
+          {/* Botão Submit */}
           <TouchableOpacity
-            // Combina o estilo base com o desabilitado condicionalmente
-            style={[styles.submitButton, (!isFormValid() || loading) && styles.submitButtonDisabled]}
+            style={[styles.submitButton, (!isFormValid() || loadingStatus === 'pending') && styles.submitButtonDisabled]}
             onPress={handleSubmit}
-            disabled={!isFormValid() || loading} // Desabilita o toque também
+            disabled={!isFormValid() || loadingStatus === 'pending'}
           >
-            {loading ? (
-              // Usar cor do tema para o ActivityIndicator
-              <ActivityIndicator color={theme.colors.textOnPrimary ?? '#0A0A0A'} />
+            {loadingStatus === 'pending' ? (
+              <ActivityIndicator color={paperTheme.colors.onPrimary} /> // << Usa cor do tema
             ) : (
-              <Text style={styles.submitButtonText}>Finalizar e Criar Plano</Text>
+              // <Text style={styles.submitButtonText}>Finalizar e Ir para o Chat</Text> // Texto ajustado
+              <Text style={styles.submitButtonText}>Conversar com IA</Text> // Ou algo mais direto
             )}
           </TouchableOpacity>
 
-          {/* Error Message */}
-          {error && <Text style={styles.errorText}>{error as string}</Text>}
+          {/* Mensagem de erro não é mais necessária aqui, pois é tratada pelo useEffect */}
 
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
-
-// --- REMOVIDO: A definição de 'styles' que estava aqui fora ---
 
 export default QuestionnaireScreen;
