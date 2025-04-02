@@ -1,5 +1,4 @@
-// src/screens/PostQuestionnaireChat.tsx (Refatorado SEM REDUX)
-
+// src/screens/PostQuestionnaireChat.tsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View,
@@ -14,395 +13,531 @@ import {
     Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// REMOVIDO: import { useSelector, useDispatch } from 'react-redux';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { useTheme } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
-import { Content } from "@google/generative-ai"; // MANTIDO: Tipo do SDK Gemini
+import { Content } from "@google/generative-ai";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Feather } from '@expo/vector-icons';
 
-// REMOVIDO: import { RootState } from '../store';
-// REMOVIDO: Imports de selectUserProfile, selectUserLoading, selectUserError, clearUserError
-import type { UserProfile } from '../store/slices/userSlice'; // <<< IMPORTANTE: Mantém a interface UserProfile
+// Import do serviço Gemini (real)
+import { callGeminiApi, testGeminiApiConnection } from '../services/api/geminiService';
 
-// --- ASSUMPTION: Importe seu contexto de autenticação e serviço de perfil ---
-import { useAuth } from '../contexts/AuthContext'; // <<< Ajuste este caminho
-import { callGeminiApi } from '../services/api/geminiService'; // Ajuste o caminho
-// --- Precisamos de uma função para buscar o perfil ---
-// Idealmente, esta função estaria em um arquivo de serviço (ex: src/services/userProfileService.ts)
-// usando Axios ou Fetch para chamar sua API (ex: GET /api/users/me/profile)
-async function getUserProfileAPI(userId: string): Promise<UserProfile> {
-    console.log(`[API Mock] Fetching profile for user: ${userId}`);
-    // Simule uma chamada de API (substitua pelo seu fetch ou axios real)
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            // Simular sucesso ou erro
-            const shouldSucceed = true; // Math.random() > 0.1; // 90% sucesso
-            if (shouldSucceed) {
-                // Retorne dados de perfil MOCK realistas, incluindo o campo usado na saudação
-                const mockProfile: UserProfile = {
-                    id: userId,
-                    nome_completo: "Usuário Mock", // Use um nome mock
-                    email: "mock@example.com", // Adicione campos conforme sua interface UserProfile
-                    // Adicione outros campos mock se sua lógica inicial depender deles
-                    // Ex: questionnaire_completed_at se você usa isso para algo
-                    questionnaire_completed_at: new Date().toISOString(), // Exemplo
-                };
-                console.log('[API Mock] Profile fetch successful');
-                resolve(mockProfile);
-            } else {
-                console.error('[API Mock] Profile fetch failed');
-                reject(new Error('Falha simulada ao buscar o perfil.'));
-            }
-        }, 1000); // Simular delay de rede
-    });
-}
-// --- Fim Placeholder API ---
+// Import do contexto de autenticação
+import { useAuth } from '../contexts/AuthContext';
 
-// Defina quantas interações o usuário terá no máximo
+// Constantes
 const MAX_INTERACTIONS = 3;
+const STORAGE_KEY_CHAT = '@chat_messages';
+const STORAGE_KEY_QUESTIONNAIRE = '@questionnaire_data'; // Chave para buscar dados do questionário se não vierem via route params
+const STORAGE_KEY_ADJUSTMENTS = '@chat_adjustments';
+const STORAGE_KEY_CHAT_COMPLETED = '@chat_completed';
+
+// Interface para parâmetros de rota
+type ChatScreenRouteParams = {
+    formData?: any; // Recebe os dados do questionário da tela anterior
+};
+
+// Definindo tipo para a navegação (Opcional mas recomendado)
+// import { StackNavigationProp } from '@react-navigation/stack';
+// import { OnboardingStackParamList } from '../navigation/OnboardingNavigator'; // Ajuste o caminho
+// type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackParamList, 'PostQuestionnaireChat'>;
 
 const PostQuestionnaireChat = () => {
+    // Hooks
+    const route = useRoute<RouteProp<{ params: ChatScreenRouteParams }, 'params'>>(); // Tipo mais específico
+    const navigation = useNavigation(); // Use o tipo específico se definido: useNavigation<PostQuestionnaireChatNavigationProp>();
     const theme = useTheme();
-    const navigation = useNavigation();
-    // REMOVIDO: const dispatch = useDispatch();
     const flatListRef = useRef<FlatList>(null);
-    const { user } = useAuth(); // Obter usuário (e ID) do contexto
+    const { user } = useAuth();
     const userId = user?.id;
 
-    // --- Estado Local (Substituindo Redux) ---
-    const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-    const [isProfileLoading, setIsProfileLoading] = useState<boolean>(true); // Começa carregando
-    const [profileError, setProfileError] = useState<string | null>(null); // Erro ao buscar perfil
-
-    // --- Estado Local do Chat (Mantido) ---
+    // Estados
     const [messages, setMessages] = useState<Content[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoadingAi, setIsLoadingAi] = useState(false);
+    const [isApiAvailable, setIsApiAvailable] = useState<boolean | null>(null);
+    const [isCheckingApi, setIsCheckingApi] = useState(true); // Começa verificando
     const [chatError, setChatError] = useState<string | null>(null);
     const [currentInteraction, setCurrentInteraction] = useState(0);
     const [isChatEnded, setIsChatEnded] = useState(false);
+    const [userProfile, setUserProfile] = useState<any>(null); // Armazena dados do questionário
+    const [extractedAdjustments, setExtractedAdjustments] = useState<string[]>([]);
+    const [isRestoringChat, setIsRestoringChat] = useState(true); // Estado para carregamento inicial
 
-    // --- Efeito para Buscar Perfil ---
+    // Timeout de segurança para resetar estado de loading da IA
+    const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // 1. Carregar dados do questionário (da rota ou storage) e Restaurar chat
     useEffect(() => {
-        const fetchProfileData = async () => {
+        const loadInitialData = async () => {
             if (!userId) {
-                console.warn("[ChatScreen] User ID not available, cannot fetch profile.");
-                setProfileError("ID do usuário não encontrado para buscar perfil.");
-                setIsProfileLoading(false);
-                return;
+                 console.warn('[ChatScreen] User ID não encontrado, não é possível carregar dados.');
+                 setIsRestoringChat(false);
+                 // Poderia mostrar um erro ou redirecionar
+                 return;
             }
 
-            setIsProfileLoading(true);
-            setProfileError(null);
-            setChatError(null); // Limpa erro do chat também
-
+            let loadedProfile = null;
             try {
-                console.log(`[ChatScreen] Fetching profile for user: ${userId}`);
-                const profile = await getUserProfileAPI(userId); // <<< CHAMA A API REAL/MOCK
-                setUserProfile(profile);
-                console.log("[ChatScreen] Profile loaded:", profile);
-            } catch (error: any) {
-                console.error("[ChatScreen] Error fetching profile:", error);
-                setProfileError(error.message || "Falha ao carregar dados do perfil.");
+                // Tentar obter dos parâmetros da rota primeiro (ideal)
+                if (route.params?.formData) {
+                    console.log('[ChatScreen] Usando dados do questionário da rota.');
+                    loadedProfile = route.params.formData;
+                } else {
+                    // Se não houver na rota, tentar do AsyncStorage (fallback)
+                    const savedData = await AsyncStorage.getItem(STORAGE_KEY_QUESTIONNAIRE);
+                    if (savedData) {
+                        loadedProfile = JSON.parse(savedData);
+                        console.log('[ChatScreen] Carregados dados do questionário do storage (fallback).');
+                    } else {
+                        console.warn('[ChatScreen] Nenhum dado de questionário encontrado (nem na rota, nem no storage).');
+                        Alert.alert(
+                            'Erro',
+                            'Não foi possível carregar seus dados do questionário. Por favor, preencha novamente.',
+                            [{ text: 'OK', onPress: () => navigation.goBack() }]
+                        );
+                        setIsRestoringChat(false);
+                        return; // Interrompe se não houver dados
+                    }
+                }
+                setUserProfile(loadedProfile); // Define o perfil
+
+                 // Restaurar chat do storage APÓS ter certeza do userId
+                const savedChat = await AsyncStorage.getItem(`${STORAGE_KEY_CHAT}_${userId}`);
+                 if (savedChat) {
+                     const chatData = JSON.parse(savedChat);
+                     console.log('[ChatScreen] Restaurando chat do storage:', chatData.messages?.length || 0, 'mensagens');
+                     setMessages(chatData.messages || []);
+                     setCurrentInteraction(chatData.currentInteraction || 0);
+                     setIsChatEnded(chatData.isChatEnded || false);
+                     setExtractedAdjustments(chatData.extractedAdjustments || []);
+                 }
+
+            } catch (error) {
+                console.error('[ChatScreen] Erro ao carregar dados iniciais (perfil/chat):', error);
+                Alert.alert('Erro', 'Falha ao carregar dados. Tente novamente.');
+                // Considerar navegação de volta ou estado de erro mais robusto
             } finally {
-                setIsProfileLoading(false);
+                setIsRestoringChat(false); // Marca o fim do carregamento inicial
             }
         };
 
-        fetchProfileData();
-    }, [userId]); // Depende do userId
+        loadInitialData();
+    }, [route.params, userId, navigation]); // Depende de userId e route.params
 
-    // --- Efeito Inicial para Mensagem de Boas-vindas (Adaptado) ---
+    // 2. Verificar disponibilidade da API Gemini
     useEffect(() => {
-        // Só define a mensagem inicial QUANDO o perfil estiver carregado E não houver mensagens ainda
-        if (userProfile && messages.length === 0) {
-            setMessages([
-                { role: 'model', parts: [{ text: `Olá ${userProfile.nome_completo || 'usuário'}! Analisei seu questionário. Você tem ${MAX_INTERACTIONS} interações para tirar dúvidas rápidas ou adicionar detalhes antes de eu gerar seu plano. O que gostaria de perguntar?` }] }
-            ]);
-        }
-        // Não precisa mais limpar erro do Redux aqui. O useEffect acima já limpa profileError.
-    }, [userProfile, messages.length]); // Depende do perfil CARREGADO e do array de mensagens
+        // Só executa se ainda não foi verificado (isApiAvailable === null)
+        if (isApiAvailable !== null) return;
 
-    // --- Scroll Automático (Mantido) ---
+        const checkApiConnection = async () => {
+            setIsCheckingApi(true); // Garante que está checando
+            try {
+                console.log('[ChatScreen] Verificando conexão com API Gemini...');
+                const isAvailable = await testGeminiApiConnection();
+                setIsApiAvailable(isAvailable);
+                console.log('[ChatScreen] API Gemini disponível:', isAvailable);
+
+                if (!isAvailable) {
+                    setChatError('Serviço de IA temporariamente indisponível. Algumas funcionalidades podem não responder.');
+                }
+            } catch (error) {
+                console.error('[ChatScreen] Erro ao verificar API Gemini:', error);
+                setIsApiAvailable(false);
+                setChatError('Não foi possível conectar ao serviço de IA.');
+            } finally {
+                setIsCheckingApi(false); // Marca o fim da checagem
+            }
+        };
+
+        checkApiConnection();
+    }, [isApiAvailable]); // Executa quando isApiAvailable for null
+
+    // 3. Mensagem inicial da IA (só após carregamento e se não houver msgs)
+    useEffect(() => {
+        // Condições: Não estar restaurando, perfil carregado, API checada (não precisa estar disponível, a msg é local), e sem mensagens existentes
+        if (!isRestoringChat && userProfile && !isCheckingApi && messages.length === 0 && !isChatEnded) {
+             const initialMessageText = isApiAvailable
+                ? `Olá ${userProfile.nome || 'usuário'}! Analisei seu questionário. Você tem ${MAX_INTERACTIONS} interações para tirar dúvidas ou adicionar detalhes antes que eu gere seu plano. O que gostaria de perguntar ou adicionar?`
+                : `Olá ${userProfile.nome || 'usuário'}! Analisei seu questionário. No momento, não consigo me conectar ao assistente para processar novas informações, mas você pode revisar os dados.`; // Mensagem alternativa se API offline
+
+            const initialMessage: Content = {
+                role: 'model',
+                parts: [{ text: initialMessageText }]
+            };
+
+            setMessages([initialMessage]);
+            console.log('[ChatScreen] Mensagem inicial adicionada.');
+        }
+    }, [isRestoringChat, userProfile, isCheckingApi, messages.length, isApiAvailable, isChatEnded]); // Depende de todos esses estados
+
+    // 4. Salvar estado do chat no storage quando mudar
+    useEffect(() => {
+        // Não salva durante o carregamento inicial ou se não houver user ID
+        if (isRestoringChat || !userId || messages.length === 0) return;
+
+        const saveChatState = async () => {
+            try {
+                const chatState = {
+                    messages,
+                    currentInteraction,
+                    isChatEnded,
+                    extractedAdjustments,
+                };
+                await AsyncStorage.setItem(`${STORAGE_KEY_CHAT}_${userId}`, JSON.stringify(chatState));
+                console.log('[ChatScreen] Estado do chat salvo no storage.');
+            } catch (error) {
+                console.error('[ChatScreen] Erro ao salvar estado do chat:', error);
+            }
+        };
+
+        // Debounce save operation slightly if needed, otherwise save directly
+        saveChatState();
+
+    }, [userId, messages, currentInteraction, isChatEnded, extractedAdjustments, isRestoringChat]); // Salva quando estes mudarem (exceto no restore)
+
+    // Rolar para o final quando mensagens mudarem
     useEffect(() => {
         if (flatListRef.current && messages.length > 0) {
-            flatListRef.current.scrollToEnd({ animated: true });
+            setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+            }, 100);
         }
     }, [messages]);
 
-    // --- Handler para Enviar Mensagem (Adaptado) ---
-    const handleSendMessage = useCallback(async () => {
-        // Usa userProfile do estado local
-        if (isLoadingAi || !inputText.trim() || isChatEnded || !userProfile) {
-            if (!userProfile) {
-                 Alert.alert("Erro", "Dados do perfil ainda não foram carregados. Aguarde um momento.");
+    // Limpar timeout de segurança ao desmontar
+    useEffect(() => {
+        return () => {
+            if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
             }
+        };
+    }, []);
+
+    // Handler para enviar mensagem
+    const handleSendMessage = useCallback(async () => {
+        const textToSend = inputText.trim();
+        // Verifica se pode enviar
+        if (isLoadingAi || !textToSend || isChatEnded || !userProfile || !isApiAvailable) {
+            if (!userProfile) Alert.alert("Erro", "Dados do perfil não carregados.");
+            else if (!isApiAvailable) Alert.alert("Erro", "Assistente de IA indisponível no momento.");
+            else if (isChatEnded) Alert.alert("Info", "O chat já foi encerrado.");
             return;
         }
 
-        setIsLoadingAi(true);
+        // Reset erro e inicia loading
         setChatError(null);
+        setIsLoadingAi(true);
+
+        // Timeout de segurança para a chamada da API
+        loadingTimeoutRef.current = setTimeout(() => {
+            console.warn('[ChatScreen] Timeout de segurança da API acionado.');
+            setIsLoadingAi(false);
+            setChatError('A resposta do assistente demorou muito. Tente novamente ou pule o chat.');
+            // Limpar timeout ref
+             if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
+                loadingTimeoutRef.current = null;
+            }
+        }, 35000); // Timeout um pouco maior que o do geminiService
+
+        const userMessage: Content = {
+            role: 'user',
+            parts: [{ text: textToSend }]
+        };
+
         const interactionNumber = currentInteraction + 1;
+        const updatedMessages = [...messages, userMessage];
 
-        const userMessage: Content = { role: 'user', parts: [{ text: inputText.trim() }] };
-        const currentHistory = [...messages, userMessage];
-
-        setMessages(currentHistory);
-        setInputText('');
+        setMessages(updatedMessages); // Mostra a mensagem do usuário imediatamente
+        setInputText(''); // Limpa o input
 
         try {
-            console.log(`[ChatScreen] Sending message ${interactionNumber}/${MAX_INTERACTIONS} to Gemini.`);
+            console.log(`[ChatScreen] Enviando mensagem ${interactionNumber}/${MAX_INTERACTIONS} para a API Gemini.`);
+
             const response = await callGeminiApi(
-                currentHistory,
-                userProfile, // Passa o perfil do estado local
+                updatedMessages, // Envia histórico atualizado
+                userProfile,
                 MAX_INTERACTIONS,
                 interactionNumber
             );
 
-            const aiMessage: Content = { role: 'model', parts: [{ text: response.text }] };
-            setMessages(prev => [...prev, aiMessage]);
-
-            if (response.extractedData?.ajustes?.length > 0) {
-                console.log("[ChatScreen] IA extraiu ajustes:", response.extractedData.ajustes);
-                // Lógica TODO mantida
+             // Limpa o timeout de segurança se a API respondeu a tempo
+            if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
+                loadingTimeoutRef.current = null;
             }
 
-            setCurrentInteraction(interactionNumber);
+            // Adicionar resposta da IA
+            const aiMessage: Content = {
+                role: 'model',
+                parts: [{ text: response.text }]
+            };
 
-            if (interactionNumber >= MAX_INTERACTIONS) {
-                setIsChatEnded(true);
-                console.log("[ChatScreen] Max interactions reached. Chat ended.");
-                 if (!response.text.toLowerCase().includes("gerar o plano")) {
-                    const finalMessage: Content = { role: 'model', parts: [{ text: "Ok! Usei todas as informações. Vou preparar seu plano de treino agora." }] };
-                    setMessages(prev => [...prev, finalMessage]);
-                 }
-                 setTimeout(() => {
-                     // A navegação pode precisar ser ajustada dependendo da sua estrutura
-                     // Se MainNavigator for o navigator raiz que contém este chat E o Home:
-                     navigation.navigate('MainNavigator', { screen: 'Home' });
-                     // Se este chat está num stack separado, talvez só 'Home':
-                     // navigation.navigate('Home');
-                 }, 2500);
+            // Processar ajustes extraídos
+            let currentAdjustments = extractedAdjustments;
+            if (response.extractedData?.ajustes?.length > 0) {
+                console.log('[ChatScreen] IA extraiu ajustes:', response.extractedData.ajustes);
+                // Evita duplicatas simples
+                const newAdjustments = response.extractedData.ajustes.filter((adj: string) => !currentAdjustments.includes(adj));
+                if (newAdjustments.length > 0) {
+                    currentAdjustments = [...currentAdjustments, ...newAdjustments];
+                    setExtractedAdjustments(currentAdjustments);
+                }
+            }
+
+            // Atualizar estado geral
+            setMessages(prev => [...prev, aiMessage]); // Adiciona a resposta da IA
+            setCurrentInteraction(interactionNumber); // Incrementa interação
+
+            // Verificar se atingiu o limite de interações ou a IA indicou o fim
+            if (interactionNumber >= MAX_INTERACTIONS || response.text.toLowerCase().includes("gerar o plano")) {
+                console.log('[ChatScreen] Limite de interações atingido ou IA finalizou. Encerrando chat.');
+                setIsChatEnded(true); // Marca o chat como encerrado
+
+                // Adiciona uma mensagem final se a IA não o fez explicitamente
+                if (!response.text.toLowerCase().includes("gerar o plano")) {
+                    const finalMessage: Content = {
+                        role: 'model',
+                        parts: [{
+                            text: "Chegamos ao limite de interações. Vou usar todas as informações coletadas para gerar seu plano de treino personalizado!"
+                        }]
+                    };
+                    // Adiciona DEPOIS da resposta da IA
+                     setMessages(prev => [...prev, finalMessage]);
+                }
+
+                // Navega após um pequeno delay para o usuário ler a mensagem final
+                setTimeout(() => {
+                    finalizeChatAndNavigate(currentAdjustments); // Passa os ajustes finais
+                }, 3000);
             }
 
         } catch (error: any) {
-            console.error("[ChatScreen] Error calling Gemini API:", error);
-            const errorMsg = error.message || "Falha na comunicação com o assistente.";
-            setChatError(errorMsg);
-            const errorMessage: Content = { role: 'model', parts: [{ text: `Desculpe, ocorreu um erro: ${errorMsg}` }] };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
-            setIsLoadingAi(false);
-        }
-        // Dependências atualizadas: messages, inputText, isLoadingAi, isChatEnded, userProfile (local), currentInteraction, navigation
-    }, [messages, inputText, isLoadingAi, isChatEnded, userProfile, currentInteraction, navigation]);
+            console.error('[ChatScreen] Erro ao chamar API Gemini:', error);
+             // Limpa o timeout de segurança em caso de erro também
+            if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
+                loadingTimeoutRef.current = null;
+            }
 
-    // --- Render Item para FlatList (Mantido) ---
-    const renderMessage = ({ item }: { item: Content }) => {
+            const errorMsg = error.message || 'Falha na comunicação com o assistente.';
+            setChatError(errorMsg);
+
+            // Adiciona uma mensagem de erro no chat para o usuário
+            const errorMessageContent: Content = {
+                role: 'model',
+                parts: [{
+                    text: `Desculpe, ocorreu um erro: ${errorMsg}`
+                }]
+            };
+             // Remove a mensagem do usuário que causou o erro e adiciona a de erro
+            // Ou mantém a mensagem do usuário e adiciona a de erro depois?
+            // Melhor manter a do usuário e adicionar o erro.
+            setMessages(prev => [...prev, errorMessageContent]);
+
+        } finally {
+            setIsLoadingAi(false); // Garante que o loading seja desativado
+        }
+    }, [
+        isLoadingAi, inputText, isChatEnded, userProfile, isApiAvailable,
+        messages, currentInteraction, navigation, extractedAdjustments // Inclui navigation e adjustments
+    ]);
+
+    // Finalizar chat e navegar (agora recebe ajustes)
+    const finalizeChatAndNavigate = useCallback(async (finalAdjustments: string[]) => {
+        if (!userId) return; // Segurança extra
+
+        console.log('[ChatScreen] Finalizando chat e navegando...');
+        setIsChatEnded(true); // Garante que está marcado como encerrado
+
+        try {
+            // Salvar ajustes extraídos finais para uso posterior (geração do plano)
+            if (finalAdjustments.length > 0) {
+                await AsyncStorage.setItem(STORAGE_KEY_ADJUSTMENTS, JSON.stringify(finalAdjustments));
+                console.log('[ChatScreen] Ajustes finais salvos:', finalAdjustments);
+            } else {
+                // Garante que não haja ajustes antigos se não houver novos
+                 await AsyncStorage.removeItem(STORAGE_KEY_ADJUSTMENTS);
+            }
+
+            // Marcar chat como completado no storage (para não reabrir automaticamente)
+            await AsyncStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+
+            // Limpar o estado do chat salvo para não restaurar esta conversa específica depois
+            await AsyncStorage.removeItem(`${STORAGE_KEY_CHAT}_${userId}`);
+
+            // Navegar para a tela principal ou próxima etapa
+            // !! Ajuste o nome do Navigator/Screen se for diferente !!
+            navigation.navigate('MainNavigator', { screen: 'Home' });
+            console.log('[ChatScreen] Navegado para MainNavigator/Home.');
+
+        } catch (error) {
+            console.error('[ChatScreen] Erro ao salvar dados finais do chat ou limpar storage:', error);
+            Alert.alert('Erro', 'Não foi possível salvar os detalhes finais do chat. Seu plano pode não incluir os últimos ajustes.');
+            // Navega mesmo assim para não prender o usuário
+            navigation.navigate('MainNavigator', { screen: 'Home' });
+        }
+    }, [navigation, userId]); // Depende de navigation e userId
+
+    // Render item para FlatList
+    const renderMessage = useCallback(({ item }: { item: Content }) => {
         const isUser = item.role === 'user';
-        // Adicione uma chave única e estável se possível, index não é ideal para listas dinâmicas
         return (
-            <View style={[
-                styles.messageBubble,
-                isUser ? styles.userBubble : styles.aiBubble,
-                isUser ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }
-            ]}>
-                <Text style={isUser ? styles.userText : styles.aiText}>
-                    {item.parts[0].text}
+            <View style={[ styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble ]}>
+                <Text style={isUser ? styles.userMessageText : styles.aiMessageText}>
+                    {item.parts[0]?.text || ''} {/* Adiciona fallback para texto vazio */}
                 </Text>
             </View>
         );
-    };
+    }, [theme]); // Depende do theme para os estilos
 
-    // --- Estilos (Refatorado com useMemo) ---
+    // Estilos (usando useMemo para otimização)
     const styles = useMemo(() => StyleSheet.create({
-        flex: { flex: 1 },
-        container: {
-            flex: 1,
-            backgroundColor: theme.colors.background,
-            justifyContent: 'center', // Para centralizar loading/erro inicial
-            alignItems: 'center', // Para centralizar loading/erro inicial
-        },
-         chatContainer: { // Novo estilo para quando o chat estiver pronto
-             flex: 1,
-             backgroundColor: theme.colors.background,
-             justifyContent: 'flex-start', // Alinha conteúdo no topo
-             alignItems: 'stretch', // Estica itens horizontalmente
-         },
-        title: {
-            fontSize: 20,
-            fontWeight: 'bold',
-            textAlign: 'center',
-            marginVertical: 10,
-            color: theme.colors.onBackground,
-        },
-         interactionsLeft: {
-            fontSize: 14,
-            textAlign: 'center',
-            marginBottom: 10,
-            color: theme.colors.onSurfaceVariant,
-        },
-        chatList: {
-            flex: 1,
-             width: '100%', // Garante que a FlatList ocupe a largura
-        },
-        chatListContent: {
-            paddingHorizontal: 10,
-            paddingBottom: 10,
-        },
-        messageBubble: {
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 18,
-            marginVertical: 4,
-            maxWidth: '80%',
-        },
-        userBubble: {
-            backgroundColor: theme.colors.primary,
-        },
-        aiBubble: {
-            backgroundColor: theme.colors.surfaceVariant,
-        },
-        userText: {
-            color: theme.colors.onPrimary,
-            fontSize: 16,
-        },
-        aiText: {
-            color: theme.colors.onSurfaceVariant,
-            fontSize: 16,
-        },
-        inputContainer: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            padding: 10,
-            borderTopWidth: 1,
-            borderTopColor: theme.colors.outline,
-            backgroundColor: theme.colors.surface,
-             width: '100%', // Garante que o input ocupe a largura
-        },
-        input: {
-            flex: 1,
-            minHeight: 40,
-            maxHeight: 120,
-            backgroundColor: theme.colors.surfaceVariant,
-            borderRadius: 20,
-            paddingHorizontal: 15,
-            paddingVertical: 10,
-            fontSize: 16,
-            color: theme.colors.onSurfaceVariant,
-            marginRight: 10,
-        },
-        sendButton: {
-            backgroundColor: theme.colors.primary,
-            borderRadius: 20,
-            padding: 10,
-            justifyContent: 'center',
-            alignItems: 'center',
-            minWidth: 60,
-        },
-        sendButtonDisabled: {
-            backgroundColor: theme.colors.surfaceDisabled,
-        },
-        sendButtonText: {
-            color: theme.colors.onPrimary,
-            fontWeight: 'bold',
-        },
-         loadingText: {
-            marginTop: 10,
-            color: theme.colors.onSurfaceVariant,
-            textAlign: 'center',
-        },
-        errorText: {
-            color: theme.colors.error,
-            textAlign: 'center',
-            marginHorizontal: 20, // Adiciona margem horizontal
-            fontSize: 16,
-        },
-         chatErrorText: {
-            color: theme.colors.error,
-            textAlign: 'center',
-            paddingHorizontal: 10,
-            fontSize: 14,
-            marginBottom: 5,
-        },
-        linkText: {
-            color: theme.colors.primary,
-            textAlign: 'center',
-            marginTop: 10,
-            fontSize: 16,
-        },
-    }), [theme]); // Recalcula estilos se o tema mudar
+        safeArea: { flex: 1, backgroundColor: theme.colors.background },
+        container: { flex: 1 },
+        contentContainer: { flex: 1 },
+        headerContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.outline },
+        headerTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.primary },
+        interactionsLeft: { fontSize: 14, color: theme.colors.onSurfaceVariant },
+        listContainer: { flex: 1, paddingHorizontal: 12 },
+        loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+        loadingText: { marginTop: 12, fontSize: 16, color: theme.colors.onBackground, textAlign: 'center'},
+        messageBubble: { padding: 12, borderRadius: 18, marginVertical: 4, maxWidth: '85%' },
+        userBubble: { backgroundColor: theme.colors.primary, alignSelf: 'flex-end', marginLeft: 40 },
+        aiBubble: { backgroundColor: theme.colors.surfaceVariant, alignSelf: 'flex-start', marginRight: 40 },
+        userMessageText: { color: theme.colors.onPrimary || '#FFFFFF', fontSize: 16 }, // Fallback branco
+        aiMessageText: { color: theme.colors.onSurfaceVariant, fontSize: 16 },
+        inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1, borderTopColor: theme.colors.outline, backgroundColor: theme.colors.surface },
+        input: { flex: 1, backgroundColor: theme.colors.surfaceVariant, borderRadius: 20, paddingHorizontal: 16, paddingVertical: Platform.OS === 'ios' ? 10 : 8, color: theme.colors.onSurfaceVariant, maxHeight: 100, fontSize: 16, marginRight: 8 },
+        sendButton: { backgroundColor: theme.colors.primary, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+        sendButtonDisabled: { backgroundColor: theme.colors.surfaceDisabled || '#BDBDBD', opacity: 0.7 }, // Fallback cinza
+        errorContainer: { backgroundColor: `${theme.colors.error}20`, padding: 12, borderRadius: 8, marginHorizontal: 12, marginBottom: 8, marginTop: 4 },
+        errorText: { color: theme.colors.error, textAlign: 'center', marginBottom: 0 }, // Removido margin bottom extra
+        // Botão de Pular/Finalizar (ajustado)
+        skipButtonContainer: { paddingLeft: 10 }, // Espaçamento à esquerda
+         skipButtonText: { color: theme.colors.primary, fontWeight: 'bold', fontSize: 16 },
+         // Estilo para lista de mensagens
+         messageListContentContainer: { paddingBottom: 12, paddingTop: 8 },
+    }), [theme]);
 
-    // --- Loading ou Erro Inicial (Usando Estado Local) ---
-    if (isProfileLoading) {
+    // Loading inicial (Restaurando ou Checando API)
+    if (isRestoringChat || isCheckingApi) {
         return (
-            <SafeAreaView style={styles.container}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
-                <Text style={styles.loadingText}>Carregando perfil...</Text>
+            <SafeAreaView style={styles.safeArea}>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                    <Text style={styles.loadingText}>
+                        {isRestoringChat ? 'Carregando conversa...' : 'Conectando ao assistente...'}
+                    </Text>
+                </View>
             </SafeAreaView>
         );
     }
 
-    // Se houve erro ao buscar o perfil OU se o perfil não foi encontrado após carregar
-    if (profileError || !userProfile) {
-         return (
-            <SafeAreaView style={styles.container}>
-                <Text style={styles.errorText}>
-                    {profileError || "Perfil do usuário não encontrado."}
-                </Text>
-                 <TouchableOpacity onPress={() => navigation.goBack()}>
-                     <Text style={styles.linkText}>Voltar</Text>
-                 </TouchableOpacity>
-            </SafeAreaView>
-         );
-     }
-
-    // --- Renderização Principal do Chat ---
-    // Só renderiza o chat se o perfil carregou com sucesso
+    // UI principal
     return (
-        <SafeAreaView style={styles.chatContainer} edges={['bottom']}>
-            <KeyboardAvoidingView
+        <SafeAreaView style={styles.safeArea} edges={['bottom']}> {/* Remove edge top se o header já cuida */}
+             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={styles.flex}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+                style={styles.container}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0} // Ajuste conforme necessário
             >
-                <Text style={styles.title}>Chat Rápido com ForcaAI</Text>
-                <Text style={styles.interactionsLeft}>
-                    {isChatEnded ? "Chat finalizado." : `Interações restantes: ${MAX_INTERACTIONS - currentInteraction}`}
-                </Text>
-
-                <FlatList
-                    ref={flatListRef}
-                    data={messages}
-                    renderItem={renderMessage}
-                    keyExtractor={(_item, index) => `msg-${index}`} // Chave um pouco melhor
-                    style={styles.chatList}
-                    contentContainerStyle={styles.chatListContent}
-                />
-
-                {chatError && <Text style={styles.chatErrorText}>{chatError}</Text>}
-
-                <View style={styles.inputContainer}>
-                    <TextInput
-                        style={styles.input}
-                        value={inputText}
-                        onChangeText={setInputText}
-                        placeholder={isChatEnded ? "Chat encerrado" : "Digite sua dúvida ou detalhe..."}
-                        placeholderTextColor={theme.colors.onSurfaceVariant}
-                        editable={!isLoadingAi && !isChatEnded}
-                        multiline
-                    />
+                {/* Header */}
+                <View style={styles.headerContainer}>
+                    <Text style={styles.headerTitle}>Chat com ForcaAI</Text>
+                     {!isChatEnded && (
+                        <Text style={styles.interactionsLeft}>
+                            {`Interação ${currentInteraction + 1} de ${MAX_INTERACTIONS}`}
+                        </Text>
+                    )}
+                    {/* Botão Pular / Finalizar */}
                     <TouchableOpacity
-                        style={[styles.sendButton, (isLoadingAi || !inputText.trim() || isChatEnded) && styles.sendButtonDisabled]}
-                        onPress={handleSendMessage}
-                        disabled={isLoadingAi || !inputText.trim() || isChatEnded}
+                        style={styles.skipButtonContainer}
+                        onPress={() => {
+                            if (isChatEnded) {
+                                finalizeChatAndNavigate(extractedAdjustments);
+                            } else {
+                                Alert.alert(
+                                    'Pular Chat',
+                                    'Deseja pular o restante da conversa e ir para a geração do plano de treino?',
+                                    [
+                                        { text: 'Não', style: 'cancel' },
+                                        { text: 'Sim', onPress: () => finalizeChatAndNavigate(extractedAdjustments) },
+                                    ]
+                                );
+                            }
+                        }}
                     >
-                        {isLoadingAi ? (
-                            <ActivityIndicator size="small" color={theme.colors.onPrimary} />
-                        ) : (
-                            <Text style={styles.sendButtonText}>Enviar</Text>
-                        )}
+                        <Text style={styles.skipButtonText}>
+                            {isChatEnded ? 'Finalizar' : 'Pular'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
+
+                 <View style={styles.contentContainer}>
+                    {/* Lista de Mensagens */}
+                    <FlatList
+                        ref={flatListRef}
+                        data={messages}
+                        renderItem={renderMessage}
+                        keyExtractor={(_, index) => `msg-${userId}-${index}`} // Chave mais única
+                        style={styles.listContainer}
+                        contentContainerStyle={styles.messageListContentContainer}
+                        ListEmptyComponent={() => (
+                            // Mostra algo se não houver mensagens (ex: durante carregamento inicial pós-restore)
+                             !isRestoringChat && !isCheckingApi ? (
+                                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                                     <Text style={{ color: theme.colors.onSurfaceVariant }}>{isApiAvailable ? "Envie sua primeira dúvida." : "Assistente indisponível."}</Text>
+                                 </View>
+                             ) : null // Não mostra nada durante o loading
+                         )}
+                    />
+
+                     {/* Mensagem de Erro (fora da lista) */}
+                    {chatError && (
+                        <View style={styles.errorContainer}>
+                            <Text style={styles.errorText}>{chatError}</Text>
+                            {/* Opcional: Botão para limpar erro ou tentar novamente */}
+                             <TouchableOpacity onPress={() => setChatError(null)} style={{ alignSelf: 'flex-end', padding: 4}}>
+                                 <Feather name="x-circle" size={16} color={theme.colors.error} />
+                             </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {/* Input de Texto */}
+                    <View style={styles.inputContainer}>
+                        <TextInput
+                            style={styles.input}
+                            value={inputText}
+                            onChangeText={setInputText}
+                            placeholder={
+                                isChatEnded ? "Chat encerrado." :
+                                !isApiAvailable ? "Assistente indisponível." :
+                                "Digite sua dúvida ou ajuste..."
+                            }
+                            placeholderTextColor={theme.colors.onSurfaceVariant + '80'}
+                            editable={!isLoadingAi && !isChatEnded && isApiAvailable} // Só editável se não estiver carregando, não encerrado e API ok
+                            multiline
+                            maxLength={500} // Limite de caracteres
+                            selectionColor={theme.colors.primary} // Cor do cursor
+                        />
+                        <TouchableOpacity
+                            style={[
+                                styles.sendButton,
+                                (isLoadingAi || !inputText.trim() || isChatEnded || !isApiAvailable) && styles.sendButtonDisabled
+                            ]}
+                            onPress={handleSendMessage}
+                            disabled={isLoadingAi || !inputText.trim() || isChatEnded || !isApiAvailable}
+                        >
+                            {isLoadingAi ? (
+                                <ActivityIndicator size="small" color={theme.colors.onPrimary || 'white'} />
+                            ) : (
+                                <Feather name="send" size={20} color={theme.colors.onPrimary || 'white'} />
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
