@@ -1,4 +1,4 @@
-// src/screens/onboarding/QuestionnaireScreen.tsx (Refatorado e Integrado)
+// src/screens/onboarding/QuestionnaireScreen.tsx (Refatorado SEM REDUX)
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
@@ -14,48 +14,66 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch, useSelector } from 'react-redux';
+// REMOVIDO: import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
-import { useTheme } from 'react-native-paper'; // <<< IMPORTAR useTheme do PAPER
-// import { Feather } from '@expo/vector-icons'; // Não usado neste código
+import { useTheme } from 'react-native-paper';
+// REMOVIDO: Imports de actions/selectors do Redux
+// REMOVIDO: import { RootState } from '../store';
 
-import {
-  submitQuestionnaire,
-  selectUserLoading,
-  selectUserError,
-  clearUserError,
-  selectAuthenticatedUserId,
-} from '../store/slices/userSlice'; // <<< CORRIGIDO
-import { RootState } from '../store'; // <<< CORRIGIDO (Assumindo que RootState está em src/store/index.ts)
+// --- ASSUMPTION: Importe seu contexto de autenticação ---
+// Substitua pelo caminho real do seu contexto/hook de autenticação
+import { useAuth } from '../contexts/AuthContext'; // <<< EXEMPLO: Ajuste este caminho
 
 // --- Tipos e Constantes (MANTENHA OS SEUS IGUAIS) ---
 type Option = { label: string; value: string };
 type DayOption = { label: string; value: string };
 type TimeOption = { label: string; value: number };
 
-const GENDER_OPTIONS: Option[] = [ /* ... Mantenha os seus ... */ ];
-const EXPERIENCE_LEVELS: Option[] = [ /* ... Mantenha os seus ... */ ];
-const GOALS: Option[] = [ /* ... Mantenha os seus ... */ ];
-const DAYS_OF_WEEK: DayOption[] = [ /* ... Mantenha os seus ... */ ];
-const TIME_OPTIONS: TimeOption[] = [ /* ... Mantenha os seus ... */ ];
+// Substitua pelos seus dados reais ou importe-os de um arquivo de constantes
+const GENDER_OPTIONS: Option[] = [ { label: 'Masculino', value: 'male' }, { label: 'Feminino', value: 'female' }, { label: 'Outro', value: 'other' }, { label: 'Prefiro não dizer', value: 'not_specified'} ];
+const EXPERIENCE_LEVELS: Option[] = [ { label: 'Iniciante (Nunca treinei ou < 6 meses)', value: 'beginner' }, { label: 'Intermediário (6 meses - 2 anos)', value: 'intermediate' }, { label: 'Avançado (> 2 anos)', value: 'advanced' } ];
+const GOALS: Option[] = [ { label: 'Perda de Peso', value: 'weight_loss' }, { label: 'Ganho de Massa Muscular', value: 'muscle_gain' }, { label: 'Melhorar Condicionamento Físico', value: 'fitness_improvement' }, { label: 'Saúde e Bem-estar', value: 'health_wellness' } ];
+const DAYS_OF_WEEK: DayOption[] = [ { label: 'S', value: 'sun' }, { label: 'T', value: 'mon' }, { label: 'Q', value: 'tue' }, { label: 'Q', value: 'wed' }, { label: 'S', value: 'thu' }, { label: 'S', value: 'fri' }, { label: 'D', value: 'sat' } ]; // Exemplo: ajuste labels/values
+const TIME_OPTIONS: TimeOption[] = [ { label: '30-45 minutos', value: 45 }, { label: '45-60 minutos', value: 60 }, { label: '60-90 minutos', value: 90 }, { label: '+90 minutos', value: 120 } ];
 // --- Fim Tipos e Constantes ---
 
+// --- Placeholder para a função de API ---
+// Idealmente, esta função estaria em um arquivo de serviço (ex: src/services/userService.ts)
+// e faria a chamada real para o seu backend.
+const submitQuestionnaireAPI = async (userId: string, formData: any): Promise<void> => {
+  console.log('[API Mock] Submitting questionnaire for user:', userId, 'Data:', formData);
+  // Simule uma chamada de API (substitua pelo seu fetch ou axios)
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      // Simular sucesso ou erro aleatoriamente para teste
+      // const shouldSucceed = Math.random() > 0.2; // 80% de chance de sucesso
+      const shouldSucceed = true; // Forçar sucesso para teste de navegação
+      if (shouldSucceed) {
+        console.log('[API Mock] Submission successful');
+        resolve();
+      } else {
+        console.error('[API Mock] Submission failed');
+        reject(new Error('Falha simulada ao salvar o questionário. Tente novamente.'));
+      }
+    }, 1500); // Simular delay de rede
+  });
+};
+// --- Fim Placeholder API ---
+
 const QuestionnaireScreen = () => {
-  const dispatch = useDispatch();
+  // REMOVIDO: const dispatch = useDispatch();
   const navigation = useNavigation();
-  const theme = useTheme(); // <<< OBTIDO DO REACT NATIVE PAPER
-  const paperTheme = useTheme(); // Alias para clareza, se preferir
+  const paperTheme = useTheme(); // Usando paperTheme para clareza
 
-  // --- Seletores Redux ---
-  const loadingStatus = useSelector(selectUserLoading); // Obtém 'idle' | 'pending' | 'succeeded' | 'failed'
-  const submissionError = useSelector(selectUserError);
-  const userIdFromRedux = useSelector(selectAuthenticatedUserId); // Tenta obter ID do Redux
+  // --- Estado Local (Substituindo Seletores Redux) ---
+  const [isLoading, setIsLoading] = useState(false); // Era selectUserLoading ('pending')
+  const [error, setError] = useState<string | null>(null); // Era selectUserError
 
-  // --- Contexto de Autenticação (Fallback para obter ID) ---
+  // --- Contexto de Autenticação ---
    const { user } = useAuth(); // Obtém o usuário do contexto
-   const userId = userIdFromRedux || user?.id; // Usa ID do Redux ou do Contexto
+   const userId = user?.id; // Obtém ID diretamente do contexto
 
-  // --- Estado do Formulário (MANTENHA OS SEUS IGUAIS) ---
+  // --- Estado do Formulário (MANTIDO COMO ESTAVA) ---
   const [nome, setNome] = useState('');
   const [diaNascimento, setDiaNascimento] = useState('');
   const [mesNascimento, setMesNascimento] = useState('');
@@ -66,32 +84,25 @@ const QuestionnaireScreen = () => {
   const [experienciaTreino, setExperienciaTreino] = useState<string | null>(null);
   const [objetivo, setObjetivo] = useState<string | null>(null);
   const [temLesoes, setTemLesoes] = useState<boolean | null>(null);
-  const [lesoes, setLesoes] = useState(''); // Mantido mesmo se temLesoes=false
-  const [descricaoLesao, setDescricaoLesao] = useState(''); // Mantido mesmo se temLesoes=false
+  const [lesoes, setLesoes] = useState('');
+  const [descricaoLesao, setDescricaoLesao] = useState('');
   const [trainingDays, setTrainingDays] = useState<{ [key: string]: boolean }>({});
   const [includeCardio, setIncludeCardio] = useState<boolean | null>(null);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
   // --- Fim Estado do Formulário ---
 
-  // Limpa o erro ao desmontar a tela ou ao focar nela novamente
+  // Limpa o erro local ao focar na tela novamente
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      dispatch(clearUserError());
+      setError(null); // Limpa o erro local
     });
     return unsubscribe;
-  }, [navigation, dispatch]);
+  }, [navigation]);
 
-  // Exibe alerta de erro vindo do Redux
-  useEffect(() => {
-      if (loadingStatus === 'failed' && submissionError) {
-          Alert.alert('Erro ao Salvar', submissionError);
-          dispatch(clearUserError()); // Limpa o erro após exibir
-      }
-  }, [loadingStatus, submissionError, dispatch]);
+  // REMOVIDO: useEffect que observava loadingStatus e submissionError do Redux
 
-
-  // --- Handlers (Adaptados) ---
+  // --- Handlers (Lógica mantida, adaptada para estado local) ---
   const toggleTrainingDay = (dayValue: string) => {
     setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] }));
   };
@@ -100,7 +111,6 @@ const QuestionnaireScreen = () => {
 
   const isFormValid = () => {
     const selectedDaysCount = getSelectedDays().length;
-    // Validação básica (ajuste conforme necessidade)
     return (
       !!nome && !!diaNascimento && !!mesNascimento && !!anoNascimento && !!genero &&
       !!peso && !!altura && !!experienciaTreino && !!objetivo && temLesoes !== null &&
@@ -112,8 +122,8 @@ const QuestionnaireScreen = () => {
   const handleSubmit = async () => {
      if (!userId) {
         Alert.alert('Erro', 'Usuário não identificado. Por favor, faça login novamente.');
-        // Opcional: Deslogar o usuário ou navegar para Login
-        // Ex: navigation.navigate('Login');
+        // Você pode querer navegar para a tela de Login aqui
+        // navigation.navigate('Login');
         return;
      }
 
@@ -121,6 +131,10 @@ const QuestionnaireScreen = () => {
       Alert.alert('Campos Incompletos', 'Por favor, preencha todos os campos obrigatórios.');
       return;
     }
+
+    // Limpa erro anterior e define estado de carregamento
+    setError(null);
+    setIsLoading(true);
 
     const formData = {
       nome,
@@ -131,54 +145,56 @@ const QuestionnaireScreen = () => {
       experienciaTreino,
       objetivo,
       temLesoes,
-      lesoes: temLesoes ? lesoes : '', // Envia string vazia se não houver lesões
-      descricaoLesao: temLesoes ? descricaoLesao : '', // Envia string vazia se não houver lesões
+      lesoes: temLesoes ? lesoes : '',
+      descricaoLesao: temLesoes ? descricaoLesao : '',
       trainingDays: getSelectedDays(),
       includeCardio,
       includeStretching,
       averageTrainingTime,
     };
 
-    console.log('[QuestionnaireScreen] Submitting Form Data for user:', userId);
-    // Dispatch da action assíncrona
-    // O 'unwrap()' pode ser usado para tratar o resultado/erro diretamente aqui,
-    // mas como já temos useEffect para erros, apenas despachamos.
-    dispatch(submitQuestionnaire({ userId, formData }))
-        .unwrap() // Opcional: permite .then() e .catch() aqui
-        .then(() => {
-            console.log("[QuestionnaireScreen] Dispatch fulfilled, navigating...");
-             // Navega SOMENTE se o dispatch for resolvido (sucesso)
-            // A navegação pode ser diferente dependendo se você tem um chat pós-questionário
-             // navigation.reset({ index: 0, routes: [{ name: 'MainNavigator' }] }); // Navega para Home
-             navigation.navigate('PostQuestionnaireChat'); // <<< NAVEGA PARA O CHAT
-        })
-        .catch((error) => {
-             console.error("[QuestionnaireScreen] Dispatch rejected:", error);
-             // O erro já deve ser tratado pelo useEffect, mas pode adicionar lógica extra aqui se precisar.
-        });
+    try {
+      console.log('[QuestionnaireScreen] Submitting Form Data for user:', userId);
+      // Chama a função da API diretamente (substitua pela sua implementação real)
+      await submitQuestionnaireAPI(userId, formData);
+
+      console.log("[QuestionnaireScreen] Submission successful, navigating...");
+      // Navega APÓS o sucesso da API
+      navigation.navigate('PostQuestionnaireChat'); // Ou para 'MainNavigator', etc.
+
+    } catch (submissionError: any) {
+      console.error("[QuestionnaireScreen] Submission failed:", submissionError);
+      const errorMessage = submissionError?.message || 'Ocorreu um erro inesperado ao salvar os dados.';
+      setError(errorMessage); // Define o erro no estado local
+      Alert.alert('Erro ao Salvar', errorMessage); // Exibe o erro para o usuário
+
+    } finally {
+      // Garante que o estado de carregamento seja desativado
+      setIsLoading(false);
+    }
   };
   // --- Fim Handlers ---
 
-  // --- Styles Definition (Adapte cores/fontes conforme seu tema Paper) ---
+  // --- Styles Definition (MANTIDO IGUAL, usando paperTheme) ---
   const styles = useMemo(() => StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: paperTheme.colors.background, // << USA TEMA PAPER
+      backgroundColor: paperTheme.colors.background,
     },
     scrollContainer: {
-      padding: 16, // Use valores fixos ou adapte se seu tema Paper tiver spacing
+      padding: 16,
       paddingBottom: 48,
     },
     title: {
-      fontSize: 24, // Adapte aos tamanhos de fonte do seu tema Paper se definidos
+      fontSize: 24,
       fontWeight: 'bold',
-      color: paperTheme.colors.onBackground, // << USA TEMA PAPER
+      color: paperTheme.colors.onBackground,
       marginBottom: 8,
       textAlign: 'center',
     },
     subtitle: {
       fontSize: 16,
-      color: paperTheme.colors.onSurfaceVariant, // << USA TEMA PAPER (cor secundária)
+      color: paperTheme.colors.onSurfaceVariant,
       textAlign: 'center',
       marginBottom: 24,
     },
@@ -188,28 +204,28 @@ const QuestionnaireScreen = () => {
     sectionHeader: {
       fontSize: 20,
       fontWeight: 'bold',
-      color: paperTheme.colors.primary, // << USA TEMA PAPER
+      color: paperTheme.colors.primary,
       marginBottom: 16,
       marginTop: 8,
       borderBottomWidth: 1,
-      borderBottomColor: paperTheme.colors.primary + '50', // Opacidade na cor primária
+      borderBottomColor: paperTheme.colors.primary + '50',
       paddingBottom: 4,
     },
     label: {
       fontSize: 18,
-      color: paperTheme.colors.onSurface, // << USA TEMA PAPER
+      color: paperTheme.colors.onSurface,
       marginBottom: 8,
       fontWeight: '600',
     },
     input: {
-      backgroundColor: paperTheme.colors.surfaceVariant, // << Fundo sutil do TEMA PAPER
-      color: paperTheme.colors.onSurfaceVariant, // << Cor do texto no input
+      backgroundColor: paperTheme.colors.surfaceVariant,
+      color: paperTheme.colors.onSurfaceVariant,
       paddingHorizontal: 16,
       paddingVertical: 12,
-      borderRadius: paperTheme.roundness, // << Usa roundness do TEMA PAPER
+      borderRadius: paperTheme.roundness,
       fontSize: 16,
       borderWidth: 1,
-      borderColor: paperTheme.colors.outline, // << Cor da borda do TEMA PAPER
+      borderColor: paperTheme.colors.outline,
     },
     textArea: {
         height: 100,
@@ -232,7 +248,7 @@ const QuestionnaireScreen = () => {
       borderColor: paperTheme.colors.outline,
     },
     optionButtonSelected: {
-      backgroundColor: paperTheme.colors.primary, // << USA TEMA PAPER
+      backgroundColor: paperTheme.colors.primary,
       borderColor: paperTheme.colors.primary,
     },
     optionText: {
@@ -241,7 +257,7 @@ const QuestionnaireScreen = () => {
       textAlign: 'center',
     },
     optionTextSelected: {
-      color: paperTheme.colors.onPrimary, // << Cor do texto sobre a cor primária
+      color: paperTheme.colors.onPrimary,
       fontWeight: 'bold',
     },
     yesNoContainer: { flexDirection: 'row', justifyContent: 'space-around' },
@@ -256,7 +272,7 @@ const QuestionnaireScreen = () => {
         backgroundColor: paperTheme.colors.surfaceVariant,
         paddingVertical: 8,
         paddingHorizontal: 12,
-        borderRadius: 20, // Mais arredondado
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: paperTheme.colors.outline,
         alignItems: 'center',
@@ -278,32 +294,24 @@ const QuestionnaireScreen = () => {
     submitButton: {
       backgroundColor: paperTheme.colors.primary,
       padding: 16,
-      borderRadius: 12, // Ou paperTheme.roundness * 1.5
+      borderRadius: 12,
       alignItems: 'center',
       marginTop: 16,
     },
     submitButtonDisabled: {
-      backgroundColor: paperTheme.colors.surfaceDisabled, // << Cor desabilitada do TEMA PAPER
-      opacity: 0.8, // Ajuste a opacidade se necessário
+      backgroundColor: paperTheme.colors.surfaceDisabled,
+      opacity: 0.8,
     },
     submitButtonText: {
       color: paperTheme.colors.onPrimary,
       fontSize: 18,
       fontWeight: 'bold',
     },
-    errorText: { // Mantido como vermelho explícito para destaque
-      color: '#B00020', // Cor de erro padrão do Material Design
-      textAlign: 'center',
-      marginTop: 16,
-      fontSize: 14,
-    },
-  }), [paperTheme]); // Recalcula estilos se o tema Paper mudar
+    // errorText não é mais necessário aqui se o erro for exibido via Alert
+  }), [paperTheme]);
   // --- Fim Styles Definition ---
 
-    // --- Render Helpers ---
-  // (Estas são as definições reais das suas funções)
-
-  // Render Options (String or Number value)
+    // --- Render Helpers (MANTIDOS IGUAIS) ---
   const renderOptions = (
     options: Array<Option | TimeOption>,
     selectedValue: string | number | null,
@@ -334,7 +342,6 @@ const QuestionnaireScreen = () => {
     </View>
   );
 
-  // Render Yes/No
   const renderYesNo = (
     value: boolean | null,
     onSelect: (value: boolean) => void,
@@ -345,9 +352,9 @@ const QuestionnaireScreen = () => {
         <View style={styles.yesNoContainer}>
             <TouchableOpacity
                 style={[
-                    styles.optionButton, // Base style
-                    styles.yesNoButton,  // Width/Alignment adjustments
-                    value === true && styles.optionButtonSelected, // Selected style
+                    styles.optionButton,
+                    styles.yesNoButton,
+                    value === true && styles.optionButtonSelected,
                 ]}
                 onPress={() => onSelect(true)}
             >
@@ -355,9 +362,9 @@ const QuestionnaireScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
                  style={[
-                    styles.optionButton, // Base style
-                    styles.yesNoButton,  // Width/Alignment adjustments
-                    value === false && styles.optionButtonSelected, // Selected style
+                    styles.optionButton,
+                    styles.yesNoButton,
+                    value === false && styles.optionButtonSelected,
                  ]}
                 onPress={() => onSelect(false)}
             >
@@ -367,7 +374,6 @@ const QuestionnaireScreen = () => {
      </View>
   );
 
-  // Render Day Selector
   const renderDaySelector = () => (
     <View style={styles.section}>
         <Text style={styles.label}>Quais dias da semana você pretende treinar?</Text>
@@ -395,7 +401,7 @@ const QuestionnaireScreen = () => {
   // --- Fim Render Helpers ---
 
 
-  // --- Component Return (Adapte os placeholders e use theme do Paper) ---
+  // --- Component Return (Adaptado para usar isLoading) ---
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -411,11 +417,7 @@ const QuestionnaireScreen = () => {
             Essas informações nos ajudarão a personalizar sua experiência de treino.
           </Text>
 
-          {/* --- Seções do Formulário (MANTENHA IGUAIS) --- */}
-          {/* Use paperTheme.colors.onSurfaceVariant para placeholderTextColor */}
-          {/* Ex: placeholderTextColor={paperTheme.colors.onSurfaceVariant} */}
-
-          {/* Informações Pessoais */}
+          {/* --- Seções do Formulário (MANTIDAS IGUAIS) --- */}
           <Text style={styles.sectionHeader}>Informações Pessoais</Text>
           <View style={styles.section}>
             <Text style={styles.label}>Nome Completo</Text>
@@ -443,19 +445,16 @@ const QuestionnaireScreen = () => {
               </View>
           </View>
 
-          {/* Experiência e Objetivos */}
           <Text style={styles.sectionHeader}>Experiência e Objetivos</Text>
           {renderOptions(EXPERIENCE_LEVELS, experienciaTreino, (v) => setExperienciaTreino(v as string), 'Qual seu nível de experiência com treinos?')}
           {renderOptions(GOALS, objetivo, (v) => setObjetivo(v as string), 'Qual seu objetivo principal?')}
 
-          {/* Preferências de Treino */}
           <Text style={styles.sectionHeader}>Preferências de Treino</Text>
           {renderDaySelector()}
           {renderOptions(TIME_OPTIONS, averageTrainingTime, (v) => setAverageTrainingTime(v as number), 'Quanto tempo você tem disponível para treinar em média?')}
           {renderYesNo(includeCardio, setIncludeCardio, 'Gostaria de incluir exercícios de Cardio no seu plano?')}
           {renderYesNo(includeStretching, setIncludeStretching, 'Gostaria de incluir Alongamentos no seu plano?')}
 
-          {/* Saúde e Restrições */}
           <Text style={styles.sectionHeader}>Saúde e Restrições</Text>
           {renderYesNo(temLesoes, setTemLesoes, 'Possui alguma lesão ou restrição médica?')}
           {temLesoes === true && (
@@ -473,21 +472,20 @@ const QuestionnaireScreen = () => {
           {/* --- Fim Seções do Formulário --- */}
 
 
-          {/* Botão Submit */}
+          {/* Botão Submit usando estado local isLoading */}
           <TouchableOpacity
-            style={[styles.submitButton, (!isFormValid() || loadingStatus === 'pending') && styles.submitButtonDisabled]}
+            style={[styles.submitButton, (!isFormValid() || isLoading) && styles.submitButtonDisabled]}
             onPress={handleSubmit}
-            disabled={!isFormValid() || loadingStatus === 'pending'}
+            disabled={!isFormValid() || isLoading} // Atualizado para usar isLoading
           >
-            {loadingStatus === 'pending' ? (
-              <ActivityIndicator color={paperTheme.colors.onPrimary} /> // << Usa cor do tema
+            {isLoading ? ( // Atualizado para usar isLoading
+              <ActivityIndicator color={paperTheme.colors.onPrimary} />
             ) : (
-              // <Text style={styles.submitButtonText}>Finalizar e Ir para o Chat</Text> // Texto ajustado
-              <Text style={styles.submitButtonText}>Conversar com IA</Text> // Ou algo mais direto
+              <Text style={styles.submitButtonText}>Conversar com IA</Text>
             )}
           </TouchableOpacity>
 
-          {/* Mensagem de erro não é mais necessária aqui, pois é tratada pelo useEffect */}
+          {/* O erro agora é tratado via Alert no handleSubmit */}
 
         </ScrollView>
       </KeyboardAvoidingView>
