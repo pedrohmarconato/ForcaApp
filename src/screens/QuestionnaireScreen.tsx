@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Importe o contexto de autenticação
 import { useAuth } from '../contexts/AuthContext';
 
-// Tipos e Constantes (mantidos como estavam)
+// Tipos e Constantes (sem alterações)
 type Option = { label: string; value: string };
 type DayOption = { label: string; value: string };
 type TimeOption = { label: string; value: number };
@@ -52,77 +52,115 @@ const TIME_OPTIONS: TimeOption[] = [
   { label: '60-90 minutos', value: 90 }, { label: '+90 minutos', value: 120 }
 ];
 
-// Chave para dados do questionário no AsyncStorage (usada para fallback/passagem de dados)
+// Chave para dados do questionário no AsyncStorage (sem alterações)
 const STORAGE_KEY = '@questionnaire_data';
 
-// --- INÍCIO: Função de API REAL para salvar o questionário ---
-// !! SUBSTITUA PELO SEU SERVIÇO DE API REAL SE TIVER UM !!
-const saveQuestionnaireDataAPI = async (userId: string, authToken: string | null, formData: any): Promise<any> => {
-  // !!! IMPORTANTE: Substitua pela URL base da sua API !!!
-  const API_BASE_URL = 'YOUR_BACKEND_API_BASE_URL';
-  // !!! IMPORTANTE: Ajuste o endpoint conforme sua API !!!
-  const endpoint = `${API_BASE_URL}/users/${userId}/questionnaire`; // Exemplo
+// --- URL REAL para a API do Supabase (sem alterações) ---
+const API_BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1` : '';
+if (!API_BASE_URL) {
+    console.error("CRITICAL ERROR: Supabase URL is not configured in environment variables!");
+    // Você pode querer lançar um erro ou ter um estado de erro global aqui
+}
 
-  console.log(`[API] Sending questionnaire data to: ${endpoint} for user: ${userId}`);
+// --- Função de API REAL para INSERIR dados na tabela questionario_usuario ---
+const saveQuestionnaireDataAPI = async (authToken: string | null, formDataWithUserId: any): Promise<any> => {
+    // *** MUDANÇA 1: Endpoint aponta para a nova tabela 'questionario_usuario' ***
+    const endpoint = `${API_BASE_URL}/questionario_usuario`;
 
-  // !!! IMPORTANTE: Adicione cabeçalhos de autenticação se necessário !!!
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
-  if (authToken) {
-    // Exemplo: Se usar Bearer Token
-    // headers['Authorization'] = `Bearer ${authToken}`;
-  }
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST', // ou 'PUT' se for atualização
-      headers: headers,
-      body: JSON.stringify(formData),
-    });
-
-    if (!response.ok) {
-      // Tenta obter mais detalhes do erro do corpo da resposta
-      let errorBody = null;
-      try {
-        errorBody = await response.json();
-      } catch (e) {
-        // Ignora se o corpo não for JSON válido
-      }
-      console.error('[API] Error saving questionnaire:', response.status, errorBody);
-      throw new Error(
-        `Falha ao salvar o questionário. Status: ${response.status}. ${errorBody?.message || 'Erro desconhecido.'}`
-      );
+    // Verifica se a URL base está configurada
+    if (!API_BASE_URL) {
+        throw new Error("A URL da API não está configurada.");
+    }
+     // Verifica se o token está presente (a política RLS exigirá autenticação para INSERT)
+    if (!authToken) {
+        throw new Error("Token de autenticação ausente. Não é possível salvar os dados.");
     }
 
-    console.log('[API] Questionnaire data saved successfully.');
-    // Retorna a resposta se precisar de algum dado (ex: ID do questionário salvo)
-    // return await response.json();
-    return { success: true }; // Ou apenas resolve
+    console.log(`[API] Enviando dados do questionário para: ${endpoint}`);
 
-  } catch (error) {
-    console.error('[API] Network or other error saving questionnaire:', error);
-    // Re-throw para ser pego no handleSubmit
-    throw error;
-  }
+    // Headers com autenticação (sem alterações significativas aqui, apenas adicionado verificação da chave anon)
+    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+    if (!anonKey) {
+        console.error("CRITICAL ERROR: Supabase Anon Key is not configured!");
+        throw new Error("Chave da API não configurada.");
+    }
+    const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': `Bearer ${authToken}`, // Token do usuário logado
+        'Prefer': 'return=minimal' // Não precisa retornar o objeto inserido
+    };
+
+    try {
+        // *** MUDANÇA 2: Usar método 'POST' para inserir um novo registro ***
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: headers,
+            // *** MUDANÇA 3: O corpo da requisição contém o objeto formDataWithUserId ***
+            //    (As chaves já devem corresponder às colunas da tabela questionario_usuario)
+            body: JSON.stringify(formDataWithUserId),
+        });
+
+        // Tratamento de resposta (sem alterações significativas, mas o erro 400 agora pode ser por outros motivos, como RLS)
+        if (!response.ok) {
+            let errorBody = null;
+            try {
+                errorBody = await response.json();
+                console.error('[API] Corpo do erro recebido:', errorBody);
+            } catch (e) {
+                console.error('[API] Não foi possível parsear o corpo do erro como JSON.');
+            }
+            // Mensagem de erro mais específica pode vir de 'errorBody.message' ou 'errorBody.details'
+            const details = errorBody?.details ? `Detalhes: ${errorBody.details}` : '';
+            const message = errorBody?.message || 'Erro desconhecido do servidor.';
+            console.error(`[API] Erro ao salvar questionário: ${response.status} - ${message} ${details}`);
+
+            // Verifica se o erro é de chave duplicada (caso tente inserir um questionário para um usuário que já tem, se usuario_id for UNIQUE)
+             if (response.status === 409 || errorBody?.code === '23505') { // 23505 é o código de violação de unicidade do PostgreSQL
+                 throw new Error(`Você já possui um questionário salvo. (Erro ${response.status})`);
+             }
+             // Verifica erro de permissão (RLS)
+             if (response.status === 401 || response.status === 403) {
+                 throw new Error(`Sem permissão para salvar os dados. Verifique as políticas RLS. (Erro ${response.status})`);
+             }
+
+            throw new Error(
+                `Falha ao salvar o questionário. Status: ${response.status}. ${message}`
+            );
+        }
+
+        console.log('[API] Dados do questionário INSERIDOS com sucesso na tabela questionario_usuario.');
+        return { success: true };
+
+    } catch (error: any) {
+        // Verifica se o erro já é um Error criado acima
+         if (error instanceof Error) {
+            console.error('[API] Erro capturado ao salvar questionário:', error.message);
+            throw error; // Re-throw o erro já formatado
+         } else {
+            // Trata outros erros (rede, etc.)
+            console.error('[API] Erro de rede ou outro erro inesperado ao salvar questionário:', error);
+            throw new Error("Erro de conexão ao tentar salvar o questionário. Verifique sua internet.");
+         }
+    }
 };
-// --- FIM: Função de API REAL ---
+
 
 const QuestionnaireScreen = () => {
   const navigation = useNavigation();
   const paperTheme = useTheme();
 
-  // Estado Local
+  // Estado Local (sem alterações)
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Contexto de Autenticação
-  const { user } = useAuth(); // Obtenha o usuário (e potencialmente o token)
+  // Contexto de Autenticação - Obter user e session corretamente (sem alterações)
+  const { user, session } = useAuth();
   const userId = user?.id;
-  // const authToken = user?.token; // Descomente e ajuste se precisar de token para a API
+  const authToken = session?.access_token;
 
-  // Estado do Formulário (mantido como estava)
+  // Estado do Formulário (sem alterações)
   const [nome, setNome] = useState('');
   const [diaNascimento, setDiaNascimento] = useState('');
   const [mesNascimento, setMesNascimento] = useState('');
@@ -140,55 +178,65 @@ const QuestionnaireScreen = () => {
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
 
-  // Carregar dados salvos ao montar o componente (mantido como estava)
+  // Carregar dados salvos ao montar o componente (sem alterações)
   useEffect(() => {
     const loadSavedData = async () => {
-      try {
-        const savedData = await AsyncStorage.getItem(STORAGE_KEY);
-        if (savedData) {
-          const data = JSON.parse(savedData);
-          console.log('[QuestionnaireScreen] Loaded saved data from AsyncStorage');
+        // ... (código mantido igual)
+        try {
+            const savedData = await AsyncStorage.getItem(STORAGE_KEY);
+            if (savedData) {
+              const data = JSON.parse(savedData);
+              console.log('[QuestionnaireScreen] Loaded saved data from AsyncStorage');
 
-          // Preencher todos os estados com os dados salvos
-          setNome(data.nome || '');
-          if (data.dataNascimento) {
-            setDiaNascimento(data.dataNascimento.dia || '');
-            setMesNascimento(data.dataNascimento.mes || '');
-            setAnoNascimento(data.dataNascimento.ano || '');
+              // Preencher todos os estados com os dados salvos
+              setNome(data.nome || ''); // Mantém 'nome' no estado local
+              if (data.data_nascimento) { // Ajusta para o nome da chave que será salva
+                const [ano, mes, dia] = data.data_nascimento.split('-');
+                setAnoNascimento(ano || '');
+                setMesNascimento(mes || '');
+                setDiaNascimento(dia || '');
+              } else if (data.dataNascimento) { // Fallback para formato antigo no storage
+                 setDiaNascimento(data.dataNascimento.dia || '');
+                 setMesNascimento(data.dataNascimento.mes || '');
+                 setAnoNascimento(data.dataNascimento.ano || '');
+              }
+              setGenero(data.genero || null);
+              setPeso(String(data.peso_kg || data.peso || '')); // Converte para string
+              setAltura(String(data.altura_cm || data.altura || '')); // Converte para string
+              setExperienciaTreino(data.experiencia_treino || data.experienciaTreino || null);
+              setObjetivo(data.objetivo || null);
+              setTemLesoes(data.tem_lesoes !== undefined ? data.tem_lesoes : (data.temLesoes !== undefined ? data.temLesoes : null));
+              setLesoes(data.lesoes_detalhes || data.lesoes || '');
+              // setDescricaoLesao(data.descricaoLesao || ''); // Se não tiver essa coluna, pode remover
+              if (data.dias_treino && Array.isArray(data.dias_treino)) { // Usa dias_treino
+                const daysObj: { [key: string]: boolean } = {};
+                data.dias_treino.forEach((day: string) => { daysObj[day] = true; });
+                setTrainingDays(daysObj);
+              } else if (data.trainingDays && Array.isArray(data.trainingDays)){ // Fallback
+                 const daysObj: { [key: string]: boolean } = {};
+                 data.trainingDays.forEach((day: string) => { daysObj[day] = true; });
+                 setTrainingDays(daysObj);
+              }
+              setIncludeCardio(data.inclui_cardio !== undefined ? data.inclui_cardio : (data.includeCardio !== undefined ? data.includeCardio : null));
+              setIncludeStretching(data.inclui_alongamento !== undefined ? data.inclui_alongamento : (data.includeStretching !== undefined ? data.includeStretching : null));
+              setAverageTrainingTime(data.tempo_medio_treino_min || data.averageTrainingTime || null);
+            }
+          } catch (error) {
+            console.error('[QuestionnaireScreen] Error loading saved data:', error);
+          } finally {
+            setDataLoaded(true);
           }
-          setGenero(data.genero || null);
-          setPeso(data.peso || '');
-          setAltura(data.altura || '');
-          setExperienciaTreino(data.experienciaTreino || null);
-          setObjetivo(data.objetivo || null);
-          setTemLesoes(data.temLesoes !== undefined ? data.temLesoes : null);
-          setLesoes(data.lesoes || '');
-          setDescricaoLesao(data.descricaoLesao || '');
-          if (data.trainingDays && Array.isArray(data.trainingDays)) {
-            const daysObj: { [key: string]: boolean } = {};
-            data.trainingDays.forEach((day: string) => { daysObj[day] = true; });
-            setTrainingDays(daysObj);
-          }
-          setIncludeCardio(data.includeCardio !== undefined ? data.includeCardio : null);
-          setIncludeStretching(data.includeStretching !== undefined ? data.includeStretching : null);
-          setAverageTrainingTime(data.averageTrainingTime || null);
-        }
-      } catch (error) {
-        console.error('[QuestionnaireScreen] Error loading saved data:', error);
-      } finally {
-        setDataLoaded(true);
-      }
     };
     loadSavedData();
   }, []);
 
-  // Limpar erro ao focar na tela (mantido como estava)
+  // Limpar erro ao focar na tela (sem alterações)
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => { setError(null); });
     return unsubscribe;
   }, [navigation]);
 
-  // Handlers (mantidos como estavam)
+  // Handlers (sem alterações)
   const toggleTrainingDay = (dayValue: string) => {
     setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] }));
   };
@@ -196,6 +244,7 @@ const QuestionnaireScreen = () => {
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
 
   const isFormValid = () => {
+    // ... (lógica mantida igual)
     const selectedDaysCount = getSelectedDays().length;
     return (
       !!nome && !!diaNascimento && !!mesNascimento && !!anoNascimento && !!genero &&
@@ -206,15 +255,10 @@ const QuestionnaireScreen = () => {
   };
 
   const handleSubmit = async () => {
-    if (!userId) {
-      Alert.alert('Erro', 'Usuário não identificado. Por favor, faça login novamente.');
+    if (!userId || !authToken) { // Verifica também o authToken
+      Alert.alert('Erro', 'Usuário não autenticado corretamente. Por favor, faça login novamente.');
       return;
     }
-    // Se precisar de token:
-    // if (!authToken) {
-    //   Alert.alert('Erro', 'Sessão inválida. Por favor, faça login novamente.');
-    //   return;
-    // }
 
     if (!isFormValid()) {
       Alert.alert('Campos Incompletos', 'Por favor, preencha todos os campos obrigatórios.');
@@ -224,53 +268,77 @@ const QuestionnaireScreen = () => {
     setError(null);
     setIsLoading(true);
 
-    const formData = {
-      // userId não precisa ir no corpo se já está na URL, ajuste conforme sua API
-      nome,
-      dataNascimento: { dia: diaNascimento, mes: mesNascimento, ano: anoNascimento },
-      genero,
-      peso,
-      altura,
-      experienciaTreino,
-      objetivo,
-      temLesoes,
-      lesoes: temLesoes ? lesoes : '',
-      descricaoLesao: temLesoes ? descricaoLesao : '', // Renomeado de 'descricaoLesao' para 'lesoesDetalhes' se necessário pela API
-      trainingDays: getSelectedDays(),
-      includeCardio,
-      includeStretching,
-      averageTrainingTime,
+    // *** MUDANÇA 4: Montar o objeto formData que será enviado para a API ***
+    //    As chaves DESTE objeto devem corresponder EXATAMENTE às colunas
+    //    da tabela 'questionario_usuario' que criamos no Supabase.
+    const formDataForApi = {
+      usuario_id: userId, // Chave estrangeira obrigatória
+      // Formata a data para 'YYYY-MM-DD' se a coluna for do tipo 'date'
+      data_nascimento: `${anoNascimento}-${mesNascimento.padStart(2, '0')}-${diaNascimento.padStart(2, '0')}`,
+      genero: genero, // Nome da coluna: genero (text)
+      peso_kg: parseFloat(peso) || null, // Nome da coluna: peso_kg (numeric) - Converte para número
+      altura_cm: parseInt(altura, 10) || null, // Nome da coluna: altura_cm (integer) - Converte para número
+      experiencia_treino: experienciaTreino, // Nome da coluna: experiencia_treino (text)
+      objetivo: objetivo, // Nome da coluna: objetivo (text)
+      tem_lesoes: temLesoes, // Nome da coluna: tem_lesoes (boolean)
+      // Combina as duas descrições ou usa uma delas para 'lesoes_detalhes'
+      lesoes_detalhes: temLesoes ? `${lesoes}${descricaoLesao ? ` (${descricaoLesao})` : ''}`.trim() || null : null, // Nome da coluna: lesoes_detalhes (text)
+      dias_treino: getSelectedDays(), // Nome da coluna: dias_treino (text[]) - Envia o array JS
+      inclui_cardio: includeCardio, // Nome da coluna: inclui_cardio (boolean)
+      inclui_alongamento: includeStretching, // Nome da coluna: inclui_alongamento (boolean)
+      tempo_medio_treino_min: averageTrainingTime, // Nome da coluna: tempo_medio_treino_min (integer)
     };
 
+     // Objeto para salvar no AsyncStorage (pode manter o formato antigo se preferir, ou usar o novo)
+     // Usaremos o formato novo para consistência ao recarregar
+    const formDataForStorage = { ...formDataForApi, nome: nome }; // Adiciona 'nome' que não vai para a API mas é útil localmente
+
     try {
-      // 1. Salvar localmente para garantir que os dados estejam disponíveis para a próxima tela (Chat)
-      //    mesmo que a chamada API falhe ou a navegação seja interrompida.
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      // 1. Salvar localmente ANTES da chamada API (usando o formato novo)
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(formDataForStorage));
       console.log('[QuestionnaireScreen] Form data saved to AsyncStorage before API call.');
 
-      // 2. Chamar a API REAL para salvar no backend
+      // 2. Chamar a API real para INSERIR na tabela 'questionario_usuario'
       console.log('[QuestionnaireScreen] Submitting form data via REAL API for user:', userId);
-      // Passe o authToken se necessário: await saveQuestionnaireDataAPI(userId, authToken, formData);
-      await saveQuestionnaireDataAPI(userId, null, formData); // Passando null para authToken por enquanto
+      // Passa o authToken e o objeto formatado para a API
+      await saveQuestionnaireDataAPI(authToken, formDataForApi);
 
-      // 3. Navegar para a próxima tela APÓS sucesso da API
-      console.log('[QuestionnaireScreen] Real API submission successful, navigating...');
-      // Passa os dados via params para a tela de chat usar imediatamente
-      navigation.navigate('PostQuestionnaireChat', { formData });
+      // 3. Navegar para a tela de chat após sucesso
+      console.log('[QuestionnaireScreen] API submission successful, navigating...');
+      // Passa os dados para a próxima tela (usando o formato local/do estado, que a tela de chat espera)
+      navigation.navigate('PostQuestionnaireChat', {
+          formData: { // Remonta o objeto como a tela de chat espera, se necessário
+            userId,
+            nome,
+            dataNascimento: { dia: diaNascimento, mes: mesNascimento, ano: anoNascimento },
+            genero,
+            peso,
+            altura,
+            experienciaTreino,
+            objetivo,
+            temLesoes,
+            lesoes,
+            descricaoLesao,
+            trainingDays: getSelectedDays(), // Nome que a tela de chat espera? Verifique ChatScreen
+            includeCardio,
+            includeStretching,
+            averageTrainingTime,
+          }
+      });
 
     } catch (submissionError: any) {
-      console.error('[QuestionnaireScreen] Real API submission failed:', submissionError);
+      console.error('[QuestionnaireScreen] API submission failed:', submissionError);
       const errorMessage = submissionError?.message || 'Ocorreu um erro inesperado ao salvar os dados no servidor.';
       setError(errorMessage);
       Alert.alert('Erro ao Salvar', errorMessage);
-      // Não navega se a API falhar
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Styles (mantidos como estavam)
+  // Styles (sem alterações)
   const styles = useMemo(() => StyleSheet.create({
+    // ... (código mantido igual)
     safeArea: { flex: 1, backgroundColor: paperTheme.colors.background },
     scrollContainer: { padding: 16, paddingBottom: 48 },
     title: { fontSize: 24, fontWeight: 'bold', color: paperTheme.colors.onBackground, marginBottom: 8, textAlign: 'center' },
@@ -303,30 +371,41 @@ const QuestionnaireScreen = () => {
     errorText: { color: paperTheme.colors.error, textAlign: 'center', marginTop: 8, marginBottom: 8 },
   }), [paperTheme]);
 
-  // Render Helpers (mantidos como estavam)
-  const renderOptions = ( options: Array<Option | TimeOption>, selectedValue: string | number | null, onSelect: (value: string | number) => void, title: string ) => ( /* ...código mantido... */ );
-  const renderYesNo = ( value: boolean | null, onSelect: (value: boolean) => void, title: string ) => ( /* ...código mantido... */ );
+  // Render Helpers (sem alterações)
+  const renderOptions = (/*...*/) => { /* ... (código mantido igual) */ };
+  const renderYesNo = (/*...*/) => { /* ... (código mantido igual) */ };
+   const LoadingOverlay = () => ( // Simplificado para exemplo
+      <View style={styles.loadingOverlay}>
+        <ActivityIndicator size="large" color={paperTheme.colors.primary} />
+        <Text style={[styles.subtitle, { color: paperTheme.colors.onBackground }]}>
+          Carregando dados...
+        </Text>
+      </View>
+    );
 
-  // Overlay de carregamento (mantido como estava)
-  if (!dataLoaded) { return ( /* ...código mantido... */ ); }
+  // Overlay de carregamento (sem alterações)
+  if (!dataLoaded) {
+    return <LoadingOverlay />;
+  }
 
-  // Component Return (mantido como estava, exceto o texto do botão se desejar)
+  // Component Return (sem alterações na estrutura JSX)
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        {/* ... (JSX mantido igual) ... */}
+         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         {isLoading && (
-            <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={paperTheme.colors.primary} />
-                <Text style={[styles.subtitle, { color: paperTheme.colors.onBackground }]}>Salvando dados...</Text>
-            </View>
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={paperTheme.colors.primary} />
+            <Text style={[styles.subtitle, { color: paperTheme.colors.onBackground }]}>Salvando dados...</Text>
+          </View>
         )}
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-            <Text style={styles.title}>Conte-nos sobre você</Text>
-            <Text style={styles.subtitle}>Essas informações nos ajudarão a personalizar sua experiência de treino.</Text>
+          <Text style={styles.title}>Conte-nos sobre você</Text>
+          <Text style={styles.subtitle}>Essas informações nos ajudarão a personalizar sua experiência de treino.</Text>
 
-            {error && <Text style={styles.errorText}>{error}</Text>}
+          {error && <Text style={styles.errorText}>{error}</Text>}
 
-            {/* --- SEÇÕES DO FORMULÁRIO (mantidas como estavam) --- */}
+          {/* --- SEÇÕES DO FORMULÁRIO (mantidas como estavam) --- */}
             <Text style={styles.sectionHeader}>Informações Pessoais</Text>
             <View style={styles.section}>
                 <Text style={styles.label}>Nome Completo</Text>
@@ -363,8 +442,8 @@ const QuestionnaireScreen = () => {
                 <Text style={styles.label}>Quais dias da semana você pretende treinar?</Text>
                 <View style={styles.daysContainer}>
                     {DAYS_OF_WEEK.map(day => (
-                        <TouchableOpacity key={day.value} style={[ styles.dayButton, trainingDays[day.value] && styles.dayButtonSelected ]} onPress={() => toggleTrainingDay(day.value)}>
-                            <Text style={[ styles.dayText, trainingDays[day.value] && styles.dayTextSelected ]}>{day.label}</Text>
+                        <TouchableOpacity key={day.value} style={[styles.dayButton, trainingDays[day.value] && styles.dayButtonSelected]} onPress={() => toggleTrainingDay(day.value)}>
+                            <Text style={[styles.dayText, trainingDays[day.value] && styles.dayTextSelected]}>{day.label}</Text>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -389,28 +468,27 @@ const QuestionnaireScreen = () => {
             )}
             {/* --- FIM SEÇÕES DO FORMULÁRIO --- */}
 
-            <TouchableOpacity
-                style={[styles.submitButton, (!isFormValid() || isLoading) && styles.submitButtonDisabled]}
-                onPress={handleSubmit}
-                disabled={!isFormValid() || isLoading}
-            >
-                {/* Você pode mudar o texto se quiser, ex: "Salvar e Conversar com IA" */}
-                <Text style={styles.submitButtonText}>Conversar com IA</Text>
-            </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.submitButton, (!isFormValid() || isLoading) && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={!isFormValid() || isLoading}
+          >
+            <Text style={styles.submitButtonText}>Conversar com IA</Text>
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
-// Funções renderOptions e renderYesNo (Completas, sem alterações)
+// Funções Render Helpers (precisam receber styles e theme agora ou ser definidas dentro do componente)
 const renderOptions = (
     options: Array<Option | TimeOption>,
     selectedValue: string | number | null,
     onSelect: (value: string | number) => void,
     title: string,
-    styles: any, // Pass styles as argument
-    paperTheme: any // Pass theme as argument
+    styles: any, // Pass styles
+    paperTheme: any // Pass theme
   ) => (
     <View style={styles.section}>
       <Text style={styles.label}>{title}</Text>
@@ -440,8 +518,8 @@ const renderOptions = (
     value: boolean | null,
     onSelect: (value: boolean) => void,
     title: string,
-    styles: any, // Pass styles as argument
-    paperTheme: any // Pass theme as argument
+    styles: any, // Pass styles
+    paperTheme: any // Pass theme
   ) => (
     <View style={styles.section}>
       <Text style={styles.label}>{title}</Text>
@@ -454,7 +532,9 @@ const renderOptions = (
           ]}
           onPress={() => onSelect(true)}
         >
-          <Text style={[styles.optionText, value === true && styles.optionTextSelected]}>Sim</Text>
+          <Text style={[styles.optionText, value === true && styles.optionTextSelected]}>
+            Sim
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -464,21 +544,13 @@ const renderOptions = (
           ]}
           onPress={() => onSelect(false)}
         >
-          <Text style={[styles.optionText, value === false && styles.optionTextSelected]}>Não</Text>
+          <Text style={[styles.optionText, value === false && styles.optionTextSelected]}>
+            Não
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
-
-// Overlay de carregamento (Função auxiliar completa, sem alterações)
-const LoadingOverlay = ({ styles, paperTheme }: { styles: any, paperTheme: any }) => (
-    <View style={styles.loadingOverlay}>
-      <ActivityIndicator size="large" color={paperTheme.colors.primary} />
-      <Text style={[styles.subtitle, { color: paperTheme.colors.onBackground }]}>
-        Carregando dados do questionário...
-      </Text>
-    </View>
-);
 
 
 export default QuestionnaireScreen;
