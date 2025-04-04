@@ -21,14 +21,14 @@ try:
     from backend.utils.logger import WrapperLogger
     from backend.utils.config import get_api_key, get_model_name
 except ImportError:
-     print("ERRO: Não foi possível importar utils. Verifique a estrutura de pastas e os arquivos __init__.py.")
-     # Tentativa de import relativo (pode funcionar se executado de forma diferente)
-     try:
-         from ..utils.logger import WrapperLogger
-         from ..utils.config import get_api_key, get_model_name
-     except ImportError:
-          print("Falha na importação relativa também.")
-          exit(1)
+    print("ERRO: Não foi possível importar utils. Verifique a estrutura de pastas e os arquivos __init__.py.")
+    # Tentativa de import relativo (pode funcionar se executado de forma diferente)
+    try:
+        from ..utils.logger import WrapperLogger
+        from ..utils.config import get_api_key, get_model_name
+    except ImportError:
+        print("Falha na importação relativa também.")
+        exit(1)
 
 
 class TreinadorEspecialista:
@@ -356,7 +356,7 @@ Exercícios
                         ]
                     }
                 ],
-                "metricas": {"calorias_estimadas": null, "nivel_fadiga_esperado": null, "tempo_recuperacao_horas": null}
+                "metricas": {"calorias_estimadas": None, "nivel_fadiga_esperado": None, "tempo_recuperacao_horas": None}
             }
             # Campos de metadados e usuário são omitidos aqui, pois são preenchidos depois ou vêm do input
         }
@@ -390,7 +390,10 @@ Exercícios
         lesoes_str = "\n".join([f"- {lesao.get('regiao', 'N/A')}, Gravidade: {lesao.get('gravidade', 'N/A')}, Obs: {lesao.get('observacoes', 'N/A')}" for lesao in lesoes]) if lesoes else "Nenhuma lesão reportada."
         dias_str = ", ".join(dias_disponiveis) if dias_disponiveis else "Não especificado"
 
-        contexto = f"""
+        # Construção do prompt final
+        prompt_completo = f"""
+{self.prompt_template_base}
+
 Dados do Usuário:
 Nome: {nome}
 Idade: {idade}
