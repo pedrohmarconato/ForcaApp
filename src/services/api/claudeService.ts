@@ -1,7 +1,5 @@
 // src/services/api/claudeService.ts
 import Anthropic from '@anthropic-ai/sdk';
-// Importe a forma como você acessa suas variáveis de ambiente
-// Exemplo usando react-native-dotenv:
 import { EXPO_PUBLIC_ANTHROPIC_API_KEY } from '@env';
 
 // Tipo importado ou definido no componente do chat. Reutilize se possível.
@@ -9,24 +7,31 @@ type Content = { role: 'user' | 'model'; parts: { text: string }[] };
 
 // Verifique se a chave da API está definida
 if (!EXPO_PUBLIC_ANTHROPIC_API_KEY) {
-    console.error("Chave de API da Anthropic (ANTHROPIC_API_KEY) não encontrada. Verifique suas variáveis de ambiente.");
+    console.error("Chave de API da Anthropic (EXPO_PUBLIC_ANTHROPIC_API_KEY) não encontrada. Verifique suas variáveis de ambiente.");
     // Você pode querer lançar um erro aqui ou ter um estado de erro global
 }
 
 // Instancie o cliente Anthropic
 const anthropic = new Anthropic({
     apiKey: EXPO_PUBLIC_ANTHROPIC_API_KEY,
+    // Se precisar especificar a versão da API (geralmente o SDK cuida disso)
+    // defaultHeaders: {
+    //   'anthropic-version': '2023-06-01'
+    // }
 });
 
-// Modelo Claude a ser usado (ajuste conforme necessário, ex: claude-3-opus-20240229, claude-3-haiku-20240307)
-const CLAUDE_MODEL = 'claude-3-sonnet-20240229';
+// --- MUDANÇA AQUI ---
+// Modelo Claude a ser usado - Usando o Claude 3.5 Sonnet mais recente
+// const CLAUDE_MODEL = 'claude-3-sonnet-20240229'; // Modelo antigo com erro 404
+// const CLAUDE_MODEL = 'claude-3-haiku-20240307'; // Modelo Haiku para teste
+const CLAUDE_MODEL = 'claude-3-5-sonnet-20240620'; // Modelo recomendado atualmente
 
 /**
  * Testa a conexão com a API Claude fazendo uma chamada simples.
  * @returns {Promise<boolean>} True se a conexão for bem-sucedida, false caso contrário.
  */
 export const testClaudeApiConnection = async (): Promise<boolean> => {
-    console.log("[ClaudeService] Testando conexão com a API Claude...");
+    console.log(`[ClaudeService] Testando conexão com a API Claude usando o modelo: ${CLAUDE_MODEL}...`);
     try {
         // Faz uma chamada muito simples para verificar a autenticação e conectividade
         await anthropic.messages.create({
@@ -39,10 +44,14 @@ export const testClaudeApiConnection = async (): Promise<boolean> => {
     } catch (error: any) {
         console.error("[ClaudeService] Falha ao testar conexão com a API Claude:", error.message || error);
         // Log detalhado do erro pode ser útil para depuração
-        // console.error("Detalhes do erro:", error);
+        if (error instanceof Anthropic.APIError) {
+             console.error(`[ClaudeService] Detalhes do erro API: Status ${error.status}, Tipo ${error.type}, Mensagem ${error.message}`);
+        }
         return false;
     }
 };
+
+// ... (buildSystemPrompt e transformHistoryForClaude permanecem iguais) ...
 
 /**
  * Constrói uma mensagem de sistema para fornecer contexto ao Claude.
@@ -74,6 +83,7 @@ const transformHistoryForClaude = (history: Content[]): Anthropic.Messages.Messa
     }));
 };
 
+
 /**
  * Chama a API Claude para obter uma resposta com base na mensagem do usuário, histórico e contexto.
  * @param userMessageText A última mensagem enviada pelo usuário.
@@ -89,7 +99,7 @@ export const callClaudeApi = async (
     questionnaireData: any,
     adjustments: string[]
 ): Promise<string> => {
-    console.log("[ClaudeService] Chamando a API Claude...");
+    console.log(`[ClaudeService] Chamando a API Claude com o modelo: ${CLAUDE_MODEL}...`);
 
     // 1. Construir a mensagem de sistema com o contexto
     const systemPrompt = buildSystemPrompt(questionnaireData, adjustments);
@@ -107,7 +117,7 @@ export const callClaudeApi = async (
         console.log("[ClaudeService] Enviando para API:", { model: CLAUDE_MODEL, system: systemPrompt ? 'Prompt definido' : 'Sem prompt', messagesCount: messagesForApi.length });
 
         const response = await anthropic.messages.create({
-            model: CLAUDE_MODEL,
+            model: CLAUDE_MODEL, // Usando o modelo atualizado
             max_tokens: 1024, // Ajuste conforme necessário
             system: systemPrompt, // Adiciona o contexto como mensagem de sistema
             messages: messagesForApi,
@@ -117,8 +127,7 @@ export const callClaudeApi = async (
 
         console.log("[ClaudeService] Resposta da API recebida.");
 
-        // Extrai o texto da resposta. A API pode retornar diferentes tipos de blocos de conteúdo.
-        // Vamos focar no tipo 'text' por enquanto.
+        // Extrai o texto da resposta.
         let responseText = '';
         if (response.content && response.content.length > 0) {
             const textBlock = response.content.find(block => block.type === 'text');
@@ -129,7 +138,6 @@ export const callClaudeApi = async (
 
         if (!responseText) {
             console.warn("[ClaudeService] API retornou uma resposta sem conteúdo de texto:", response);
-            // Retorna uma string vazia ou lança um erro, dependendo de como você quer tratar isso
             return "(Nenhuma resposta de texto recebida)";
         }
 
@@ -137,16 +145,11 @@ export const callClaudeApi = async (
 
     } catch (error: any) {
         console.error("[ClaudeService] Erro ao chamar a API Claude:", error.message || error);
-        // Log detalhado pode ajudar
-        // console.error("Detalhes do erro API:", error);
-
-        // Lança um erro mais específico se possível, ou um erro genérico
-        if (error instanceof Anthropic.APIError) {
-            // Erros específicos da API Anthropic (ex: 400, 401, 429, 500)
-            throw new Error(`Erro da API Claude (${error.status}): ${error.message}`);
-        } else {
-            // Erros genéricos (rede, etc.)
-            throw new Error("Falha na comunicação com o assistente Claude.");
-        }
+         if (error instanceof Anthropic.APIError) {
+             console.error(`[ClaudeService] Detalhes do erro API: Status ${error.status}, Tipo ${error.type}, Mensagem ${error.message}`);
+             throw new Error(`Erro da API Claude (${error.status}): ${error.message}`);
+         } else {
+             throw new Error("Falha na comunicação com o assistente Claude.");
+         }
     }
 };
