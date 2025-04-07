@@ -7,7 +7,6 @@ import re
 from typing import Dict, Any, Optional, List
 
 # --- Dependências Externas ---
-# Instale com: pip install anthropic jsonschema python-dotenv
 try:
     import anthropic
     import jsonschema
@@ -16,13 +15,11 @@ except ImportError:
     exit(1)
 
 # --- Componentes Internos ---
-# Ajuste os caminhos se a estrutura do seu projeto for diferente
 try:
     from backend.utils.logger import WrapperLogger
     from backend.utils.config import get_api_key, get_model_name
 except ImportError:
     print("ERRO: Não foi possível importar utils. Verifique a estrutura de pastas e os arquivos __init__.py.")
-    # Tentativa de import relativo (pode funcionar se executado de forma diferente)
     try:
         from ..utils.logger import WrapperLogger
         from ..utils.config import get_api_key, get_model_name
@@ -36,10 +33,9 @@ class TreinadorEspecialista:
     Wrapper 1: Responsável por gerar planos de treinamento estruturados
     usando a API Claude e dados do usuário.
     """
-    # Obtém o nome do modelo da configuração ou usa o padrão
     MODEL_NAME = get_model_name()
-    # Máximo de tokens para a resposta da IA (ajuste conforme necessidade e modelo)
     MAX_TOKENS = 4096
+    PLANO_VERSAO = "1.0" # Versão do schema/plano
 
     def __init__(self):
         """Inicializa o wrapper do Treinador Especialista."""
@@ -67,7 +63,7 @@ class TreinadorEspecialista:
     def _carregar_prompt_template_base(self) -> str:
         """Carrega o template base da persona e expertise do treinador."""
         self.logger.debug("Carregando template base do prompt...")
-        # Conteúdo do relatório (Seção 7.1)
+        # Conteúdo do relatório (Seção 7.1) - Mantido como no original
         template = """
 # PROMPT DO TREINADOR ESPECIALISTA
 
@@ -127,10 +123,10 @@ Exercícios
     def _carregar_schema_json(self) -> Dict[str, Any]:
         """Carrega o schema JSON para validação da resposta, com refinamentos."""
         self.logger.debug("Carregando schema JSON...")
-        # Schema baseado no relatório (Seção 7.2), com ajustes
+        # Schema baseado no relatório (Seção 7.2) - Mantido como no original
         schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "PlanoDeTreinamentoFORCA", # Adicionado título
+            "title": "PlanoDeTreinamentoFORCA",
             "description": "Schema para validar a estrutura do plano de treinamento gerado.",
             "type": "object",
             "properties": {
@@ -258,14 +254,14 @@ Exercícios
                                                                     "required": ["nome", "ordem", "series", "repeticoes"]
                                                                 }
                                                             },
-                                                            "aquecimento": { # Simplificado
+                                                            "aquecimento": {
                                                                 "type": ["object", "null"],
                                                                 "properties": {
                                                                     "duracao_minutos": {"type": ["integer", "null"]},
                                                                     "exercicios": {"type": "array", "items": {"type": "string"}}
                                                                 }
                                                             },
-                                                            "desaquecimento": { # Simplificado
+                                                            "desaquecimento": {
                                                                 "type": ["object", "null"],
                                                                 "properties": {
                                                                     "duracao_minutos": {"type": ["integer", "null"]},
@@ -284,7 +280,7 @@ Exercícios
                                 "required": ["nome", "ordem", "duracao_semanas", "objetivo", "microciclos"]
                             }
                         },
-                        "metricas": { # Opcional
+                        "metricas": {
                             "type": ["object", "null"],
                             "properties": {
                                 "calorias_estimadas": {"type": ["integer", "null"]},
@@ -302,7 +298,7 @@ Exercícios
 
     def _obter_template_json_str(self) -> str:
         """Retorna uma string formatada do template JSON para incluir no prompt."""
-        # Cria uma versão simplificada do schema com valores de exemplo/nulos
+        # Cria uma versão simplificada do schema com valores de exemplo/nulos - Mantido como no original
         template = {
             "plano_principal": {
                 "nome": "Nome do Plano (ex: Hipertrofia Intermediário)",
@@ -366,7 +362,8 @@ Exercícios
         """Prepara o prompt completo para a API Claude."""
         self.logger.info("Preparando prompt para a API Claude...")
 
-        # Extração segura de dados do usuário
+        # Extração segura de dados do usuário - Mantido como no original
+        # Nota: A chave 'conversa_chat' agora virá dos 'adjustments' do frontend
         nome = dados_usuario.get("nome", "Não informado")
         idade = dados_usuario.get("idade", "Não informado")
         peso = dados_usuario.get("peso", "Não informado")
@@ -379,18 +376,18 @@ Exercícios
         dias_disponiveis = dados_usuario.get("dias_disponiveis", [])
         cardio = dados_usuario.get("cardio", "não")
         alongamento = dados_usuario.get("alongamento", "não")
-        conversa_chat = dados_usuario.get("conversa_chat", "Nenhuma conversa registrada.")
+        conversa_chat = dados_usuario.get("conversa_chat", "Nenhuma conversa registrada.") # Receberá os ajustes
         objetivos = dados_usuario.get("objetivos", [])
         restricoes = dados_usuario.get("restricoes", [])
-        lesoes = dados_usuario.get("lesoes", []) # Assumindo que lesões também podem vir
+        lesoes = dados_usuario.get("lesoes", [])
 
-        # Formatações
+        # Formatações - Mantido como no original
         objetivos_str = "\n".join([f"- {obj.get('nome', 'N/A')} (Prioridade: {obj.get('prioridade', 'N/A')})" for obj in objetivos]) if objetivos else "Nenhum objetivo específico."
         restricoes_str = "\n".join([f"- {rest.get('nome', 'N/A')}, Gravidade: {rest.get('gravidade', 'N/A')}" for rest in restricoes]) if restricoes else "Nenhuma restrição específica."
         lesoes_str = "\n".join([f"- {lesao.get('regiao', 'N/A')}, Gravidade: {lesao.get('gravidade', 'N/A')}, Obs: {lesao.get('observacoes', 'N/A')}" for lesao in lesoes]) if lesoes else "Nenhuma lesão reportada."
-        dias_str = ", ".join(dias_disponiveis) if dias_disponiveis else "Não especificado"
+        dias_str = ", ".join(map(str, dias_disponiveis)) if dias_disponiveis else "Não especificado" # Garante que dias sejam strings
 
-        # Construção do prompt final
+        # Construção do prompt final - Mantido como no original
         prompt_completo = f"""
 {self.prompt_template_base}
 
@@ -433,3 +430,217 @@ INSTRUÇÕES ESPECÍFICAS PARA GERAÇÃO DO PLANO:
 TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalmente):
 ```json
 {self.json_template_for_prompt}
+```""" # Fim do prompt_completo
+
+        self.logger.debug(f"Prompt preparado:\n{prompt_completo[:500]}...") # Loga início do prompt
+        return prompt_completo.strip()
+
+    def _extrair_json_da_resposta(self, texto_resposta: str) -> Optional[Dict[str, Any]]:
+        """Tenta extrair um objeto JSON de uma string que pode conter texto adicional."""
+        self.logger.debug("Tentando extrair JSON da resposta da API...")
+        # Procura por ```json ... ``` ou apenas { ... }
+        match = re.search(r"```json\s*(\{.*?\})\s*```|(\{.*?\})", texto_resposta, re.DOTALL)
+        if match:
+            json_str = match.group(1) or match.group(2)
+            try:
+                parsed_json = json.loads(json_str)
+                self.logger.debug("JSON extraído e parseado com sucesso.")
+                return parsed_json
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Falha ao decodificar JSON extraído: {e}\nJSON String: {json_str[:500]}...")
+                return None
+        else:
+            self.logger.warning("Nenhum bloco JSON encontrado na resposta da API.")
+            return None
+
+    def _validar_plano_com_schema(self, plano_json: Dict[str, Any]) -> bool:
+        """Valida o JSON do plano contra o schema definido."""
+        self.logger.debug("Validando JSON do plano contra o schema...")
+        try:
+            jsonschema.validate(instance=plano_json, schema=self.schema)
+            self.logger.info("Validação do JSON do plano bem-sucedida.")
+            return True
+        except jsonschema.exceptions.ValidationError as e:
+            self.logger.error(f"Erro de validação do JSON: {e.message} em {list(e.path)}")
+            # Log mais detalhado do erro
+            self.logger.debug(f"Detalhes da validação:\nSchema: {e.schema}\nInstância no erro: {e.instance}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Erro inesperado durante a validação do JSON: {e}", exc_info=True)
+            return False
+
+    def _chamar_api_claude(self, prompt: str) -> Optional[str]:
+        """
+        Encapsula a chamada à API Anthropic Claude.
+        Retorna o texto da resposta da IA ou None em caso de erro.
+        """
+        self.logger.info(f"Enviando prompt para o modelo {self.MODEL_NAME}...")
+        try:
+            response = self.anthropic_client.messages.create(
+                model=self.MODEL_NAME,
+                max_tokens=self.MAX_TOKENS,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            # Verifica se a resposta tem o conteúdo esperado
+            if response.content and isinstance(response.content, list) and len(response.content) > 0:
+                # Assume que a resposta principal está no primeiro bloco de conteúdo
+                resposta_texto = response.content[0].text
+                self.logger.info("Resposta recebida da API Claude.")
+                self.logger.debug(f"Resposta bruta (início): {resposta_texto[:500]}...")
+                return resposta_texto
+            else:
+                self.logger.error(f"Resposta inesperada da API Claude: {response}")
+                return None
+
+        except anthropic.APIConnectionError as e:
+            self.logger.error(f"Erro de conexão com a API Anthropic: {e}", exc_info=True)
+            raise ConnectionError(f"Falha ao conectar à API Anthropic: {e}") from e
+        except anthropic.RateLimitError as e:
+            self.logger.error(f"Erro de limite de taxa da API Anthropic: {e}", exc_info=True)
+            raise ConnectionError(f"Limite de taxa da API Anthropic excedido: {e}") from e
+        except anthropic.APIStatusError as e:
+            self.logger.error(f"Erro de status da API Anthropic: status={e.status_code}, response={e.response}", exc_info=True)
+            raise ConnectionError(f"Erro na API Anthropic (Status {e.status_code}): {e}") from e
+        except Exception as e:
+            self.logger.error(f"Erro inesperado ao chamar a API Claude: {e}", exc_info=True)
+            raise RuntimeError(f"Erro inesperado durante a chamada da API: {e}") from e
+
+    def gerar_plano(self, dados_usuario: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Orquestra a geração do plano de treinamento.
+        1. Prepara o prompt.
+        2. Chama a API Claude.
+        3. Extrai e valida o JSON da resposta.
+        4. Adiciona metadados.
+        5. Retorna o plano validado ou None em caso de falha.
+        """
+        self.logger.info(f"Iniciando geração de plano para usuário ID: {dados_usuario.get('id', 'N/A')}")
+
+        # 1. Preparar Prompt
+        try:
+            prompt = self._preparar_prompt(dados_usuario)
+        except Exception as e:
+            self.logger.error(f"Erro ao preparar o prompt: {e}", exc_info=True)
+            return None
+
+        # 2. Chamar API Claude
+        try:
+            resposta_texto = self._chamar_api_claude(prompt)
+            if not resposta_texto:
+                self.logger.error("Não foi possível obter uma resposta válida da API Claude.")
+                return None
+        except (ConnectionError, RuntimeError) as e:
+            # Erros já logados em _chamar_api_claude
+            self.logger.error(f"Falha na comunicação com a API: {e}")
+            return None # Retorna None para indicar falha na geração
+        except Exception as e:
+            self.logger.error(f"Erro inesperado durante a chamada da API: {e}", exc_info=True)
+            return None
+
+        # 3. Extrair JSON da Resposta
+        plano_bruto = self._extrair_json_da_resposta(resposta_texto)
+        if not plano_bruto:
+            self.logger.error("Falha ao extrair JSON da resposta da API.")
+            # Tentar logar a resposta completa se a extração falhar
+            self.logger.debug(f"Resposta completa da API que falhou na extração:\n{resposta_texto}")
+            return None
+
+        # 4. Adicionar Metadados e Informações do Usuário (conforme schema)
+        try:
+            plano_final = {
+                "treinamento_id": str(uuid.uuid4()),
+                "versao": self.PLANO_VERSAO,
+                "data_criacao": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "usuario": {
+                    "id": str(dados_usuario.get("id", "N/A")), # Garante que ID seja string
+                    "nome": dados_usuario.get("nome"),
+                    "nivel": dados_usuario.get("nivel", "iniciante"),
+                    "objetivos": dados_usuario.get("objetivos", []),
+                    "restricoes": dados_usuario.get("restricoes", [])
+                    # Adicione outros campos do usuário se necessário no schema
+                },
+                "plano_principal": plano_bruto.get("plano_principal") # Pega a parte gerada pela IA
+            }
+            # Verifica se plano_principal existe no JSON bruto
+            if not plano_final["plano_principal"]:
+                 self.logger.error("A chave 'plano_principal' não foi encontrada no JSON retornado pela IA.")
+                 self.logger.debug(f"JSON bruto recebido: {plano_bruto}")
+                 return None
+
+        except Exception as e:
+            self.logger.error(f"Erro ao adicionar metadados ao plano: {e}", exc_info=True)
+            return None
+
+        # 5. Validar JSON Final com Schema
+        if self._validar_plano_com_schema(plano_final):
+            self.logger.info(f"Plano de treinamento gerado e validado com sucesso (ID: {plano_final['treinamento_id']}).")
+            return plano_final
+        else:
+            self.logger.error("Falha na validação do schema do plano final.")
+            self.logger.debug(f"Plano final que falhou na validação: {json.dumps(plano_final, indent=2)}")
+            # Considerar salvar o plano inválido para análise, se necessário
+            # salvar_plano_invalido(plano_final)
+            return None
+
+# Exemplo de uso (para teste local, se necessário)
+if __name__ == '__main__':
+    # CUIDADO: Isso requer um arquivo .env na raiz do projeto com ANTHROPIC_API_KEY
+    print("Executando teste local do TreinadorEspecialista...")
+
+    # Dados de exemplo (simulando o que viria do backend/API)
+    dados_teste_usuario = {
+        "id": "usuario_teste_123",
+        "nome": "Usuário Teste",
+        "idade": 30,
+        "peso": 80,
+        "altura": 175,
+        "genero": "masculino",
+        "nivel": "intermediário",
+        "historico_treino": "Treina há 2 anos, focado em hipertrofia.",
+        "tempo_treino": 75,
+        "disponibilidade_semanal": 4,
+        "dias_disponiveis": ["segunda", "terça", "quinta", "sexta"],
+        "cardio": "sim",
+        "alongamento": "sim",
+        "objetivos": [
+            {"nome": "Hipertrofia Muscular", "prioridade": 1},
+            {"nome": "Melhorar força no supino", "prioridade": 2}
+        ],
+        "restricoes": [
+            {"nome": "Dor leve no ombro direito ao elevar muito peso acima da cabeça", "gravidade": "leve"}
+        ],
+        "lesoes": [], # Sem lesões ativas
+        "conversa_chat": "- Gostaria de focar mais em peito e costas.\n- Evitar exercícios que sobrecarreguem o ombro direito."
+    }
+
+    try:
+        treinador = TreinadorEspecialista()
+        plano_gerado = treinador.gerar_plano(dados_teste_usuario)
+
+        if plano_gerado:
+            print("\n--- Plano Gerado com Sucesso ---")
+            # Imprime apenas algumas chaves principais para não poluir o console
+            print(f"ID: {plano_gerado.get('treinamento_id')}")
+            print(f"Versão: {plano_gerado.get('versao')}")
+            print(f"Data Criação: {plano_gerado.get('data_criacao')}")
+            print(f"Usuário ID: {plano_gerado.get('usuario', {}).get('id')}")
+            print(f"Nome do Plano: {plano_gerado.get('plano_principal', {}).get('nome')}")
+            print(f"Periodização: {plano_gerado.get('plano_principal', {}).get('periodizacao', {}).get('tipo')}")
+            print(f"Número de Ciclos: {len(plano_gerado.get('plano_principal', {}).get('ciclos', []))}")
+
+            # Opcional: Salvar o JSON em um arquivo para análise
+            # with open("plano_exemplo.json", "w", encoding="utf-8") as f:
+            #     json.dump(plano_gerado, f, indent=2, ensure_ascii=False)
+            # print("\nPlano salvo em plano_exemplo.json")
+
+        else:
+            print("\n--- Falha ao gerar o plano ---")
+            print("Verifique os logs para mais detalhes.")
+
+    except ValueError as e:
+        print(f"Erro de configuração: {e}")
+    except Exception as e:
+        print(f"Erro inesperado durante o teste: {e}")
+        traceback.print_exc()

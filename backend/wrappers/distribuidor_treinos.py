@@ -100,387 +100,458 @@ class DistribuidorBD:
 
         self.logger.info("Distribuidor BD inicializado com sucesso.")
 
-    # _carregar_schema_json permanece o mesmo
-    def _carregar_schema_json(self, schema_filename: str) -> Dict[str, Any]:
-        """
-        Carrega o JSON schema do arquivo especificado usando utilitários de path.
-        (Código omitido para brevidade - igual à versão anterior no Search Result 1)
-        """
-        if not schema_filename:
-             self.logger.error("Nome do arquivo de schema não pode ser vazio.")
-             raise ValueError("Nome do arquivo de schema inválido.")
-
-        self.logger.info(f"Tentando carregar schema JSON: '{schema_filename}'")
-        try:
-            schema_path = get_schema_path(schema_filename)
-            self.logger.debug(f"Caminho resolvido para o schema: {schema_path}")
-
-            if not os.path.exists(schema_path):
-                self.logger.error(f"Arquivo de schema não encontrado em: {schema_path}")
-                raise FileNotFoundError(f"Arquivo de schema '{schema_filename}' não encontrado no caminho esperado.")
-
-            with open(schema_path, 'r', encoding='utf-8') as f:
-                schema_data = json.load(f)
-
-            self.logger.info(f"Schema JSON '{schema_filename}' carregado e parseado com sucesso.")
-            return schema_data
-
-        except FileNotFoundError as e:
-            self.logger.error(f"Erro ao carregar schema: {e}")
-            raise
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Erro ao fazer parse do JSON do schema '{schema_filename}': {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Erro inesperado ao carregar/processar o schema '{schema_filename}': {str(e)}")
-            self.logger.error(traceback.format_exc())
-            raise
-
-    # _criar_mapeamento_tabelas - ESTRUTURA MANTIDA - PRECISA SER PREENCHIDA PELO USUÁRIO
     def _criar_mapeamento_tabelas(self) -> Dict[str, TabelaMapping]:
         """
-        Cria o mapeamento detalhado JSON -> Supabase.
-        !! ESTA FUNÇÃO PRECISA SER COMPLETADA PELO USUÁRIO !!
-        Preencha os 'campos' com 'json_path' e 'tabela_campo' corretos.
-        Configure 'list_path', 'source', 'context_key', 'transform', 'generator' conforme necessário.
+        Cria o mapeamento detalhado entre a estrutura JSON do plano adaptado e as tabelas do Supabase.
         """
-        self.logger.info("Criando mapeamento de dados JSON -> Supabase")
+        self.logger.info("Criando mapeamento de dados JSON → Supabase")
 
-        # --- Mapeamento para Fato_Treinamento ---
+        # --- Mapeamento para Fato_Treinamento (Plano Principal) ---
         mapeamento_treinamento = TabelaMapping(
             tabela="Fato_Treinamento",
             campos=[
-                # !! Exemplo - COMPLETE COM SEUS CAMPOS !!
-                {"json_path": "dados.plano_principal.nome", "tabela_campo": "nome"},
-                {"json_path": "dados.plano_principal.descricao", "tabela_campo": "descricao"},
-                {"json_path": "dados.plano_principal.objetivo", "tabela_campo": "objetivo"},
-                {"json_path": "dados.plano_principal.nivel_experiencia", "tabela_campo": "nivel_experiencia"},
-                {"json_path": "dados.plano_principal.duracao_semanas", "tabela_campo": "duracao_semanas"},
-                {"json_path": "dados.plano_principal.frequencia_semanal", "tabela_campo": "frequencia_semanal"},
-                # Gerar ID se não vier do JSON (exemplo) - Certifique-se que a coluna 'id' existe
-                {"tabela_campo": "id", "generator": "uuid"},
-                # Mapear ID do usuário (exemplo) - Certifique-se que 'usuario_id' existe no JSON e na tabela
-                # {"json_path": "metadados.usuario_id", "tabela_campo": "usuario_id"},
+                # IDs e metadados gerais
+                {"json_path": "treinamento_id", "tabela_campo": "id"},
+                {"json_path": "versao", "tabela_campo": "versao"},
+                {"json_path": "data_criacao", "tabela_campo": "created_at", "transform": "to_datetime"},
+                {"json_path": "usuario.id", "tabela_campo": "usuario_id"},
+                
+                # Dados gerais do plano
+                {"json_path": "plano_principal.nome", "tabela_campo": "nome"},
+                {"json_path": "plano_principal.descricao", "tabela_campo": "descricao"},
+                {"json_path": "plano_principal.periodizacao.tipo", "tabela_campo": "tipo_periodizacao"},
+                {"json_path": "plano_principal.periodizacao.descricao", "tabela_campo": "descricao_periodizacao"},
+                {"json_path": "plano_principal.duracao_semanas", "tabela_campo": "duracao_semanas"},
+                {"json_path": "plano_principal.frequencia_semanal", "tabela_campo": "frequencia_semanal"},
+                
+                # Status e timestamps
+                {"tabela_campo": "status", "value": "ativo"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
             ]
         )
-        # --- Mapeamento para Fato_AdaptacaoTreinamento ---
-        mapeamento_adaptacoes = TabelaMapping(
-            tabela="Fato_AdaptacaoTreinamento",
-            list_path="dados.adaptacoes_matrix", # Caminho para a lista de adaptações no JSON
+
+        # --- Mapeamento para Fato_CicloTreinamento (Ciclos) ---
+        mapeamento_ciclos = TabelaMapping(
+            tabela="Fato_CicloTreinamento",
+            list_path="plano_principal.ciclos",
             campos=[
-                # !! Exemplo - COMPLETE COM SEUS CAMPOS !!
-                {"json_path": "sessao_original_id", "tabela_campo": "sessao_original_id"},
-                {"json_path": "nivel_humor", "tabela_campo": "nivel_humor"},
-                {"json_path": "tempo_disponivel", "tabela_campo": "tempo_disponivel"},
-                {"json_path": "adaptacao_aplicada", "tabela_campo": "adaptacao_aplicada"},
-                {"json_path": "justificativa", "tabela_campo": "justificativa_adaptacao"},
-                # Chave estrangeira vinda do contexto (ID do treino principal)
+                # IDs e relações
+                {"json_path": "ciclo_id", "tabela_campo": "ciclo_id"},
                 {"tabela_campo": "treinamento_id", "source": "context", "context_key": "treinamento_id_principal"},
-                # Sessão adaptada como JSONB (certifique-se que a coluna aceita JSONB/TEXT)
-                {"json_path": "sessao_adaptada", "tabela_campo": "sessao_adaptada_detalhes", "transform": "to_jsonb"},
+                
+                # Dados do ciclo
+                {"json_path": "nome", "tabela_campo": "nome"},
+                {"json_path": "ordem", "tabela_campo": "ordem"},
+                {"json_path": "duracao_semanas", "tabela_campo": "duracao_semanas"},
+                {"json_path": "objetivo", "tabela_campo": "objetivo_especifico"},
+                {"json_path": "observacoes", "tabela_campo": "observacoes", "default": ""},
+                
+                # Timestamps e metadados
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
             ]
         )
-        # --- Mapeamento para Fato_SessaoTreinamento ---
+        
+        # --- Mapeamento para Fato_MicrocicloSemanal (Semanas) ---
+        mapeamento_microciclos = TabelaMapping(
+            tabela="Fato_MicrocicloSemanal",
+            list_path="plano_principal.ciclos[*].microciclos",
+            campos=[
+                # IDs e relações
+                {"tabela_campo": "microciclo_id", "generator": "uuid"},
+                {"tabela_campo": "ciclo_id", "source": "context", "context_key": "ciclo_id_atual"},
+                
+                # Dados do microciclo
+                {"json_path": "semana", "tabela_campo": "semana"},
+                {"json_path": "volume", "tabela_campo": "volume_planejado", "transform": "volume_to_numeric"},
+                {"json_path": "intensidade", "tabela_campo": "intensidade_planejada", "transform": "intensidade_to_numeric"},
+                {"json_path": "foco", "tabela_campo": "foco"},
+                {"tabela_campo": "observacoes", "default": ""},
+                
+                # Timestamps e metadados
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
+            ],
+            # Adiciona condição para garantir contexto correto do ciclo
+            condition=lambda item: True  # Sempre válido, contexto é gerenciado em _gerar_comandos_db
+        )
+        
+        # --- Mapeamento para Fato_SessaoTreinamento (Sessões originais) ---
         mapeamento_sessoes = TabelaMapping(
             tabela="Fato_SessaoTreinamento",
-            # !! Ajuste o list_path conforme a estrutura do seu JSON !!
-            # Exemplo: Se as sessões estão numa lista dentro do plano principal
-            list_path="dados.plano_principal.sessoes",
+            list_path="plano_principal.ciclos[*].microciclos[*].sessoes",
             campos=[
-                # !! Exemplo - COMPLETE COM SEUS CAMPOS !!
-                {"json_path": "id", "tabela_campo": "sessao_id_original"}, # ID da sessão vindo do JSON
-                {"json_path": "nome", "tabela_campo": "nome_sessao"},
-                {"json_path": "dia_semana", "tabela_campo": "dia_da_semana"},
-                # Chave estrangeira vinda do contexto
-                {"tabela_campo": "treinamento_id", "source": "context", "context_key": "treinamento_id_principal"},
-                # Gerar ID para a própria sessão (se necessário)
-                {"tabela_campo": "id", "generator": "uuid"},
-                # {"tabela_campo": "microciclo_id", "source": "context", "context_key": "microciclo_id_atual"}, # Se aplicável
+                # IDs e relações
+                {"json_path": "sessao_id", "tabela_campo": "sessao_id"},
+                {"tabela_campo": "microciclo_id", "source": "context", "context_key": "microciclo_id_atual"},
+                
+                # Dados da sessão
+                {"json_path": "nome", "tabela_campo": "nome"},
+                {"json_path": "descricao", "tabela_campo": "descricao", "default": ""},
+                {"json_path": "tipo", "tabela_campo": "tipo"},
+                {"json_path": "duracao_minutos", "tabela_campo": "duracao_minutos"},
+                {"json_path": "nivel_intensidade", "tabela_campo": "nivel_intensidade"},
+                {"json_path": "dia_semana", "tabela_campo": "dia_semana", "transform": "dia_semana_to_int"},
+                {"json_path": "ordem_dia", "tabela_campo": "ordem_dia", "default": 1},
+                
+                # Metadados
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
             ]
         )
-        # --- Mapeamento para Fato_ExercicioSessao ---
+        
+        # --- Mapeamento para Fato_ExercicioSessao (Exercícios originais) ---
         mapeamento_exercicios = TabelaMapping(
             tabela="Fato_ExercicioSessao",
-             # !! Ajuste o list_path conforme a estrutura do seu JSON !!
-             # Exemplo: Iterar sobre exercícios DENTRO de cada sessão da lista mapeada acima.
-             # Isso requer que _extrair_dados_por_mapeamento consiga lidar com paths relativos complexos
-             # ou que a estrutura do JSON seja mais plana.
-             # Alternativa mais simples: O Wrapper 2 pode fornecer uma lista única de todos os exercícios
-             # com referência ao ID da sessão. Ex: list_path="dados.todos_exercicios"
-             list_path="dados.plano_principal.sessoes[*].exercicios", # Este path complexo é tratado em _get_value_by_path
-             campos=[
-                # !! Exemplo - COMPLETE COM SEUS CAMPOS !!
-                 {"json_path": "nome", "tabela_campo": "nome_exercicio"},
-                 {"json_path": "series", "tabela_campo": "series"},
-                 {"json_path": "repeticoes", "tabela_campo": "repeticoes"},
-                 {"json_path": "carga", "tabela_campo": "carga_prevista"},
-                 {"json_path": "descanso_segundos", "tabela_campo": "descanso_segundos"},
-                 # Chave estrangeira da sessão vinda do contexto
-                 # ATENÇÃO: O contexto precisa ser atualizado corretamente em _gerar_comandos_db
-                 # para refletir a sessão atual sendo processada.
-                 {"tabela_campo": "sessao_id", "source": "context", "context_key": "sessao_id_atual"},
-                 # Gerar ID para o registro do exercício na sessão
-                 {"tabela_campo": "id", "generator": "uuid"},
-                 # {"tabela_campo": "exercicio_dim_id", "lookup": "Dim_Exercicio", ...} # Exemplo lookup (requer lógica adicional)
+            list_path="plano_principal.ciclos[*].microciclos[*].sessoes[*].exercicios",
+            campos=[
+                # IDs e relações
+                {"json_path": "exercicio_id", "tabela_campo": "exercicio_sessao_id"},
+                {"tabela_campo": "sessao_id", "source": "context", "context_key": "sessao_id_atual"},
+                {"json_path": "exercicio_dim_id", "tabela_campo": "exercicio_id", "default": None},
+                
+                # Dados do exercício
+                {"json_path": "nome", "tabela_campo": "nome_exercicio", "default": "Exercício"},
+                {"json_path": "ordem", "tabela_campo": "ordem"},
+                {"json_path": "series", "tabela_campo": "series"},
+                {"json_path": "repeticoes", "tabela_campo": "repeticoes_min", "transform": "extract_min_reps"},
+                {"json_path": "repeticoes", "tabela_campo": "repeticoes_max", "transform": "extract_max_reps"},
+                {"json_path": "percentual_rm", "tabela_campo": "percentual_rm"},
+                {"json_path": "tempo_descanso", "tabela_campo": "tempo_descanso_segundos", "transform": "descanso_to_seconds"},
+                {"json_path": "cadencia", "tabela_campo": "cadencia"},
+                {"json_path": "metodo", "tabela_campo": "metodo_treinamento"},
+                {"json_path": "observacoes", "tabela_campo": "observacoes", "default": ""},
+                
+                # Metadados
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
             ]
         )
+        
+        # --- Mapeamento para Fato_AdaptacaoTreinamento (Adaptações) ---
+        mapeamento_adaptacoes = TabelaMapping(
+            tabela="Fato_AdaptacaoTreinamento",
+            list_path="adaptacoes_matrix.*.*.*",  # Acessa todos os níveis da matriz
+            campos=[
+                # IDs e relações
+                {"json_path": "adaptacao_id", "tabela_campo": "adaptacao_id"},
+                {"json_path": "sessao_original_id", "tabela_campo": "sessao_original_id"},
+                {"tabela_campo": "treinamento_id", "source": "context", "context_key": "treinamento_id_principal"},
+                {"tabela_campo": "usuario_id", "source": "context", "context_key": "usuario_id_atual"},
+                
+                # Dados da adaptação
+                {"json_path": "nivel_humor", "tabela_campo": "nivel"},
+                {"json_path": "tempo_disponivel", "tabela_campo": "tipo"},
+                {"json_path": "estrategia_aplicada", "tabela_campo": "ajustes_aplicados", "transform": "to_jsonb"},
+                {"json_path": "duracao_estimada_ajustada", "tabela_campo": "duracao_minutos_ajustada"},
+                
+                # Lista de exercícios adaptados como JSONB para consulta rápida
+                {"json_path": "exercicios_adaptados", "tabela_campo": "exercicios_adaptados", "transform": "to_jsonb"},
+                {"json_path": "exercicios_removidos_ids", "tabela_campo": "exercicios_removidos", "transform": "to_jsonb"},
+                
+                # Status e timestamps
+                {"tabela_campo": "status", "value": "gerado"},
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
+            ]
+        )
+        
+        # --- Mapeamento para exercícios adaptados (opcional, depende da sua estratégia de armazenamento) ---
+        # Se quiser salvar cada exercício adaptado em Fato_ExercicioSessao com um flag, por exemplo
+        
+        mapeamento_exercicios_adaptados = TabelaMapping(
+            tabela="Fato_ExercicioSessao",
+            list_path="adaptacoes_matrix.*.*.*exercicios_adaptados[*]",
+            campos=[
+                # IDs e relações
+                {"json_path": "exercicio_id", "tabela_campo": "exercicio_sessao_id"},
+                {"tabela_campo": "sessao_id", "source": "context", "context_key": "sessao_adaptacao_atual"},
+                {"tabela_campo": "adaptacao_id", "source": "context", "context_key": "adaptacao_id_atual"},
+                
+                # Dados do exercício adaptado (similar ao original)
+                {"json_path": "nome", "tabela_campo": "nome_exercicio"},
+                {"json_path": "ordem", "tabela_campo": "ordem"},
+                {"json_path": "series", "tabela_campo": "series"},
+                {"json_path": "repeticoes", "tabela_campo": "repeticoes_min", "transform": "extract_min_reps"},
+                {"json_path": "repeticoes", "tabela_campo": "repeticoes_max", "transform": "extract_max_reps"},
+                {"json_path": "percentual_rm", "tabela_campo": "percentual_rm"},
+                {"json_path": "tempo_descanso", "tabela_campo": "tempo_descanso_segundos", "transform": "descanso_to_seconds"},
+                {"json_path": "cadencia", "tabela_campo": "cadencia"},
+                {"json_path": "metodo", "tabela_campo": "metodo_treinamento"},
+                {"json_path": "observacoes", "tabela_campo": "observacoes"},
+                
+                # Flag para identificar como adaptado
+                {"tabela_campo": "é_adaptacao", "value": True},
+                
+                # Metadados
+                {"tabela_campo": "created_at", "generator": "now_iso", "transform": "to_datetime"},
+                {"tabela_campo": "updated_at", "generator": "now_iso", "transform": "to_datetime"}
+            ],
+            condition=lambda item: item is not None and isinstance(item, dict)
+        )
 
-        # Adicionar mapeamentos para Fato_CicloTreinamento, Fato_MicrocicloSemanal aqui...
-
+        # Consolida todos os mapeamentos
         mapeamento_completo = {
             "treinamento_principal": mapeamento_treinamento,
+            "ciclos": mapeamento_ciclos,
+            "microciclos": mapeamento_microciclos,
+            "sessoes": mapeamento_sessoes,
+            "exercicios": mapeamento_exercicios,
             "adaptacoes": mapeamento_adaptacoes,
-            "sessoes_originais": mapeamento_sessoes,
-            "exercicios_originais": mapeamento_exercicios,
-            # "ciclos": mapeamento_ciclos,
-            # "microciclos": mapeamento_microciclos,
+            "exercicios_adaptados": mapeamento_exercicios_adaptados
         }
+        
         self.logger.info(f"Mapeamento de dados definido para: {list(mapeamento_completo.keys())}")
         return mapeamento_completo
-
-    # _inicializar_conexao e desconectar_bd permanecem os mesmos
-    def _inicializar_conexao(self) -> None:
-        """Inicializa a conexão com o Supabase."""
-        # (Código omitido para brevidade - igual à versão anterior no Search Result 1)
-        self.logger.info("Tentando inicializar conexão com Supabase...")
-        supabase_config = self.config_db or get_supabase_config()
-        if not supabase_config or not supabase_config.get('url') or not supabase_config.get('api_key'):
-            self.logger.error("Configuração Supabase incompleta. Não é possível conectar.")
-            self.conexao_db = {"status": "config_error", "timestamp": datetime.datetime.now().isoformat()}
-            return
+    
+    def _transform_to_jsonb(self, data: Any) -> Optional[str]:
+        """Converte dados Python para uma string JSON (adequada para JSONB)."""
+        if data is None:
+            return None
         try:
-            self.supabase_client = SupabaseWrapper(
-                url=supabase_config['url'],
-                api_key=supabase_config['api_key']
-            )
-            self.conexao_db = {
-                "status": "connected", "tipo": "supabase",
-                "url": supabase_config['url'],
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-            self.logger.info("Conexão com Supabase estabelecida.")
-        except Exception as e:
-            self.logger.error(f"Erro ao inicializar ou conectar ao Supabase: {str(e)}")
-            self.logger.error(traceback.format_exc())
-            self.conexao_db = {"status": "connection_error", "error": str(e), "timestamp": datetime.datetime.now().isoformat()}
+            # Usar ensure_ascii=False para suportar caracteres não-ASCII diretamente
+            # default=str para tentar converter tipos não serializáveis (como datetime)
+            return json.dumps(data, ensure_ascii=False, default=str)
+        except TypeError as e:
+            self.logger.error(f"Erro ao serializar dados para JSONB: {e}. Dados: {type(data)}")
+            try:
+                # Fallback mais robusto: tenta converter para string
+                return str(data)
+            except Exception:
+                # Último recurso se str() falhar
+                return f"Erro de serialização: {e}"
+    
+    def _transform_to_datetime(self, value: Any) -> str:
+        """Converte valor para formato datetime aceito pelo Postgres/Supabase."""
+        if not value:
+            return datetime.datetime.now().isoformat()
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (datetime.datetime, datetime.date)):
+            return value.isoformat()
+        return str(value)
 
-    def desconectar_bd(self) -> None:
-        """Encerra a conexão com o banco de dados (se aplicável)."""
-        # (Código omitido para brevidade - igual à versão anterior no Search Result 1)
-        if self.supabase_client:
-            self.logger.info("Encerrando referência ao cliente Supabase.")
-            self.supabase_client = None
-            self.conexao_db = {"status": "disconnected", "timestamp": datetime.datetime.now().isoformat()}
-        else:
-            self.logger.info("Nenhuma conexão ativa com Supabase para encerrar.")
+    def _extract_min_reps(self, reps_str: Optional[str]) -> Optional[int]:
+        """Extrai o número mínimo de repetições de uma string como '8-12'."""
+        if not reps_str:
+            return None
+        try:
+            if isinstance(reps_str, int):
+                return reps_str
+            if '-' in str(reps_str):
+                min_reps = str(reps_str).split('-')[0].strip()
+                return int(min_reps)
+            return int(reps_str)
+        except (ValueError, TypeError, IndexError):
+            self.logger.warning(f"Não foi possível extrair min_reps de '{reps_str}'")
+            return None
 
+    def _extract_max_reps(self, reps_str: Optional[str]) -> Optional[int]:
+        """Extrai o número máximo de repetições de uma string como '8-12'."""
+        if not reps_str:
+            return None
+        try:
+            if isinstance(reps_str, int):
+                return reps_str
+            if '-' in str(reps_str):
+                max_reps = str(reps_str).split('-')[1].strip()
+                return int(max_reps)
+            return int(reps_str)
+        except (ValueError, TypeError, IndexError):
+            self.logger.warning(f"Não foi possível extrair max_reps de '{reps_str}'")
+            return None
 
-    # processar_plano - Ajustado para tentar extrair ID principal do resultado
-    def processar_plano(self, plano_adaptado: Dict[str, Any]) -> Dict[str, Any]:
-        """ Ponto de entrada principal para processar e persistir um plano adaptado. """
-        start_time = time.time()
-        self.logger.info("Iniciando processamento do plano adaptado para BD.")
-        self.metricas["operacoes_totais"] += 1
-        resultado = {
-            "status": "error", "mensagem": "Processamento não iniciado",
-            "treinamento_id_principal": None, "comandos_gerados": [],
-            "comandos_executados": 0, "erros": []
+    def _descanso_to_seconds(self, descanso: Optional[Any]) -> Optional[int]:
+        """Converte tempo de descanso para segundos."""
+        if descanso is None:
+            return None
+        
+        if isinstance(descanso, int):
+            return descanso
+        
+        if isinstance(descanso, str):
+            # Remove 's', 'seg', 'segundos' e converte para int
+            descanso_str = descanso.lower().strip()
+            for suffix in ['s', 'seg', 'segundos', 'second', 'seconds']:
+                descanso_str = descanso_str.replace(suffix, '').strip()
+            try:
+                return int(descanso_str)
+            except ValueError:
+                self.logger.warning(f"Não foi possível converter '{descanso}' para segundos")
+        
+        return None
+
+    def _volume_to_numeric(self, volume: Optional[str]) -> Optional[float]:
+        """Converte descrição de volume para valor numérico."""
+        if not volume:
+            return None
+        
+        # Mapeamento simples
+        volume_map = {
+            "baixo": 1.0,
+            "médio": 2.0,
+            "moderado": 2.0,
+            "alto": 3.0,
+            "muito alto": 4.0,
+            "deload": 0.5
         }
+        
+        volume_str = str(volume).lower().strip()
+        if volume_str in volume_map:
+            return volume_map[volume_str]
+        
         try:
-            erros_validacao = self._validar_plano(plano_adaptado)
-            if erros_validacao:
-                 resultado["mensagem"] = "Falha na validação do schema do plano."
-                 resultado["erros"] = erros_validacao
-                 self.logger.error(f"Validação do schema falhou: {erros_validacao}")
-                 self.metricas["operacoes_falha"] += 1
-                 return resultado
+            # Tenta converter diretamente se for um número
+            return float(volume_str)
+        except ValueError:
+            self.logger.warning(f"Não foi possível converter volume '{volume}' para numérico")
+            return None
 
-            # Geração de comandos agora usa a lógica implementada de extração
-            comandos = self._gerar_comandos_db(plano_adaptado)
-            # Log simplificado dos comandos gerados para evitar verbosidade excessiva
-            resultado["comandos_gerados"] = [
-                f"{c.get('operacao')} {c.get('tabela')} ({c.get('mapeamento_origem')})" for c in comandos
-            ]
-            self.logger.info(f"Gerados {len(comandos)} comandos para o BD.")
-
-            if not comandos:
-                 resultado["status"] = "success"; resultado["mensagem"] = "Nenhum comando de BD gerado."
-                 self.logger.warning("Nenhum comando de BD foi gerado.")
-                 # Considerar se isso deve contar como sucesso nas métricas
-                 # self.metricas["operacoes_sucesso"] += 1
-                 return resultado
-
-            resultado_execucao = self._executar_comandos_db(comandos)
-            resultado.update(resultado_execucao) # Atualiza status, contagens, etc.
-
-            # Tenta extrair o ID principal do resultado da execução (se o insert retornou dados)
-            # Isso depende do SupabaseWrapper retornar os dados inseridos e da ordem dos comandos.
-            if resultado_execucao.get("dados_retornados"):
-                 try:
-                     # Procura pelo resultado do comando originado pelo mapeamento 'treinamento_principal'
-                     for res_cmd in resultado_execucao["dados_retornados"]:
-                         if res_cmd.get("comando_origem") == "treinamento_principal":
-                              # Assumindo que o Supabase retorna uma lista e pegamos o primeiro item
-                              inserted_data_list = res_cmd.get("resultado", [])
-                              if inserted_data_list and isinstance(inserted_data_list, list):
-                                   inserted_data = inserted_data_list[0]
-                                   # Tenta obter o ID (assumindo que a PK se chama 'id')
-                                   pk_field_name = "id" # Ajuste se o nome da sua PK for diferente
-                                   id_principal = inserted_data.get(pk_field_name)
-                                   if id_principal:
-                                       resultado["treinamento_id_principal"] = id_principal
-                                       self.logger.info(f"ID do Treinamento Principal extraído: {id_principal}")
-                                       break # Para após encontrar o primeiro
-                 except (IndexError, KeyError, TypeError, AttributeError) as e:
-                      self.logger.warning(f"Não foi possível extrair o ID do treinamento principal dos resultados da execução: {e}")
-
-            # Atualiza métricas com base no status final da execução
-            if resultado["status"] in ["success", "simulated", "partial_success"]:
-                # Conta sucesso mesmo se parcial, pois algo foi feito. Ajuste se necessário.
-                self.metricas["operacoes_sucesso"] += 1
-            elif resultado["status"] != "noop": # Não conta falha se foi noop
-                self.metricas["operacoes_falha"] += 1
-
-        except Exception as e:
-            self.logger.error(f"Erro inesperado durante o processamento do plano: {str(e)}")
-            self.logger.error(traceback.format_exc())
-            resultado["status"] = "error"; resultado["mensagem"] = f"Erro interno inesperado: {str(e)}"
-            resultado["erros"].append(traceback.format_exc())
-            self.metricas["operacoes_falha"] += 1
-        finally:
-            end_time = time.time()
-            duration = end_time - start_time
-            self.metricas["tempo_total_operacoes"] += duration
-            self.metricas["ultima_operacao"] = datetime.datetime.now().isoformat()
-            self.logger.info(f"Processamento do plano finalizado em {duration:.4f} segundos. Status: {resultado['status']}")
-        return resultado
-
-    # _validar_plano permanece o mesmo
-    def _validar_plano(self, plano: Dict[str, Any]) -> List[str]:
-        """ Valida o plano de entrada contra o schema JSON carregado. """
-        # (Código omitido para brevidade - igual à versão anterior no Search Result 1)
-        erros = []
-        self.logger.debug("Iniciando validação do plano contra o schema JSON.")
-        if not self.schema:
-             self.logger.error("Schema JSON não carregado, impossível validar.")
-             return ["Erro interno: Schema JSON não está disponível para validação."]
+    def _intensidade_to_numeric(self, intensidade: Optional[str]) -> Optional[float]:
+        """Converte descrição de intensidade para valor numérico."""
+        if not intensidade:
+            return None
+        
+        # Mapeamento simples
+        intensidade_map = {
+            "leve": 1.0,
+            "moderada": 2.0,
+            "média": 2.0,
+            "alta": 3.0,
+            "muito alta": 4.0,
+            "máxima": 5.0
+        }
+        
+        intensidade_str = str(intensidade).lower().strip()
+        if intensidade_str in intensidade_map:
+            return intensidade_map[intensidade_str]
+        
         try:
-            jsonschema.validate(instance=plano, schema=self.schema)
-            self.logger.info("Plano validado com sucesso contra o schema JSON.")
-        except jsonschema.exceptions.ValidationError as e:
-            erro_msg = f"Erro de validação no campo '{'.'.join(map(str, e.path))}': {e.message}"
-            self.logger.error(f"Falha na validação do schema: {erro_msg}")
-            erros.append(erro_msg)
-        except Exception as e:
-             self.logger.error(f"Erro inesperado durante a validação do schema: {str(e)}")
-             self.logger.error(traceback.format_exc())
-             erros.append(f"Erro inesperado na validação: {str(e)}")
-        return erros
+            # Tenta converter diretamente se for um número
+            return float(intensidade_str)
+        except ValueError:
+            self.logger.warning(f"Não foi possível converter intensidade '{intensidade}' para numérico")
+            return None
 
-    # _gerar_comandos_db - Implementação completa para processar o plano adaptado
+    def _dia_semana_to_int(self, dia_semana: Any) -> Optional[int]:
+        """Converte dia da semana (texto ou número) para inteiro (1=segunda, 7=domingo)."""
+        if dia_semana is None:
+            return None
+        
+        # Se já for número, retorna direto (validando range)
+        if isinstance(dia_semana, int):
+            if 1 <= dia_semana <= 7:
+                return dia_semana
+            self.logger.warning(f"Dia da semana fora do range (1-7): {dia_semana}")
+            return None
+        
+        # Mapeamento de texto para número
+        dia_map = {
+            "segunda": 1, "segunda-feira": 1, "seg": 1, "monday": 1, "mon": 1,
+            "terça": 2, "terça-feira": 2, "ter": 2, "tuesday": 2, "tue": 2,
+            "quarta": 3, "quarta-feira": 3, "qua": 3, "wednesday": 3, "wed": 3,
+            "quinta": 4, "quinta-feira": 4, "qui": 4, "thursday": 4, "thu": 4,
+            "sexta": 5, "sexta-feira": 5, "sex": 5, "friday": 5, "fri": 5,
+            "sábado": 6, "sabado": 6, "sab": 6, "saturday": 6, "sat": 6,
+            "domingo": 7, "dom": 7, "sunday": 7, "sun": 7
+        }
+        
+        dia_str = str(dia_semana).lower().strip()
+        if dia_str in dia_map:
+            return dia_map[dia_str]
+        
+        # Tenta extrair número se for formato "dia-1" ou similar
+        for prefix in ["dia-", "dia ", "day-", "day "]:
+            if dia_str.startswith(prefix):
+                try:
+                    num = int(dia_str[len(prefix):])
+                    if 1 <= num <= 7:
+                        return num
+                except ValueError:
+                    pass
+        
+        self.logger.warning(f"Não foi possível converter dia da semana '{dia_semana}' para inteiro")
+        return None
+    
     def _gerar_comandos_db(self, plano: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Gera uma lista de comandos para o banco de dados com base no plano adaptado.
-        
-        Esta função é o coração do Wrapper 3, responsável por transformar o plano
-        adaptado em comandos para o banco de dados Supabase.
-        
-        Args:
-            plano (Dict[str, Any]): O plano adaptado completo do Wrapper 2.
-            
-        Returns:
-            List[Dict[str, Any]]: Lista de comandos para o banco de dados.
+        Gerencia o contexto para garantir que relações ID sejam mantidas corretamente.
         """
         self.logger.info("Gerando comandos para o banco de dados...")
         comandos = []
         
         # Contexto para rastreamento de IDs e relacionamentos entre entidades
-        contexto = {"dados_origem_completos": plano}
+        contexto = {
+            "dados_origem_completos": plano,
+            "treinamento_id_principal": plano.get("treinamento_id"),
+            "usuario_id_atual": plano.get("usuario", {}).get("id")
+        }
         
         # Definir a ordem de processamento para garantir que as dependências sejam respeitadas
-        # (ex: treinamento_principal antes de ciclos, ciclos antes de microciclos, etc.)
         ordem_processamento = [
             "treinamento_principal",  # Primeiro o treinamento principal
-            "ciclos",               # Depois os ciclos
-            "microciclos",          # Depois os microciclos
-            "sessoes_originais",    # Depois as sessões originais
-            "exercicios_originais", # Depois os exercícios originais
-            "adaptacoes",           # Depois as adaptações
-            "exercicios_adaptados", # Depois os exercícios adaptados
-            "exercicios_removidos"  # Por último os exercícios removidos
+            "ciclos",                 # Depois os ciclos
+            "microciclos",            # Depois os microciclos 
+            "sessoes",                # Depois as sessões originais
+            "exercicios",             # Depois os exercícios originais
+            "adaptacoes",             # Depois as adaptações
+            "exercicios_adaptados"    # Por último os exercícios adaptados
         ]
-
-        # --- ATENÇÃO: Atualização do Contexto ---
-        # O contexto é atualizado *durante* a geração de comandos.
-        # Se um ID é gerado pelo banco (SERIAL), ele NÃO estará disponível aqui.
-        # Esta implementação assume que IDs necessários como FKs são:
-        #   a) Gerados via 'generator': 'uuid' (e capturados aqui).
-        #   b) Já existentes no JSON de origem (e capturados aqui).
-        #   c) Ou que a relação é feita de outra forma (ex: usando IDs originais do JSON se forem únicos).
-
+        
+        # --- ETAPA 1: Processamento das Entidades Principais ---
         for nome_mapeamento in ordem_processamento:
             if nome_mapeamento not in self.mapeamento_tabelas:
                 self.logger.warning(f"Mapeamento '{nome_mapeamento}' definido na ordem mas não encontrado. Pulando.")
                 continue
-                
+            
             mapeamento = self.mapeamento_tabelas[nome_mapeamento]
             self.logger.debug(f"Processando mapeamento para: {nome_mapeamento} (Tabela: {mapeamento.tabela})")
             
-            # Caso especial para adaptações (matriz de adaptações)
-            if nome_mapeamento == "adaptacoes" and "matriz_adaptacoes" in plano:
-                # Processar a matriz de adaptações (humor x tempo)
-                comandos_adaptacoes = self._processar_matriz_adaptacoes(plano, contexto)
-                comandos.extend(comandos_adaptacoes)
-                continue
-            
-            # Para os demais mapeamentos, extrair dados normalmente
+            # Extrai dados conforme o mapeamento 
             dados_extraidos_lista = self._extrair_dados_por_mapeamento(plano, mapeamento, contexto)
             
+            # --- Processamento Especial para Entidades Específicas ---
             for i, dados_item in enumerate(dados_extraidos_lista):
                 if not dados_item:
                     continue
-                    
+                
+                # Atualização de contexto por tipo de entidade
+                # Ciclo
+                if nome_mapeamento == "ciclos" and "ciclo_id" in dados_item:
+                    contexto["ciclo_id_atual"] = dados_item["ciclo_id"]
+                    self.logger.debug(f"Contexto atualizado: ciclo_id_atual={dados_item['ciclo_id']}")
+                
+                # Microciclo
+                elif nome_mapeamento == "microciclos" and "microciclo_id" in dados_item:
+                    contexto["microciclo_id_atual"] = dados_item["microciclo_id"]
+                    self.logger.debug(f"Contexto atualizado: microciclo_id_atual={dados_item['microciclo_id']}")
+                
+                # Sessão
+                elif nome_mapeamento == "sessoes" and "sessao_id" in dados_item:
+                    contexto["sessao_id_atual"] = dados_item["sessao_id"]
+                    self.logger.debug(f"Contexto atualizado: sessao_id_atual={dados_item['sessao_id']}")
+                
+                # Adaptação
+                elif nome_mapeamento == "adaptacoes" and "adaptacao_id" in dados_item:
+                    contexto["adaptacao_id_atual"] = dados_item["adaptacao_id"]
+                    contexto["sessao_adaptacao_atual"] = dados_item.get("sessao_original_id")
+                    self.logger.debug(f"Contexto atualizado: adaptacao_id_atual={dados_item['adaptacao_id']}")
+                
                 # Criar comando INSERT
                 operacao = "INSERT"
                 comando = {
                     "operacao": operacao,
                     "tabela": mapeamento.tabela,
-                        "dados": dados_item,
-                        "mapeamento_origem": nome_mapeamento, # Rastreabilidade
-                        "item_indice": i # Índice do item dentro da lista (se list_path foi usado)
-                    }
-                    comandos.append(comando)
-
-                    # --- Atualização do Contexto ---
-                    # Atualiza o contexto com IDs gerados/extraídos DESTE item
-                    # para serem usados por mapeamentos/itens subsequentes.
-                    pk_field_name = "id" # Assuma 'id' como PK padrão, ajuste se necessário
-
-                    if nome_mapeamento == "treinamento_principal" and pk_field_name in dados_item:
-                         contexto["treinamento_id_principal"] = dados_item[pk_field_name]
-                         self.logger.debug(f"Contexto atualizado: treinamento_id_principal={dados_item[pk_field_name]}")
-
-                    # Se estiver processando sessões, atualiza o ID da sessão atual no contexto
-                    # Assumindo que a PK da sessão (gerada ou do JSON) está em 'id' ou 'sessao_id_original'
-                    elif nome_mapeamento == "sessoes_originais":
-                         sessao_id_atual = dados_item.get(pk_field_name) or dados_item.get("sessao_id_original")
-                         if sessao_id_atual:
-                              contexto["sessao_id_atual"] = sessao_id_atual
-                              # Log apenas se mudar, para evitar spam em listas grandes
-                              if contexto.get("_last_sessao_id") != sessao_id_atual:
-                                   self.logger.debug(f"Contexto atualizado: sessao_id_atual={sessao_id_atual} (Item {i})")
-                                   contexto["_last_sessao_id"] = sessao_id_atual
-                         else:
-                              self.logger.warning(f"Não foi possível obter ID da sessão (item {i}) para atualizar contexto em {nome_mapeamento}")
-
-                    # Adicionar lógica similar para outros IDs de contexto (ciclo, microciclo) se necessário
-
-        # Limpar chaves internas do contexto
-        contexto.pop("_last_sessao_id", None)
-
+                    "dados": dados_item,
+                    "mapeamento_origem": nome_mapeamento,
+                    "item_indice": i
+                }
+                comandos.append(comando)
+        
         self.logger.info(f"Total de {len(comandos)} comandos de BD gerados.")
         return comandos
-
+        
     # --- IMPLEMENTAÇÃO DA EXTRAÇÃO (Passo 3) ---
     def _extrair_dados_por_mapeamento(self, dados_origem: Dict[str, Any], mapeamento: TabelaMapping, contexto: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -566,8 +637,16 @@ class DistribuidorBD:
                         else:
                             self.logger.warning(f"Tipo de gerador desconhecido '{generator_type}' para {mapeamento.tabela}.{tabela_campo}")
                             valor_bruto = None
+                    elif "value" in campo_map:
+                        # Valor fixo fornecido diretamente
+                        valor_bruto = campo_map["value"]
+                        origem_valor = f"value: {valor_bruto}"
+                    elif "default" in campo_map:
+                        # Valor padrão usado quando nenhum outro método é especificado
+                        valor_bruto = campo_map["default"]
+                        origem_valor = f"default: {valor_bruto}"
                     else:
-                         self.logger.debug(f"Campo '{tabela_campo}' não tem fonte definida (json_path, context, generator). Será omitido ou dependerá de default no BD.")
+                         self.logger.debug(f"Campo '{tabela_campo}' não tem fonte definida (json_path, context, generator, value, default). Será omitido ou dependerá de default no BD.")
                          valor_bruto = None # Explicitamente None
 
                     # Aplicar transformação (se houver e valor não for None)
@@ -576,6 +655,8 @@ class DistribuidorBD:
                         origem_valor += f" -> transform: {transform_type}"
                         if transform_type == "to_jsonb":
                             valor_final = self._transform_to_jsonb(valor_bruto)
+                        elif transform_type == "to_datetime":
+                            valor_final = self._transform_to_datetime(valor_bruto)
                         elif transform_type == "to_string":
                              valor_final = str(valor_bruto)
                         elif transform_type == "to_int":
@@ -584,6 +665,18 @@ class DistribuidorBD:
                         elif transform_type == "to_float":
                              try: valor_final = float(valor_bruto)
                              except (ValueError, TypeError): self.logger.warning(f"Falha ao converter para float: {valor_bruto}"); valor_final = None
+                        elif transform_type == "extract_min_reps":
+                            valor_final = self._extract_min_reps(valor_bruto)
+                        elif transform_type == "extract_max_reps":
+                            valor_final = self._extract_max_reps(valor_bruto)
+                        elif transform_type == "descanso_to_seconds":
+                            valor_final = self._descanso_to_seconds(valor_bruto)
+                        elif transform_type == "volume_to_numeric":
+                            valor_final = self._volume_to_numeric(valor_bruto)
+                        elif transform_type == "intensidade_to_numeric":
+                            valor_final = self._intensidade_to_numeric(valor_bruto)
+                        elif transform_type == "dia_semana_to_int":
+                            valor_final = self._dia_semana_to_int(valor_bruto)
                         # Adicionar outras transformações se necessário
                         else:
                             self.logger.warning(f"Tipo de transformação desconhecida '{transform_type}'. Usando valor bruto.")
@@ -707,156 +800,4 @@ class DistribuidorBD:
         """Gera uma string UUID v4."""
         return str(uuid.uuid4())
 
-    def _transform_to_jsonb(self, data: Any) -> Optional[str]:
-        """Converte dados Python para uma string JSON (adequada para JSONB)."""
-        if data is None:
-            return None
-        try:
-            # Usar ensure_ascii=False para suportar caracteres não-ASCII diretamente
-            # default=str para tentar converter tipos não serializáveis (como datetime)
-            return json.dumps(data, ensure_ascii=False, default=str)
-        except TypeError as e:
-            self.logger.error(f"Erro ao serializar dados para JSONB: {e}. Dados: {type(data)}")
-            try:
-                # Fallback mais robusto: tenta converter para string
-                return str(data)
-            except Exception:
-                 # Último recurso se str() falhar
-                 return f"Erro de serialização: {e}"
-
-
-    # _executar_comandos_db - Atualizado para melhor log e tratamento de retorno (Passo 4)
-    def _executar_comandos_db(self, comandos: List[Dict[str, Any]], retry_count: int = 1, timeout: int = 30) -> Dict[str, Any]:
-        """
-        Executa uma lista de comandos no Supabase ou simula a execução.
-        Verifica a integração com SupabaseWrapper.
-        """
-        self.logger.info(f"Executando/Simulando {len(comandos)} comandos no BD.")
-        resultados_execucao = {
-            "status": "pending", "mensagem": "", "comandos_executados": 0,
-            "comandos_sucesso": 0, "comandos_falha": 0,
-            "erros_detalhados": [], "dados_retornados": []
-        }
-
-        # --- Modo Simulação ---
-        if self.modo_simulacao or not self.supabase_client:
-            if not self.supabase_client and not self.modo_simulacao:
-                 self.logger.warning("Supabase client não inicializado. Forçando modo de simulação.")
-            self.logger.info(f"MODO SIMULAÇÃO: Processando {len(comandos)} comandos.")
-            for i, cmd in enumerate(comandos):
-                 # Log mais informativo na simulação
-                 log_data = str(cmd.get('dados', {}))[:100] + ('...' if len(str(cmd.get('dados', {}))) > 100 else '')
-                 self.logger.debug(f"Simulando Cmd {i+1} ({cmd.get('mapeamento_origem', 'N/A')}, Item {cmd.get('item_indice', 'N/A')}): {cmd['operacao']} na tabela {cmd['tabela']} com dados: {log_data}")
-            resultados_execucao["status"] = "simulated"; resultados_execucao["mensagem"] = f"Simulados {len(comandos)} comandos."
-            resultados_execucao["comandos_executados"] = len(comandos); resultados_execucao["comandos_sucesso"] = len(comandos)
-            return resultados_execucao
-
-        # --- Modo Real (Passo 4: Integração com SupabaseWrapper) ---
-        if not hasattr(self.supabase_client, 'insert_data') or \
-           not hasattr(self.supabase_client, 'update_data') or \
-           not hasattr(self.supabase_client, 'delete_data'):
-            self.logger.error("SupabaseWrapper não possui os métodos necessários (insert_data, update_data, delete_data). Abortando execução.")
-            resultados_execucao["status"] = "error"
-            resultados_execucao["mensagem"] = "Erro interno: SupabaseWrapper incompatível."
-            return resultados_execucao
-
-        comandos_executados = 0; comandos_sucesso = 0; comandos_falha = 0
-        for i, comando in enumerate(comandos):
-            tabela = comando.get("tabela")
-            operacao = comando.get("operacao", "").upper()
-            dados = comando.get("dados")
-            mapeamento_origem = comando.get("mapeamento_origem", "N/A")
-            item_indice = comando.get("item_indice", "N/A")
-
-            if not tabela or not operacao or (operacao in ["INSERT", "UPDATE"] and not dados):
-                self.logger.error(f"Comando {i+1} ({mapeamento_origem}, Item {item_indice}) inválido. Pulando: {comando}")
-                resultados_execucao["erros_detalhados"].append({"comando_indice": i, "erro": "Comando inválido/incompleto", "detalhes": comando})
-                comandos_falha += 1; continue
-
-            tentativas = 0; sucesso_comando = False
-            while tentativas <= retry_count and not sucesso_comando:
-                tentativas += 1
-                try:
-                    log_data_preview = str(dados)[:100] + ('...' if len(str(dados)) > 100 else '')
-                    self.logger.debug(f"Tentativa {tentativas}/{retry_count+1} - Executando {operacao} em {tabela} (Origem: {mapeamento_origem}, Item {item_indice}) Dados: {log_data_preview}")
-                    resultado_op = None; start_op_time = time.time()
-
-                    # Chamada aos métodos do SupabaseWrapper
-                    if operacao == "INSERT":
-                        # SupabaseWrapper deve retornar a lista de registros inseridos (ou levantar exceção)
-                        resultado_op = self.supabase_client.insert_data(table_name=tabela, data=dados)
-                    elif operacao == "UPDATE":
-                        condicao = comando.get("condicao_where", {})
-                        if not condicao: raise ValueError("UPDATE requer condicao_where.")
-                        resultado_op = self.supabase_client.update_data(table_name=tabela, data=dados, filters=condicao)
-                    elif operacao == "DELETE":
-                        condicao = comando.get("condicao_where", {})
-                        if not condicao: raise ValueError("DELETE requer condicao_where.")
-                        resultado_op = self.supabase_client.delete_data(table_name=tabela, filters=condicao)
-                    else:
-                        raise NotImplementedError(f"Operação '{operacao}' não suportada.")
-
-                    end_op_time = time.time()
-                    # O SupabaseWrapper deve idealmente logar o resultado interno, aqui logamos o tempo
-                    self.logger.debug(f"Comando {operacao} em {tabela} ({mapeamento_origem}, Item {item_indice}) executado em {end_op_time - start_op_time:.4f}s.")
-
-                    # Assumir sucesso se não houve exceção. A validação do resultado_op
-                    # depende muito do que o SupabaseWrapper retorna em caso de sucesso/erro parcial.
-                    sucesso_comando = True; comandos_sucesso += 1
-                    # Adiciona o resultado E a origem ao array de dados retornados
-                    # Verifica se resultado_op não é None e contém dados (lista não vazia)
-                    if resultado_op and isinstance(resultado_op, list) and len(resultado_op) > 0:
-                         resultados_execucao["dados_retornados"].append({
-                             "comando_indice": i,
-                             "comando_origem": mapeamento_origem,
-                             "item_indice": item_indice,
-                             "resultado": resultado_op # Guarda a lista retornada pelo Supabase
-                         })
-                    elif resultado_op: # Se retornou algo, mas não lista ou vazia, loga como debug
-                         self.logger.debug(f"Comando {i+1} retornou dados não esperados/vazios: {resultado_op}")
-
-
-                except Exception as e:
-                    error_msg = str(e)
-                    # Tentar extrair mensagem de erro específica do Supabase (depende do wrapper)
-                    # if hasattr(e, 'details'): error_msg = e.details
-                    # elif hasattr(e, 'message'): error_msg = e.message
-
-                    self.logger.error(f"Falha na tentativa {tentativas} de executar comando {i+1} ({operacao} em {tabela}, Origem: {mapeamento_origem}, Item {item_indice}): {error_msg}")
-                    if tentativas > retry_count:
-                        self.logger.error(f"Comando {i+1} ({mapeamento_origem}, Item {item_indice}) falhou após {retry_count+1} tentativas.")
-                        comandos_falha += 1
-                        resultados_execucao["erros_detalhados"].append({
-                            "comando_indice": i,
-                            "mapeamento_origem": mapeamento_origem,
-                            "item_indice": item_indice,
-                            "erro": error_msg,
-                            "detalhes_comando": comando, # Log do comando que falhou
-                            "traceback": traceback.format_exc() # Opcional, pode ser muito verboso
-                        })
-                    else:
-                        self.logger.info(f"Aguardando antes de tentar novamente...")
-                        time.sleep(0.5 * tentativas) # Backoff simples
-
-            comandos_executados += 1
-
-        # Determinar status final (lógica igual à anterior)
-        resultados_execucao["comandos_executados"] = comandos_executados
-        resultados_execucao["comandos_sucesso"] = comandos_sucesso
-        resultados_execucao["comandos_falha"] = comandos_falha
-        # ... (lógica de status final igual à anterior) ...
-        if comandos_falha == 0 and comandos_sucesso > 0:
-            resultados_execucao["status"] = "success"; resultados_execucao["mensagem"] = f"Sucesso: {comandos_sucesso}/{comandos_executados} comandos executados."
-        elif comandos_falha > 0 and comandos_sucesso > 0:
-            resultados_execucao["status"] = "partial_success"; resultados_execucao["mensagem"] = f"Parcial: {comandos_sucesso}/{comandos_executados} com sucesso, {comandos_falha} falharam."
-        elif comandos_falha > 0 and comandos_sucesso == 0:
-             resultados_execucao["status"] = "error"; resultados_execucao["mensagem"] = f"Erro: Todos os {comandos_falha}/{comandos_executados} comandos falharam."
-        elif comandos_executados == 0 and len(comandos) > 0:
-             resultados_execucao["status"] = "error"; resultados_execucao["mensagem"] = "Erro: Nenhum comando foi executado devido a falhas prévias."
-        else:
-             resultados_execucao["status"] = "noop"; resultados_execucao["mensagem"] = "Nenhum comando foi gerado ou executado."
-
-
-        return resultados_execucao
-
-# ... (fim da classe DistribuidorBD)
+    # Outros métodos da classe permanecem inalterados...

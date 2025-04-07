@@ -9,20 +9,23 @@ export type AuthStackParamList = {
   ResetPassword: undefined;
 };
 
-// Parâmetros para as rotas principais
+// Parâmetros para as rotas principais (ATUALIZADO)
+// Adicionado WorkoutDetail
 export type MainStackParamList = {
   Home: undefined;
   Profile: undefined;
   TrainingDetail: { sessionId: string };
   Questionnaire: undefined;
   Settings: undefined;
+  WorkoutDetail: { trainingId: string }; // <-- Adicionado conforme solicitado
 };
 
-// Parâmetros para o TabNavigator
+// Parâmetros para o TabNavigator (ATUALIZADO)
+// Removido CalendarTab
 export type TabParamList = {
   HomeTab: undefined;
   TrainingTab: undefined;
-  CalendarTab: undefined;
+  // CalendarTab: undefined; // <-- Removido conforme solicitado
   ProfileTab: undefined;
 };
 
@@ -48,5 +51,13 @@ export type ProfileScreenProps = {
   route: RouteProp<MainStackParamList, 'Profile'>;
 };
 
+// NOTA: Se você precisar de tipos para a nova rota WorkoutDetail,
+// você pode adicioná-los seguindo o mesmo padrão:
+// export type WorkoutDetailScreenProps = {
+//   navigation: StackNavigationProp<MainStackParamList, 'WorkoutDetail'>;
+//   route: RouteProp<MainStackParamList, 'WorkoutDetail'>;
+// };
+
 // União de todas as listas de parâmetros para uso geral
+// (ATUALIZADO automaticamente devido às mudanças em MainStackParamList e TabParamList)
 export type RootStackParamList = AuthStackParamList & MainStackParamList & TabParamList;

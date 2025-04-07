@@ -49,6 +49,7 @@ const RootNavigator = () => {
     );
   }
 
+  // Se não há sessão, direciona para autenticação
   if (!session) {
     console.log('[RootNavigator] Direcionando para Auth: session=false');
     if (shouldStayLoggedIn) {

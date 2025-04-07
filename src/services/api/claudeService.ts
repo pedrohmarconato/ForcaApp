@@ -5,6 +5,16 @@ import { EXPO_PUBLIC_ANTHROPIC_API_KEY } from '@env';
 // Tipo importado ou definido no componente do chat. Reutilize se possível.
 type Content = { role: 'user' | 'model'; parts: { text: string }[] };
 
+// Helper function for delay
+async function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Retry constants
+const MAX_RETRIES = 3; // Maximum number of retries
+const INITIAL_DELAY_MS = 1000; // Initial delay of 1 second
+
+
 // Verifique se a chave da API está definida
 if (!EXPO_PUBLIC_ANTHROPIC_API_KEY) {
     console.error("Chave de API da Anthropic (EXPO_PUBLIC_ANTHROPIC_API_KEY) não encontrada. Verifique suas variáveis de ambiente.");

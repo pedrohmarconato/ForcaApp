@@ -1,28 +1,65 @@
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Feather } from '@expo/vector-icons';
 
-// Importa APENAS a(s) tela(s) principal(is) que existem
-import Home from '../screens/Home';
-// As linhas abaixo serão descomentadas/adicionadas QUANDO criarmos essas telas
-// import Exercicios from '../screens/Exercicios';
-// import Treinos from '../screens/Treinos';
-// import ProfileScreen from '../screens/ProfileScreen'; // Exemplo
+// Importar as novas telas
+import HomeScreen from '../screens/HomeScreen';
+import TrainingSessionScreen from '../screens/TrainingSessionScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 
-const Stack = createStackNavigator();
+// Crie um Bottom Tab Navigator
+const BottomTab = createBottomTabNavigator();
+
+// Stack Navigator para a Home (para permitir navegação de detalhes)
+const HomeStack = createStackNavigator();
+
+function HomeStackNavigator() {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="HomeMain" component={HomeScreen} />
+      <HomeStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
+    </HomeStack.Navigator>
+  );
+}
 
 const MainNavigator = () => {
   return (
-    // Define a tela inicial para quando o usuário está logado
-    <Stack.Navigator initialRouteName="Home">
-      {/* Inclui apenas as telas que existem */}
-      <Stack.Screen name="Home" component={Home} />
+    <BottomTab.Navigator 
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarIcon: ({ color, size }) => {
+          let iconName: string;
 
-      {/* As linhas abaixo serão descomentadas/adicionadas QUANDO criarmos essas telas */}
-      {/* <Stack.Screen name="Exercicios" component={Exercicios} /> */}
-      {/* <Stack.Screen name="Treinos" component={Treinos} /> */}
-      {/* <Stack.Screen name="Profile" component={ProfileScreen} /> */}
+          switch (route.name) {
+            case 'Home':
+              iconName = 'home';
+              break;
+            case 'Training':
+              iconName = 'activity';
+              break;
+            case 'Profile':
+              iconName = 'user';
+              break;
+            default:
+              iconName = 'circle';
+          }
 
-    </Stack.Navigator>
+          return <Feather name={iconName} size={size} color={color} />;
+        },
+        tabBarActiveTintColor: '#EBFF00', // Sua cor primária
+        tabBarInactiveTintColor: 'gray',
+        tabBarStyle: {
+          backgroundColor: '#0A0A0A', // Cor de fundo escura
+          borderTopWidth: 0,
+        },
+      })}
+    >
+      <BottomTab.Screen name="Home" component={HomeStackNavigator} />
+      <BottomTab.Screen name="Training" component={TrainingSessionScreen} />
+      <BottomTab.Screen name="Profile" component={ProfileScreen} />
+    </BottomTab.Navigator>
   );
 };
 
