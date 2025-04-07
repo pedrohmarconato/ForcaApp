@@ -1,50 +1,74 @@
 // /home/pmarconato/ForcaApp/src/services/api/apiClient.ts
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-// Importa a função de configuração de interceptors do arquivo dedicado
-import { setupInterceptors } from './interceptors';
-// AsyncStorage não é mais diretamente necessário aqui, mas pode ser mantido se outras partes do arquivo o usarem no futuro.
-// import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
-// --- Configuração Principal do Cliente ---
-
-// 1. Leia a variável de ambiente do arquivo .env usando process.env
-//    Certifique-se de que EXPO_PUBLIC_API_BASE_URL está no seu .env!
+// Obtém a URL base da API a partir das variáveis de ambiente (ex: .env)
 const apiBaseUrlFromEnv = process.env.EXPO_PUBLIC_API_BASE_URL;
 
-// Log para ajudar a depurar (opcional)
-console.log(`[apiClient] Lendo EXPO_PUBLIC_API_BASE_URL: ${apiBaseUrlFromEnv || 'NÃO DEFINIDA'}`);
+// Define a URL base efetiva para as chamadas da API.
+// Se a variável de ambiente EXPO_PUBLIC_API_BASE_URL não estiver definida,
+// utiliza 'http://localhost:5001/api' como padrão.
+// Isso é útil para desenvolvimento local, apontando para o servidor Flask.
+const effectiveApiBaseUrl = apiBaseUrlFromEnv || 'http://localhost:5001/api';
 
-// 2. Use a variável lida ou um fallback (ajuste o fallback se necessário)
-//    IMPORTANTE: Para testes locais com Expo Go, use o IP da sua máquina na rede local.
-//    Ex: 'http://192.168.1.10:5001/api' (ajuste porta e caminho base se diferente)
-//    O fallback é útil para desenvolvimento local quando a variável de ambiente não está definida.
-const effectiveApiBaseUrl = apiBaseUrlFromEnv || 'http://192.168.1.10:5001/api'; // <-- AJUSTE O FALLBACK AQUI SE NECESSÁRIO
+// Cria uma instância configurada do Axios (cliente HTTP)
+const apiClient = axios.create({
+  baseURL: effectiveApiBaseUrl, // Define a URL base para todas as requisições feitas com esta instância
+  // Outras configurações globais do Axios podem ser adicionadas aqui. Exemplo:
+  // headers: { 'Content-Type': 'application/json' },
+  // timeout: 10000, // Timeout de 10 segundos
+});
 
-// 3. Configurações padrão para todas as requisições
-const defaultConfig: AxiosRequestConfig = {
-  baseURL: effectiveApiBaseUrl, // <<< USA A VARIÁVEL CORRIGIDA OU O FALLBACK
-  timeout: 30000, // 30 segundos
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json', // Adiciona Accept header para indicar o tipo de resposta esperado
+// Log para depuração: informa qual URL base está sendo usada ao iniciar o app.
+console.log(`[ApiClient] Configurado para usar a URL base: ${effectiveApiBaseUrl}`);
+
+// Interceptor de Requisição: Executa antes de cada requisição ser enviada.
+apiClient.interceptors.request.use(config => {
+  // Útil para adicionar dados comuns a todas as requisições (ex: token de autenticação)
+  // ou para logar informações da requisição.
+  console.log(`[ApiClient] Iniciando requisição para: ${config.url}`);
+  // É essencial retornar a configuração (config) para que a requisição prossiga.
+  return config;
+}, error => {
+  // Trata erros que ocorrem durante a configuração da requisição.
+  console.error('[ApiClient] Erro ao preparar requisição:', error);
+  // Rejeita a promessa para que o erro seja tratado onde a chamada foi feita.
+  return Promise.reject(error);
+});
+
+// Interceptor de Resposta: Executa após receber uma resposta (ou erro) do servidor.
+apiClient.interceptors.response.use(response => {
+  // Executado para respostas com status de sucesso (2xx).
+  // Útil para logar ou transformar dados da resposta globalmente.
+  console.log(`[ApiClient] Resposta recebida de: ${response.config.url}, Status: ${response.status}`);
+  // É essencial retornar a resposta (response) para que ela chegue ao local da chamada.
+  return response;
+}, error => {
+  // Executado para respostas com status de erro (fora da faixa 2xx).
+  // Tratamento centralizado de erros de resposta da API.
+  console.error('[ApiClient] Erro na resposta:', error.response?.status, error.response?.data || error.message);
+
+  // Verifica especificamente por 'Network Error', que geralmente indica que o servidor
+  // não está acessível (offline, URL errada, problema de CORS não tratado pelo servidor).
+  if (error.message === 'Network Error' && !error.response) {
+    console.error('[ApiClient] Erro de rede detectado. O servidor backend pode estar offline ou inacessível.');
+    // Poderia adicionar lógica aqui para notificar o usuário ou tentar novamente.
+  }
+  // Rejeita a promessa com o erro para que ele seja tratado no local da chamada (ex: no service).
+  return Promise.reject(error);
+});
+
+
+// Define uma estrutura para organizar os endpoints da API.
+export const ENDPOINTS = {
+  TRAINING: {
+    GENERATE_PLAN: '/generate-training-plan', // Endpoint para gerar plano de treino
+    // Exemplo: GET_PLAN: '/training-plan/:planId',
   },
+  USER: {
+    // Exemplo: GET_PROFILE: '/user/profile',
+  }
+  // Adicione outros módulos da API aqui (ex: PROGRESS, AUTH)
 };
 
-// 4. Criando a instância do axios
-export const createApiClient = (): AxiosInstance => {
-  console.log(`[apiClient] Criando instância com baseURL: ${defaultConfig.baseURL}`);
-  const instance = axios.create(defaultConfig);
-
-  // 5. Configurando interceptors usando a função importada de interceptors.ts
-  //    Isso aplica a lógica de adição de token e refresh de token.
-  setupInterceptors(instance);
-  console.log("[apiClient] Interceptors configurados via ./interceptors.ts.");
-
-  return instance;
-};
-
-// 6. Instância padrão para uso em toda a aplicação
-//    Esta é a instância que outros serviços devem importar.
-export const apiClient = createApiClient();
-
-console.log("[apiClient] Instância apiClient criada e exportada.");
+// Exporta a instância configurada do apiClient para ser usada nos services.
+export default apiClient;
