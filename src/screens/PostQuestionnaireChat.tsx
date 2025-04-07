@@ -129,50 +129,50 @@ const PostQuestionnaireChat = () => {
     }, []);
 
     // ** Função para gerar o plano **
-    const completeOnboardingAndGeneratePlan = useCallback(async () => {
-        // Acessa questionnaireData e adjustments diretamente do estado aqui
-        // Não precisa deles como dependência do useCallback
 
-        if (isGeneratingPlan) {
-            console.log(`[Chat ${userId}] Tentativa de gerar plano enquanto já estava gerando.`);
-            return;
-        }
-        // Lê o estado atualizado de questionnaireData aqui
-        if (!userId || !questionnaireData) {
-            Alert.alert("Erro", "Dados do usuário ou questionário ausentes para gerar o plano.");
-            return;
-        }
+// Corrected version (inserted)
+const completeOnboardingAndGeneratePlan = useCallback(async () => {
+  if (isGeneratingPlan || !userId || !questionnaireData) {
+    console.log(`[Chat ${userId}] Dados insuficientes ou geração já em andamento.`);
+    return;
+  }
 
-        console.log(`[Chat ${userId}] Iniciando geração do plano...`);
-        setIsGeneratingPlan(true);
-        setChatError(null);
+  console.log(`[Chat ${userId}] Iniciando geração do plano...`);
+  setIsGeneratingPlan(true);
+  setChatError(null);
 
-        try {
-            // Lê o estado atualizado de adjustments aqui
-            const result = await requestTrainingPlanGeneration(userId, questionnaireData, adjustments);
+  try {
+    // Obtém uma cópia fresca dos ajustes do estado
+    const currentAdjustments = [...adjustments]; 
+    
+    const result = await requestTrainingPlanGeneration(
+      userId,
+      questionnaireData,
+      currentAdjustments
+    );
 
-            if (result.success && result.planId) {
-                console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId}`);
-                await updateProfile({ onboarding_completed: true, current_plan_id: result.planId });
-                console.log(`[Chat ${userId}] Perfil atualizado, onboarding completo.`);
+    if (result.success && result.planId) {
+      console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId}`);
+      await updateProfile({ onboarding_completed: true, current_plan_id: result.planId });
+      
+      // Navegação após sucesso
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'App', params: { screen: 'Home' } }],
+      });
+    } else {
+      throw new Error(result.message || "Falha ao gerar o plano de treino.");
+    }
+  } catch (error: any) {
+    console.error(`[Chat ${userId}] Erro ao gerar plano:`, error);
+    setChatError(`Erro ao gerar plano: ${error.message || 'Tente novamente.'}`);
+  } finally {
+    setIsGeneratingPlan(false);
+  }
+}, [userId, updateProfile, navigation, isGeneratingPlan, questionnaireData, adjustments]);
+// End of corrected version
 
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'App', params: { screen: 'Home' } }],
-                });
-                console.log(`[Chat ${userId}] Navegando para App/Home.`);
 
-            } else {
-                throw new Error(result.message || "Falha ao gerar o plano de treino.");
-            }
-        } catch (error: any) {
-            console.error(`[Chat ${userId}] Erro ao gerar plano ou completar onboarding:`, error);
-            setChatError(`Erro ao gerar plano: ${error.message || 'Tente novamente.'}`);
-            setIsGeneratingPlan(false);
-        }
-    // *** CORREÇÃO: Removido questionnaireData e adjustments das dependências ***
-    // A função agora depende apenas de coisas que não mudam *durante* a inicialização
-    }, [userId, updateProfile, navigation, isGeneratingPlan]); // Dependências estáveis
 
     const handleUserWantsToChat = useCallback(() => {
         // ... (implementação inalterada) ...
