@@ -153,3 +153,7 @@ android/app/src/main/assets/index.android.bundle.meta
 *.orig.*
 web-build/
 web-report/
+# Python virtualenv (backend)
+.venv/
+__pycache__/
+*.pyc

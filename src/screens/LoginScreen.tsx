@@ -54,17 +54,15 @@ const LoginScreen = ({ navigation }) => {
     const { signIn } = useAuth();
     const paperTheme = useTheme();
 
-    // Load saved credentials on mount
+    // Load saved email on mount (a senha NUNCA é persistida)
     useEffect(() => {
     const loadCredentials = async () => {
     const savedEmail = await AsyncStorage.getItem('rememberedEmail');
-    const savedPassword = await AsyncStorage.getItem('rememberedPassword');
+    // Remove legado inseguro: versões antigas salvavam a senha em texto puro
+    await AsyncStorage.removeItem('rememberedPassword');
     if (savedEmail) {
     setEmail(savedEmail);
     setRememberMe(true); // Assume if email is saved, rememberMe was checked
-    if (savedPassword) {
-    setPassword(savedPassword); // Only set password if it was also saved
-    }
     }
     };
     loadCredentials();
@@ -79,14 +77,14 @@ const LoginScreen = ({ navigation }) => {
     if (signInError) {
     throw signInError;
     }
-    // Save credentials if rememberMe is checked
+    // Persiste apenas o e-mail se rememberMe estiver marcado.
+    // A senha jamais é armazenada (nem criptografada) — o usuário a digita a cada login.
     if (rememberMe) {
     await AsyncStorage.setItem('rememberedEmail', email);
-    await AsyncStorage.setItem('rememberedPassword', password); // Consider security implications
     } else {
     await AsyncStorage.removeItem('rememberedEmail');
-    await AsyncStorage.removeItem('rememberedPassword');
     }
+    await AsyncStorage.removeItem('rememberedPassword');
     // Navigation to Home/Main screen happens inside AuthContext/Navigator
     } catch (err: any) {
     console.error("Erro no login:", err);

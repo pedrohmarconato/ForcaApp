@@ -1,6 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env'; // Importa as variáveis do .env
+import { supabaseSecureStorage } from '../services/auth/secureStorage';
 
 // Validação básica para garantir que as variáveis foram carregadas
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -10,8 +11,9 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 // Cria e exporta o cliente Supabase
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    // Especifica o AsyncStorage para guardar a sessão no React Native
-    storage: AsyncStorage,
+    // Sessão criptografada no Keychain (iOS) / Keystore (Android),
+    // em vez de AsyncStorage em texto puro
+    storage: supabaseSecureStorage,
     // Persiste a sessão entre reinícios do app
     persistSession: true,
     // Desabilita a detecção de sessão na URL (importante para RN)

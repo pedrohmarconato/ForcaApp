@@ -26,8 +26,6 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "@google/generative-ai": "^0.24.0",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
@@ -40,6 +38,7 @@
     "expo-checkbox": "~4.0.1",
     "expo-dev-client": "~5.0.15",
     "expo-linear-gradient": "^14.0.2",
+    "expo-secure-store": "~14.0.1",
     "expo-status-bar": "^2.0.1",
     "lodash": "^4.17.21",
     "react": "18.3.1",
@@ -109,8 +108,11 @@
       "@testing-library/jest-native/extend-expect"
     ],
     "transformIgnorePatterns": [
-      "node_modules/(?!(react-native|@react-native|react-native-vector-icons|@react-navigation)/)"
+      "node_modules/(?!(react-native|@react-native|react-native-vector-icons|@react-navigation|expo|@expo|expo-secure-store|@react-native-async-storage|react-native-paper)/)"
     ],
+    "moduleNameMapper": {
+      "^@env$": "<rootDir>/mocks/envMock.js"
+    },
     "moduleFileExtensions": [
       "ts",
       "tsx",

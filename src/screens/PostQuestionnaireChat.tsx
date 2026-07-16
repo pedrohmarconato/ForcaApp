@@ -276,7 +276,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
         try {
             const historyForApi = currentMessages.filter(msg => msg.role !== 'system');
-            const aiResponseText = await callClaudeApi(historyForApi);
+            const aiResponseText = await callClaudeApi(historyForApi, questionnaireData, currentAdjustments);
 
             if (aiResponseText) {
                 const aiMessage: Content = { role: 'model', parts: [{ text: aiResponseText }] };

@@ -1,7 +1,8 @@
 # backend/utils/config.py
 import os
-from dotenv import load_dotenv
 import sys
+from typing import Optional
+from dotenv import load_dotenv
 
 # Determina o diretório raiz do projeto (assumindo que backend/ está um nível abaixo)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +17,7 @@ else:
     print(f"AVISO: Arquivo .env não encontrado em {DOTENV_PATH}. Variáveis de ambiente devem ser definidas manualmente.", file=sys.stderr)
 
 
-def get_env_variable(var_name: str, default: str | None = None) -> str | None:
+def get_env_variable(var_name: str, default: Optional[str] = None) -> Optional[str]:
     """Busca uma variável de ambiente."""
     value = os.getenv(var_name, default)
     if value is None:
@@ -47,7 +48,7 @@ else:
     logger.warning(f"Arquivo .env não encontrado em {dotenv_path}. Certifique-se de que ele existe na raiz do projeto ou configure as variáveis de ambiente manualmente.")
 
 
-def get_api_key(service_name: str = "ANTHROPIC") -> str | None:
+def get_api_key(service_name: str = "ANTHROPIC") -> Optional[str]:
     """
     Obtém a chave de API de uma variável de ambiente (ex: ANTHROPIC_API_KEY).
 
@@ -75,7 +76,7 @@ def get_api_key(service_name: str = "ANTHROPIC") -> str | None:
     return api_key
 
 # Função helper opcional para clareza ao buscar a chave específica do Anthropic
-def get_anthropic_api_key() -> str | None:
+def get_anthropic_api_key() -> Optional[str]:
     """Obtém especificamente a chave da API Anthropic."""
     return get_api_key("ANTHROPIC")
 
