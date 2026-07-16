@@ -447,7 +447,8 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                 self.logger.debug("JSON extraído e parseado com sucesso.")
                 return parsed_json
             except json.JSONDecodeError as e:
-                self.logger.error(f"Falha ao decodificar JSON extraído: {e}\nJSON String: {json_str[:500]}...")
+                # Não logar o conteúdo extraído: pode conter dados pessoais do usuário
+                self.logger.error(f"Falha ao decodificar JSON extraído: {e} (tamanho do trecho: {len(json_str)} chars)")
                 return None
         else:
             self.logger.warning("Nenhum bloco JSON encontrado na resposta da API.")
@@ -491,7 +492,8 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                 self.logger.debug(f"Resposta bruta (início): {resposta_texto[:500]}...")
                 return resposta_texto
             else:
-                self.logger.error(f"Resposta inesperada da API Claude: {response}")
+                # Não logar a resposta bruta: pode conter dados pessoais do usuário
+                self.logger.error(f"Resposta inesperada da API Claude (tipo de conteúdo: {type(response.content).__name__}).")
                 return None
 
         except anthropic.APIConnectionError as e:
@@ -501,7 +503,8 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             self.logger.error(f"Erro de limite de taxa da API Anthropic: {e}", exc_info=True)
             raise ConnectionError(f"Limite de taxa da API Anthropic excedido: {e}") from e
         except anthropic.APIStatusError as e:
-            self.logger.error(f"Erro de status da API Anthropic: status={e.status_code}, response={e.response}", exc_info=True)
+            # Não logar o corpo da resposta: pode ecoar o prompt com dados pessoais
+            self.logger.error(f"Erro de status da API Anthropic: status={e.status_code}", exc_info=True)
             raise ConnectionError(f"Erro na API Anthropic (Status {e.status_code}): {e}") from e
         except Exception as e:
             self.logger.error(f"Erro inesperado ao chamar a API Claude: {e}", exc_info=True)
@@ -543,8 +546,8 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
         plano_bruto = self._extrair_json_da_resposta(resposta_texto)
         if not plano_bruto:
             self.logger.error("Falha ao extrair JSON da resposta da API.")
-            # Tentar logar a resposta completa se a extração falhar
-            self.logger.debug(f"Resposta completa da API que falhou na extração:\n{resposta_texto}")
+            # Não logar a resposta: pode conter dados pessoais do usuário
+            self.logger.debug(f"Extração falhou (resposta de {len(resposta_texto)} chars).")
             return None
 
         # 4. Adicionar Metadados e Informações do Usuário (conforme schema)

@@ -72,6 +72,14 @@ describe('claudeService (proxy via backend)', () => {
     expect(payload.messages).toEqual([{ role: 'user', content: 'Quero mais peito' }]);
   });
 
+  it('lança erro quando o backend responde 200 sem "reply" válido (não vira fala da IA)', async () => {
+    mockedPost.mockResolvedValueOnce({ data: {} }); // resposta malformada
+
+    await expect(
+      callClaudeApi([{ role: 'user' as const, parts: [{ text: 'Oi' }] }], null, []),
+    ).rejects.toThrow();
+  });
+
   it('lança erro amigável quando o backend falha', async () => {
     mockedPost.mockRejectedValueOnce({ message: 'Network Error' });
 

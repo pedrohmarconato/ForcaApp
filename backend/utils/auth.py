@@ -5,6 +5,7 @@
 
 import functools
 import os
+import uuid
 
 import requests
 from flask import g, jsonify, request
@@ -21,6 +22,24 @@ def _supabase_config():
     base_url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
     anon_key = os.environ.get("SUPABASE_ANON_KEY") or ""
     return base_url, anon_key
+
+
+def _is_valid_user_payload(payload):
+    """
+    Um 200 do Supabase Auth só é válido se for um objeto com 'id' em formato
+    UUID não vazio. Respostas malformadas (proxy, config incorreta) são
+    rejeitadas em vez de aceitas como usuário autenticado.
+    """
+    if not isinstance(payload, dict):
+        return False
+    user_id = payload.get("id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        return False
+    try:
+        uuid.UUID(user_id)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
 
 
 def validate_token(token):
@@ -53,9 +72,15 @@ def validate_token(token):
         return None
 
     try:
-        return response.json()
+        payload = response.json()
     except ValueError:
         return None
+
+    if not _is_valid_user_payload(payload):
+        logger.warning("Resposta 200 do Supabase Auth com payload malformado (sem id UUID).")
+        return None
+
+    return payload
 
 
 def token_required(view_func):

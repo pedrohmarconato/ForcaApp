@@ -83,8 +83,9 @@ def get_anthropic_api_key() -> Optional[str]:
     var_name = f"{service_name.upper()}_API_KEY"
     return get_env_variable(var_name)
 
-def get_model_name(default: str = "claude-3-5-sonnet-20240620") -> str:
-    """Obtém o nome do modelo de uma variável de ambiente ou usa o padrão."""
+def get_model_name(default: str = "claude-sonnet-4-6") -> str:
+    """Obtém o nome do modelo de uma variável de ambiente ou usa o padrão.
+    Padrão: claude-sonnet-4-6 (ativo; claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28)."""
     return get_env_variable("CLAUDE_MODEL_NAME", default)
 
 # Adicione outras configurações conforme necessário

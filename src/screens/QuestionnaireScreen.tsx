@@ -23,6 +23,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getItem as secureGetItem, setItem as secureSetItem } from '../services/auth/secureStorage';
 import { useAuth } from '../contexts/AuthContext'; // Importa o hook de autenticação
 
 // --- Cores e Estilos (sem alterações) ---
@@ -225,7 +226,7 @@ const QuestionnaireScreen = () => {
       console.log(`[QuestionnaireScreen] Iniciando carregamento de dados do AsyncStorage com a chave: ${userStorageKey}`);
       setIsLoadingStorage(true); // Garante que o loading do storage está ativo
       try {
-        const savedData = await AsyncStorage.getItem(userStorageKey);
+        const savedData = await secureGetItem(userStorageKey);
         if (savedData) {
           const data = JSON.parse(savedData);
           console.log('[QuestionnaireScreen] Dados salvos carregados do AsyncStorage para o usuário:', userId);
@@ -326,9 +327,11 @@ const QuestionnaireScreen = () => {
     const formDataForStorage = { ...formDataForApi, nome: nome }; // Inclui o nome para o storage local
 
     try {
-    // 1. Salvar no AsyncStorage primeiro (para ter backup local)
-    await AsyncStorage.setItem(userStorageKey, JSON.stringify(formDataForStorage));
-    console.log('[QuestionnaireScreen] Dados salvos no AsyncStorage.');
+    // 1. Salvar no armazenamento seguro primeiro (para ter backup local criptografado)
+    await secureSetItem(userStorageKey, JSON.stringify(formDataForStorage));
+    // Remove a cópia legada em texto puro (versões antigas usavam AsyncStorage)
+    await AsyncStorage.removeItem(userStorageKey);
+    console.log('[QuestionnaireScreen] Dados salvos no armazenamento seguro.');
 
     // 2. Tentar salvar na API (Supabase)
     try {

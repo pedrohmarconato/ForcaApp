@@ -63,8 +63,8 @@ export const callClaudeApi = async (
 
     const reply = response.data?.reply;
     if (typeof reply !== 'string' || reply.trim().length === 0) {
-      logger.warn('[ClaudeService] Backend respondeu sem campo "reply" válido.');
-      return '(Nenhuma resposta de texto recebida)';
+      // Resposta malformada NUNCA vira fala da IA no chat
+      throw new Error('Resposta inválida do servidor.');
     }
 
     return reply.trim();

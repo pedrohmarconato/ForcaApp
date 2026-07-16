@@ -26,6 +26,7 @@ import {
 } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabaseSecureStorage as secureStorage } from '../services/auth/secureStorage';
 import { Feather } from '@expo/vector-icons';
 
 // Serviços e Contextos
@@ -112,13 +113,14 @@ const PostQuestionnaireChat = () => {
     // --- FUNÇÕES ---
 
     const saveChatState = useCallback(async (key: string | null, msgs: Content[], count: number, ended: boolean, adjs: string[]) => {
-        // ... (implementação inalterada) ...
         if (!key) return;
         try {
             const stateToSave = JSON.stringify({ messages: msgs, interactionsCount: count, isChatEnded: ended, adjustments: adjs });
-            await AsyncStorage.setItem(key, stateToSave);
+            await secureStorage.setItem(key, stateToSave);
+            // Remove a cópia legada em texto puro (versões antigas usavam AsyncStorage)
+            await AsyncStorage.removeItem(key).catch(() => undefined);
         } catch (error) {
-            console.error(`[Chat ${userId}] Erro ao salvar estado do chat no AsyncStorage:`, error);
+            console.error(`[Chat ${userId}] Erro ao salvar estado do chat no armazenamento seguro:`, error);
         }
     }, [userId]);
 
@@ -194,7 +196,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             await saveChatState(STORAGE_KEY_CHAT, updatedMessages, interactionsCount, true, adjustments);
         }
         if (STORAGE_KEY_CHAT_COMPLETED) {
-            await AsyncStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
         }
         await completeOnboardingAndGeneratePlan();
     }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_COMPLETED, saveChatState, completeOnboardingAndGeneratePlan]); // completeOnboardingAndGeneratePlan agora é estável
@@ -243,7 +245,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             await saveChatState(STORAGE_KEY_CHAT, updatedMessages, interactionsCount, true, adjustments);
         }
         if (STORAGE_KEY_CHAT_COMPLETED) {
-            await AsyncStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
         }
         await completeOnboardingAndGeneratePlan();
     }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_COMPLETED, saveChatState, completeOnboardingAndGeneratePlan]); // completeOnboardingAndGeneratePlan agora é estável
@@ -298,7 +300,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                     await saveChatState(STORAGE_KEY_CHAT, finalMessages, newInteractionCount, chatEndedAfterResponse, currentAdjustments);
                 }
                 if (chatEndedAfterResponse && STORAGE_KEY_CHAT_COMPLETED) {
-                    await AsyncStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+                    await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
                 }
 
             } else {
@@ -332,7 +334,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             try {
                 // 0. Verificar se o chat já foi concluído
                 if (STORAGE_KEY_CHAT_COMPLETED) {
-                    const completedStatus = await AsyncStorage.getItem(STORAGE_KEY_CHAT_COMPLETED);
+                    const completedStatus = await secureStorage.getItem(STORAGE_KEY_CHAT_COMPLETED);
                     if (completedStatus === 'true') {
                         console.log(`[Chat ${userId}] Chat já concluído anteriormente.`);
                         chatAlreadyCompleted = true;
@@ -348,7 +350,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
                 // 1. Carregar dados do questionário
                 if (STORAGE_KEY_QUESTIONNAIRE) {
-                    const storedData = await AsyncStorage.getItem(STORAGE_KEY_QUESTIONNAIRE);
+                    const storedData = await secureStorage.getItem(STORAGE_KEY_QUESTIONNAIRE);
                     if (storedData) {
                         loadedQuestionnaireData = JSON.parse(storedData);
                         setQuestionnaireData(loadedQuestionnaireData);
@@ -386,7 +388,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                 let loadedState = false;
 
                 if (STORAGE_KEY_CHAT) {
-                    const storedChat = await AsyncStorage.getItem(STORAGE_KEY_CHAT);
+                    const storedChat = await secureStorage.getItem(STORAGE_KEY_CHAT);
                     if (storedChat) {
                         try {
                             const chatState = JSON.parse(storedChat);
@@ -398,7 +400,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                             console.log(`[Chat ${userId}] Histórico carregado: ${initialMessages.length} msgs, ${initialInteractionCount} interações, terminado: ${initialIsChatEnded}`);
                         } catch (parseError) {
                             console.error(`[Chat ${userId}] Erro ao parsear estado do chat salvo:`, parseError);
-                            await AsyncStorage.removeItem(STORAGE_KEY_CHAT);
+                            await secureStorage.removeItem(STORAGE_KEY_CHAT);
                         }
                     }
                 }
