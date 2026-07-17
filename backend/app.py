@@ -16,7 +16,7 @@ try:
     from wrappers.treinador_especialista import TreinadorEspecialista
     from utils.logger import WrapperLogger
     from utils.auth import token_required
-    from utils.config import get_api_key, get_model_name
+    from utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
 except ImportError as e:
     print(f"ERRO FATAL: Falha ao importar módulos necessários: {e}")
     print("Verifique a estrutura do projeto e se o PYTHONPATH está configurado corretamente.")
@@ -75,6 +75,14 @@ CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 # Inicializa o logger da aplicação
 app_logger = WrapperLogger("FlaskAPI")
 
+# Aviso operacional: o rate limit é em memória — reinícios zeram os contadores
+# e múltiplos workers multiplicam o limite efetivo (cada worker tem o seu).
+# Para produção multi-worker, trocar por storage compartilhado (ex.: Redis).
+app_logger.warning(
+    "Rate limit em memória: contadores zeram a cada restart e NÃO são "
+    "compartilhados entre workers. Configure um backend compartilhado para produção."
+)
+
 # Instancia o treinador (pode ser otimizado com padrões como Singleton ou Factory se necessário)
 try:
     treinador = TreinadorEspecialista()
@@ -108,7 +116,12 @@ def _get_chat_anthropic_client():
         api_key = get_api_key("ANTHROPIC")
         if not api_key:
             raise RuntimeError("Chave da API Anthropic não configurada no backend (ANTHROPIC_API_KEY).")
-        _chat_anthropic_client = anthropic.Anthropic(api_key=api_key)
+        # Chat responde rápido (max_tokens=1024): timeout curto, sempre abaixo
+        # do timeout do app para não cobrar resposta que o usuário não verá
+        _chat_anthropic_client = anthropic.Anthropic(
+            api_key=api_key,
+            timeout=min(get_anthropic_timeout_seconds(), 60.0),
+        )
     return _chat_anthropic_client
 
 
@@ -221,7 +234,10 @@ def handle_chat():
     if not request.is_json:
         return jsonify({"error": "Requisição inválida. Esperado JSON."}), 400
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Corpo JSON inválido. Esperado objeto."}), 400
+
     messages = _sanitize_chat_messages(data.get('messages'))
     if messages is None:
         return jsonify({"error": "Campo 'messages' ausente ou inválido."}), 400
@@ -267,6 +283,16 @@ def handle_generate_plan():
     """
     Endpoint para receber dados do frontend e solicitar a geração do plano de treino.
     """
+    # Validação de entrada ANTES de qualquer dependência interna
+    if not request.is_json:
+        app_logger.warning("Requisição para /api/generate-plan não continha JSON.")
+        return jsonify({"error": "Requisição inválida. Esperado JSON."}), 400
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        app_logger.warning("Corpo JSON não-objeto recebido em /api/generate-plan.")
+        return jsonify({"error": "Corpo JSON inválido. Esperado objeto."}), 400
+
     # Verifica se o treinador foi inicializado corretamente
     if treinador is None:
         app_logger.error("Tentativa de acesso a /api/generate-plan, mas o TreinadorEspecialista não está disponível.")
@@ -277,12 +303,6 @@ def handle_generate_plan():
         app_logger.warning(f"Rate limit de geração de plano excedido para usuário {user_id}.")
         return jsonify({"error": "Muitas solicitações de plano. Tente novamente mais tarde."}), 429
 
-    # Obter dados da requisição (espera JSON)
-    if not request.is_json:
-        app_logger.warning("Requisição para /api/generate-plan não continha JSON.")
-        return jsonify({"error": "Requisição inválida. Esperado JSON."}), 400
-
-    data = request.get_json()
     app_logger.info("Recebida requisição para /api/generate-plan.")
     # Não logar o payload: contém dados pessoais de saúde (peso, lesões)
 

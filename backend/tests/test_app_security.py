@@ -323,3 +323,101 @@ def test_modelo_padrao_esta_ativo():
     modelo = get_model_name()
     assert modelo != "claude-3-5-sonnet-20240620"  # aposentado em 2025-10-28
     assert "sonnet-4" in modelo or "haiku-4" in modelo or "opus-4" in modelo
+
+
+# --- 12. JSON válido mas não-objeto retorna 400 (não 500) ---
+
+@pytest.mark.parametrize("endpoint,payload", [
+    ("/api/chat", []),
+    ("/api/chat", None),
+    ("/api/chat", "texto"),
+    ("/api/generate-plan", []),
+    ("/api/generate-plan", None),
+])
+def test_json_valido_nao_objeto_retorna_400(client, endpoint, payload):
+    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+        response = client.post(endpoint, json=payload, headers={"Authorization": "Bearer token-valido"})
+    assert response.status_code == 400
+
+
+# --- 13. Erro de validação do schema NÃO despeja o valor inválido (dado pessoal) ---
+
+def test_log_de_validacao_nao_contem_valor_invalido(caplog):
+    import logging
+
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    from wrappers.treinador_especialista import TreinadorEspecialista
+
+    treinador = TreinadorEspecialista()
+    # Plano TOTALMENTE válido exceto usuario.nivel — garante que o ÚNICO erro
+    # de validação é o campo com o dado pessoal (reprodução determinística)
+    plano_invalido = {
+        "treinamento_id": "123e4567-e89b-12d3-a456-426614174000",
+        "versao": "1.0",
+        "data_criacao": "2026-07-16T00:00:00+00:00",
+        "usuario": {
+            "id": "user-1",
+            "nivel": "nivel-inventado-lesao-medular-C5",  # valor inválido com dado pessoal
+            "objetivos": [],
+            "restricoes": [],
+        },
+        "plano_principal": {
+            "nome": "P",
+            "descricao": "d",
+            "periodizacao": {"tipo": "Linear"},
+            "duracao_semanas": 12,
+            "frequencia_semanal": 3,
+            "ciclos": [
+                {
+                    "nome": "C1",
+                    "ordem": 1,
+                    "duracao_semanas": 4,
+                    "objetivo": "obj",
+                    "microciclos": [
+                        {
+                            "semana": 1,
+                            "sessoes": [
+                                {
+                                    "nome": "S1",
+                                    "tipo": "Força",
+                                    "exercicios": [
+                                        {"nome": "Supino", "ordem": 1, "series": 3, "repeticoes": "8-12"}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    with caplog.at_level(logging.DEBUG):  # captura inclusive debug
+        valido = treinador._validar_plano_com_schema(plano_invalido)
+    assert valido is False
+    assert "lesao-medular-C5" not in caplog.text
+    assert "nivel-inventado" not in caplog.text
+
+
+# --- 14. Cliente Anthropic do backend com timeout explícito (alinha com o app) ---
+
+def test_cliente_anthropic_do_wrapper_tem_timeout_configurado():
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    os.environ["ANTHROPIC_TIMEOUT_SECONDS"] = "150"
+    with mock.patch("anthropic.Anthropic") as mock_anthropic:
+        from wrappers.treinador_especialista import TreinadorEspecialista
+
+        TreinadorEspecialista()
+    _, kwargs = mock_anthropic.call_args
+    assert kwargs.get("timeout") == 150.0
+
+
+def test_cliente_anthropic_do_chat_tem_timeout_configurado():
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    import app as app_module
+
+    app_module._chat_anthropic_client = None  # força recriação
+    with mock.patch("anthropic.Anthropic") as mock_anthropic:
+        app_module._get_chat_anthropic_client()
+    _, kwargs = mock_anthropic.call_args
+    assert kwargs.get("timeout") is not None
+    assert kwargs["timeout"] <= 120.0  # chat deve falhar antes do timeout do app

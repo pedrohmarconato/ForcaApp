@@ -88,4 +88,20 @@ def get_model_name(default: str = "claude-sonnet-4-6") -> str:
     Padrão: claude-sonnet-4-6 (ativo; claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28)."""
     return get_env_variable("CLAUDE_MODEL_NAME", default)
 
+
+def get_anthropic_timeout_seconds() -> float:
+    """Timeout (segundos) das chamadas à API Anthropic no backend.
+
+    Deve ser MENOR que o timeout do app (180s) para o backend falhar antes do
+    aplicativo desistir — evitando geração paga que o usuário não recebe e
+    retry duplicando custo. Configurável via ANTHROPIC_TIMEOUT_SECONDS.
+    """
+    raw = get_env_variable("ANTHROPIC_TIMEOUT_SECONDS", "150")
+    try:
+        value = float(raw) if raw is not None else 150.0
+    except (TypeError, ValueError):
+        logger.warning(f"ANTHROPIC_TIMEOUT_SECONDS inválido ({raw!r}); usando 150s.")
+        return 150.0
+    return value if value > 0 else 150.0
+
 # Adicione outras configurações conforme necessário

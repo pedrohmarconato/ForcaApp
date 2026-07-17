@@ -157,3 +157,6 @@ web-report/
 .venv/
 __pycache__/
 *.pyc
+
+# Arquivos locais de design/mockup (fora do versionamento do app)
+forca-app-mockup-*.html

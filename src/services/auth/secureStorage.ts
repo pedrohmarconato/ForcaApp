@@ -12,6 +12,7 @@
 //   e sempre válido para o SecureStore ([a-zA-Z0-9._-]).
 
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CHUNK_BYTES = 1800; // margem abaixo do limite de ~2048 bytes por valor
 
@@ -213,6 +214,36 @@ export const supabaseSecureStorage = {
   getItem,
   setItem,
   removeItem,
+};
+
+/**
+ * Migra a sessão Supabase gravada em texto puro no AsyncStorage por versões
+ * ANTIGAS do app (que usavam AsyncStorage como storage do supabase-js) para o
+ * SecureStore, na mesma chave lógica (formato `sb-<ref>-auth-token`), e APAGA
+ * a cópia em texto puro. Não sobrescreve uma sessão já existente no SecureStore.
+ *
+ * @param supabaseUrl URL do projeto Supabase (de onde se extrai o ref do projeto).
+ */
+export const migrateLegacySupabaseSession = async (supabaseUrl: string): Promise<void> => {
+  try {
+    const ref = new URL(supabaseUrl).hostname.split('.')[0];
+    if (!ref) return;
+    const legacyKey = `sb-${ref}-auth-token`;
+
+    const legacyValue = await AsyncStorage.getItem(legacyKey);
+    if (legacyValue === null) return;
+
+    // Só migra se ainda não houver sessão (mais nova) no SecureStore
+    const existing = await getItem(legacyKey);
+    if (existing === null) {
+      await setItem(legacyKey, legacyValue);
+    }
+
+    // A cópia em texto puro SEMPRE é apagada
+    await AsyncStorage.removeItem(legacyKey);
+  } catch {
+    // melhor esforço: falha na migração não pode impedir o boot do app
+  }
 };
 
 export default supabaseSecureStorage;

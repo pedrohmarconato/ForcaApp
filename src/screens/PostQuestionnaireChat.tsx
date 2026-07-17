@@ -186,7 +186,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         // ... (implementação inalterada, mas verifica dependências) ...
         setShowInitialChoice(false);
         setIsChatEnded(true);
-        const systemMessage = { role: 'system', parts: [{ text: "Ok, vamos gerar seu treino com base nas respostas." }] };
+        const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, vamos gerar seu treino com base nas respostas." }] };
         // Cria uma cópia atualizada das mensagens para salvar
         const updatedMessages = [...messages, systemMessage];
         setMessages(updatedMessages);
@@ -237,7 +237,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         // ... (implementação inalterada, mas verifica dependências) ...
         setIsSummaryModalVisible(false);
         setIsChatEnded(true);
-        const systemMessage = { role: 'system', parts: [{ text: "Ok, gerando seu plano de treino com base no questionário e ajustes..." }] };
+        const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, gerando seu plano de treino com base no questionário e ajustes..." }] };
         const updatedMessages = [...messages, systemMessage];
         setMessages(updatedMessages);
 

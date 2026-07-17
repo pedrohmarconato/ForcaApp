@@ -17,12 +17,12 @@ except ImportError:
 # --- Componentes Internos ---
 try:
     from backend.utils.logger import WrapperLogger
-    from backend.utils.config import get_api_key, get_model_name
+    from backend.utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
 except ImportError:
     print("ERRO: Não foi possível importar utils. Verifique a estrutura de pastas e os arquivos __init__.py.")
     try:
         from ..utils.logger import WrapperLogger
-        from ..utils.config import get_api_key, get_model_name
+        from ..utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
     except ImportError:
         print("Falha na importação relativa também.")
         exit(1)
@@ -48,7 +48,12 @@ class TreinadorEspecialista:
             raise ValueError("API Key da Anthropic não configurada.")
 
         try:
-            self.anthropic_client = anthropic.Anthropic(api_key=self.api_key)
+            # Timeout explícito (padrão 150s < 180s do app): o backend falha
+            # antes do aplicativo desistir, evitando geração paga perdida
+            self.anthropic_client = anthropic.Anthropic(
+                api_key=self.api_key,
+                timeout=get_anthropic_timeout_seconds(),
+            )
             self.logger.info(f"Cliente Anthropic inicializado para o modelo: {self.MODEL_NAME}")
         except Exception as e:
             self.logger.error(f"Falha ao inicializar o cliente Anthropic: {e}", exc_info=True)
@@ -432,7 +437,7 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
 {self.json_template_for_prompt}
 ```""" # Fim do prompt_completo
 
-        self.logger.debug(f"Prompt preparado:\n{prompt_completo[:500]}...") # Loga início do prompt
+        self.logger.debug(f"Prompt preparado ({len(prompt_completo)} chars).") # Não logar conteúdo: dados pessoais
         return prompt_completo.strip()
 
     def _extrair_json_da_resposta(self, texto_resposta: str) -> Optional[Dict[str, Any]]:
@@ -462,9 +467,11 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             self.logger.info("Validação do JSON do plano bem-sucedida.")
             return True
         except jsonschema.exceptions.ValidationError as e:
-            self.logger.error(f"Erro de validação do JSON: {e.message} em {list(e.path)}")
-            # Log mais detalhado do erro
-            self.logger.debug(f"Detalhes da validação:\nSchema: {e.schema}\nInstância no erro: {e.instance}")
+            # NÃO logar e.message nem e.instance: incluem o valor inválido,
+            # que pode conter dados pessoais do usuário (lesões, nome, peso)
+            self.logger.error(
+                f"Erro de validação do JSON: regra '{e.validator}' violada em {list(e.path)}"
+            )
             return False
         except Exception as e:
             self.logger.error(f"Erro inesperado durante a validação do JSON: {e}", exc_info=True)
@@ -489,7 +496,7 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                 # Assume que a resposta principal está no primeiro bloco de conteúdo
                 resposta_texto = response.content[0].text
                 self.logger.info("Resposta recebida da API Claude.")
-                self.logger.debug(f"Resposta bruta (início): {resposta_texto[:500]}...")
+                self.logger.debug(f"Resposta bruta ({len(resposta_texto)} chars).") # Não logar conteúdo: dados pessoais
                 return resposta_texto
             else:
                 # Não logar a resposta bruta: pode conter dados pessoais do usuário
@@ -569,7 +576,7 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             # Verifica se plano_principal existe no JSON bruto
             if not plano_final["plano_principal"]:
                  self.logger.error("A chave 'plano_principal' não foi encontrada no JSON retornado pela IA.")
-                 self.logger.debug(f"JSON bruto recebido: {plano_bruto}")
+                 self.logger.debug(f"JSON bruto com chaves: {list(plano_bruto.keys())}") # Só estrutura, sem conteúdo
                  return None
 
         except Exception as e:
@@ -582,9 +589,7 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             return plano_final
         else:
             self.logger.error("Falha na validação do schema do plano final.")
-            self.logger.debug(f"Plano final que falhou na validação: {json.dumps(plano_final, indent=2)}")
-            # Considerar salvar o plano inválido para análise, se necessário
-            # salvar_plano_invalido(plano_final)
+            # Não logar o plano: contém dados pessoais do usuário
             return None
 
 # Exemplo de uso (para teste local, se necessário)

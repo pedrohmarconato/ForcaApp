@@ -7,6 +7,11 @@
 
 import { setItem, getItem, removeItem } from '../src/services/auth/secureStorage';
 
+// Mock oficial do AsyncStorage (o módulo o importa para a migração de legado)
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 const BYTE_LIMIT = 2048;
 const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
 

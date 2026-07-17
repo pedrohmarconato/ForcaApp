@@ -1,6 +1,6 @@
 // /home/pmarconato/ForcaApp/src/contexts/AuthContext.js
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef, useMemo } from 'react'; // Adicionado useMemo
-import { supabase } from '../config/supabaseClient';
+import { supabase, storageReady } from '../config/supabaseClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
 
@@ -341,6 +341,10 @@ export const AuthProvider = ({ children }) => {
 
             const checkInitialSession = async () => {
                 try {
+                    // Aguarda a migração da sessão legada (AsyncStorage → SecureStore)
+                    // antes de ler a sessão — evita logout falso no primeiro boot pós-update
+                    await storageReady;
+
                     const { data: { session: initialSession }, error } = await supabase.auth.getSession();
 
                     console.log("[AuthContext] Sessão inicial recuperada:", initialSession ? initialSession.user.id : 'Nenhuma');
