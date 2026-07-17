@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
+import type { TrainingStackParamList } from '../navigation/MainNavigator';
 import {
   getTodaySession,
   getSessionDetail,
@@ -14,6 +17,7 @@ import {
 // com exercícios e alvos por série. O registro interativo (iniciar série,
 // reps/carga, timer) chega na Fase 4.
 const TrainingSessionScreen = () => {
+  const navigation = useNavigation<StackNavigationProp<TrainingStackParamList, 'TrainingOverview'>>();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "não há treino": estados distintos (achado #9 do review)
@@ -101,10 +105,19 @@ const TrainingSessionScreen = () => {
         {session.estimated_minutes ? ` · ~${session.estimated_minutes} min` : ''}
       </Text>
       <FlatList
+        style={styles.list}
         data={session.planned_exercises}
         renderItem={renderExerciseItem}
         keyExtractor={(item) => item.id}
       />
+      <TouchableOpacity
+        style={styles.startButton}
+        onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
+      >
+        <Text style={styles.startButtonText}>
+          {session.status === 'in_progress' ? 'Retomar treino' : 'Iniciar treino'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -123,6 +136,21 @@ const styles = StyleSheet.create({
   subtitle: {
     color: theme.colors.text.secondary,
     marginBottom: 16,
+  },
+  list: {
+    flex: 1,
+  },
+  startButton: {
+    backgroundColor: theme.colors.primary.main,
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  startButtonText: {
+    color: theme.colors.primary.contrast,
+    fontWeight: '700',
+    fontSize: 16,
   },
   exerciseItem: {
     backgroundColor: theme.colors.background.card,

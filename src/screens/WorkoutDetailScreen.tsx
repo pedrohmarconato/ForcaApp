@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../theme/theme';
+import type { HomeStackParamList } from '../navigation/MainNavigator';
 import {
   getSessionDetail,
   formatExerciseTarget,
@@ -12,6 +15,7 @@ import {
 // Recebe { sessionId } — o ID real de planned_sessions.
 const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string } } }) => {
   const { sessionId } = route.params;
+  const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'WorkoutDetail'>>();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "treino não encontrado": estados distintos (achado #9)
@@ -77,6 +81,9 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
     );
   }
 
+  const jaConcluido = session.status === 'completed';
+  const ctaLabel = session.status === 'in_progress' ? 'Retomar treino' : 'Iniciar treino';
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{session.title}</Text>
@@ -88,10 +95,23 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
         {session.muscle_groups?.length ? ` · ${session.muscle_groups.join(', ')}` : ''}
       </Text>
       <FlatList
+        style={styles.list}
         data={session.planned_exercises}
         renderItem={renderExerciseItem}
         keyExtractor={(item) => item.id}
       />
+      {jaConcluido ? (
+        <Text style={styles.doneNote}>
+          Treino concluído. Veja o registro no seu histórico (aba Perfil).
+        </Text>
+      ) : (
+        <TouchableOpacity
+          style={styles.startBtn}
+          onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
+        >
+          <Text style={styles.startBtnText}>{ctaLabel}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -110,6 +130,27 @@ const styles = StyleSheet.create({
   date: {
     color: theme.colors.text.secondary,
     marginBottom: 16,
+  },
+  list: {
+    flex: 1,
+  },
+  startBtn: {
+    backgroundColor: theme.colors.primary.main,
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  startBtnText: {
+    color: theme.colors.primary.contrast,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  doneNote: {
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginTop: 12,
+    fontStyle: 'italic',
   },
   exerciseItem: {
     backgroundColor: theme.colors.background.card,
