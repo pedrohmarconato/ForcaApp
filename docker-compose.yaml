@@ -1,0 +1,29 @@
+# docker-compose.yaml — backend do ForcaApp para VPS Hostinger
+# Deploy: apontar a ferramenta de projetos da VPS para este repositório
+# (ela clona e sobe este arquivo). As variáveis de ambiente do projeto
+# (SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY...) são injetadas
+# pela plataforma — NUNCA commitar o .env.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      # Obrigatórias (sem default): auth e IA falham sem elas
+      SUPABASE_URL: ${SUPABASE_URL:?defina SUPABASE_URL no ambiente do projeto}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?defina SUPABASE_ANON_KEY no ambiente do projeto}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?defina ANTHROPIC_API_KEY no ambiente do projeto}
+      # Opcionais com default sensato
+      CLAUDE_MODEL_NAME: ${CLAUDE_MODEL_NAME:-claude-sonnet-4-6}
+      ANTHROPIC_TIMEOUT_SECONDS: ${ANTHROPIC_TIMEOUT_SECONDS:-150}
+      CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-10}
+      CHAT_RATE_WINDOW_SECONDS: ${CHAT_RATE_WINDOW_SECONDS:-60}
+      PLAN_RATE_LIMIT: ${PLAN_RATE_LIMIT:-3}
+      PLAN_RATE_WINDOW_SECONDS: ${PLAN_RATE_WINDOW_SECONDS:-3600}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:19006}
+      FLASK_DEBUG: "false"
+      PORT: "5001"
