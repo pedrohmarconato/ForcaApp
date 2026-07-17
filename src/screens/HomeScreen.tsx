@@ -2,13 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
+
+// Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail)
+type HomeStackParamList = {
+  HomeMain: undefined;
+  WorkoutDetail: { workout: any };
+};
 
 // You may need to adjust these imports based on your project structure
 import { supabase } from '../config/supabaseClient';
 
 const HomeScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'HomeMain'>>();
   const [workouts, setWorkouts] = useState([]);
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);

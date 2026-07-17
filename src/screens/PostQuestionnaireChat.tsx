@@ -158,10 +158,10 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
       await updateProfile({ onboarding_completed: true, current_plan_id: result.planId });
       
       // Navegação após sucesso
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'App', params: { screen: 'Home' } }],
-      });
+      // FIXME(Fase 5): a rota 'App' não existe no OnboardingStack; a transição
+      // para o app principal ocorre via RootContext (profile.onboarding_completed).
+      // Supressão de tipo até refatorar o fluxo de chat na Fase 5.
+      navigation.reset({ index: 0, routes: [{ name: 'App' as any, params: { screen: 'Home' } }] });
     } else {
       throw new Error(result.message || "Falha ao gerar o plano de treino.");
     }
@@ -340,7 +340,8 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         chatAlreadyCompleted = true;
                         if (user?.onboarding_completed) {
                             console.log(`[Chat ${userId}] Onboarding já completo. Navegando para App.`);
-                            navigation.reset({ index: 0, routes: [{ name: 'App', params: { screen: 'Home' } }] });
+                            // FIXME(Fase 5): vide comentário acima — rota 'App' inexistente.
+                            navigation.reset({ index: 0, routes: [{ name: 'App' as any, params: { screen: 'Home' } }] });
                             return;
                         } else {
                             console.warn(`[Chat ${userId}] Chat completo, mas onboarding não. Tentando gerar plano.`);

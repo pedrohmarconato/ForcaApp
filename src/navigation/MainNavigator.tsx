@@ -3,6 +3,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
 
+// Tipo dos nomes de ícone válidos do Feather (evita string genérica)
+type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
+
 // Importar as novas telas
 import HomeScreen from '../screens/HomeScreen';
 import TrainingSessionScreen from '../screens/TrainingSessionScreen';
@@ -30,7 +33,7 @@ const MainNavigator = () => {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ color, size }) => {
-          let iconName: string;
+          let iconName: FeatherIconName;
 
           switch (route.name) {
             case 'Home':
