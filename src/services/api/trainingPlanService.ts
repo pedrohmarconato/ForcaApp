@@ -22,7 +22,7 @@ export const requestTrainingPlanGeneration = async (
   userId: string,
   questionnaireData: any,
   adjustments: string[] = []
-): Promise<{ success: boolean; message: string; planId?: string }> => {
+): Promise<{ success: boolean; message: string; planId?: string; offline?: boolean }> => {
   logger.log('[TrainingPlanService] Solicitando geração de plano para o usuário:', userId);
 
   try {
@@ -33,12 +33,20 @@ export const requestTrainingPlanGeneration = async (
       { timeout: GENERATE_PLAN_TIMEOUT_MS },
     );
 
-    logger.log('[TrainingPlanService] Plano gerado pelo servidor. ID:', response.data?.plan_id);
+    // O plan_id é o ID REAL do banco (uuid): sem ele não há sucesso.
+    // IDs fabricados ("temp-...") quebrariam a FK de profiles.current_plan_id
+    // depois de já termos reportado sucesso (achado #10 do review).
+    const planId = response.data?.plan_id;
+    if (typeof planId !== 'string' || planId.length === 0) {
+      throw new Error('Resposta do servidor sem o identificador do plano.');
+    }
+
+    logger.log('[TrainingPlanService] Plano gerado pelo servidor. ID:', planId);
 
     return {
       success: true,
       message: response.data?.message || 'Plano de treinamento gerado com sucesso pelo servidor.',
-      planId: response.data?.plan_id || `temp-${Date.now()}`,
+      planId,
     };
   } catch (error: any) {
     logger.error(
@@ -56,10 +64,12 @@ export const requestTrainingPlanGeneration = async (
     if (isOfflineModeEnabled) {
       logger.warn('[TrainingPlanService] Modo offline habilitado: retornando plano SIMULADO.');
       await new Promise((resolve) => setTimeout(resolve, 1500));
+      // SEM planId: não existe plano no banco, e um ID fabricado quebraria a
+      // FK uuid de profiles.current_plan_id (achado #10 do review).
       return {
         success: true,
+        offline: true,
         message: 'Plano gerado em modo offline (simulado). Conecte-se para sincronizar.',
-        planId: `offline-${Date.now()}`,
       };
     }
 

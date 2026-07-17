@@ -85,3 +85,65 @@ ter apontado um bug que revelou um problema mais fundo de modelo de dados.
 - **Pendente quando desbloquear:** reescrever o teste de WorkoutDetailScreen (falso positivo —
   injeta `{ trainingId }` em vez de `{ workout }`) para reproduzir o contrato real e expor o bug.
 - Fases 3/4/5 ficam suspensas até o modelo de dados ser definido.
+
+---
+
+## ✅ Fase 3 — Persistência e navegação (17/07/2026, branch fase-3-persistencia)
+
+### Desbloqueio do modelo de dados
+O dono aprovou o plano de construção (Fases 3–7, `~/.claude/plans/forca-app-plano-fases.md`):
+**Opção A — modelo novo e enxuto**. Tabelas `fato_*`/`dim_*` ficam intocadas (aposentadas).
+PR #3 foi mesclado (squash `de24105`) após verificação local (tsc 0 / jest 32 / pytest 34).
+
+### O que foi feito
+- [x] `supabase/migrations/0001_modelo_treino.sql`: training_plans → planned_sessions →
+      planned_exercises → planned_sets + session_logs/set_logs, RLS por usuário,
+      `profiles.current_plan_id` (coluna que o app já gravava e não existia).
+- [x] Backend grava o plano: `services/plan_mapper.py` (puro; datas deterministas, reps/descanso
+      tolerantes, prioridade com fallback, user_id sempre do token) + `services/plan_repository.py`
+      (PostgREST com JWT do usuário; falha → limpeza + erro claro) + wiring em `app.py`
+      (persistência no lugar do TODO; 502 honesto se a gravação falhar).
+- [x] IA passa a classificar `prioridade` (primario/secundario/acessorio) por exercício.
+- [x] App: `src/services/trainingRepository.ts` (leitura tipada e ordenada) + Home
+      (treino de hoje real, próximos treinos, stats "—" sem dado inventado) +
+      WorkoutDetail (`{ sessionId }` — bug do param morto) + TrainingSession (sessão real).
+- [x] Testes: pytest 34→55 (mapper 13, repositório 5, endpoint 3); jest 32→41
+      (repositório, Home, telas religadas); tsc 0 erros.
+
+### Pendências honestas
+1. **Migration NÃO aplicada** no Supabase (sem credenciais/projeto neste ambiente).
+   Sem ela, gerar plano → backend recebe 404 do PostgREST → 502 "não pôde ser salvo".
+2. **E2E real não exercitado** (gerar plano num usuário de verdade e navegar) — depende
+   da migration + backend com .env. Verificação foi por testes com rede mockada.
+3. Fluxo de reset de navegação pós-onboarding (`as any`, FIXME) fica para a Fase 4.
+
+### Próximo passo
+Abrir PR #4 e aguardar OK do dono. Depois: aplicar migration, smoke E2E, e Fase 4
+(sessão interativa) conforme o plano.
+
+---
+
+## ✅ Correções do review adversarial do PR #4 (17/07/2026)
+
+Review externo achou 10 problemas reais (7 altos, 3 médios). Triagem: **10/10
+CONFIRMADOS** contra o código vivo, zero falso-positivo. Todos corrigidos:
+
+1. Limpeza verificada: DELETE com `return=representation`; mensagem diz "removido"
+   só com confirmação do banco; limpeza também no insert do plano (timeout confirmado).
+2. RLS endurecido em `0002_rls_hardening.sql`: WITH CHECK valida posse do PAI em
+   planned_sessions/session_logs/set_logs. **⚠️ 0002 AINDA NÃO APLICADA no Supabase.**
+3. Um plano ativo por usuário: backend arquiva o anterior antes de inserir + índice
+   único parcial (0002); app escopa TODAS as leituras pelo plano ativo.
+4. AMRAP exibido como veio (faixa interna não vaza); "descanso livre" removido.
+5. Sessão sem exercícios → erro; duration_weeks = cobertura real, não a declarada.
+6. series clamp 10/exercício + teto global 2000 + maximum 20 no schema da IA.
+7. Parser JSON robusto (fence guloso → texto inteiro → primeiro-{ ao último-});
+   stop_reason=max_tokens vira erro explícito de truncamento.
+8. Nenhuma sessão agendada antes de start_date; rótulo da Home "hoje/próximo" honesto.
+9. Erro de banco ≠ estado vazio nas 3 telas.
+10. Fim dos IDs "temp-"/"offline-": sucesso exige plan_id real; offline sem planId;
+    chat grava current_plan_id condicionalmente.
+
+Verificação: pytest 55→69 · jest 41→51 · tsc 0. Migration 0001 JÁ APLICADA no
+projeto (dono confirmou, todos os checks ✓). Pendências: aplicar **0002** e rodar
+o smoke E2E antes do merge do PR #4.

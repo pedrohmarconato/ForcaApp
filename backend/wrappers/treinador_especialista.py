@@ -247,12 +247,13 @@ Exercícios
                                                                         "nome": {"type": "string", "description": "Nome do exercício."},
                                                                         "ordem": {"type": "integer", "description": "Ordem de execução na sessão."},
                                                                         "equipamento": {"type": ["string", "null"], "description": "Equipamento necessário."},
-                                                                        "series": {"type": "integer", "minimum": 1, "description": "Número de séries."},
+                                                                        "series": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Número de séries."},
                                                                         "repeticoes": {"type": "string", "description": "Faixa ou número de repetições (ex: '8-12', '10', 'AMRAP')."},
                                                                         "percentual_rm": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percentual de 1RM (se aplicável)."},
                                                                         "tempo_descanso": {"type": ["integer", "string", "null"], "description": "Tempo de descanso entre séries (ex: 60, '90s')."},
                                                                         "cadencia": {"type": ["string", "null"], "description": "Cadência de execução (ex: '2020', 'Explosiva')."},
                                                                         "metodo": {"type": ["string", "null"], "description": "Método de intensificação (ex: 'Drop-set', 'Rest-pause')."},
+                                                                        "prioridade": {"type": ["string", "null"], "enum": ["primario", "secundario", "acessorio", None], "description": "Prioridade do exercício na sessão: primario (composto principal), secundario (apoio), acessorio (isolamento)."},
                                                                         "progressao": {"type": ["string", "null"], "description": "Instrução geral de progressão para este exercício (simplificado)."},
                                                                         "observacoes": {"type": ["string", "null"], "description": "Observações importantes sobre a execução ou adaptação."}
                                                                     },
@@ -345,6 +346,7 @@ Exercícios
                                                 "tempo_descanso": "'60s'", # Aspas para indicar string ou número
                                                 "cadencia": "'2020'", # Aspas para indicar string ou null
                                                 "metodo": "null", # Ou nome do método
+                                                "prioridade": "primario", # primario | secundario | acessorio
                                                 "progressao": "null", # Simplificado para string ou null
                                                 "observacoes": "Observações relevantes"
                                             }
@@ -426,6 +428,7 @@ INSTRUÇÕES ESPECÍFICAS PARA GERAÇÃO DO PLANO:
 1. Crie um plano de treinamento detalhado para EXATAMENTE 12 semanas.
 2. Distribua as sessões de treino nos dias disponíveis ({dias_str}), respeitando a frequência semanal de {disponibilidade_semanal} dias. Se os dias não forem especificados, distribua uniformemente (ex: Seg/Qua/Sex para 3 dias).
 3. Detalhe cada sessão com exercícios, séries, repetições (use formato string como "8-12" ou "10"), % de 1RM (use número ou null), tempo de descanso (em segundos ou string como "60s").
+3b. Classifique cada exercício no campo 'prioridade': "primario" (movimento composto principal da sessão), "secundario" (composto de apoio) ou "acessorio" (isolamento/finalização). Essa classificação orienta cortes quando o aluno tiver menos tempo.
 4. Considere o nível ({nivel}) e as restrições/lesões ao selecionar exercícios e métodos. Adapte se necessário (ex: substituir agachamento livre por leg press se houver restrição no joelho). Forneça alternativas seguras.
 5. Inclua cardio ({cardio}) e alongamento ({alongamento}) conforme solicitado, integrando-os às sessões ou como sessões separadas.
 6. O plano deve ser estruturado em ciclos e microciclos (semanas). Defina um objetivo claro para cada ciclo.
@@ -441,23 +444,39 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
         return prompt_completo.strip()
 
     def _extrair_json_da_resposta(self, texto_resposta: str) -> Optional[Dict[str, Any]]:
-        """Tenta extrair um objeto JSON de uma string que pode conter texto adicional."""
+        """
+        Extrai um objeto JSON da resposta, que pode vir:
+        1. dentro de um code fence ```json ... ``` (regex GULOSA — JSON aninhado
+           tem vários '}', a versão não-gulosa parava no primeiro);
+        2. como a resposta inteira ("retorne somente JSON" obedecido);
+        3. cercado de texto (do primeiro '{' ao último '}').
+        """
         self.logger.debug("Tentando extrair JSON da resposta da API...")
-        # Procura por ```json ... ``` ou apenas { ... }
-        match = re.search(r"```json\s*(\{.*?\})\s*```|(\{.*?\})", texto_resposta, re.DOTALL)
+
+        candidatos = []
+        match = re.search(r"```json\s*(\{.*\})\s*```", texto_resposta, re.DOTALL)
         if match:
-            json_str = match.group(1) or match.group(2)
+            candidatos.append(match.group(1))
+        candidatos.append(texto_resposta.strip())
+        inicio = texto_resposta.find("{")
+        fim = texto_resposta.rfind("}")
+        if inicio != -1 and fim > inicio:
+            candidatos.append(texto_resposta[inicio:fim + 1])
+
+        for candidato in candidatos:
             try:
-                parsed_json = json.loads(json_str)
+                parsed = json.loads(candidato)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
                 self.logger.debug("JSON extraído e parseado com sucesso.")
-                return parsed_json
-            except json.JSONDecodeError as e:
-                # Não logar o conteúdo extraído: pode conter dados pessoais do usuário
-                self.logger.error(f"Falha ao decodificar JSON extraído: {e} (tamanho do trecho: {len(json_str)} chars)")
-                return None
-        else:
-            self.logger.warning("Nenhum bloco JSON encontrado na resposta da API.")
-            return None
+                return parsed
+
+        # Não logar o conteúdo: pode conter dados pessoais do usuário
+        self.logger.warning(
+            f"Nenhum JSON válido encontrado na resposta da API ({len(texto_resposta)} chars)."
+        )
+        return None
 
     def _validar_plano_com_schema(self, plano_json: Dict[str, Any]) -> bool:
         """Valida o JSON do plano contra o schema definido."""
@@ -491,6 +510,17 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                     {"role": "user", "content": prompt}
                 ]
             )
+            # Truncamento não é falha genérica: diagnóstico explícito evita
+            # aceitar JSON cortado e explica a geração paga perdida (review #7)
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                self.logger.error(
+                    f"Resposta truncada pelo limite de tokens (max_tokens={self.MAX_TOKENS}). "
+                    "O plano gerado está incompleto e será descartado."
+                )
+                raise RuntimeError(
+                    "Resposta da IA truncada pelo limite de tokens — plano incompleto."
+                )
+
             # Verifica se a resposta tem o conteúdo esperado
             if response.content and isinstance(response.content, list) and len(response.content) > 0:
                 # Assume que a resposta principal está no primeiro bloco de conteúdo
@@ -513,6 +543,9 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             # Não logar o corpo da resposta: pode ecoar o prompt com dados pessoais
             self.logger.error(f"Erro de status da API Anthropic: status={e.status_code}", exc_info=True)
             raise ConnectionError(f"Erro na API Anthropic (Status {e.status_code}): {e}") from e
+        except RuntimeError:
+            # Erros já diagnosticados acima (ex.: truncamento) sobem sem re-embrulhar
+            raise
         except Exception as e:
             self.logger.error(f"Erro inesperado ao chamar a API Claude: {e}", exc_info=True)
             raise RuntimeError(f"Erro inesperado durante a chamada da API: {e}") from e

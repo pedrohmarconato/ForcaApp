@@ -286,10 +286,22 @@ def test_generate_plan_usa_id_do_token_nao_do_payload(client):
     class FakeTreinador:
         def gerar_plano(self, dados_usuario):
             capturado.update(dados_usuario)
-            return {"treinamento_id": "plano-1"}
+            # Plano mínimo válido: a rota agora mapeia e grava (Fase 3)
+            return {
+                "treinamento_id": "plano-1",
+                "plano_principal": {
+                    "nome": "Plano",
+                    "ciclos": [{"microciclos": [{"semana": 1, "sessoes": [
+                        {"nome": "Treino A", "exercicios": [
+                            {"nome": "Supino", "ordem": 1, "series": 3, "repeticoes": "10"}
+                        ]}
+                    ]}]}],
+                },
+            }
 
     with mock.patch("utils.auth.requests.get", return_value=_fake_user_response("3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b")), \
-         mock.patch.object(app_module, "treinador", FakeTreinador()):
+         mock.patch.object(app_module, "treinador", FakeTreinador()), \
+         mock.patch.object(app_module, "persistir_plano", return_value="db-plan-1"):
         response = client.post(
             "/api/generate-plan",
             json={"questionnaireData": {"id": "ID-MALICIOSO-DO-CLIENTE", "nivelExperiencia": "iniciante"}},

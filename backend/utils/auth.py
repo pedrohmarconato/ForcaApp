@@ -106,6 +106,9 @@ def token_required(view_func):
             return jsonify({"error": "Sessão inválida ou expirada."}), 401
 
         g.user = user
+        # Token bruto disponível para chamadas downstream em nome do usuário
+        # (ex.: gravar o plano no Supabase respeitando RLS).
+        g.access_token = token
         return view_func(*args, **kwargs)
 
     return wrapper

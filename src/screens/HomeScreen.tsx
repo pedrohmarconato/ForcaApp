@@ -1,86 +1,79 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
 
+import { useAuth } from '../contexts/AuthContext';
+import {
+  getTodaySession,
+  getUpcomingSessions,
+  PlannedSession,
+} from '../services/trainingRepository';
+
 // Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail)
 type HomeStackParamList = {
   HomeMain: undefined;
-  WorkoutDetail: { workout: any };
+  WorkoutDetail: { sessionId: string };
 };
 
-// You may need to adjust these imports based on your project structure
-import { supabase } from '../config/supabaseClient';
+const formatarData = (isoDate: string | null): string =>
+  isoDate ? new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR') : '';
 
+// Data local (não UTC) no formato YYYY-MM-DD, para comparar com scheduled_date
+const hojeISO = (): string => {
+  const agora = new Date();
+  const mes = String(agora.getMonth() + 1).padStart(2, '0');
+  const dia = String(agora.getDate()).padStart(2, '0');
+  return `${agora.getFullYear()}-${mes}-${dia}`;
+};
+
+// Fase 3: a Home lê o plano REAL persistido — card do treino de hoje e a
+// lista dos próximos treinos. As estatísticas de progresso só mostram números
+// quando houver execuções registradas (Fase 4); sem amostra, exibem "—".
 const HomeScreen = () => {
   const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'HomeMain'>>();
-  const [workouts, setWorkouts] = useState([]);
-  const [userName, setUserName] = useState('');
+  const { user, profile } = useAuth();
+  const [todaySession, setTodaySession] = useState<PlannedSession | null>(null);
+  const [upcoming, setUpcoming] = useState<PlannedSession[]>([]);
   const [loading, setLoading] = useState(true);
+  // Erro de banco ≠ "nenhum treino": estados distintos (achado #9 do review)
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    // Só busca dados se o usuário estiver autenticado
-    if (supabase.auth.getSession()) {
-      fetchUserProfile();
-      fetchWorkouts();
-    }
-  }, []);
+  const userName = profile?.full_name || 'Atleta';
 
-  const fetchUserProfile = async () => {
+  const fetchData = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setLoadError(false);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session?.user) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', session.user.id)
-          .single();
-
-        if (error) {
-          console.error('Error fetching profile:', error);
-          return;
-        }
-        if (data) setUserName(data.full_name || 'Atleta');
-      }
+      const [hoje, proximos] = await Promise.all([
+        getTodaySession(user.id),
+        getUpcomingSessions(user.id, 5),
+      ]);
+      setTodaySession(hoje);
+      // A lista não repete o treino que já está no card de hoje
+      setUpcoming(proximos.filter((sessao) => sessao.id !== hoje?.id));
     } catch (error) {
-      console.error('Error fetching profile:', error);
-      // Nu00e3o tenta novamente em caso de erro
-    }
-  };
-
-  const fetchWorkouts = async () => {
-    try {
-      setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.user) {
-        setWorkouts([]);
-        return;
-      }
-      
-      const { data, error } = await supabase
-        .from('workouts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (error) {
-        console.error('Error fetching workouts:', error);
-        return;
-      }
-      if (data) setWorkouts(data);
-    } catch (error) {
-      console.error('Error fetching workouts:', error);
+      console.error('Erro ao buscar treinos:', error);
+      setTodaySession(null);
+      setUpcoming([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
-  };
+    // Depende do ID (estável), não da identidade do objeto user: evita
+    // relançar o efeito a cada render se o contexto recriar o objeto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
-  const navigateToWorkoutDetail = (workout) => {
-    navigation.navigate('WorkoutDetail', { workout });
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const abrirDetalhe = (sessionId: string) => {
+    navigation.navigate('WorkoutDetail', { sessionId });
   };
 
   return (
@@ -97,54 +90,103 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Today's Workout Section */}
+        {/* Treino de hoje/próximo (dado real do plano; rótulo honesto — achado #8) */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Seu treino de hoje</Text>
-          <TouchableOpacity style={styles.todayWorkoutCard}>
-            <View style={styles.workoutInfo}>
-              <Text style={styles.workoutTitle}>Treino de Força</Text>
-              <Text style={styles.workoutDescription}>Foco em membros superiores</Text>
-              <View style={styles.workoutMeta}>
-                <View style={styles.metaItem}>
-                  <Feather name="clock" size={16} color="#EBFF00" />
-                  <Text style={styles.metaText}>45 min</Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <Feather name="zap" size={16} color="#EBFF00" />
-                  <Text style={styles.metaText}>Intensidade média</Text>
-                </View>
+          <Text style={styles.sectionTitle}>
+            {todaySession && todaySession.scheduled_date !== hojeISO()
+              ? 'Seu próximo treino'
+              : 'Seu treino de hoje'}
+          </Text>
+          {loading ? (
+            <Text style={styles.loadingText}>Carregando treino...</Text>
+          ) : loadError ? (
+            <View style={styles.todayWorkoutCard}>
+              <View style={styles.workoutInfo}>
+                <Text style={styles.workoutTitle}>Não foi possível carregar</Text>
+                <Text style={styles.workoutDescription}>
+                  Verifique a conexão e tente novamente.
+                </Text>
               </View>
-              <TouchableOpacity style={styles.startButton}>
-                <Text style={styles.startButtonText}>Iniciar Treino</Text>
-              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          ) : todaySession ? (
+            <TouchableOpacity
+              style={styles.todayWorkoutCard}
+              onPress={() => abrirDetalhe(todaySession.id)}
+            >
+              <View style={styles.workoutInfo}>
+                <Text style={styles.workoutTitle}>{todaySession.title}</Text>
+                <Text style={styles.workoutDescription}>
+                  {todaySession.muscle_groups?.length
+                    ? todaySession.muscle_groups.join(' · ')
+                    : todaySession.session_type || 'Sessão do seu plano'}
+                </Text>
+                <View style={styles.workoutMeta}>
+                  {todaySession.estimated_minutes ? (
+                    <View style={styles.metaItem}>
+                      <Feather name="clock" size={16} color="#EBFF00" />
+                      <Text style={styles.metaText}>{todaySession.estimated_minutes} min</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.metaItem}>
+                    <Feather name="calendar" size={16} color="#EBFF00" />
+                    <Text style={styles.metaText}>
+                      Semana {todaySession.week_number}
+                      {todaySession.scheduled_date
+                        ? ` · ${formatarData(todaySession.scheduled_date)}`
+                        : ''}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.startButton}
+                  onPress={() => abrirDetalhe(todaySession.id)}
+                >
+                  <Text style={styles.startButtonText}>Ver treino</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.todayWorkoutCard}>
+              <View style={styles.workoutInfo}>
+                <Text style={styles.workoutTitle}>Nenhum treino pendente</Text>
+                <Text style={styles.workoutDescription}>
+                  Complete o questionário e gere seu plano para começar.
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* Recent Workouts Section */}
+        {/* Próximos treinos (lista real do plano) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Treinos recentes</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>Ver todos</Text>
-            </TouchableOpacity>
+            <Text style={styles.sectionTitle}>Próximos treinos</Text>
           </View>
-          
+
           {loading ? (
             <Text style={styles.loadingText}>Carregando treinos...</Text>
-          ) : workouts.length > 0 ? (
-            workouts.map((workout, index) => (
-              <TouchableOpacity 
-                key={workout.id || index} 
+          ) : loadError ? (
+            <Text style={styles.noWorkoutsText}>
+              Não foi possível carregar seus treinos.
+            </Text>
+          ) : upcoming.length > 0 ? (
+            upcoming.map((sessao) => (
+              <TouchableOpacity
+                key={sessao.id}
                 style={styles.workoutCard}
-                onPress={() => navigateToWorkoutDetail(workout)}
+                onPress={() => abrirDetalhe(sessao.id)}
               >
                 <View style={styles.workoutCardContent}>
-                  <Text style={styles.workoutCardTitle}>{workout.name || 'Treino sem nome'}</Text>
-                  <Text style={styles.workoutCardDescription}>{workout.description || 'Sem descrição'}</Text>
+                  <Text style={styles.workoutCardTitle}>{sessao.title}</Text>
+                  <Text style={styles.workoutCardDescription}>
+                    {sessao.muscle_groups?.length
+                      ? sessao.muscle_groups.join(' · ')
+                      : sessao.session_type || ''}
+                  </Text>
                   <View style={styles.workoutCardMeta}>
                     <Text style={styles.workoutCardDate}>
-                      {new Date(workout.created_at).toLocaleDateString('pt-BR')}
+                      Semana {sessao.week_number}
+                      {sessao.scheduled_date ? ` · ${formatarData(sessao.scheduled_date)}` : ''}
                     </Text>
                   </View>
                 </View>
@@ -152,29 +194,32 @@ const HomeScreen = () => {
               </TouchableOpacity>
             ))
           ) : (
-            <Text style={styles.noWorkoutsText}>Nenhum treino encontrado</Text>
+            <Text style={styles.noWorkoutsText}>Nenhum treino agendado</Text>
           )}
         </View>
 
-        {/* Progress Section */}
+        {/* Progresso: sem execuções registradas ainda (Fase 4), sem número inventado */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Seu progresso</Text>
           <View style={styles.progressCard}>
             <Text style={styles.progressTitle}>Estatísticas da semana</Text>
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>5</Text>
+                <Text style={styles.statValue}>—</Text>
                 <Text style={styles.statLabel}>Treinos</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>3.5h</Text>
+                <Text style={styles.statValue}>—</Text>
                 <Text style={styles.statLabel}>Tempo total</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>2500</Text>
+                <Text style={styles.statValue}>—</Text>
                 <Text style={styles.statLabel}>Calorias</Text>
               </View>
             </View>
+            <Text style={styles.progressHint}>
+              Disponível quando você concluir seus primeiros treinos.
+            </Text>
           </View>
         </View>
       </ScrollView>
@@ -226,10 +271,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 16,
-  },
-  seeAllText: {
-    color: '#EBFF00',
-    fontSize: 14,
   },
   todayWorkoutCard: {
     backgroundColor: '#1A1A1A',
@@ -338,6 +379,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFFFFF',
     opacity: 0.7,
+  },
+  progressHint: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.5,
+    marginTop: 12,
+    textAlign: 'center',
   },
   loadingText: {
     color: '#FFFFFF',
