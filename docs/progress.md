@@ -147,3 +147,75 @@ CONFIRMADOS** contra o código vivo, zero falso-positivo. Todos corrigidos:
 Verificação: pytest 55→69 · jest 41→51 · tsc 0. Migration 0001 JÁ APLICADA no
 projeto (dono confirmou, todos os checks ✓). Pendências: aplicar **0002** e rodar
 o smoke E2E antes do merge do PR #4.
+
+---
+
+## ✅ Fase 4 — Sessão interativa: registrar série a série (17/07/2026, branch fase-4-sessao-interativa)
+
+### Base do branch
+PR #4 (`fase-3-persistencia`) **ainda ABERTO** no merge desta fase. Como a Fase 4
+depende do modelo de dados e da camada de leitura da Fase 3, o branch nasceu de
+`fase-3-persistencia` (não de `main`). O PR #5 deve ter `fase-3-persistencia`
+como base; se o dono mesclar o #4 antes, rebasear para `main`.
+
+### O que foi feito (tudo testes-primeiro)
+- **Modelo puro** `src/engine/sessionModel.ts`: `computeOutcome` (under/on_target/
+  over), `isBodyweightEquipment` (pelo EQUIPAMENTO, não pela carga nula),
+  `suggestLoad` (nunca inventa kg — precedência plano→histórico→null), `stepLoad`,
+  `canCompleteSet`, `buildDraftFromDetail`. 21 testes.
+- **Repositório de execução** `src/services/sessionExecutionRepository.ts`
+  (cliente único + RLS + throw em erro): `startSessionLog` (sessão → in_progress),
+  `saveSetLog` (adaptation NULA — Fase 5), `finishSessionLog` (→ completed),
+  `getOpenSessionLog` (retomada sem duplicar log), `getLastLoadByExerciseName`
+  (sugestão pela última carga real), `getCompletedSessions`/`getSessionLogDetail`
+  (histórico). 15 testes.
+- **Retomada**: `src/services/sessionDraftStorage.ts` (rascunho por usuário no
+  AsyncStorage) + `src/store/activeSessionStore.ts` (Zustand). Fecha o app no meio
+  e reabre → séries feitas sobrevivem (rascunho local ou reconstrução pelo
+  session_log em aberto). 12 testes.
+- **UI**: `components/session/SetRow.tsx` (iniciar série, stepper de carga pelo
+  incremento, reps, RIR opcional, concluir → outcome), `RestTimer.tsx` (descanso
+  por rest_seconds), `screens/ActiveSessionScreen.tsx`. Bodyweight sem kg;
+  1ª carga sem histórico pede ao aluno. E2E de tela dirige a sessão inteira.
+- **Histórico**: `SessionHistoryScreen` + `SessionHistoryDetailScreen` (reps/
+  carga/RIR reais por exercício), ligados no Perfil.
+- **Navegação tipada**: MainNavigator com 3 stacks (Home/Training/Profile),
+  `ActiveSession` registrada na Home e no Training; entradas "Iniciar/Retomar
+  treino" (WorkoutDetail + Training) e "Histórico de treinos" (Perfil).
+- **4 FIXME(Fase 5) resolvidos**: removidos os `navigation.reset` cross-navigator
+  para `'App'`/`'Login'` (`as any`) em QuestionnaireScreen (×2) e
+  PostQuestionnaireChat (×2). A transição pós-onboarding/logout é dirigida pelo
+  AuthContext (RootNavigator troca de navigator). Guarda de fonte em
+  `navigationFix.test.ts` impede o `as any` de voltar.
+
+### Casos de borda cobertos com teste (os pedidos no brief)
+Retomar mantém séries feitas · 1ª carga sem histórico pede (não assume) ·
+bodyweight sem input de kg · outcome under/on_target/over correto (bordas
+inclusive) · **erro do banco ao salvar a série NÃO é engolido como sucesso**
+(a série continua não-concluída e o erro aparece).
+
+### Verificação
+- `tsc --noEmit`: **0 erros**.
+- `jest`: **51 → 108** (16 suites, 100% verde).
+- **Backend NÃO foi tocado** (0 arquivos em backend/) → pytest não requerido nesta
+  fase; ambiente atual sem módulo pytest, então não rodei (nada mudou lá).
+- Fluxo exercitado de ponta a ponta pela tela real (`activeSessionScreen.test.tsx`):
+  iniciar → 2 séries com carga (a 2ª já sugere a última) → 1 série bodyweight (kg
+  nulo) → concluir treino → "Treino concluído". Dirige store+modelo+componentes
+  reais; só a fronteira de rede (Supabase) e o storage são mockados.
+
+### Pendências honestas (NÃO sucesso otimista)
+1. **E2E em device/simulador com Supabase real NÃO foi rodado** (sem dispositivo/
+   projeto/credenciais neste ambiente) — mesma limitação da Fase 3. A verificação
+   foi headless (render real + rede mockada) + tsc + jest.
+2. **`getLastLoadByExerciseName` (sugestão cross-sessão) é best-effort**: usa
+   embedding aninhado do PostgREST; se a consulta falhar, o início degrada com
+   graça (sem semente → pede a carga). Validar contra o banco real quando houver.
+3. Depende do **PR #4 mesclado** e das migrations 0001/0002 aplicadas em prod.
+   `session_logs`/`set_logs` já existem (0001); esta fase NÃO adiciona migration.
+4. Zustand v4.5 adicionado (`package.json`; lock é gitignore no repo).
+
+### Próximo passo
+Abrir PR #5 (base `fase-3-persistencia`) e aguardar OK do dono. Merge só com OK
+explícito. Depois: Fase 5 (motor de adaptação intra-sessão + decisão do aluno) —
+`set_logs.adaptation` já está reservado e fica nulo nesta fase.
