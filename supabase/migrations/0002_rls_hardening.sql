@@ -13,7 +13,7 @@
 -- ============================================================
 -- 1. planned_sessions: só se o plano referenciado é MEU
 -- ============================================================
-drop policy "own sessions" on public.planned_sessions;
+drop policy if exists "own sessions" on public.planned_sessions;
 create policy "own sessions" on public.planned_sessions
   for all
   using (auth.uid() = user_id)
@@ -28,7 +28,7 @@ create policy "own sessions" on public.planned_sessions
 -- ============================================================
 -- 2. session_logs: só se a sessão planejada referenciada é MINHA
 -- ============================================================
-drop policy "own session logs" on public.session_logs;
+drop policy if exists "own session logs" on public.session_logs;
 create policy "own session logs" on public.session_logs
   for all
   using (auth.uid() = user_id)
@@ -43,7 +43,7 @@ create policy "own session logs" on public.session_logs
 -- ============================================================
 -- 3. set_logs: o planned_set referenciado (quando houver) também é MEU
 -- ============================================================
-drop policy "own set logs" on public.set_logs;
+drop policy if exists "own set logs" on public.set_logs;
 create policy "own set logs" on public.set_logs
   for all
   using (
