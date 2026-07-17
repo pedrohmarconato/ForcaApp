@@ -55,8 +55,45 @@ const errMsg = (e: unknown): string =>
   e instanceof Error ? e.message : 'Erro inesperado ao falar com o servidor.';
 
 // Trava de reentrância por série (duplo-toque/corrida). Fora do estado do Zustand
-// para não disparar re-render: uma gravação por planned_set por vez (F2 do review).
+// para não disparar re-render: uma gravação por (log, planned_set) por vez (F2/F9).
+// A chave inclui o sessionLogId para não colidir entre sessões distintas.
 const inFlight = new Set<string>();
+
+// Tempo máximo da RPC de gravação (F9): se a rede TRAVAR, a promessa precisa settle
+// mesmo assim, senão o `finally` nunca roda e a trava prende a série para sempre.
+// Exportado para o teste exercitar o limite sem esperar de verdade.
+export const RPC_TIMEOUT_MS = 15000;
+
+/**
+ * Corre uma promessa contra um timeout. Se o limite vence, REJEITA (a série volta a
+ * poder ser tentada) e SEMPRE limpa o timer no fim (sem handles pendurados). Garante
+ * que o await de gravação settle para o `finally` liberar a trava de reentrância (F9).
+ */
+const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limite = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('Tempo esgotado ao gravar a série. Verifique a conexão e tente de novo.')),
+      ms,
+    );
+  });
+  return Promise.race([p, limite]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+};
+
+/**
+ * Erro ESTRUTURADO do banco (PostgREST/SQL/permissão) x erro de REDE/timeout.
+ * PostgREST/Postgres devolvem erro com `.code` (ex.: '42501' permissão, '42P10'
+ * índice, 'PGRST...'); erro de rede ('Network request failed') não tem `.code`.
+ * Na reconciliação da retomada: estruturado → propaga como erro; rede → retomada
+ * offline (F6). Sem isto, TUDO virava "offline" e mascarava falha real do servidor.
+ */
+const isStructuredDbError = (e: unknown): boolean => {
+  if (typeof e !== 'object' || e === null) return false;
+  const code = (e as { code?: unknown }).code;
+  return typeof code === 'string' && code.length > 0;
+};
 
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
 const withSet = (
@@ -153,39 +190,51 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     set({ status: 'loading', saveError: null });
     try {
       // 1. Rascunho local do MESMO treino ainda ativo → RECONCILIA com o servidor
-      // antes de adotar (F1): não podemos gravar séries num log já finalizado.
+      // antes de adotar (F3/F6): o SERVIDOR é autoritativo. Não gravamos série em log
+      // finalizado, e não adotamos o rascunho local CRU (pode ter série "feita" que
+      // nunca persistiu, ou carga obsoleta).
       const local = await loadDraft(userId);
       if (local && local.plannedSessionId === sessionId && local.status === 'active') {
+        // O try/catch envolve SÓ a chamada remota — para classificar o erro dela e não
+        // engolir uma falha estruturada como se fosse "offline".
+        let aberta: OpenSessionLog | null;
         try {
-          const aberta = await getOpenSessionLog(userId, sessionId);
-          if (!aberta) {
-            // Sessão foi finalizada (outro aparelho, ou clearDraft falhou). Não retoma.
-            await clearDraft(userId);
-            set({ draft: null, status: 'finished' });
-            return;
-          }
-          if (aberta.sessionLogId === local.sessionLogId) {
-            set({ draft: local, status: 'active' }); // mesmo log aberto → adota local
-            return;
-          }
-          // Log aberto DIFERENTE do local → descarta o local e reconstrói do servidor.
-          const seed = await seedLastLoads(detail);
-          const draftServidor = applyServerSetLogs(
-            buildDraftFromDetail(detail, userId, seed),
-            aberta,
-          );
-          await saveDraft(draftServidor);
-          set({ draft: draftServidor, status: 'active' });
-          return;
+          aberta = await getOpenSessionLog(userId, sessionId);
         } catch (e) {
-          // Servidor indisponível: retomada offline com o rascunho local (best-effort).
+          if (isStructuredDbError(e)) throw e; // SQL/permissão/PostgREST → status 'error'
+          // Rede/timeout: retomada offline com o rascunho local (best-effort).
           console.warn('[activeSession] sem rede para reconciliar; retomando local:', e);
           set({ draft: local, status: 'active' });
           return;
         }
+
+        if (!aberta) {
+          // Servidor PROVOU que a sessão foi finalizada. A decisão de estado vem ANTES
+          // de limpar: clearDraft é best-effort e NÃO pode ressuscitar um draft já
+          // provado finalizado (senão gravaríamos em log fechado — F6).
+          set({ draft: null, status: 'finished' });
+          try {
+            await clearDraft(userId);
+          } catch (e) {
+            console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+          }
+          return;
+        }
+
+        // Há log aberto (mesmo id ou não) → reconstrói do SERVIDOR (autoritativo),
+        // nunca adota o local cru.
+        const seed = await seedLastLoads(detail);
+        const draftServidor = applyServerSetLogs(buildDraftFromDetail(detail, userId, seed), aberta);
+        set({ draft: draftServidor, status: 'active' });
+        try {
+          await saveDraft(draftServidor);
+        } catch (e) {
+          console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        }
+        return;
       }
 
-      // 2. Sem rascunho local: reconstroi do servidor.
+      // 2. Sem rascunho local (ou de outra sessão): reconstroi do servidor.
       const seed = await seedLastLoads(detail);
       let draft = buildDraftFromDetail(detail, userId, seed);
 
@@ -198,8 +247,14 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         draft = { ...draft, sessionLogId, startedAt };
       }
 
-      await saveDraft(draft);
       set({ draft, status: 'active' });
+      // Sessão já criada/retomada no servidor (verdade). Persistência local é secundária:
+      // falhar aqui NÃO derruba o início para 'error' (mesma filosofia do completeSet).
+      try {
+        await saveDraft(draft);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      }
     } catch (e) {
       set({ status: 'error', saveError: errMsg(e) });
     }
@@ -266,8 +321,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
     // Já concluída → idempotente, não regrava (F2).
     if (serie.status === 'done') return true;
+
+    // CAS: fixa a sessão desta gravação ANTES do await (F7). A trava de reentrância é
+    // por (log, série) (F9) — não colide entre sessões distintas.
+    const sid = draft.sessionLogId;
+    const lockKey = `${sid}:${serie.plannedSetId}`;
     // Reentrância (duplo-toque / duas instâncias): uma gravação por série por vez (F2).
-    if (inFlight.has(serie.plannedSetId)) return false;
+    if (inFlight.has(lockKey)) return false;
 
     if (!canCompleteSet(serie, exercise.isBodyweight)) {
       set({
@@ -282,23 +342,30 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const actualLoadKg = exercise.isBodyweight ? null : (serie.actualLoadKg as number);
     const outcome = computeOutcome(actualReps, serie.targetRepsMin, serie.targetRepsMax);
 
-    inFlight.add(serie.plannedSetId);
+    inFlight.add(lockKey);
     try {
-      // UPSERT idempotente (índice único no banco): retry atualiza a mesma linha.
-      const { setLogId } = await saveSetLog({
-        sessionLogId: draft.sessionLogId,
-        plannedSetId: serie.plannedSetId,
-        actualReps,
-        actualLoadKg,
-        actualRir: serie.actualRir,
-        outcome,
-      });
+      // RPC idempotente (ON CONFLICT no banco): retry atualiza a mesma linha. withTimeout
+      // garante que o await settle mesmo se a rede travar → o finally libera a trava (F9).
+      const { setLogId } = await withTimeout(
+        saveSetLog({
+          sessionLogId: sid,
+          plannedSetId: serie.plannedSetId,
+          actualReps,
+          actualLoadKg,
+          actualRir: serie.actualRir,
+          outcome,
+        }),
+        RPC_TIMEOUT_MS,
+      );
+
+      // CAS (F7): se a sessão ativa MUDOU durante o await (usuário trocou de treino), a
+      // gravação foi confirmada no servidor, mas NÃO escrevemos no draft de outra sessão.
+      const atual = get().draft;
+      if (!atual || atual.sessionLogId !== sid) return true;
 
       // Servidor CONFIRMOU → marca "feita" já. A persistência local é secundária:
       // falha ao salvar o rascunho NÃO reverte um insert confirmado nem faz o
       // chamador retry (F3 — insert confirmado nunca é reapresentado como falha).
-      const atual = get().draft;
-      if (!atual) return true;
       const lastLoad = { ...atual.lastLoadByExercise };
       if (actualLoadKg != null) lastLoad[normalizeName(exercise.name)] = actualLoadKg;
       const novo: SessionDraft = {
@@ -319,11 +386,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       }
       return true;
     } catch (e) {
-      // Só erro do BANCO deixa a série NÃO concluída e mostra o erro.
-      set({ saveError: errMsg(e) });
+      // Só erro do BANCO deixa a série NÃO concluída. E só mostra o erro se AINDA
+      // estamos na mesma sessão (não polui a UI de uma sessão que o usuário já trocou).
+      if (get().draft?.sessionLogId === sid) set({ saveError: errMsg(e) });
       return false;
     } finally {
-      inFlight.delete(serie.plannedSetId);
+      inFlight.delete(lockKey);
     }
   },
 
@@ -333,21 +401,33 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       set({ saveError: 'Sessão não iniciada corretamente.' });
       return false;
     }
+    // CAS: fixa a sessão desta conclusão ANTES do await (F7).
+    const sid = draft.sessionLogId;
+    const uid = draft.userId;
     try {
-      // RPC atômica; levanta erro se 0 linhas (não finaliza no vazio — F5/F6).
-      await finishSessionLog(draft.sessionLogId);
-      set({ draft: { ...draft, status: 'finished' }, status: 'finished', saveError: null });
-      // Só limpa o rascunho DEPOIS de finalizar de verdade no servidor.
-      try {
-        await clearDraft(draft.userId);
-      } catch (e) {
-        console.warn('[activeSession] rascunho não removido (não-fatal):', e);
-      }
-      return true;
+      // RPC atômica e IDEMPOTENTE (0004): finaliza, ou é sucesso se já estava finalizada
+      // (dela); só inexistente/alheia levanta erro — sem "concluído" falso (F4/F6).
+      await finishSessionLog(sid);
     } catch (e) {
-      set({ saveError: errMsg(e) });
+      // Só reporta o erro se AINDA estamos nesta sessão (não polui uma sessão trocada).
+      if (get().draft?.sessionLogId === sid) set({ saveError: errMsg(e) });
       return false;
     }
+
+    // CAS (F7): se o usuário trocou de sessão durante o await, o servidor finalizou a
+    // certa, mas NÃO mexemos no estado nem limpamos o rascunho da OUTRA sessão.
+    const atual = get().draft;
+    if (!atual || atual.sessionLogId !== sid) return true;
+
+    set({ draft: { ...atual, status: 'finished' }, status: 'finished', saveError: null });
+    // Só limpa o rascunho DEPOIS de finalizar de verdade, e só porque o draft atual
+    // AINDA é esta sessão (não por userId cego — evita apagar a sessão trocada).
+    try {
+      await clearDraft(uid);
+    } catch (e) {
+      console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+    }
+    return true;
   },
 
   clearError: () => set({ saveError: null }),

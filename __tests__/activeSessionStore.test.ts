@@ -34,6 +34,17 @@ import type { SessionDetail } from '../src/services/trainingRepository';
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 
+/** Promessa controlável: permite trocar de sessão ENQUANTO uma gravação/finish está no await. */
+const deferred = <T,>() => {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
 const makeDetail = (): SessionDetail => ({
   id: 'sess-1',
   plan_id: 'plan-1',
@@ -236,8 +247,8 @@ describe('setRir', () => {
 });
 
 describe('retomar sessão (fechar no meio e reabrir)', () => {
-  it('rascunho local com série feita é retomado como está — sem novo session_log', async () => {
-    // Simula um rascunho salvo no aparelho com a 1ª série já concluída.
+  it('rascunho local + servidor CONFIRMA a série → retomada como feita, sem novo session_log', async () => {
+    // Rascunho local com a 1ª série concluída…
     const draft = buildDraftFromDetail(makeDetail(), 'user-1');
     draft.sessionLogId = 'sl-existente';
     draft.exercises[0].sets[0] = {
@@ -245,19 +256,72 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       status: 'done', outcome: 'on_target', actualReps: 8, actualLoadKg: 40, setLogId: 'set-1',
     };
     mock(loadDraft).mockResolvedValue(draft);
-    // reconcilia com o servidor: o MESMO log continua aberto → adota o local
-    mock(getOpenSessionLog).mockResolvedValue({ sessionLogId: 'sl-existente', startedAt: 'T0', setLogs: [] });
+    // …e o SERVIDOR (autoritativo) confirma a mesma série gravada.
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-existente',
+      startedAt: 'T0',
+      setLogs: [
+        { id: 'set-1', planned_set_id: 'st-1', actual_reps: 8, actual_load_kg: 40, actual_rir: 2, outcome: 'on_target' },
+      ],
+    });
 
     await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
 
     expect(store().status).toBe('active');
     expect(store().draft?.sessionLogId).toBe('sl-existente');
-    // a série feita sobreviveu
+    // a série feita sobreviveu (reconstruída do servidor)
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
     expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(40);
-    // NÃO criou um novo log; reconciliou com o servidor antes de adotar (F1)
+    // NÃO criou um novo log; reconciliou com o servidor antes de adotar
     expect(startSessionLog).not.toHaveBeenCalled();
     expect(getOpenSessionLog).toHaveBeenCalled();
+  });
+
+  it('F3/F6: o SERVIDOR vence o local obsoleto (carga 40 no local, 50 no servidor → 50)', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-existente';
+    // local acha que gravou 40 nesta série…
+    draft.exercises[0].sets[0] = {
+      ...draft.exercises[0].sets[0],
+      status: 'done', outcome: 'on_target', actualReps: 8, actualLoadKg: 40, setLogId: 'set-antigo',
+    };
+    mock(loadDraft).mockResolvedValue(draft);
+    // …mas o SERVIDOR tem 50 (o que de fato persistiu). O servidor é autoritativo.
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-existente',
+      startedAt: 'T0',
+      setLogs: [
+        { id: 'set-real', planned_set_id: 'st-1', actual_reps: 9, actual_load_kg: 50, actual_rir: 1, outcome: 'on_target' },
+      ],
+    });
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    const s1 = store().draft!.exercises[0].sets[0];
+    expect(s1.actualLoadKg).toBe(50); // não 40
+    expect(s1.actualReps).toBe(9);
+    expect(s1.setLogId).toBe('set-real');
+  });
+
+  it('F3/F6: série "feita" no local SEM lastro no servidor volta a PENDENTE (não é fantasma)', async () => {
+    // Cenário do BLOCKER: o upsert falhava (42P10), então o "done" local pode nunca ter
+    // persistido. Ao retomar, o servidor (sem a série) manda: a série volta a pendente.
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-existente';
+    draft.exercises[0].sets[0] = {
+      ...draft.exercises[0].sets[0],
+      status: 'done', outcome: 'on_target', actualReps: 8, actualLoadKg: 40, setLogId: 'fantasma',
+    };
+    mock(loadDraft).mockResolvedValue(draft);
+    mock(getOpenSessionLog).mockResolvedValue({ sessionLogId: 'sl-existente', startedAt: 'T0', setLogs: [] });
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    const s1 = store().draft!.exercises[0].sets[0];
+    expect(s1.status).toBe('pending');
+    expect(s1.setLogId).toBeNull();
+    expect(store().status).toBe('active');
+    expect(startSessionLog).not.toHaveBeenCalled();
   });
 
   it('F1: rascunho local ativo mas sessão JÁ FINALIZADA no servidor → não retoma (não grava em log fechado)', async () => {
@@ -273,17 +337,48 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
     expect(startSessionLog).not.toHaveBeenCalled();
   });
 
-  it('F1: servidor indisponível na reconciliação → retomada OFFLINE com o local', async () => {
+  it('F6: erro de REDE (sem .code) na reconciliação → retomada OFFLINE com o local', async () => {
     const draft = buildDraftFromDetail(makeDetail(), 'user-1');
     draft.sessionLogId = 'sl-offline';
     draft.exercises[0].sets[0] = { ...draft.exercises[0].sets[0], status: 'done', actualReps: 8, actualLoadKg: 40 };
     mock(loadDraft).mockResolvedValue(draft);
-    mock(getOpenSessionLog).mockRejectedValue(new Error('sem rede'));
+    mock(getOpenSessionLog).mockRejectedValue(new Error('Network request failed')); // sem .code
 
     await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
 
     expect(store().status).toBe('active');
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+  });
+
+  it('F6: erro ESTRUTURADO (PostgREST/SQL/permissão, com .code) → status "error", NÃO "offline"', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-erro';
+    mock(loadDraft).mockResolvedValue(draft);
+    // Erro do PostgREST vem como objeto com .code (aqui, permissão negada).
+    mock(getOpenSessionLog).mockRejectedValue(
+      Object.assign(new Error('permission denied for table session_logs'), { code: '42501' }),
+    );
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    // NÃO pode fingir offline: erro estruturado tem de propagar como erro.
+    expect(store().status).toBe('error');
+    expect(store().saveError).toMatch(/permission denied/i);
+  });
+
+  it('F6: falha de clearDraft NÃO reativa um rascunho que o servidor PROVOU finalizado', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-antigo';
+    mock(loadDraft).mockResolvedValue(draft);
+    mock(getOpenSessionLog).mockResolvedValue(null); // servidor: sessão finalizada
+    mock(clearDraft).mockRejectedValue(new Error('AsyncStorage falhou')); // limpeza falha
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    // A decisão "finalizada" é tomada ANTES de limpar; clearDraft falhar é não-fatal
+    // e não pode ressuscitar o draft (status 'active') — senão gravaríamos em log fechado.
+    expect(store().status).toBe('finished');
+    expect(store().draft).toBeNull();
   });
 
   it('sem rascunho local, reconstrói do servidor sem duplicar o session_log', async () => {
@@ -323,5 +418,102 @@ describe('concluir a sessão', () => {
     expect(ok).toBe(false);
     expect(store().saveError).toMatch(/timeout/);
     expect(store().status).not.toBe('finished');
+  });
+
+  it('F4: finish idempotente — 2ª chamada (RPC já finalizou, resolve) NÃO trava o cliente em erro', async () => {
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    expect(await store().finishSession()).toBe(true);
+    expect(store().status).toBe('finished');
+    expect(store().saveError).toBeNull();
+
+    // A RPC idempotente da 0004 responde SUCESSO quando o log já é dele e está finalizado.
+    // O cliente não pode ficar preso num erro por concluir duas vezes.
+    const ok2 = await store().finishSession();
+    expect(ok2).toBe(true);
+    expect(store().saveError).toBeNull();
+    expect(store().status).toBe('finished');
+  });
+});
+
+describe('compare-and-set: troca de sessão durante o await (F7)', () => {
+  it('completeSet não escreve na sessão TROCADA durante o await da gravação', async () => {
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() }); // A = sl-1
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+
+    const d = deferred<{ setLogId: string }>();
+    mock(saveSetLog).mockReturnValueOnce(d.promise); // gravação fica pendente
+
+    const p = store().completeSet('ex-1', 1);
+
+    // usuário troca para OUTRA sessão (B) enquanto a série de A ainda grava
+    const draftB = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftB.sessionLogId = 'sl-B';
+    useActiveSessionStore.setState({ draft: draftB, status: 'active' });
+
+    d.resolve({ setLogId: 'set-x' });
+    const ok = await p;
+
+    expect(ok).toBe(true); // o servidor confirmou a gravação de A
+    // …mas a sessão B ficou intacta (nada de série de A vazando para B)
+    expect(store().draft!.sessionLogId).toBe('sl-B');
+    expect(store().draft!.exercises[0].sets[0].status).toBe('pending');
+    expect(store().draft!.exercises[0].sets[0].setLogId).toBeNull();
+  });
+
+  it('finishSession não finaliza/limpa a sessão TROCADA durante o await', async () => {
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() }); // A = sl-1
+
+    const d = deferred<void>();
+    mock(finishSessionLog).mockReturnValueOnce(d.promise);
+
+    const p = store().finishSession();
+
+    const draftB = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftB.sessionLogId = 'sl-B';
+    useActiveSessionStore.setState({ draft: draftB, status: 'active' });
+
+    d.resolve();
+    const ok = await p;
+
+    expect(ok).toBe(true);
+    // sessão B intacta: NÃO virou finished e o rascunho dela NÃO foi limpo (clearDraft cego)
+    expect(store().draft!.sessionLogId).toBe('sl-B');
+    expect(store().status).toBe('active');
+    expect(clearDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe('trava de reentrância (F9)', () => {
+  it('RPC de gravação travada libera a série após timeout (não trava para sempre)', async () => {
+    jest.useFakeTimers();
+    try {
+      await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+      store().activateSet('ex-1', 1);
+      store().setReps('ex-1', 1, 8);
+      store().setLoad('ex-1', 1, 40);
+
+      // 1ª tentativa: a RPC TRAVA (promessa que nunca resolve).
+      mock(saveSetLog).mockReturnValueOnce(new Promise(() => {}));
+      const p1 = store().completeSet('ex-1', 1);
+
+      // dispara o timeout interno da gravação
+      jest.advanceTimersByTime(60000);
+      const r1 = await p1;
+
+      expect(r1).toBe(false);
+      expect(store().saveError).toMatch(/tempo|esgot/i);
+      expect(store().draft!.exercises[0].sets[0].status).not.toBe('done');
+
+      // a TRAVA foi liberada: nova tentativa consegue disparar a RPC de novo
+      mock(saveSetLog).mockResolvedValueOnce({ setLogId: 'set-x' });
+      const r2 = await store().completeSet('ex-1', 1);
+      expect(r2).toBe(true);
+      expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

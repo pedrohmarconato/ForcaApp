@@ -6,7 +6,7 @@
 // AsyncStorage (sem os limites de tamanho do SecureStore) é suficiente.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { SessionDraft } from '../engine/sessionModel';
+import { coerceDraftNumerics, type SessionDraft } from '../engine/sessionModel';
 
 const keyFor = (userId: string): string => `@active_session_draft_${userId}`;
 
@@ -20,8 +20,10 @@ export const loadDraft = async (userId: string): Promise<SessionDraft | null> =>
   try {
     const parsed = JSON.parse(raw);
     // Só aceita o formato conhecido; rascunho de versão antiga/corrompida é ignorado.
+    // Mesmo dentro do formato v1, COAGE todo numérico (F8): um rascunho gravado antes
+    // da coerção pode ter "40" em vez de 40 e contaminar o stepper ("402.5"/NaN).
     if (parsed && parsed.version === 1 && typeof parsed.plannedSessionId === 'string') {
-      return parsed as SessionDraft;
+      return coerceDraftNumerics(parsed as SessionDraft);
     }
     return null;
   } catch {

@@ -64,10 +64,12 @@ describe('startSessionLog (RPC atômica start_session)', () => {
   });
 });
 
-describe('saveSetLog (UPSERT idempotente)', () => {
-  it('faz UPSERT com onConflict e SEM adaptation (Fase 5)', async () => {
-    const b = makeBuilder({ data: { id: 'set-1' }, error: null });
-    fromMock.mockReturnValueOnce(b);
+describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado explícito)', () => {
+  // O .upsert(onConflict) do PostgREST gera ON CONFLICT SEM predicado → NÃO infere o
+  // índice único PARCIAL (WHERE planned_set_id IS NOT NULL) → 42P10 em runtime. Por
+  // isso a gravação passa a ser via RPC save_set_log (ON CONFLICT ... WHERE explícito).
+  it('chama a RPC save_set_log com os p_ params e devolve o id da linha retornada', async () => {
+    rpcMock.mockResolvedValueOnce({ data: { id: 'set-1' }, error: null });
 
     const res = await saveSetLog({
       sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8,
@@ -75,28 +77,35 @@ describe('saveSetLog (UPSERT idempotente)', () => {
     });
 
     expect(res).toEqual({ setLogId: 'set-1' });
-    expect(fromMock).toHaveBeenCalledWith('set_logs');
-    const [payload, opts] = b.upsert.mock.calls[0];
-    expect(payload).toEqual({
-      session_log_id: 'sl-1', planned_set_id: 'st-1', actual_reps: 8,
-      actual_load_kg: 40, actual_rir: 2, outcome: 'on_target',
+    expect(rpcMock).toHaveBeenCalledWith('save_set_log', {
+      p_session_log_id: 'sl-1', p_planned_set_id: 'st-1', p_actual_reps: 8,
+      p_actual_load_kg: 40, p_actual_rir: 2, p_outcome: 'on_target',
     });
-    expect('adaptation' in payload).toBe(false);
-    expect(opts).toEqual({ onConflict: 'session_log_id,planned_set_id' });
+    // NÃO usa mais .from(...).upsert(...): o upsert do PostgREST é justamente o bug.
+    expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it('bodyweight grava carga nula', async () => {
-    const b = makeBuilder({ data: { id: 'set-2' }, error: null });
-    fromMock.mockReturnValueOnce(b);
-    await saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-3', actualReps: 15, actualLoadKg: null, actualRir: null, outcome: 'over' });
-    expect(b.upsert.mock.calls[0][0].actual_load_kg).toBeNull();
+  it('aceita retorno em formato array (alguns setups devolvem a linha em array)', async () => {
+    rpcMock.mockResolvedValueOnce({ data: [{ id: 'set-2' }], error: null });
+    const res = await saveSetLog({
+      sessionLogId: 'sl-1', plannedSetId: 'st-3', actualReps: 15,
+      actualLoadKg: null, actualRir: null, outcome: 'over',
+    });
+    expect(res).toEqual({ setLogId: 'set-2' });
   });
 
-  it('erro do banco PROPAGA', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('RLS negou upsert') }));
+  it('erro do banco PROPAGA (ex.: a função recusa log finalizado/alheio)', async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: new Error('já finalizado') });
     await expect(
       saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8, actualLoadKg: 40, actualRir: null, outcome: 'on_target' }),
-    ).rejects.toThrow('RLS negou upsert');
+    ).rejects.toThrow('já finalizado');
+  });
+
+  it('resposta sem id NÃO vira sucesso silencioso (propaga erro)', async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: null });
+    await expect(
+      saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8, actualLoadKg: 40, actualRir: null, outcome: 'on_target' }),
+    ).rejects.toThrow(/não retornou/i);
   });
 });
 

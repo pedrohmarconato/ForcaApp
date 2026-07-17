@@ -90,9 +90,17 @@ export const getOpenSessionLog = async (
 };
 
 /**
- * Grava a execução de UMA série. Erro propaga (a série NÃO pode ser marcada
- * como feita se o banco recusou). Devolve o id do set_log para guardar contra
- * gravação dupla ao retomar.
+ * Grava a execução de UMA série via RPC ATÔMICA `save_set_log` (migration 0004).
+ * Erro propaga (a série NÃO pode ser marcada como feita se o banco recusou).
+ * Devolve o id do set_log para guardar contra gravação dupla ao retomar.
+ *
+ * Por que RPC e não `.upsert(...,{onConflict})` (F1 — BLOCKER): o supabase-js gera
+ * `ON CONFLICT (cols)` SEM predicado, e o índice único é PARCIAL
+ * (`WHERE planned_set_id IS NOT NULL`) — o Postgres NÃO consegue inferir um índice
+ * parcial sem o predicado explícito e devolve 42P10. A função usa
+ * `ON CONFLICT (...) WHERE planned_set_id IS NOT NULL DO UPDATE ... completed_at=now()`,
+ * que casa o índice parcial (F1) e mantém a linha coerente (F5). Ela ainda RECUSA
+ * gravar em log finalizado ou alheio (F2/F6). adaptation continua nulo (Fase 5).
  */
 export const saveSetLog = async (params: {
   sessionLogId: string;
@@ -102,26 +110,19 @@ export const saveSetLog = async (params: {
   actualRir: number | null;
   outcome: Outcome;
 }): Promise<{ setLogId: string }> => {
-  // UPSERT idempotente: o índice único (session_log_id, planned_set_id) da migration
-  // 0003 garante 1 set_log por série. Retry/duplo-toque atualiza a mesma linha em vez
-  // de criar uma segunda (F2/F3). adaptation continua nulo (Fase 5).
-  const { data, error } = await supabase
-    .from('set_logs')
-    .upsert(
-      {
-        session_log_id: params.sessionLogId,
-        planned_set_id: params.plannedSetId,
-        actual_reps: params.actualReps,
-        actual_load_kg: params.actualLoadKg,
-        actual_rir: params.actualRir,
-        outcome: params.outcome,
-      },
-      { onConflict: 'session_log_id,planned_set_id' },
-    )
-    .select('id')
-    .single();
+  const { data, error } = await supabase.rpc('save_set_log', {
+    p_session_log_id: params.sessionLogId,
+    p_planned_set_id: params.plannedSetId,
+    p_actual_reps: params.actualReps,
+    p_actual_load_kg: params.actualLoadKg,
+    p_actual_rir: params.actualRir,
+    p_outcome: params.outcome,
+  });
   if (error) throw error;
-  return { setLogId: data?.id as string };
+  // A função retorna a linha de set_logs (objeto; alguns setups devolvem array).
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id) throw new Error('save_set_log não retornou a série gravada.');
+  return { setLogId: row.id as string };
 };
 
 /**

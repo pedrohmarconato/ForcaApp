@@ -272,3 +272,66 @@ de criar os índices únicos.
 ### Próximo passo
 Abrir o PR da Fase 4.1 (base `fase-4-sessao-interativa`), aplicar a 0003 no Supabase,
 depois smoke E2E. Merge só com OK do dono.
+
+---
+
+## ✅ Fase 4.2 — 2º review adversarial: BLOCKER + HIGH de gravação/retomada/concorrência (17/07/2026, branch fase-4.2-correcoes-review)
+
+Um 2º review do PR da Fase 4.1 achou 1 BLOCKER e HIGHs reais. PR empilhado sobre
+`fase-4.1-correcoes-review`, **testes-primeiro** (cada teste reproduz o modo de falha
+ANTES da correção — confirmei: 12 novos testes falhando no código velho, verdes depois).
+
+### Corrigido (fonte da verdade = servidor; nada de sucesso otimista)
+1. **BLOCKER F1 — `.upsert(onConflict)` dá 42P10**: o índice único é PARCIAL
+   (`WHERE planned_set_id IS NOT NULL`) e o `.upsert` do supabase-js gera `ON CONFLICT`
+   SEM predicado → o Postgres não infere índice parcial → **toda** gravação de série
+   quebrava em runtime. Correção: RPC `save_set_log` (0004) com `ON CONFLICT (...) WHERE
+   planned_set_id IS NOT NULL DO UPDATE ... completed_at=now()`. App passou a chamar
+   `rpc('save_set_log')`.
+2. **F2/F6 — escrita em log finalizado/alheio**: `save_set_log` faz `SELECT ... FOR
+   UPDATE` no log e RECUSA se `finished_at` não-nulo ou não é do `auth.uid()`. O lock
+   SERIALIZA contra `finish_session` concorrente (fecha o TOCTOU).
+3. **F3/F6 — retomada servidor-autoritativa**: `startOrResume` reconstrói do SERVIDOR
+   quando há log aberto (mesmo id ou não) — nunca adota o rascunho local cru (série
+   "feita" que nunca persistiu, ou carga obsoleta, não sobrevive). try/catch ESTREITO
+   só na chamada remota: erro com `.code` (SQL/permissão) → `error`; sem `.code` (rede)
+   → retomada offline. Falha de `clearDraft` NÃO ressuscita draft provado finalizado.
+4. **F4 — `finish_session` idempotente**: se já estava finalizada (dela) → sucesso; só
+   inexistente/alheia levanta. O cliente não fica preso em erro ao concluir 2x.
+5. **F7 — compare-and-set**: `completeSet`/`finishSession` fixam `sid` antes do await e
+   abortam a escrita no store se a sessão mudou; `clearDraft` só se o draft atual ainda
+   é esta sessão (não por userId cego).
+6. **F8 — `loadDraft` coage numéricos**: `coerceDraftNumerics` (actualLoadKg,
+   targetLoadKg, loadIncrementKg, mapa lastLoadByExercise…). "40" legado não vira
+   "402.5"/NaN no stepper.
+7. **F9 — trava de reentrância**: chave `${sessionLogId}:${plannedSetId}` + `withTimeout`
+   na RPC → o `finally` sempre libera a série (não trava para sempre se a rede pendurar).
+
+### Verificação
+- `tsc --noEmit`: **0 erros**. `jest`: **117 → 130** (19 suites, 100% verde).
+- **Gravação exercitada DE VERDADE** (`saveWriteIntegration.test.ts`): store+repo+modelo
+  REAIS, só o cliente Supabase mockado, RPC devolvendo numeric como STRING → série
+  gravada via `rpc('save_set_log')` e a próxima série sugere a carga como NÚMERO.
+- **Troca-de-sessão exercitada**: CAS com promessa controlada (deferred) — completar/
+  concluir a sessão A durante o await não escreve na sessão B.
+- **Retomada com numeric string** continua provada (`resumeNumericIntegration`, 52.5).
+
+### ⛔ Dependência de banco NOVA e BLOQUEANTE
+Migration **0004** (`save_set_log` + `finish_session` idempotente) tem de ser aplicada
+ANTES de exercitar em device/prod — sem ela, gravar série toma 42P10 (o BLOCKER) e
+concluir 2x prende o cliente. Pré-checks de duplicidade + PROVA transacional (rollback)
+no rodapé do SQL: idempotência do save, idempotência do finish, recusa de log
+finalizado e de log alheio.
+
+### Pendências honestas (NÃO sucesso otimista)
+1. **E2E device/Supabase real ainda não rodado** (sem ambiente): verificação headless
+   (store/repo/modelo reais + rede mockada com numeric-string) + tsc + jest.
+2. **0004 precisa ser aplicada** (bloqueia runtime); rodar a PROVA do rodapé em HML.
+3. Endurecimento RLS relacional (série só do planned_set da MESMA sessão do log) fica
+   como bloco OPCIONAL comentado na 0004 — é mudança de política de segurança, decisão
+   do dono (fora do escopo deste fix).
+4. Não avancei para a Fase 5 (combinado do prompt).
+
+### Próximo passo
+Abrir o PR da Fase 4.2 (base `fase-4.1-correcoes-review`), aplicar a 0004 + rodar a
+prova em HML, smoke E2E. Merge só com OK do dono.
