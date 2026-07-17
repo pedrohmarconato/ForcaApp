@@ -54,6 +54,10 @@ interface ActiveSessionState {
 const errMsg = (e: unknown): string =>
   e instanceof Error ? e.message : 'Erro inesperado ao falar com o servidor.';
 
+// Trava de reentrância por série (duplo-toque/corrida). Fora do estado do Zustand
+// para não disparar re-render: uma gravação por planned_set por vez (F2 do review).
+const inFlight = new Set<string>();
+
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
 const withSet = (
   draft: SessionDraft,
@@ -148,11 +152,37 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   startOrResume: async ({ sessionId, userId, detail }) => {
     set({ status: 'loading', saveError: null });
     try {
-      // 1. Rascunho local do MESMO treino, ainda ativo → retomada offline imediata.
+      // 1. Rascunho local do MESMO treino ainda ativo → RECONCILIA com o servidor
+      // antes de adotar (F1): não podemos gravar séries num log já finalizado.
       const local = await loadDraft(userId);
       if (local && local.plannedSessionId === sessionId && local.status === 'active') {
-        set({ draft: local, status: 'active' });
-        return;
+        try {
+          const aberta = await getOpenSessionLog(userId, sessionId);
+          if (!aberta) {
+            // Sessão foi finalizada (outro aparelho, ou clearDraft falhou). Não retoma.
+            await clearDraft(userId);
+            set({ draft: null, status: 'finished' });
+            return;
+          }
+          if (aberta.sessionLogId === local.sessionLogId) {
+            set({ draft: local, status: 'active' }); // mesmo log aberto → adota local
+            return;
+          }
+          // Log aberto DIFERENTE do local → descarta o local e reconstrói do servidor.
+          const seed = await seedLastLoads(detail);
+          const draftServidor = applyServerSetLogs(
+            buildDraftFromDetail(detail, userId, seed),
+            aberta,
+          );
+          await saveDraft(draftServidor);
+          set({ draft: draftServidor, status: 'active' });
+          return;
+        } catch (e) {
+          // Servidor indisponível: retomada offline com o rascunho local (best-effort).
+          console.warn('[activeSession] sem rede para reconciliar; retomando local:', e);
+          set({ draft: local, status: 'active' });
+          return;
+        }
       }
 
       // 2. Sem rascunho local: reconstroi do servidor.
@@ -164,7 +194,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (aberta) {
         draft = applyServerSetLogs(draft, aberta);
       } else {
-        const { sessionLogId, startedAt } = await startSessionLog(userId, sessionId);
+        const { sessionLogId, startedAt } = await startSessionLog(sessionId);
         draft = { ...draft, sessionLogId, startedAt };
       }
 
@@ -178,18 +208,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   activateSet: (exerciseId, setOrder) => {
     const draft = get().draft;
     if (!draft) return;
-    const novo = withSet(draft, exerciseId, setOrder, (s, ex) => {
-      if (s.status !== 'pending') return s;
-      // Pré-carrega a sugestão no stepper (se houver); bodyweight não usa carga.
-      const load = ex.isBodyweight
-        ? null
-        : suggestLoad({
-            actualLoadKg: s.actualLoadKg,
-            targetLoadKg: s.targetLoadKg,
-            lastLoad: draft.lastLoadByExercise[normalizeName(ex.name)],
-          });
-      return { ...s, status: 'active', actualLoadKg: load };
-    });
+    // Só revela os inputs. NÃO pré-preenche a carga: a sugestão vira valor informado
+    // apenas quando o aluno digita ou toca "usar sugestão" (F10: sugestão ≠ medição).
+    const novo = withSet(draft, exerciseId, setOrder, (s) =>
+      s.status !== 'pending' ? s : { ...s, status: 'active' },
+    );
     set({ draft: novo });
   },
 
@@ -225,7 +248,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   setRir: (exerciseId, setOrder, rir) => {
     const draft = get().draft;
     if (!draft) return;
-    set({ draft: withSet(draft, exerciseId, setOrder, (s) => ({ ...s, actualRir: rir })) });
+    // Defesa em profundidade: RIR válido é 0–10 (CHECK do banco). A UI já clampa,
+    // o núcleo garante (F12).
+    const clamped = rir == null ? null : Math.min(10, Math.max(0, Math.trunc(rir)));
+    set({ draft: withSet(draft, exerciseId, setOrder, (s) => ({ ...s, actualRir: clamped })) });
   },
 
   completeSet: async (exerciseId, setOrder) => {
@@ -237,6 +263,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const alvo = findSet(draft, exerciseId, setOrder);
     if (!alvo) return false;
     const { exercise, set: serie } = alvo;
+
+    // Já concluída → idempotente, não regrava (F2).
+    if (serie.status === 'done') return true;
+    // Reentrância (duplo-toque / duas instâncias): uma gravação por série por vez (F2).
+    if (inFlight.has(serie.plannedSetId)) return false;
 
     if (!canCompleteSet(serie, exercise.isBodyweight)) {
       set({
@@ -251,7 +282,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const actualLoadKg = exercise.isBodyweight ? null : (serie.actualLoadKg as number);
     const outcome = computeOutcome(actualReps, serie.targetRepsMin, serie.targetRepsMax);
 
+    inFlight.add(serie.plannedSetId);
     try {
+      // UPSERT idempotente (índice único no banco): retry atualiza a mesma linha.
       const { setLogId } = await saveSetLog({
         sessionLogId: draft.sessionLogId,
         plannedSetId: serie.plannedSetId,
@@ -261,9 +294,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         outcome,
       });
 
-      // Só marca "feita" DEPOIS que o banco confirmou (nada de sucesso otimista).
+      // Servidor CONFIRMOU → marca "feita" já. A persistência local é secundária:
+      // falha ao salvar o rascunho NÃO reverte um insert confirmado nem faz o
+      // chamador retry (F3 — insert confirmado nunca é reapresentado como falha).
       const atual = get().draft;
-      if (!atual) return false;
+      if (!atual) return true;
       const lastLoad = { ...atual.lastLoadByExercise };
       if (actualLoadKg != null) lastLoad[normalizeName(exercise.name)] = actualLoadKg;
       const novo: SessionDraft = {
@@ -276,13 +311,19 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      await saveDraft(novo);
       set({ draft: novo, saveError: null });
+      try {
+        await saveDraft(novo);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      }
       return true;
     } catch (e) {
-      // Falha ao gravar: a série permanece NÃO concluída e o erro aparece.
+      // Só erro do BANCO deixa a série NÃO concluída e mostra o erro.
       set({ saveError: errMsg(e) });
       return false;
+    } finally {
+      inFlight.delete(serie.plannedSetId);
     }
   },
 
@@ -293,9 +334,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return false;
     }
     try {
-      await finishSessionLog(draft.sessionLogId, draft.plannedSessionId, new Date().toISOString());
-      await clearDraft(draft.userId);
+      // RPC atômica; levanta erro se 0 linhas (não finaliza no vazio — F5/F6).
+      await finishSessionLog(draft.sessionLogId);
       set({ draft: { ...draft, status: 'finished' }, status: 'finished', saveError: null });
+      // Só limpa o rascunho DEPOIS de finalizar de verdade no servidor.
+      try {
+        await clearDraft(draft.userId);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+      }
       return true;
     } catch (e) {
       set({ saveError: errMsg(e) });

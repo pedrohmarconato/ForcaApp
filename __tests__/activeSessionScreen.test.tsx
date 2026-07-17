@@ -94,10 +94,12 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   await waitFor(() => expect(screen.getByText(/8 reps × 40 kg/)).toBeTruthy());
   expect(screen.getByText('No alvo')).toBeTruthy();
 
-  // --- Série 2 do Supino: a carga já vem sugerida (40) ---
+  // --- Série 2 do Supino: a sugestão 40 aparece, mas só vira valor gravado quando
+  // o aluno ACEITA (F10: sugestão ≠ medição) ---
   fireEvent.press(screen.getAllByText('Iniciar série')[0]);
   fireEvent.changeText(screen.getByLabelText('Repetições da série 2'), '9');
-  // não informo carga: a sugestão 40 foi pré-carregada → dá pra concluir direto
+  expect(screen.getByText('Usar sugestão: 40 kg')).toBeTruthy();
+  fireEvent.press(screen.getByText('Usar sugestão: 40 kg'));
   fireEvent.press(screen.getByText('Concluir série'));
   await waitFor(() => expect(screen.getByText(/9 reps × 40 kg/)).toBeTruthy());
 

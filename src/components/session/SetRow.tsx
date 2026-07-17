@@ -185,6 +185,16 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
         </View>
       </View>
 
+      {/* F10: a sugestão só vira valor gravado quando o aluno ACEITA (toca) ou digita. */}
+      {!exercise.isBodyweight && suggestedLoad != null && set.actualLoadKg == null ? (
+        <TouchableOpacity
+          style={styles.suggestBtn}
+          onPress={() => setLoad(exercise.exerciseId, set.setOrder, suggestedLoad)}
+        >
+          <Text style={styles.suggestText}>Usar sugestão: {suggestedLoad} kg</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {precisaCarga ? (
         <Text style={styles.hint}>Primeira vez neste exercício: informe a carga usada.</Text>
       ) : null}
@@ -274,6 +284,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   hint: { color: theme.colors.status.warning, fontSize: 12, marginTop: 8 },
+  suggestBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border.focus,
+  },
+  suggestText: { color: theme.colors.primary.main, fontSize: 13, fontWeight: '600' },
   completeBtn: {
     marginTop: 12,
     backgroundColor: theme.colors.primary.main,

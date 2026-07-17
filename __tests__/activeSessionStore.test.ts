@@ -91,7 +91,7 @@ describe('início da sessão', () => {
 
     expect(store().status).toBe('active');
     expect(store().draft?.sessionLogId).toBe('sl-1');
-    expect(startSessionLog).toHaveBeenCalledWith('user-1', 'sess-1');
+    expect(startSessionLog).toHaveBeenCalledWith('sess-1');
     expect(saveDraft).toHaveBeenCalled();
     // todas as séries começam pendentes
     const todas = store().draft!.exercises.flatMap((e) => e.sets);
@@ -183,6 +183,56 @@ describe('concluir série', () => {
     expect(s1.status).not.toBe('done');
     expect(s1.setLogId).toBeNull();
   });
+
+  it('F2: duas conclusões CONCORRENTES da mesma série gravam UMA vez só', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+    const [r1, r2] = await Promise.all([
+      store().completeSet('ex-1', 1),
+      store().completeSet('ex-1', 1),
+    ]);
+    expect(saveSetLog).toHaveBeenCalledTimes(1);
+    expect([r1, r2]).toContain(true);
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+  });
+
+  it('idempotente: concluir uma série JÁ feita não regrava', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+    await store().completeSet('ex-1', 1);
+    mock(saveSetLog).mockClear();
+    const ok = await store().completeSet('ex-1', 1);
+    expect(ok).toBe(true);
+    expect(saveSetLog).not.toHaveBeenCalled();
+  });
+
+  it('F3: insert confirmado + falha ao PERSISTIR o rascunho → série FICA feita (não re-tenta)', async () => {
+    await start();
+    // a falha de persistência é SÓ na gravação da série (não no start)
+    mock(saveDraft).mockRejectedValueOnce(new Error('disco cheio'));
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+    const ok = await store().completeSet('ex-1', 1);
+    expect(ok).toBe(true); // sucesso do servidor não é revertido por falha local
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+    expect(store().saveError).toBeNull();
+  });
+});
+
+describe('setRir', () => {
+  it('F12: clampa 0–10 no núcleo do store', async () => {
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    store().activateSet('ex-1', 1);
+    store().setRir('ex-1', 1, 11);
+    expect(store().draft!.exercises[0].sets[0].actualRir).toBe(10);
+    store().setRir('ex-1', 1, -3);
+    expect(store().draft!.exercises[0].sets[0].actualRir).toBe(0);
+  });
 });
 
 describe('retomar sessão (fechar no meio e reabrir)', () => {
@@ -195,6 +245,8 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       status: 'done', outcome: 'on_target', actualReps: 8, actualLoadKg: 40, setLogId: 'set-1',
     };
     mock(loadDraft).mockResolvedValue(draft);
+    // reconcilia com o servidor: o MESMO log continua aberto → adota o local
+    mock(getOpenSessionLog).mockResolvedValue({ sessionLogId: 'sl-existente', startedAt: 'T0', setLogs: [] });
 
     await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
 
@@ -203,9 +255,35 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
     // a série feita sobreviveu
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
     expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(40);
-    // NÃO criou um novo log nem consultou o servidor (retomada offline)
+    // NÃO criou um novo log; reconciliou com o servidor antes de adotar (F1)
     expect(startSessionLog).not.toHaveBeenCalled();
-    expect(getOpenSessionLog).not.toHaveBeenCalled();
+    expect(getOpenSessionLog).toHaveBeenCalled();
+  });
+
+  it('F1: rascunho local ativo mas sessão JÁ FINALIZADA no servidor → não retoma (não grava em log fechado)', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-antigo';
+    mock(loadDraft).mockResolvedValue(draft);
+    mock(getOpenSessionLog).mockResolvedValue(null); // finalizada em outro aparelho
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    expect(store().status).toBe('finished');
+    expect(clearDraft).toHaveBeenCalledWith('user-1');
+    expect(startSessionLog).not.toHaveBeenCalled();
+  });
+
+  it('F1: servidor indisponível na reconciliação → retomada OFFLINE com o local', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-offline';
+    draft.exercises[0].sets[0] = { ...draft.exercises[0].sets[0], status: 'done', actualReps: 8, actualLoadKg: 40 };
+    mock(loadDraft).mockResolvedValue(draft);
+    mock(getOpenSessionLog).mockRejectedValue(new Error('sem rede'));
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+    expect(store().status).toBe('active');
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
   });
 
   it('sem rascunho local, reconstrói do servidor sem duplicar o session_log', async () => {

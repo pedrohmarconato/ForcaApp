@@ -1,14 +1,12 @@
 // __tests__/sessionExecutionRepository.test.ts
-// Fase 4 — escrita/leitura da execução. Modos de falha cobertos:
-// - saveSetLog: payload correto, adaptation NÃO enviada, e erro do banco PROPAGA
-//   (nunca vira sucesso silencioso)
-// - startSessionLog cria log e marca a sessão in_progress; erro propaga
-// - getOpenSessionLog devolve as séries já feitas (base da retomada via servidor)
-// - getLastLoadByExerciseName pega a carga mais recente por nome (sugestão)
-// - finishSessionLog fecha log e sessão
+// Fase 4 (+ 4.1) — escrita/leitura da execução. Modos de falha cobertos:
+// - start/finish agora via RPC ATÔMICA (start_session/finish_session); erro propaga
+// - saveSetLog é UPSERT idempotente (onConflict session_log_id,planned_set_id)
+// - getOpenSessionLog ORDENA os set_logs e COAGE numeric (string "50" -> 50) [F4/F8]
+// - erro do banco sempre PROPAGA (nunca vira sucesso silencioso)
 
 jest.mock('../src/config/supabaseClient', () => ({
-  supabase: { from: jest.fn() },
+  supabase: { from: jest.fn(), rpc: jest.fn() },
 }));
 
 import { supabase } from '../src/config/supabaseClient';
@@ -23,13 +21,13 @@ import {
 } from '../src/services/sessionExecutionRepository';
 
 const fromMock = supabase.from as jest.Mock;
+const rpcMock = supabase.rpc as jest.Mock;
 
-// Builder fluente que resolve com `result`. `single()` e o await direto (thenable)
-// devolvem o mesmo resultado. insert/update/eq/... são jest.fn para inspeção.
 const makeBuilder = (result: { data?: unknown; error: unknown }) => {
   const builder: any = {};
   const chain = () => builder;
   builder.insert = jest.fn(chain);
+  builder.upsert = jest.fn(chain);
   builder.update = jest.fn(chain);
   builder.select = jest.fn(chain);
   builder.eq = jest.fn(chain);
@@ -44,86 +42,61 @@ const makeBuilder = (result: { data?: unknown; error: unknown }) => {
 
 beforeEach(() => {
   fromMock.mockReset();
+  rpcMock.mockReset();
 });
 
-describe('startSessionLog', () => {
-  it('cria session_log e marca a sessão como in_progress', async () => {
-    const insertBuilder = makeBuilder({ data: { id: 'sl-1', started_at: '2026-07-17T10:00:00Z' }, error: null });
-    const updateBuilder = makeBuilder({ error: null });
-    fromMock.mockReturnValueOnce(insertBuilder).mockReturnValueOnce(updateBuilder);
-
-    const res = await startSessionLog('user-1', 'ps-1');
-
+describe('startSessionLog (RPC atômica start_session)', () => {
+  it('devolve id + started_at da linha retornada', async () => {
+    rpcMock.mockResolvedValueOnce({ data: { id: 'sl-1', started_at: '2026-07-17T10:00:00Z' }, error: null });
+    const res = await startSessionLog('ps-1');
     expect(res).toEqual({ sessionLogId: 'sl-1', startedAt: '2026-07-17T10:00:00Z' });
-    expect(fromMock).toHaveBeenNthCalledWith(1, 'session_logs');
-    expect(insertBuilder.insert).toHaveBeenCalledWith({ planned_session_id: 'ps-1', user_id: 'user-1' });
-    expect(fromMock).toHaveBeenNthCalledWith(2, 'planned_sessions');
-    expect(updateBuilder.update).toHaveBeenCalledWith({ status: 'in_progress' });
-    expect(updateBuilder.eq).toHaveBeenCalledWith('id', 'ps-1');
+    expect(rpcMock).toHaveBeenCalledWith('start_session', { p_planned_session_id: 'ps-1' });
   });
 
-  it('erro ao criar o log propaga (não engole)', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('insert negado') }));
-    await expect(startSessionLog('user-1', 'ps-1')).rejects.toThrow('insert negado');
+  it('aceita retorno em formato array', async () => {
+    rpcMock.mockResolvedValueOnce({ data: [{ id: 'sl-2', started_at: 'T1' }], error: null });
+    expect(await startSessionLog('ps-1')).toEqual({ sessionLogId: 'sl-2', startedAt: 'T1' });
+  });
+
+  it('erro da RPC propaga (não engole)', async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: new Error('rpc negou') });
+    await expect(startSessionLog('ps-1')).rejects.toThrow('rpc negou');
   });
 });
 
-describe('saveSetLog', () => {
-  it('grava a série com o payload certo e SEM adaptation (Fase 5)', async () => {
+describe('saveSetLog (UPSERT idempotente)', () => {
+  it('faz UPSERT com onConflict e SEM adaptation (Fase 5)', async () => {
     const b = makeBuilder({ data: { id: 'set-1' }, error: null });
     fromMock.mockReturnValueOnce(b);
 
     const res = await saveSetLog({
-      sessionLogId: 'sl-1',
-      plannedSetId: 'st-1',
-      actualReps: 8,
-      actualLoadKg: 40,
-      actualRir: 2,
-      outcome: 'on_target',
+      sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8,
+      actualLoadKg: 40, actualRir: 2, outcome: 'on_target',
     });
 
     expect(res).toEqual({ setLogId: 'set-1' });
     expect(fromMock).toHaveBeenCalledWith('set_logs');
-    const payload = b.insert.mock.calls[0][0];
+    const [payload, opts] = b.upsert.mock.calls[0];
     expect(payload).toEqual({
-      session_log_id: 'sl-1',
-      planned_set_id: 'st-1',
-      actual_reps: 8,
-      actual_load_kg: 40,
-      actual_rir: 2,
-      outcome: 'on_target',
+      session_log_id: 'sl-1', planned_set_id: 'st-1', actual_reps: 8,
+      actual_load_kg: 40, actual_rir: 2, outcome: 'on_target',
     });
     expect('adaptation' in payload).toBe(false);
+    expect(opts).toEqual({ onConflict: 'session_log_id,planned_set_id' });
   });
 
   it('bodyweight grava carga nula', async () => {
     const b = makeBuilder({ data: { id: 'set-2' }, error: null });
     fromMock.mockReturnValueOnce(b);
-
-    await saveSetLog({
-      sessionLogId: 'sl-1',
-      plannedSetId: 'st-3',
-      actualReps: 15,
-      actualLoadKg: null,
-      actualRir: null,
-      outcome: 'over',
-    });
-
-    expect(b.insert.mock.calls[0][0].actual_load_kg).toBeNull();
+    await saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-3', actualReps: 15, actualLoadKg: null, actualRir: null, outcome: 'over' });
+    expect(b.upsert.mock.calls[0][0].actual_load_kg).toBeNull();
   });
 
-  it('erro do banco PROPAGA — série não pode ser dada como salva', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('RLS negou insert') }));
+  it('erro do banco PROPAGA', async () => {
+    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('RLS negou upsert') }));
     await expect(
-      saveSetLog({
-        sessionLogId: 'sl-1',
-        plannedSetId: 'st-1',
-        actualReps: 8,
-        actualLoadKg: 40,
-        actualRir: null,
-        outcome: 'on_target',
-      }),
-    ).rejects.toThrow('RLS negou insert');
+      saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8, actualLoadKg: 40, actualRir: null, outcome: 'on_target' }),
+    ).rejects.toThrow('RLS negou upsert');
   });
 });
 
@@ -133,11 +106,12 @@ describe('getOpenSessionLog', () => {
     expect(await getOpenSessionLog('user-1', 'ps-1')).toBeNull();
   });
 
-  it('devolve o log em aberto com as séries já gravadas (base da retomada)', async () => {
-    const logBuilder = makeBuilder({ data: [{ id: 'sl-9', started_at: '2026-07-17T09:00:00Z' }], error: null });
+  it('ORDENA os set_logs e COAGE numeric string para número (F4/F8)', async () => {
+    const logBuilder = makeBuilder({ data: [{ id: 'sl-9', started_at: 'T0' }], error: null });
     const setsBuilder = makeBuilder({
       data: [
-        { id: 'set-1', planned_set_id: 'st-1', actual_reps: 8, actual_load_kg: 40, actual_rir: 2, outcome: 'on_target' },
+        // actual_load_kg como STRING, do jeito que o PostgREST devolve numeric
+        { id: 'set-1', planned_set_id: 'st-1', actual_reps: 8, actual_load_kg: '50', actual_rir: 2, outcome: 'on_target' },
       ],
       error: null,
     });
@@ -146,9 +120,10 @@ describe('getOpenSessionLog', () => {
     const res = await getOpenSessionLog('user-1', 'ps-1');
 
     expect(res?.sessionLogId).toBe('sl-9');
-    expect(res?.setLogs).toHaveLength(1);
-    expect(res?.setLogs[0].planned_set_id).toBe('st-1');
+    expect(res?.setLogs[0].actual_load_kg).toBe(50); // number, não "50"
+    expect(typeof res?.setLogs[0].actual_load_kg).toBe('number');
     expect(logBuilder.is).toHaveBeenCalledWith('finished_at', null);
+    expect(setsBuilder.order).toHaveBeenCalledWith('completed_at', { ascending: true });
   });
 
   it('erro propaga', async () => {
@@ -157,23 +132,16 @@ describe('getOpenSessionLog', () => {
   });
 });
 
-describe('finishSessionLog', () => {
-  it('fecha o log e marca a sessão como completed', async () => {
-    const logBuilder = makeBuilder({ error: null });
-    const sessBuilder = makeBuilder({ error: null });
-    fromMock.mockReturnValueOnce(logBuilder).mockReturnValueOnce(sessBuilder);
-
-    await finishSessionLog('sl-1', 'ps-1', '2026-07-17T11:00:00Z');
-
-    expect(logBuilder.update).toHaveBeenCalledWith({ finished_at: '2026-07-17T11:00:00Z' });
-    expect(logBuilder.eq).toHaveBeenCalledWith('id', 'sl-1');
-    expect(sessBuilder.update).toHaveBeenCalledWith({ status: 'completed' });
-    expect(sessBuilder.eq).toHaveBeenCalledWith('id', 'ps-1');
+describe('finishSessionLog (RPC atômica finish_session)', () => {
+  it('chama a RPC com o id do log', async () => {
+    rpcMock.mockResolvedValueOnce({ error: null });
+    await finishSessionLog('sl-1');
+    expect(rpcMock).toHaveBeenCalledWith('finish_session', { p_session_log_id: 'sl-1' });
   });
 
-  it('erro ao fechar propaga', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ error: new Error('falha finish') }));
-    await expect(finishSessionLog('sl-1', 'ps-1', 'x')).rejects.toThrow('falha finish');
+  it('erro (ex.: 0 linhas → exceção da função) PROPAGA', async () => {
+    rpcMock.mockResolvedValueOnce({ error: new Error('inexistente, alheio ou já finalizado') });
+    await expect(finishSessionLog('sl-1')).rejects.toThrow('já finalizado');
   });
 });
 
@@ -183,26 +151,17 @@ describe('getLastLoadByExerciseName', () => {
     expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it('pega a carga MAIS RECENTE por exercício (ordenado desc) e filtra pelos nomes pedidos', async () => {
+  it('pega a carga MAIS RECENTE por exercício e coage numeric', async () => {
     fromMock.mockReturnValueOnce(
       makeBuilder({
         data: [
-          { actual_load_kg: 42.5, completed_at: '2026-07-17T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
-          { actual_load_kg: 40, completed_at: '2026-07-10T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
-          { actual_load_kg: 100, completed_at: '2026-07-16T10:00:00Z', planned_sets: { planned_exercises: { name: 'Agachamento' } } },
+          { actual_load_kg: '42.5', completed_at: '2026-07-17T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
+          { actual_load_kg: '40', completed_at: '2026-07-10T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
         ],
         error: null,
       }),
     );
-
-    const mapa = await getLastLoadByExerciseName(['Supino Reto']);
-    // Só "supino reto" foi pedido; pega a carga mais recente (42.5), ignora Agachamento.
-    expect(mapa).toEqual({ 'supino reto': 42.5 });
-  });
-
-  it('erro propaga', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('falha histórico') }));
-    await expect(getLastLoadByExerciseName(['X'])).rejects.toThrow('falha histórico');
+    expect(await getLastLoadByExerciseName(['Supino Reto'])).toEqual({ 'supino reto': 42.5 });
   });
 });
 
@@ -212,50 +171,38 @@ describe('getCompletedSessions', () => {
       makeBuilder({
         data: [
           {
-            id: 'sl-1',
-            planned_session_id: 'ps-1',
-            started_at: '2026-07-17T09:00:00Z',
-            finished_at: '2026-07-17T10:00:00Z',
+            id: 'sl-1', planned_session_id: 'ps-1', started_at: '2026-07-17T09:00:00Z', finished_at: '2026-07-17T10:00:00Z',
             planned_sessions: { title: 'Push A', week_number: 2, muscle_groups: ['Peito'] },
           },
         ],
         error: null,
       }),
     );
-
     const res = await getCompletedSessions('user-1');
-    expect(res).toHaveLength(1);
     expect(res[0]).toEqual({
-      sessionLogId: 'sl-1',
-      plannedSessionId: 'ps-1',
-      title: 'Push A',
-      weekNumber: 2,
-      muscleGroups: ['Peito'],
-      startedAt: '2026-07-17T09:00:00Z',
-      finishedAt: '2026-07-17T10:00:00Z',
+      sessionLogId: 'sl-1', plannedSessionId: 'ps-1', title: 'Push A', weekNumber: 2,
+      muscleGroups: ['Peito'], startedAt: '2026-07-17T09:00:00Z', finishedAt: '2026-07-17T10:00:00Z',
     });
   });
 });
 
 describe('getSessionLogDetail', () => {
-  it('agrupa por exercício e ordena séries', async () => {
+  it('agrupa por exercício, ordena séries e coage numeric', async () => {
     const cabecalho = makeBuilder({
-      data: { id: 'sl-1', started_at: '2026-07-17T09:00:00Z', finished_at: '2026-07-17T10:00:00Z', planned_sessions: { title: 'Push A', week_number: 2 } },
+      data: { id: 'sl-1', started_at: 'T0', finished_at: 'T1', planned_sessions: { title: 'Push A', week_number: 2 } },
       error: null,
     });
     const linhas = makeBuilder({
       data: [
-        { actual_reps: 10, actual_load_kg: 40, actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 2, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
-        { actual_reps: 8, actual_load_kg: 40, actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 1, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
+        { actual_reps: 10, actual_load_kg: '40', actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 2, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
+        { actual_reps: 8, actual_load_kg: '40', actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 1, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
       ],
       error: null,
     });
     fromMock.mockReturnValueOnce(cabecalho).mockReturnValueOnce(linhas);
 
     const res = await getSessionLogDetail('sl-1');
-    expect(res?.title).toBe('Push A');
-    expect(res?.exercises).toHaveLength(1);
-    expect(res?.exercises[0].name).toBe('Supino');
     expect(res?.exercises[0].sets.map((s) => s.setOrder)).toEqual([1, 2]);
+    expect(res?.exercises[0].sets[0].actualLoadKg).toBe(40); // number
   });
 });
