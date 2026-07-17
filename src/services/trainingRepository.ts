@@ -51,14 +51,36 @@ export type PlannedSession = {
 export type SessionDetail = PlannedSession & { planned_exercises: PlannedExercise[] };
 
 /**
+ * Plano ATIVO do usuário. Todas as leituras de sessões são escopadas por ele:
+ * sem isso, sessões de planos antigos/duplicados se misturariam na Home
+ * (achado #3 do review). Retorna null se não houver plano ativo.
+ */
+export const getActivePlanId = async (userId: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from('training_plans')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0]?.id ?? null;
+};
+
+/**
  * Sessão "de hoje": prioriza uma sessão em andamento; sem isso, a próxima
- * pendente por data. Retorna null quando não há plano/sessões.
+ * pendente por data — sempre DENTRO do plano ativo.
+ * Retorna null quando não há plano/sessões.
  */
 export const getTodaySession = async (userId: string): Promise<PlannedSession | null> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return null;
+
   const emAndamento = await supabase
     .from('planned_sessions')
     .select('*')
     .eq('user_id', userId)
+    .eq('plan_id', planId)
     .eq('status', 'in_progress')
     .limit(1);
   if (emAndamento.error) throw emAndamento.error;
@@ -68,6 +90,7 @@ export const getTodaySession = async (userId: string): Promise<PlannedSession | 
     .from('planned_sessions')
     .select('*')
     .eq('user_id', userId)
+    .eq('plan_id', planId)
     .eq('status', 'pending')
     .order('scheduled_date', { ascending: true })
     .limit(1);
@@ -75,15 +98,19 @@ export const getTodaySession = async (userId: string): Promise<PlannedSession | 
   return pendente.data?.[0] ?? null;
 };
 
-/** Próximas sessões pendentes, em ordem de data (lista da Home). */
+/** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */
 export const getUpcomingSessions = async (
   userId: string,
   limit: number = 5,
 ): Promise<PlannedSession[]> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return [];
+
   const { data, error } = await supabase
     .from('planned_sessions')
     .select('*')
     .eq('user_id', userId)
+    .eq('plan_id', planId)
     .eq('status', 'pending')
     .order('scheduled_date', { ascending: true })
     .limit(limit);
@@ -116,13 +143,22 @@ export const getSessionDetail = async (sessionId: string): Promise<SessionDetail
   return { ...data, planned_exercises: exercicios };
 };
 
-/** Resumo de alvo exibível: "4 séries × 8-12 reps" (usa a faixa real das séries). */
+/**
+ * Resumo de alvo exibível: "4 séries × 8-12 reps".
+ * Prescrição NÃO numérica (ex.: "AMRAP") é exibida como veio da IA — a faixa
+ * padrão gravada nas séries é alvo interno do motor, nunca vai para a tela
+ * (achado #4 do review: nada de dado inventado para o aluno).
+ */
 export const formatExerciseTarget = (exercicio: PlannedExercise): string => {
+  const prescricaoOriginal = exercicio.reps_raw?.trim();
+  if (prescricaoOriginal && !/\d/.test(prescricaoOriginal)) {
+    return `${exercicio.sets_planned} séries × ${prescricaoOriginal}`;
+  }
   const primeiraSerie = exercicio.planned_sets?.[0];
   const faixa = primeiraSerie
     ? primeiraSerie.target_reps_min === primeiraSerie.target_reps_max
       ? `${primeiraSerie.target_reps_min}`
       : `${primeiraSerie.target_reps_min}-${primeiraSerie.target_reps_max}`
-    : exercicio.reps_raw ?? '—';
+    : prescricaoOriginal ?? '—';
   return `${exercicio.sets_planned} séries × ${faixa} reps`;
 };

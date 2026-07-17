@@ -13,9 +13,16 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional
 
-# Faixa padrão quando a IA não dá número de reps (ex.: "AMRAP", "até a falha")
+# Faixa padrão INTERNA quando a IA não dá número de reps (ex.: "AMRAP").
+# É um alvo de trabalho para o motor de adaptação — a UI exibe reps_raw,
+# nunca esta faixa, quando a prescrição original não é numérica.
 DEFAULT_REPS_MIN = 8
 DEFAULT_REPS_MAX = 12
+
+# Tetos de sanidade contra JSON malicioso/decoerente da IA (achado #6 do review):
+# sem eles, "series": 100000000 explodiria a memória do processo.
+MAX_SERIES_POR_EXERCICIO = 10
+MAX_TOTAL_SETS = 2000
 
 _DIA_SEMANA_OFFSET = {
     "segunda": 0, "segunda-feira": 0,
@@ -157,6 +164,10 @@ def mapear_plano_ia(
                 session_id = str(uuid.uuid4())
                 offset = _offset_dia_semana(sessao.get("dia_semana"), ordem_na_semana)
                 data_agendada = segunda_semana1 + datetime.timedelta(days=(semana - 1) * 7 + offset)
+                # Nunca agendar antes do início do plano (achado #8: gerar numa
+                # sexta ancorava a semana 1 na segunda ANTERIOR ao início)
+                if data_agendada < inicio:
+                    data_agendada = inicio
                 grupos = [
                     g.get("nome")
                     for g in (sessao.get("grupos_musculares") or [])
@@ -180,11 +191,19 @@ def mapear_plano_ia(
                 })
 
                 exercicios = [e for e in (sessao.get("exercicios") or []) if isinstance(e, dict)]
+                if not exercicios:
+                    # Achado #5: sessão sem exercício não pode virar treino vazio com 200
+                    raise ValueError(
+                        "Plano inválido: a sessão '{}' veio sem exercícios.".format(
+                            sessao.get("nome") or "sem nome"
+                        )
+                    )
                 for posicao, ex in enumerate(exercicios, start=1):
                     exercise_id = str(uuid.uuid4())
                     series = ex.get("series")
                     if not isinstance(series, int) or series < 1:
                         series = 1
+                    series = min(series, MAX_SERIES_POR_EXERCICIO)
                     reps_min, reps_max = _parse_reps(ex.get("repeticoes"))
                     rm = ex.get("percentual_rm")
                     exercises.append({
@@ -215,8 +234,17 @@ def mapear_plano_ia(
                             "target_load_kg": None,
                             "target_rir": None,
                         })
+                    if len(sets) > MAX_TOTAL_SETS:
+                        raise ValueError(
+                            "Plano inválido: excede o teto de {} séries totais.".format(MAX_TOTAL_SETS)
+                        )
 
     if not sessions:
         raise ValueError("Plano inválido: nenhuma sessão de treino encontrada.")
+
+    # Achado #5: a duração registrada reflete a cobertura REAL do plano gerado,
+    # não a declarada — IA que promete 12 semanas e entrega 2 não vira "12".
+    semanas_mapeadas = max(s["week_number"] for s in sessions)
+    plan_row["duration_weeks"] = semanas_mapeadas
 
     return {"plan": plan_row, "sessions": sessions, "exercises": exercises, "sets": sets}

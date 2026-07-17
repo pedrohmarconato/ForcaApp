@@ -67,11 +67,27 @@ const mockFluent = () => {
   return builder;
 };
 
+// Plano ativo: as leituras de sessão agora são escopadas por ele (achado #3)
+const mockFluentPlanos = () => {
+  const builder = {
+    select: () => builder,
+    eq: () => builder,
+    order: () => builder,
+    limit: () => builder,
+    then: (resolve, reject) =>
+      Promise.resolve({ data: [{ id: 'plan-1' }], error: null }).then(resolve, reject),
+  };
+  return builder;
+};
+
 jest.mock('../src/config/supabaseClient', () => ({
   supabase: {
     from: jest.fn((table) => {
       if (table === 'planned_sessions') {
         return mockFluent();
+      }
+      if (table === 'training_plans') {
+        return mockFluentPlanos();
       }
       return {
         select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),

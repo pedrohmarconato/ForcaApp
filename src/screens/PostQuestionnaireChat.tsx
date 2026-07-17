@@ -153,9 +153,17 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
       currentAdjustments
     );
 
-    if (result.success && result.planId) {
-      console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId}`);
-      await updateProfile({ onboarding_completed: true, current_plan_id: result.planId });
+    if (result.success) {
+      console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId ?? '(offline, sem plano no banco)'}`);
+      // current_plan_id é FK uuid: só grava quando existe plano REAL no banco.
+      // No modo offline (sem planId) o onboarding conclui sem apontar plano.
+      const profileUpdate: { onboarding_completed: boolean; current_plan_id?: string } = {
+        onboarding_completed: true,
+      };
+      if (result.planId) {
+        profileUpdate.current_plan_id = result.planId;
+      }
+      await updateProfile(profileUpdate);
       
       // Navegação após sucesso
       // FIXME(Fase 5): a rota 'App' não existe no OnboardingStack; a transição

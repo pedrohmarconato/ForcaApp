@@ -21,6 +21,14 @@ type HomeStackParamList = {
 const formatarData = (isoDate: string | null): string =>
   isoDate ? new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR') : '';
 
+// Data local (não UTC) no formato YYYY-MM-DD, para comparar com scheduled_date
+const hojeISO = (): string => {
+  const agora = new Date();
+  const mes = String(agora.getMonth() + 1).padStart(2, '0');
+  const dia = String(agora.getDate()).padStart(2, '0');
+  return `${agora.getFullYear()}-${mes}-${dia}`;
+};
+
 // Fase 3: a Home lê o plano REAL persistido — card do treino de hoje e a
 // lista dos próximos treinos. As estatísticas de progresso só mostram números
 // quando houver execuções registradas (Fase 4); sem amostra, exibem "—".
@@ -30,12 +38,15 @@ const HomeScreen = () => {
   const [todaySession, setTodaySession] = useState<PlannedSession | null>(null);
   const [upcoming, setUpcoming] = useState<PlannedSession[]>([]);
   const [loading, setLoading] = useState(true);
+  // Erro de banco ≠ "nenhum treino": estados distintos (achado #9 do review)
+  const [loadError, setLoadError] = useState(false);
 
   const userName = profile?.full_name || 'Atleta';
 
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const [hoje, proximos] = await Promise.all([
         getTodaySession(user.id),
@@ -46,6 +57,9 @@ const HomeScreen = () => {
       setUpcoming(proximos.filter((sessao) => sessao.id !== hoje?.id));
     } catch (error) {
       console.error('Erro ao buscar treinos:', error);
+      setTodaySession(null);
+      setUpcoming([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -76,11 +90,24 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Treino de hoje (dado real do plano) */}
+        {/* Treino de hoje/próximo (dado real do plano; rótulo honesto — achado #8) */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Seu treino de hoje</Text>
+          <Text style={styles.sectionTitle}>
+            {todaySession && todaySession.scheduled_date !== hojeISO()
+              ? 'Seu próximo treino'
+              : 'Seu treino de hoje'}
+          </Text>
           {loading ? (
             <Text style={styles.loadingText}>Carregando treino...</Text>
+          ) : loadError ? (
+            <View style={styles.todayWorkoutCard}>
+              <View style={styles.workoutInfo}>
+                <Text style={styles.workoutTitle}>Não foi possível carregar</Text>
+                <Text style={styles.workoutDescription}>
+                  Verifique a conexão e tente novamente.
+                </Text>
+              </View>
+            </View>
           ) : todaySession ? (
             <TouchableOpacity
               style={styles.todayWorkoutCard}
@@ -138,6 +165,10 @@ const HomeScreen = () => {
 
           {loading ? (
             <Text style={styles.loadingText}>Carregando treinos...</Text>
+          ) : loadError ? (
+            <Text style={styles.noWorkoutsText}>
+              Não foi possível carregar seus treinos.
+            </Text>
           ) : upcoming.length > 0 ? (
             upcoming.map((sessao) => (
               <TouchableOpacity

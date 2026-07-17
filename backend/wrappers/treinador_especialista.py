@@ -247,7 +247,7 @@ Exercícios
                                                                         "nome": {"type": "string", "description": "Nome do exercício."},
                                                                         "ordem": {"type": "integer", "description": "Ordem de execução na sessão."},
                                                                         "equipamento": {"type": ["string", "null"], "description": "Equipamento necessário."},
-                                                                        "series": {"type": "integer", "minimum": 1, "description": "Número de séries."},
+                                                                        "series": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Número de séries."},
                                                                         "repeticoes": {"type": "string", "description": "Faixa ou número de repetições (ex: '8-12', '10', 'AMRAP')."},
                                                                         "percentual_rm": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percentual de 1RM (se aplicável)."},
                                                                         "tempo_descanso": {"type": ["integer", "string", "null"], "description": "Tempo de descanso entre séries (ex: 60, '90s')."},
@@ -444,23 +444,39 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
         return prompt_completo.strip()
 
     def _extrair_json_da_resposta(self, texto_resposta: str) -> Optional[Dict[str, Any]]:
-        """Tenta extrair um objeto JSON de uma string que pode conter texto adicional."""
+        """
+        Extrai um objeto JSON da resposta, que pode vir:
+        1. dentro de um code fence ```json ... ``` (regex GULOSA — JSON aninhado
+           tem vários '}', a versão não-gulosa parava no primeiro);
+        2. como a resposta inteira ("retorne somente JSON" obedecido);
+        3. cercado de texto (do primeiro '{' ao último '}').
+        """
         self.logger.debug("Tentando extrair JSON da resposta da API...")
-        # Procura por ```json ... ``` ou apenas { ... }
-        match = re.search(r"```json\s*(\{.*?\})\s*```|(\{.*?\})", texto_resposta, re.DOTALL)
+
+        candidatos = []
+        match = re.search(r"```json\s*(\{.*\})\s*```", texto_resposta, re.DOTALL)
         if match:
-            json_str = match.group(1) or match.group(2)
+            candidatos.append(match.group(1))
+        candidatos.append(texto_resposta.strip())
+        inicio = texto_resposta.find("{")
+        fim = texto_resposta.rfind("}")
+        if inicio != -1 and fim > inicio:
+            candidatos.append(texto_resposta[inicio:fim + 1])
+
+        for candidato in candidatos:
             try:
-                parsed_json = json.loads(json_str)
+                parsed = json.loads(candidato)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
                 self.logger.debug("JSON extraído e parseado com sucesso.")
-                return parsed_json
-            except json.JSONDecodeError as e:
-                # Não logar o conteúdo extraído: pode conter dados pessoais do usuário
-                self.logger.error(f"Falha ao decodificar JSON extraído: {e} (tamanho do trecho: {len(json_str)} chars)")
-                return None
-        else:
-            self.logger.warning("Nenhum bloco JSON encontrado na resposta da API.")
-            return None
+                return parsed
+
+        # Não logar o conteúdo: pode conter dados pessoais do usuário
+        self.logger.warning(
+            f"Nenhum JSON válido encontrado na resposta da API ({len(texto_resposta)} chars)."
+        )
+        return None
 
     def _validar_plano_com_schema(self, plano_json: Dict[str, Any]) -> bool:
         """Valida o JSON do plano contra o schema definido."""
@@ -494,6 +510,17 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                     {"role": "user", "content": prompt}
                 ]
             )
+            # Truncamento não é falha genérica: diagnóstico explícito evita
+            # aceitar JSON cortado e explica a geração paga perdida (review #7)
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                self.logger.error(
+                    f"Resposta truncada pelo limite de tokens (max_tokens={self.MAX_TOKENS}). "
+                    "O plano gerado está incompleto e será descartado."
+                )
+                raise RuntimeError(
+                    "Resposta da IA truncada pelo limite de tokens — plano incompleto."
+                )
+
             # Verifica se a resposta tem o conteúdo esperado
             if response.content and isinstance(response.content, list) and len(response.content) > 0:
                 # Assume que a resposta principal está no primeiro bloco de conteúdo
@@ -516,6 +543,9 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
             # Não logar o corpo da resposta: pode ecoar o prompt com dados pessoais
             self.logger.error(f"Erro de status da API Anthropic: status={e.status_code}", exc_info=True)
             raise ConnectionError(f"Erro na API Anthropic (Status {e.status_code}): {e}") from e
+        except RuntimeError:
+            # Erros já diagnosticados acima (ex.: truncamento) sobem sem re-embrulhar
+            raise
         except Exception as e:
             self.logger.error(f"Erro inesperado ao chamar a API Claude: {e}", exc_info=True)
             raise RuntimeError(f"Erro inesperado durante a chamada da API: {e}") from e

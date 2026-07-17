@@ -264,3 +264,58 @@ def test_plano_sem_ciclos_gera_erro_claro():
 def test_start_date_padrao_e_hoje():
     resultado = mapear_plano_ia(_plano_exemplo(), user_id=USER_ID)
     assert resultado["plan"]["start_date"] == datetime.date.today().isoformat()
+
+
+# ---------- Achados do review adversarial do PR #4 ----------
+
+def test_nenhuma_sessao_e_agendada_antes_do_inicio_do_plano():
+    """Achado #8: gerar numa sexta ancorava a semana 1 na segunda ANTERIOR."""
+    inicio_sexta = datetime.date(2026, 7, 17)  # sexta-feira
+    resultado = mapear_plano_ia(_plano_exemplo(), user_id=USER_ID, start_date=inicio_sexta)
+
+    datas = [s["scheduled_date"] for s in resultado["sessions"]]
+    assert all(d >= "2026-07-17" for d in datas), datas
+    por_titulo = {s["title"]: s for s in resultado["sessions"]}
+    # segunda (13/07) e quinta (16/07) da semana 1 são puxadas para o início
+    assert por_titulo["Peito/Tríceps"]["scheduled_date"] == "2026-07-17"
+    assert por_titulo["Costas/Bíceps"]["scheduled_date"] == "2026-07-17"
+    # semana 2 não é afetada
+    assert por_titulo["Full Body"]["scheduled_date"] == "2026-07-20"
+
+
+def test_series_absurdas_sao_limitadas():
+    """Achado #6: series=100_000_000 não pode explodir a memória."""
+    plano = _plano_exemplo()
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["exercicios"][0]["series"] = 100_000_000
+
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    supino = next(e for e in resultado["exercises"] if e["name"] == "Supino Reto")
+    assert supino["sets_planned"] == 10  # clamp em MAX_SERIES_POR_EXERCICIO
+    assert len([s for s in resultado["sets"] if s["exercise_id"] == supino["id"]]) == 10
+
+
+def test_teto_global_de_series(monkeypatch):
+    """Achado #6: teto global além do clamp por exercício."""
+    import services.plan_mapper as pm
+
+    monkeypatch.setattr(pm, "MAX_TOTAL_SETS", 10)  # o plano de exemplo tem 17
+    with pytest.raises(ValueError):
+        mapear_plano_ia(_plano_exemplo(), user_id=USER_ID, start_date=START)
+
+
+def test_sessao_sem_exercicios_gera_erro():
+    """Achado #5: sessão com exercicios=[] não pode virar treino vazio com 200."""
+    plano = _plano_exemplo()
+    plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]["exercicios"] = []
+    with pytest.raises(ValueError):
+        mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+
+def test_duration_weeks_reflete_cobertura_real_nao_a_declarada():
+    """Achado #5: IA declara 12 semanas mas entrega 2 → o plano registra 2."""
+    plano = _plano_exemplo()
+    plano["plano_principal"]["duracao_semanas"] = 12
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+    assert resultado["plan"]["duration_weeks"] == 2

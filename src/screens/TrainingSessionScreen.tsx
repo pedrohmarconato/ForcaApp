@@ -16,11 +16,14 @@ import {
 const TrainingSessionScreen = () => {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // Erro de banco ≠ "não há treino": estados distintos (achado #9 do review)
+  const [loadError, setLoadError] = useState(false);
   const { user } = useAuth();
 
   const fetchCurrentTraining = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const proxima = await getTodaySession(user.id);
       if (!proxima) {
@@ -32,6 +35,7 @@ const TrainingSessionScreen = () => {
     } catch (err) {
       console.error('Erro ao buscar treino:', err);
       setSession(null);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -43,21 +47,35 @@ const TrainingSessionScreen = () => {
     fetchCurrentTraining();
   }, [fetchCurrentTraining]);
 
-  const renderExerciseItem = ({ item }: { item: PlannedExercise }) => (
-    <View style={styles.exerciseItem}>
-      <Text style={styles.exerciseName}>{item.name}</Text>
-      <Text style={styles.exerciseDetails}>{formatExerciseTarget(item)}</Text>
-      <Text style={styles.exerciseMeta}>
-        {item.target_rm_percent != null ? `${item.target_rm_percent}% RM · ` : ''}
-        {item.rest_seconds != null ? `descanso ${item.rest_seconds}s` : 'descanso livre'}
-      </Text>
-    </View>
-  );
+  const renderExerciseItem = ({ item }: { item: PlannedExercise }) => {
+    // Só mostra o que existe de fato — descanso ausente não vira instrução inventada
+    const meta = [
+      item.target_rm_percent != null ? `${item.target_rm_percent}% RM` : null,
+      item.rest_seconds != null ? `descanso ${item.rest_seconds}s` : null,
+    ].filter(Boolean);
+    return (
+      <View style={styles.exerciseItem}>
+        <Text style={styles.exerciseName}>{item.name}</Text>
+        <Text style={styles.exerciseDetails}>{formatExerciseTarget(item)}</Text>
+        {meta.length > 0 ? <Text style={styles.exerciseMeta}>{meta.join(' · ')}</Text> : null}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
       <View style={styles.container}>
         <Text style={styles.noTrainingText}>Carregando treino...</Text>
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.noTrainingText}>
+          Não foi possível carregar seu treino. Verifique a conexão e tente novamente.
+        </Text>
       </View>
     );
   }

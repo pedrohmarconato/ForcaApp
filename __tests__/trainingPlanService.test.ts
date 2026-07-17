@@ -42,13 +42,24 @@ describe('trainingPlanService', () => {
     ).rejects.toThrow();
   });
 
-  it('erro de rede com modo offline ATIVADO retorna plano simulado explicitamente', async () => {
+  it('erro de rede com modo offline ATIVADO retorna simulado SEM planId fabricado', async () => {
+    // Achado #10 do review: "offline-<timestamp>" quebrava a FK uuid de
+    // profiles.current_plan_id depois de já termos reportado sucesso.
     process.env.EXPO_PUBLIC_ENABLE_OFFLINE_MODE = 'true';
     mockedPost.mockRejectedValueOnce({ message: 'Network Error' });
 
     const result = await requestTrainingPlanGeneration('user-1', DADOS_SAUDE, []);
     expect(result.success).toBe(true);
-    expect(result.planId).toMatch(/^offline-/);
+    expect(result.offline).toBe(true);
+    expect(result.planId).toBeUndefined();
+  });
+
+  it('resposta 2xx SEM plan_id é falha, não sucesso com ID fabricado (achado #10)', async () => {
+    mockedPost.mockResolvedValueOnce({ data: { message: 'ok' } }); // sem plan_id
+
+    await expect(
+      requestTrainingPlanGeneration('user-1', DADOS_SAUDE, []),
+    ).rejects.toThrow();
   });
 
   it('sucesso do backend repassa plan_id', async () => {
