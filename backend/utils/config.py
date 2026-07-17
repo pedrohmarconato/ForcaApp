@@ -1,7 +1,8 @@
 # backend/utils/config.py
 import os
-from dotenv import load_dotenv
 import sys
+from typing import Optional
+from dotenv import load_dotenv
 
 # Determina o diretório raiz do projeto (assumindo que backend/ está um nível abaixo)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +17,7 @@ else:
     print(f"AVISO: Arquivo .env não encontrado em {DOTENV_PATH}. Variáveis de ambiente devem ser definidas manualmente.", file=sys.stderr)
 
 
-def get_env_variable(var_name: str, default: str | None = None) -> str | None:
+def get_env_variable(var_name: str, default: Optional[str] = None) -> Optional[str]:
     """Busca uma variável de ambiente."""
     value = os.getenv(var_name, default)
     if value is None:
@@ -47,7 +48,7 @@ else:
     logger.warning(f"Arquivo .env não encontrado em {dotenv_path}. Certifique-se de que ele existe na raiz do projeto ou configure as variáveis de ambiente manualmente.")
 
 
-def get_api_key(service_name: str = "ANTHROPIC") -> str | None:
+def get_api_key(service_name: str = "ANTHROPIC") -> Optional[str]:
     """
     Obtém a chave de API de uma variável de ambiente (ex: ANTHROPIC_API_KEY).
 
@@ -75,15 +76,32 @@ def get_api_key(service_name: str = "ANTHROPIC") -> str | None:
     return api_key
 
 # Função helper opcional para clareza ao buscar a chave específica do Anthropic
-def get_anthropic_api_key() -> str | None:
+def get_anthropic_api_key() -> Optional[str]:
     """Obtém especificamente a chave da API Anthropic."""
     return get_api_key("ANTHROPIC")
 
     var_name = f"{service_name.upper()}_API_KEY"
     return get_env_variable(var_name)
 
-def get_model_name(default: str = "claude-3-5-sonnet-20240620") -> str:
-    """Obtém o nome do modelo de uma variável de ambiente ou usa o padrão."""
+def get_model_name(default: str = "claude-sonnet-4-6") -> str:
+    """Obtém o nome do modelo de uma variável de ambiente ou usa o padrão.
+    Padrão: claude-sonnet-4-6 (ativo; claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28)."""
     return get_env_variable("CLAUDE_MODEL_NAME", default)
+
+
+def get_anthropic_timeout_seconds() -> float:
+    """Timeout (segundos) das chamadas à API Anthropic no backend.
+
+    Deve ser MENOR que o timeout do app (180s) para o backend falhar antes do
+    aplicativo desistir — evitando geração paga que o usuário não recebe e
+    retry duplicando custo. Configurável via ANTHROPIC_TIMEOUT_SECONDS.
+    """
+    raw = get_env_variable("ANTHROPIC_TIMEOUT_SECONDS", "150")
+    try:
+        value = float(raw) if raw is not None else 150.0
+    except (TypeError, ValueError):
+        logger.warning(f"ANTHROPIC_TIMEOUT_SECONDS inválido ({raw!r}); usando 150s.")
+        return 150.0
+    return value if value > 0 else 150.0
 
 # Adicione outras configurações conforme necessário

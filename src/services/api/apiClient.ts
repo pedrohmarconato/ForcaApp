@@ -1,74 +1,107 @@
-// /home/pmarconato/ForcaApp/src/services/api/apiClient.ts
-import axios from 'axios';
+// src/services/api/apiClient.ts
+import axios, { AxiosError, AxiosInstance } from 'axios';
+import { supabase } from '../../config/supabaseClient';
+import { logger } from '../../utils/logger';
 
-// Obtém a URL base da API a partir das variáveis de ambiente (ex: .env)
+// URL base da API a partir das variáveis de ambiente (ex: .env).
+// Em desenvolvimento local, aponta para o servidor Flask na porta 5001.
 const apiBaseUrlFromEnv = process.env.EXPO_PUBLIC_API_BASE_URL;
-
-// Define a URL base efetiva para as chamadas da API.
-// Se a variável de ambiente EXPO_PUBLIC_API_BASE_URL não estiver definida,
-// utiliza 'http://localhost:5001/api' como padrão.
-// Isso é útil para desenvolvimento local, apontando para o servidor Flask.
 const effectiveApiBaseUrl = apiBaseUrlFromEnv || 'http://localhost:5001/api';
 
-// Cria uma instância configurada do Axios (cliente HTTP)
 const apiClient = axios.create({
-  baseURL: effectiveApiBaseUrl, // Define a URL base para todas as requisições feitas com esta instância
-  // Outras configurações globais do Axios podem ser adicionadas aqui. Exemplo:
-  // headers: { 'Content-Type': 'application/json' },
-  // timeout: 10000, // Timeout de 10 segundos
+  baseURL: effectiveApiBaseUrl,
+  timeout: 30000, // padrão; chamadas longas (geração de plano) sobrescrevem por requisição
 });
 
-// Log para depuração: informa qual URL base está sendo usada ao iniciar o app.
-console.log(`[ApiClient] Configurado para usar a URL base: ${effectiveApiBaseUrl}`);
+logger.log(`[ApiClient] Configurado para usar a URL base: ${effectiveApiBaseUrl}`);
 
-// Interceptor de Requisição: Executa antes de cada requisição ser enviada.
-apiClient.interceptors.request.use(config => {
-  // Útil para adicionar dados comuns a todas as requisições (ex: token de autenticação)
-  // ou para logar informações da requisição.
-  console.log(`[ApiClient] Iniciando requisição para: ${config.url}`);
-  // É essencial retornar a configuração (config) para que a requisição prossiga.
-  return config;
-}, error => {
-  // Trata erros que ocorrem durante a configuração da requisição.
-  console.error('[ApiClient] Erro ao preparar requisição:', error);
-  // Rejeita a promessa para que o erro seja tratado onde a chamada foi feita.
-  return Promise.reject(error);
-});
+type RetryableRequestConfig = AxiosError['config'] & { _retry?: boolean };
 
-// Interceptor de Resposta: Executa após receber uma resposta (ou erro) do servidor.
-apiClient.interceptors.response.use(response => {
-  // Executado para respostas com status de sucesso (2xx).
-  // Útil para logar ou transformar dados da resposta globalmente.
-  console.log(`[ApiClient] Resposta recebida de: ${response.config.url}, Status: ${response.status}`);
-  // É essencial retornar a resposta (response) para que ela chegue ao local da chamada.
-  return response;
-}, error => {
-  // Executado para respostas com status de erro (fora da faixa 2xx).
-  // Tratamento centralizado de erros de resposta da API.
-  console.error('[ApiClient] Erro na resposta:', error.response?.status, error.response?.data || error.message);
+/**
+ * Tratamento central de erros de resposta.
+ * Em 401: tenta UM refreshSession() e repete a requisição original com o novo
+ * token (a IA ainda não foi chamada, então repetir não duplica cobrança).
+ * Se o refresh falhar ou o 401 persistir, limpa a sessão (signOut) para
+ * forçar novo login em vez de ficar em loop de 401.
+ */
+export const handleResponseError = async (
+  instance: AxiosInstance,
+  error: AxiosError,
+): Promise<unknown> => {
+  const originalRequest = error.config as RetryableRequestConfig;
 
-  // Verifica especificamente por 'Network Error', que geralmente indica que o servidor
-  // não está acessível (offline, URL errada, problema de CORS não tratado pelo servidor).
-  if (error.message === 'Network Error' && !error.response) {
-    console.error('[ApiClient] Erro de rede detectado. O servidor backend pode estar offline ou inacessível.');
-    // Poderia adicionar lógica aqui para notificar o usuário ou tentar novamente.
+  if (error.response?.status !== 401 || !originalRequest) {
+    return Promise.reject(error);
   }
-  // Rejeita a promessa com o erro para que ele seja tratado no local da chamada (ex: no service).
-  return Promise.reject(error);
-});
 
-
-// Define uma estrutura para organizar os endpoints da API.
-export const ENDPOINTS = {
-  TRAINING: {
-    GENERATE_PLAN: '/generate-training-plan', // Endpoint para gerar plano de treino
-    // Exemplo: GET_PLAN: '/training-plan/:planId',
-  },
-  USER: {
-    // Exemplo: GET_PROFILE: '/user/profile',
+  if (originalRequest._retry) {
+    logger.warn('[ApiClient] 401 persistente após retry. Encerrando sessão.');
+    await supabase.auth.signOut();
+    return Promise.reject(error);
   }
-  // Adicione outros módulos da API aqui (ex: PROGRESS, AUTH)
+
+  logger.warn('[ApiClient] 401 recebido. Tentando um único refresh de sessão...');
+  originalRequest._retry = true;
+
+  try {
+    const { data } = await supabase.auth.refreshSession();
+    const newToken = data.session?.access_token;
+
+    if (!newToken) {
+      logger.warn('[ApiClient] Refresh não retornou token. Encerrando sessão.');
+      await supabase.auth.signOut();
+      return Promise.reject(error);
+    }
+
+    if (originalRequest.headers) {
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+    }
+    return await instance(originalRequest);
+  } catch (refreshError) {
+    logger.warn('[ApiClient] Falha no refresh de sessão. Encerrando sessão.');
+    await supabase.auth.signOut();
+    return Promise.reject(refreshError);
+  }
 };
 
-// Exporta a instância configurada do apiClient para ser usada nos services.
+// Interceptor de Requisição: anexa o access_token da sessão Supabase
+// (gerenciada com auto-refresh pelo cliente oficial) em todas as chamadas.
+apiClient.interceptors.request.use(async (config) => {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (error) {
+    logger.warn('[ApiClient] Não foi possível obter a sessão para a requisição.');
+  }
+  return config;
+}, (error) => {
+  logger.error('[ApiClient] Erro ao preparar requisição:', error);
+  return Promise.reject(error);
+});
+
+// Interceptor de Resposta: log centralizado + recuperação de 401.
+apiClient.interceptors.response.use((response) => response, (error: AxiosError) => {
+  if (error.response?.status !== 401) {
+    logger.error('[ApiClient] Erro na resposta:', error.response?.status, error.config?.url);
+    if (error.message === 'Network Error' && !error.response) {
+      logger.error('[ApiClient] Erro de rede detectado. O servidor backend pode estar offline ou inacessível.');
+    }
+  }
+  return handleResponseError(apiClient, error);
+});
+
+// Endpoints alinhados com as rotas do backend Flask (backend/app.py)
+export const ENDPOINTS = {
+  TRAINING: {
+    GENERATE_PLAN: '/generate-plan', // POST /api/generate-plan
+  },
+  CHAT: '/chat', // POST /api/chat — proxy seguro para o Claude
+  HEALTH: '/health', // GET /api/health (o Flask expõe /health e /api/health)
+};
+
+// Exporta tanto default quanto nomeado (consumidores legados usam { apiClient })
+export { apiClient };
 export default apiClient;

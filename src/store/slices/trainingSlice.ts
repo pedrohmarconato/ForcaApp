@@ -157,4 +157,18 @@ const trainingSlice = createSlice({
         } else {
           state.sessions.push(action.payload);
         }
-        // Atualiza a sessão atual se
+        // Atualiza a sessão atual se for a mesma
+        if (state.currentSession?.id === action.payload.id) {
+          state.currentSession = action.payload;
+        }
+      })
+      .addCase(recordTrainingSession.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload as string;
+      });
+  },
+});
+
+export const { setCurrentPlan, setCurrentSession, clearTrainingData } = trainingSlice.actions;
+
+export default trainingSlice.reducer;
