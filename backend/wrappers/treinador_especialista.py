@@ -253,6 +253,7 @@ Exercícios
                                                                         "tempo_descanso": {"type": ["integer", "string", "null"], "description": "Tempo de descanso entre séries (ex: 60, '90s')."},
                                                                         "cadencia": {"type": ["string", "null"], "description": "Cadência de execução (ex: '2020', 'Explosiva')."},
                                                                         "metodo": {"type": ["string", "null"], "description": "Método de intensificação (ex: 'Drop-set', 'Rest-pause')."},
+                                                                        "prioridade": {"type": ["string", "null"], "enum": ["primario", "secundario", "acessorio", None], "description": "Prioridade do exercício na sessão: primario (composto principal), secundario (apoio), acessorio (isolamento)."},
                                                                         "progressao": {"type": ["string", "null"], "description": "Instrução geral de progressão para este exercício (simplificado)."},
                                                                         "observacoes": {"type": ["string", "null"], "description": "Observações importantes sobre a execução ou adaptação."}
                                                                     },
@@ -345,6 +346,7 @@ Exercícios
                                                 "tempo_descanso": "'60s'", # Aspas para indicar string ou número
                                                 "cadencia": "'2020'", # Aspas para indicar string ou null
                                                 "metodo": "null", # Ou nome do método
+                                                "prioridade": "primario", # primario | secundario | acessorio
                                                 "progressao": "null", # Simplificado para string ou null
                                                 "observacoes": "Observações relevantes"
                                             }
@@ -426,6 +428,7 @@ INSTRUÇÕES ESPECÍFICAS PARA GERAÇÃO DO PLANO:
 1. Crie um plano de treinamento detalhado para EXATAMENTE 12 semanas.
 2. Distribua as sessões de treino nos dias disponíveis ({dias_str}), respeitando a frequência semanal de {disponibilidade_semanal} dias. Se os dias não forem especificados, distribua uniformemente (ex: Seg/Qua/Sex para 3 dias).
 3. Detalhe cada sessão com exercícios, séries, repetições (use formato string como "8-12" ou "10"), % de 1RM (use número ou null), tempo de descanso (em segundos ou string como "60s").
+3b. Classifique cada exercício no campo 'prioridade': "primario" (movimento composto principal da sessão), "secundario" (composto de apoio) ou "acessorio" (isolamento/finalização). Essa classificação orienta cortes quando o aluno tiver menos tempo.
 4. Considere o nível ({nivel}) e as restrições/lesões ao selecionar exercícios e métodos. Adapte se necessário (ex: substituir agachamento livre por leg press se houver restrição no joelho). Forneça alternativas seguras.
 5. Inclua cardio ({cardio}) e alongamento ({alongamento}) conforme solicitado, integrando-os às sessões ou como sessões separadas.
 6. O plano deve ser estruturado em ciclos e microciclos (semanas). Defina um objetivo claro para cada ciclo.

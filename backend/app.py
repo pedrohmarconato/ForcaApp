@@ -17,6 +17,8 @@ try:
     from utils.logger import WrapperLogger
     from utils.auth import token_required
     from utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
+    from services.plan_mapper import mapear_plano_ia
+    from services.plan_repository import PlanPersistenceError, persistir_plano
 except ImportError as e:
     print(f"ERRO FATAL: Falha ao importar módulos necessários: {e}")
     print("Verifique a estrutura do projeto e se o PYTHONPATH está configurado corretamente.")
@@ -352,15 +354,26 @@ def handle_generate_plan():
         if plano_gerado:
             app_logger.info(f"Plano gerado com sucesso para usuário {user_id} (ID Plano: {plano_gerado.get('treinamento_id')}).")
 
-            # --- Ação com o Plano Gerado ---
-            # Aqui você normalmente salvaria o `plano_gerado` (JSON) no banco de dados
-            # associado ao `user_id`.
-            # Exemplo: save_plan_to_db(user_id, plano_gerado)
+            # --- Persistência (Fase 3) ---
+            # Grava o plano no Supabase com o JWT do usuário: o RLS garante que
+            # cada um só escreve nas próprias linhas. O plan_id devolvido ao app
+            # é o ID do banco (training_plans.id), navegável nas telas.
+            try:
+                mapeado = mapear_plano_ia(plano_gerado, user_id=str(user_id))
+                db_plan_id = persistir_plano(mapeado, access_token=g.access_token)
+            except (ValueError, PlanPersistenceError) as e:
+                app_logger.error(
+                    f"Plano gerado para {user_id}, mas a gravação falhou: {e}", exc_info=True
+                )
+                return jsonify({
+                    "error": "O plano foi gerado, mas não pôde ser salvo. Tente novamente."
+                }), 502
 
+            app_logger.info(f"Plano gravado no banco para usuário {user_id} (plan_id: {db_plan_id}).")
             return jsonify({
                 "status": "success",
-                "message": "Plano de treinamento solicitado com sucesso.",
-                "plan_id": plano_gerado.get('treinamento_id')
+                "message": "Plano de treinamento gerado e salvo com sucesso.",
+                "plan_id": db_plan_id
             }), 200
         else:
             app_logger.error(f"Falha na geração do plano para o usuário {user_id} (wrapper retornou None).")
