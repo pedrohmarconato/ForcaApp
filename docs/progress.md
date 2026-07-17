@@ -85,3 +85,38 @@ ter apontado um bug que revelou um problema mais fundo de modelo de dados.
 - **Pendente quando desbloquear:** reescrever o teste de WorkoutDetailScreen (falso positivo —
   injeta `{ trainingId }` em vez de `{ workout }`) para reproduzir o contrato real e expor o bug.
 - Fases 3/4/5 ficam suspensas até o modelo de dados ser definido.
+
+---
+
+## ✅ Fase 3 — Persistência e navegação (17/07/2026, branch fase-3-persistencia)
+
+### Desbloqueio do modelo de dados
+O dono aprovou o plano de construção (Fases 3–7, `~/.claude/plans/forca-app-plano-fases.md`):
+**Opção A — modelo novo e enxuto**. Tabelas `fato_*`/`dim_*` ficam intocadas (aposentadas).
+PR #3 foi mesclado (squash `de24105`) após verificação local (tsc 0 / jest 32 / pytest 34).
+
+### O que foi feito
+- [x] `supabase/migrations/0001_modelo_treino.sql`: training_plans → planned_sessions →
+      planned_exercises → planned_sets + session_logs/set_logs, RLS por usuário,
+      `profiles.current_plan_id` (coluna que o app já gravava e não existia).
+- [x] Backend grava o plano: `services/plan_mapper.py` (puro; datas deterministas, reps/descanso
+      tolerantes, prioridade com fallback, user_id sempre do token) + `services/plan_repository.py`
+      (PostgREST com JWT do usuário; falha → limpeza + erro claro) + wiring em `app.py`
+      (persistência no lugar do TODO; 502 honesto se a gravação falhar).
+- [x] IA passa a classificar `prioridade` (primario/secundario/acessorio) por exercício.
+- [x] App: `src/services/trainingRepository.ts` (leitura tipada e ordenada) + Home
+      (treino de hoje real, próximos treinos, stats "—" sem dado inventado) +
+      WorkoutDetail (`{ sessionId }` — bug do param morto) + TrainingSession (sessão real).
+- [x] Testes: pytest 34→55 (mapper 13, repositório 5, endpoint 3); jest 32→41
+      (repositório, Home, telas religadas); tsc 0 erros.
+
+### Pendências honestas
+1. **Migration NÃO aplicada** no Supabase (sem credenciais/projeto neste ambiente).
+   Sem ela, gerar plano → backend recebe 404 do PostgREST → 502 "não pôde ser salvo".
+2. **E2E real não exercitado** (gerar plano num usuário de verdade e navegar) — depende
+   da migration + backend com .env. Verificação foi por testes com rede mockada.
+3. Fluxo de reset de navegação pós-onboarding (`as any`, FIXME) fica para a Fase 4.
+
+### Próximo passo
+Abrir PR #4 e aguardar OK do dono. Depois: aplicar migration, smoke E2E, e Fase 4
+(sessão interativa) conforme o plano.

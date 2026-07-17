@@ -1,13 +1,9 @@
 // __tests__/consolidacao-screens.test.tsx
-// Fase 2 — Consolidação. Estes testes garantem que as telas VIVAS consomem
-// as fontes CORRETAS após a migração:
-//  - ProfileScreen / TrainingSessionScreen: useAuth vem de contexts/AuthContext
-//    (React Context), NÃO de hooks/useAuth (Redux desligado, quebra em runtime).
-//  - TrainingSessionScreen / WorkoutDetailScreen: supabase vem de
-//    config/supabaseClient.js (cliente único com SecureStore), NÃO de
-//    services/supabase/supabase.ts (segundo cliente sem storage seguro).
-//
-// Estes testes FALHAM antes da migração (RED) e passam depois (GREEN).
+// Fase 2 — Consolidação (atualizado na Fase 3). Garante que as telas VIVAS
+// consomem as fontes CORRETAS:
+//  - ProfileScreen / TrainingSessionScreen: useAuth vem de contexts/AuthContext.
+//  - Telas de treino: dados vêm do cliente único (config/supabaseClient.js),
+//    agora através das tabelas REAIS da Fase 3 (planned_sessions e filhas).
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
@@ -23,34 +19,63 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
-// Builder fluente: suporta await direto (thenable) e .single().
-const mockFluent = (resolver) => {
+const mockSessaoBase = {
+  id: 'sess-1',
+  plan_id: 'plan-1',
+  user_id: 'user-123',
+  week_number: 1,
+  title: 'Treino de Força A',
+  session_type: 'Força',
+  scheduled_date: '2026-07-20',
+  estimated_minutes: 60,
+  status: 'in_progress',
+  muscle_groups: ['Pernas'],
+};
+
+const mockSessaoDetalhe = {
+  ...mockSessaoBase,
+  planned_exercises: [
+    {
+      id: 'ex-1',
+      session_id: 'sess-1',
+      exercise_order: 1,
+      name: 'Agachamento Livre',
+      priority: 'primary',
+      sets_planned: 4,
+      reps_raw: '8',
+      rest_seconds: 90,
+      target_rm_percent: 75,
+      planned_sets: [
+        { id: 'st-1', exercise_id: 'ex-1', set_order: 1, target_reps_min: 8, target_reps_max: 8, target_load_kg: null, target_rir: null },
+      ],
+    },
+  ],
+};
+
+// Builder fluente: consultas de lista resolvem via await direto (thenable);
+// consultas de detalhe usam .single().
+const mockFluent = () => {
   const builder = {
     select: () => builder,
     eq: () => builder,
     order: () => builder,
-    single: () => Promise.resolve(resolver()),
-    then: (resolve, reject) => Promise.resolve(resolver()).then(resolve, reject),
+    limit: () => builder,
+    single: () => Promise.resolve({ data: mockSessaoDetalhe, error: null }),
+    then: (resolve, reject) =>
+      Promise.resolve({ data: [mockSessaoBase], error: null }).then(resolve, reject),
   };
   return builder;
 };
 
-const mockTrainingData = { id: 'treino-1', name: 'Treino de Força A', status: 'in_progress' };
-const mockExercisesData = [
-  { id: 'ex-1', name: 'Agachamento Livre', sets: 4, reps: 8 },
-  { id: 'ex-2', name: 'Supino Reto', sets: 3, reps: 10 },
-];
-
 jest.mock('../src/config/supabaseClient', () => ({
   supabase: {
     from: jest.fn((table) => {
-      if (table === 'training_sessions') {
-        return mockFluent(() => ({ data: mockTrainingData, error: null }));
+      if (table === 'planned_sessions') {
+        return mockFluent();
       }
-      if (table === 'training_exercises') {
-        return mockFluent(() => ({ data: mockExercisesData, error: null }));
-      }
-      return mockFluent(() => ({ data: null, error: null }));
+      return {
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+      };
     }),
   },
 }));
@@ -63,31 +88,32 @@ describe('Fase 2 — ProfileScreen consome AuthContext (não Redux)', () => {
   it('renderiza o nome do perfil e o e-mail a partir do contexto de auth', () => {
     const { getByText } = render(<ProfileScreen />);
 
-    // O nome vem de profile.full_name fornecido pelo AuthContext
     expect(getByText('Pedro Marconato')).toBeTruthy();
-    // O e-mail vem de user.email
     expect(getByText('pedro@exemplo.com')).toBeTruthy();
   });
 });
 
-describe('Fase 2 — TrainingSessionScreen consome AuthContext + cliente Supabase único', () => {
-  it('busca o treino do usuário via config/supabaseClient e exibe o nome', async () => {
+describe('Fase 3 — TrainingSessionScreen lê a sessão real (planned_sessions)', () => {
+  it('busca a sessão do usuário via cliente único e exibe título e exercício', async () => {
     const { getByText } = render(<TrainingSessionScreen />);
 
     await waitFor(() => {
       expect(getByText('Treino de Força A')).toBeTruthy();
+      expect(getByText('Agachamento Livre')).toBeTruthy();
+      expect(getByText('4 séries × 8 reps')).toBeTruthy();
     });
   });
 });
 
-describe('Fase 2 — WorkoutDetailScreen consome cliente Supabase único', () => {
-  it('exibe o nome do treino recebido via config/supabaseClient', async () => {
+describe('Fase 3 — WorkoutDetailScreen abre a sessão pelo sessionId', () => {
+  it('exibe o treino buscado via config/supabaseClient', async () => {
     const { getByText } = render(
-      <WorkoutDetailScreen route={{ params: { trainingId: 'treino-1' } }} />
+      <WorkoutDetailScreen route={{ params: { sessionId: 'sess-1' } }} />
     );
 
     await waitFor(() => {
       expect(getByText('Treino de Força A')).toBeTruthy();
+      expect(getByText('Agachamento Livre')).toBeTruthy();
     });
   });
 });
