@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import {
     TextInput as PaperTextInput,
     HelperText,
@@ -25,6 +26,10 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getItem as secureGetItem, setItem as secureSetItem } from '../services/auth/secureStorage';
 import { useAuth } from '../contexts/AuthContext'; // Importa o hook de autenticação
+import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
+
+// Tipagem da navegação no fluxo de onboarding
+type QuestionnaireNavigationProp = StackNavigationProp<OnboardingStackParamList, 'Questionnaire'>;
 
 // --- Cores e Estilos (sem alterações) ---
 const NEON_YELLOW = '#EBFF00';
@@ -97,7 +102,7 @@ const saveQuestionnaireDataAPI = async (authToken: string | null, formDataWithUs
 };
 
 const QuestionnaireScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<QuestionnaireNavigationProp>();
   const paperTheme = usePaperTheme();
 
   // --- Estados ---
@@ -150,12 +155,16 @@ const QuestionnaireScreen = () => {
     } else {
     // Fallback caso signOut não esteja disponível (pouco provável)
     await AsyncStorage.removeItem('@userShouldStayLoggedIn');
-    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    // FIXME(Fase 5): reset cross-navigator para 'Login' (AuthNavigator) não é válido
+    // pelo tipo do OnboardingStack. Fluxo de erro de sessão será revisto na Fase 5.
+    navigation.reset({ index: 0, routes: [{ name: 'Login' as any }] });
     }
     } catch (error) {
     console.error("[QuestionnaireScreen] Erro ao fazer logout via handleSessionExpiration:", error);
     // Força navegação para login em último caso
-    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    // FIXME(Fase 5): reset cross-navigator para 'Login' (AuthNavigator) não é válido
+    // pelo tipo do OnboardingStack. Fluxo de erro de sessão será revisto na Fase 5.
+    navigation.reset({ index: 0, routes: [{ name: 'Login' as any }] });
     } finally {
     setIsLoading(false);
     }

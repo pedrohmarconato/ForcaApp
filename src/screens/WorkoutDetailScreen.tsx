@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
-import { supabase } from '../services/supabase/supabase';
+import { supabase } from '../config/supabaseClient';
 import theme from '../theme/theme';
 
 const WorkoutDetailScreen = ({ route }) => {
@@ -71,7 +71,7 @@ const WorkoutDetailScreen = ({ route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background.primary,
+    backgroundColor: theme.colors.background.dark,
     padding: 16,
   },
   title: {

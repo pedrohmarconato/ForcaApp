@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
 
 const ProfileScreen = () => {
@@ -23,7 +23,7 @@ const ProfileScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background.primary,
+    backgroundColor: theme.colors.background.dark,
     padding: 16,
   },
   title: {
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
   },
   logoutButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.primary.main,
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',

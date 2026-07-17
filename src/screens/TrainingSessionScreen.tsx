@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
-import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../services/supabase/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../config/supabaseClient';
 import theme from '../theme/theme';
 
 const TrainingSessionScreen = () => {
@@ -73,7 +73,7 @@ const TrainingSessionScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background.primary,
+    backgroundColor: theme.colors.background.dark,
     padding: 16,
   },
   title: {
