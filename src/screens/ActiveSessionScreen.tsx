@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -33,6 +34,7 @@ import {
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
 import SetRow from '../components/session/SetRow';
 import AdaptationSheet from '../components/session/AdaptationSheet';
+import ReplanBanner from '../components/session/ReplanBanner';
 import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
@@ -59,6 +61,16 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const reset = useActiveSessionStore((s) => s.reset);
   const pendingAdaptation = useActiveSessionStore((s) => s.pendingAdaptation);
   const resolveAdaptation = useActiveSessionStore((s) => s.resolveAdaptation);
+  const pendingReplan = useActiveSessionStore((s) => s.pendingReplan);
+  const replanBusy = useActiveSessionStore((s) => s.replanBusy);
+  const computeReplan = useActiveSessionStore((s) => s.computeReplan);
+  const requestTimeCut = useActiveSessionStore((s) => s.requestTimeCut);
+  const confirmReplan = useActiveSessionStore((s) => s.confirmReplan);
+  const declineReplan = useActiveSessionStore((s) => s.declineReplan);
+
+  // Toggle "menos tempo hoje" (Fase 6): input de minutos → recalcula a proposta.
+  const [timeInputVisible, setTimeInputVisible] = useState(false);
+  const [minutesText, setMinutesText] = useState('');
 
   const iniciar = useCallback(async () => {
     if (!user) return;
@@ -76,6 +88,9 @@ const ActiveSessionScreen = ({ route }: Props) => {
       }
       setDetail(d);
       await startOrResume({ sessionId, userId: user.id, detail: d });
+      // Fase 6: recalcular a semana AO ABRIR a sessão (best-effort — o motor de
+      // replanejamento nunca impede o treino; sem rede, segue sem banner).
+      await computeReplan(d);
     } catch (err) {
       if (!isCurrent()) return;
       console.error('Erro ao iniciar sessão:', err);
@@ -209,27 +224,97 @@ const ActiveSessionScreen = ({ route }: Props) => {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {/* Fase 6: toggle "menos tempo hoje" — recalcula a PROPOSTA (nada aplica). */}
+        <View style={styles.timeRow}>
+          <TouchableOpacity
+            style={styles.timeToggle}
+            testID="replan-time-toggle"
+            accessibilityRole="button"
+            accessibilityLabel="Tenho menos tempo hoje"
+            onPress={() => setTimeInputVisible((v) => !v)}
+          >
+            <Text style={styles.timeToggleText}>⏱ Menos tempo hoje?</Text>
+          </TouchableOpacity>
+          {timeInputVisible ? (
+            <View style={styles.timeInputRow}>
+              <TextInput
+                style={styles.timeInput}
+                value={minutesText}
+                onChangeText={setMinutesText}
+                keyboardType="number-pad"
+                placeholder="min"
+                placeholderTextColor={theme.colors.text.muted}
+                testID="replan-minutes-input"
+                accessibilityLabel="Minutos disponíveis hoje"
+              />
+              <TouchableOpacity
+                style={styles.timeApplyBtn}
+                testID="replan-minutes-apply"
+                accessibilityRole="button"
+                accessibilityLabel="Recalcular com os minutos informados"
+                onPress={async () => {
+                  const minutos = parseInt(minutesText, 10);
+                  if (!Number.isFinite(minutos) || minutos <= 0) return;
+                  // Sem contexto (ex.: aberto offline) tenta calcular de novo antes.
+                  if (!useActiveSessionStore.getState().pendingReplan && detail) {
+                    await computeReplan(detail);
+                  }
+                  useActiveSessionStore.getState().requestTimeCut(minutos);
+                }}
+              >
+                <Text style={styles.timeApplyText}>Recalcular</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+        {pendingReplan?.requestedMinutes != null &&
+        !pendingReplan.proposal.timeCut ? (
+          <Text style={styles.timeFullNote}>
+            Com {pendingReplan.requestedMinutes} min dá para manter o treino de
+            hoje inteiro.
+          </Text>
+        ) : null}
+
+        <ReplanBanner
+          proposal={pendingReplan?.proposal ?? null}
+          sessionLabelById={pendingReplan?.context.sessionLabelById ?? {}}
+          busy={replanBusy}
+          onConfirm={confirmReplan}
+          onDecline={declineReplan}
+        />
+
         {draft.exercises.map((ex, idxEx) => {
           const detalheEx = detail?.planned_exercises.find(
             (e) => e.id === ex.exerciseId,
           );
+          const cortado = ex.cutByReplan === true;
+          // Exercício cortado por tempo: séries já feitas continuam visíveis;
+          // as pendentes saem do caminho (e do progresso — sessionModel).
+          const seriesVisiveis = cortado
+            ? ex.sets.filter((s) => s.status === 'done')
+            : ex.sets;
           return (
             <View key={ex.exerciseId} style={styles.exerciseBlock}>
-              <Text style={styles.exerciseName}>
+              <Text style={[styles.exerciseName, cortado && styles.exerciseNameCut]}>
                 {idxEx + 1}. {ex.name}
               </Text>
-              {detalheEx ? (
+              {cortado ? (
+                <Text style={styles.cutNote}>
+                  Cortado por tempo — confirmado por você. As séries não feitas
+                  não contam hoje.
+                </Text>
+              ) : detalheEx ? (
                 <Text style={styles.exerciseMeta}>
                   {formatExerciseTarget(detalheEx)}
                 </Text>
               ) : null}
-              {ex.sets.map((s, idxSet) => (
+              {seriesVisiveis.map((s, idxSet) => (
                 <SetRow
                   key={s.plannedSetId}
                   exercise={ex}
                   set={s}
                   suggestedLoad={suggestionFor(draft, ex, s)}
-                  isLast={idxSet === ex.sets.length - 1}
+                  isLast={idxSet === seriesVisiveis.length - 1}
                 />
               ))}
             </View>
@@ -304,6 +389,39 @@ const styles = StyleSheet.create({
     color: theme.colors.text.muted,
     fontSize: 13,
     marginBottom: 10,
+  },
+  exerciseNameCut: { textDecorationLine: 'line-through', opacity: 0.6 },
+  cutNote: {
+    color: theme.colors.text.muted,
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginBottom: 10,
+  },
+  timeRow: { marginBottom: 8 },
+  timeToggle: { alignSelf: 'flex-start', paddingVertical: 4 },
+  timeToggleText: { color: theme.colors.primary.main, fontSize: 13, fontWeight: '600' },
+  timeInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  timeInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 8,
+    color: theme.colors.text.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    width: 80,
+    marginRight: 8,
+  },
+  timeApplyBtn: {
+    backgroundColor: theme.colors.primary.main,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+  },
+  timeApplyText: { color: theme.colors.primary.contrast, fontWeight: '700', fontSize: 13 },
+  timeFullNote: {
+    color: theme.colors.text.secondary,
+    fontSize: 13,
+    marginBottom: 8,
   },
   errorBanner: {
     backgroundColor: 'rgba(244, 67, 54, 0.15)',

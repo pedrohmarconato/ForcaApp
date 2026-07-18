@@ -45,6 +45,12 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     isTransportSessionExecutionError: () => false,
   };
 });
+// Fase 6: o store passou a importar o repositório de replanejamento; mocka para
+// não carregar o cliente Supabase real no jest (mesmo padrão dos demais services).
+jest.mock('../src/services/weeklyReplanRepository', () => ({
+  getWeekReplanContext: jest.fn(),
+  applyConfirmedReplan: jest.fn(),
+}));
 jest.mock('../src/services/sessionDraftStorage', () => ({
   saveDraft: jest.fn(async () => undefined),
   loadDraft: jest.fn(async () => null),
