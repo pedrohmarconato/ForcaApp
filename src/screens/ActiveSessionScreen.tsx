@@ -4,7 +4,7 @@
 // carregando, erro de carga, erro do início, ativo e concluído — erro nunca é
 // mascarado como "sessão vazia".
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -21,8 +21,15 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../theme/theme';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
 import { useAuth } from '../contexts/AuthContext';
-import { getSessionDetail, formatExerciseTarget, type SessionDetail } from '../services/trainingRepository';
-import { useActiveSessionStore, suggestionFor } from '../store/activeSessionStore';
+import {
+  getSessionDetail,
+  formatExerciseTarget,
+  type SessionDetail,
+} from '../services/trainingRepository';
+import {
+  useActiveSessionStore,
+  suggestionFor,
+} from '../store/activeSessionStore';
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
 import SetRow from '../components/session/SetRow';
 
@@ -32,12 +39,14 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const { sessionId } = route.params;
   // ActiveSession existe na Home e no Training stack; o ParamList da Home basta
   // para tipar popToTop/canGoBack (não dependem de params específicos).
-  const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'ActiveSession'>>();
+  const navigation =
+    useNavigation<StackNavigationProp<HomeStackParamList, 'ActiveSession'>>();
   const { user } = useAuth();
 
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState(false);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
+  const loadGeneration = useRef(0);
 
   const draft = useActiveSessionStore((s) => s.draft);
   const status = useActiveSessionStore((s) => s.status);
@@ -49,11 +58,14 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
   const iniciar = useCallback(async () => {
     if (!user) return;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => loadGeneration.current === generation;
     setDetailLoading(true);
     setDetailError(false);
     reset();
     try {
       const d = await getSessionDetail(sessionId);
+      if (!isCurrent()) return;
       if (!d) {
         setDetailError(true);
         return;
@@ -61,16 +73,20 @@ const ActiveSessionScreen = ({ route }: Props) => {
       setDetail(d);
       await startOrResume({ sessionId, userId: user.id, detail: d });
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Erro ao iniciar sessão:', err);
       setDetailError(true);
     } finally {
-      setDetailLoading(false);
+      if (isCurrent()) setDetailLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, user?.id]);
 
   useEffect(() => {
     iniciar();
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [iniciar]);
 
   const onConcluirTreino = useCallback(() => {
@@ -78,7 +94,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
     const finalizar = async () => {
       const ok = await finishSession();
       if (!ok) {
-        Alert.alert('Não foi possível concluir', saveError ?? 'Tente novamente.');
+        Alert.alert(
+          'Não foi possível concluir',
+          saveError ?? 'Tente novamente.',
+        );
       }
     };
     if (!isSessionComplete(draft)) {
@@ -110,7 +129,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
     return (
       <View style={styles.centered}>
         <Text style={styles.muted}>
-          Não foi possível abrir o treino. Verifique a conexão e tente novamente.
+          Não foi possível abrir o treino. Verifique a conexão e tente
+          novamente.
         </Text>
         <TouchableOpacity style={styles.retryBtn} onPress={iniciar}>
           <Text style={styles.retryText}>Tentar de novo</Text>
@@ -139,11 +159,14 @@ const ActiveSessionScreen = ({ route }: Props) => {
       <View style={styles.centered}>
         <Text style={styles.doneTitle}>Treino concluído! 💪</Text>
         <Text style={styles.muted}>
-          Suas séries foram registradas. Veja o resumo no seu histórico (aba Perfil).
+          Suas séries foram registradas. Veja o resumo no seu histórico (aba
+          Perfil).
         </Text>
         <TouchableOpacity
           style={styles.retryBtn}
-          onPress={() => (navigation.canGoBack() ? navigation.popToTop() : undefined)}
+          onPress={() =>
+            navigation.canGoBack() ? navigation.popToTop() : undefined
+          }
         >
           <Text style={styles.retryText}>Voltar ao início</Text>
         </TouchableOpacity>
@@ -172,20 +195,29 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
       {saveError ? (
         <TouchableOpacity style={styles.errorBanner} onPress={clearError}>
-          <Text style={styles.errorBannerText}>{saveError} (toque para dispensar)</Text>
+          <Text style={styles.errorBannerText}>
+            {saveError} (toque para dispensar)
+          </Text>
         </TouchableOpacity>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         {draft.exercises.map((ex, idxEx) => {
-          const detalheEx = detail?.planned_exercises.find((e) => e.id === ex.exerciseId);
+          const detalheEx = detail?.planned_exercises.find(
+            (e) => e.id === ex.exerciseId,
+          );
           return (
             <View key={ex.exerciseId} style={styles.exerciseBlock}>
               <Text style={styles.exerciseName}>
                 {idxEx + 1}. {ex.name}
               </Text>
               {detalheEx ? (
-                <Text style={styles.exerciseMeta}>{formatExerciseTarget(detalheEx)}</Text>
+                <Text style={styles.exerciseMeta}>
+                  {formatExerciseTarget(detalheEx)}
+                </Text>
               ) : null}
               {ex.sets.map((s, idxSet) => (
                 <SetRow
@@ -201,7 +233,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
         })}
 
         <TouchableOpacity
-          style={[styles.finishBtn, progresso.done === 0 && styles.finishBtnDisabled]}
+          style={[
+            styles.finishBtn,
+            progresso.done === 0 && styles.finishBtnDisabled,
+          ]}
           onPress={onConcluirTreino}
           disabled={progresso.done === 0}
         >
@@ -221,14 +256,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  muted: { color: theme.colors.text.secondary, textAlign: 'center', marginTop: 12 },
+  muted: {
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginTop: 12,
+  },
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
   title: { color: theme.colors.text.primary, fontSize: 22, fontWeight: 'bold' },
   subtitle: { color: theme.colors.text.secondary, marginTop: 4 },
   scroll: { padding: 16, paddingTop: 4 },
   exerciseBlock: { marginBottom: 20 },
-  exerciseName: { color: theme.colors.text.primary, fontSize: 17, fontWeight: '700', marginBottom: 2 },
-  exerciseMeta: { color: theme.colors.text.muted, fontSize: 13, marginBottom: 10 },
+  exerciseName: {
+    color: theme.colors.text.primary,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  exerciseMeta: {
+    color: theme.colors.text.muted,
+    fontSize: 13,
+    marginBottom: 10,
+  },
   errorBanner: {
     backgroundColor: 'rgba(244, 67, 54, 0.15)',
     marginHorizontal: 16,
@@ -246,8 +294,17 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   finishBtnDisabled: { opacity: 0.4 },
-  finishBtnText: { color: theme.colors.primary.contrast, fontWeight: '700', fontSize: 16 },
-  doneTitle: { color: theme.colors.primary.main, fontSize: 24, fontWeight: 'bold', textAlign: 'center' },
+  finishBtnText: {
+    color: theme.colors.primary.contrast,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  doneTitle: {
+    color: theme.colors.primary.main,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
   retryBtn: {
     marginTop: 20,
     backgroundColor: theme.colors.primary.main,

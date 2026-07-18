@@ -8,7 +8,9 @@
 
 const mockStore = new Map<string, string>();
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: jest.fn(async (k: string) => (mockStore.has(k) ? mockStore.get(k)! : null)),
+  getItem: jest.fn(async (k: string) =>
+    mockStore.has(k) ? mockStore.get(k)! : null,
+  ),
   setItem: jest.fn(async (k: string, v: string) => {
     mockStore.set(k, v);
   }),
@@ -17,7 +19,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   }),
 }));
 
-import { loadDraft } from '../src/services/sessionDraftStorage';
+import {
+  clearDraft,
+  loadDraft,
+  saveDraft,
+} from '../src/services/sessionDraftStorage';
 import { stepLoad } from '../src/engine/sessionModel';
 
 // Rascunho LEGADO: numéricos gravados como STRING — exatamente o que contamina o stepper.
@@ -71,7 +77,7 @@ beforeEach(() => {
 it('F8: loadDraft coage "40"/"2.5" para número → stepper dá 42.5 (não "402.5"/NaN)', async () => {
   mockStore.set('@active_session_draft_user-1', legacyDraftJson);
 
-  const draft = await loadDraft('user-1');
+  const draft = await loadDraft('user-1', 'sess-1');
   expect(draft).not.toBeNull();
 
   const s1 = draft!.exercises[0].sets[0];
@@ -94,7 +100,7 @@ it('F8: coage lastLoadByExercise legado { supino: "40" } → número (stepper n�
   legacyComMapa.lastLoadByExercise = { supino: '40', agachamento: 'abc' };
   mockStore.set('@active_session_draft_user-1', JSON.stringify(legacyComMapa));
 
-  const draft = await loadDraft('user-1');
+  const draft = await loadDraft('user-1', 'sess-1');
   expect(draft).not.toBeNull();
 
   // String numérica legada vira NÚMERO; valor não-numérico é descartado do mapa.
@@ -107,6 +113,30 @@ it('F8: coage lastLoadByExercise legado { supino: "40" } → número (stepper n�
 });
 
 it('descarta rascunho de versão desconhecida (não contamina com formato incompatível)', async () => {
-  mockStore.set('@active_session_draft_user-1', JSON.stringify({ version: 99, plannedSessionId: 'x' }));
-  expect(await loadDraft('user-1')).toBeNull();
+  mockStore.set(
+    '@active_session_draft_user-1',
+    JSON.stringify({ version: 99, plannedSessionId: 'x' }),
+  );
+  expect(await loadDraft('user-1', 'sess-1')).toBeNull();
+});
+
+it('isola rascunhos por sessão e clearDraft não apaga outra sessão/execução', async () => {
+  const draftA = JSON.parse(legacyDraftJson);
+  const draftB = {
+    ...draftA,
+    plannedSessionId: 'sess-2',
+    sessionLogId: 'sl-2',
+  };
+  await saveDraft(draftA);
+  await saveDraft(draftB);
+
+  await clearDraft('user-1', 'sess-1', 'sl-1');
+  expect(await loadDraft('user-1', 'sess-1')).toBeNull();
+  expect((await loadDraft('user-1', 'sess-2'))?.sessionLogId).toBe('sl-2');
+
+  // CAS de storage: uma limpeza atrasada da execução antiga não remove a nova.
+  const replacement = { ...draftA, sessionLogId: 'sl-new' };
+  await saveDraft(replacement);
+  await clearDraft('user-1', 'sess-1', 'sl-1');
+  expect((await loadDraft('user-1', 'sess-1'))?.sessionLogId).toBe('sl-new');
 });
