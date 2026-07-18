@@ -390,6 +390,68 @@ describe('replanByRules', () => {
     expect(proposal.hasChanges).toBe(true);
   });
 
+  it('corte e redistribuição no MESMO replan: exercício CORTADO não recebe séries', () => {
+    // Falta de segunda: peito 4 + tríceps 4. Hoje (40 de 60 min) corta o acessório
+    // de tríceps (a1). O peito vai para o exercício MANTIDO de hoje (p1, teto 1);
+    // o tríceps NÃO pode cair no a1 cortado — vai para sexta (teto 2) e o resto é
+    // perda registrada. Sem o cruzamento corte×redistribuição, a1 receberia +2
+    // séries que nunca seriam executadas (achado nº 1 do review do dono).
+    const sessions = [
+      sess('seg', '2026-07-13', [
+        ex('m0', 'peito', 'primary', 4, { exerciseOrder: 1 }),
+        ex('m1', 'triceps', 'primary', 4, { exerciseOrder: 2 }),
+      ]),
+      sess(
+        'hoje',
+        '2026-07-17',
+        [
+          ex('p1', 'peito', 'primary', 4, { exerciseOrder: 1 }),
+          ex('a1', 'triceps', 'accessory', 8, { exerciseOrder: 2 }),
+        ],
+        { status: 'in_progress' },
+      ),
+      sess('sex', '2026-07-19', [ex('f1', 'triceps', 'primary', 8)]),
+    ];
+    const proposal = replanByRules({
+      sessions,
+      todayISO: '2026-07-17',
+      currentSessionId: 'hoje',
+      availableMinutes: 40,
+      completedSetsBySession: {},
+    });
+    expect(proposal.timeCut!.cutExercises.map((c) => c.exerciseId)).toEqual(['a1']);
+    // NENHUMA adição no exercício cortado
+    expect(proposal.redistribution!.additions.map((a) => a.exerciseId)).not.toContain('a1');
+    expect(proposal.redistribution!.additions).toEqual([
+      expect.objectContaining({ targetSessionId: 'hoje', exerciseId: 'p1', addSets: 1 }),
+      expect.objectContaining({ targetSessionId: 'sex', exerciseId: 'f1', addSets: 2 }),
+    ]);
+    expect(proposal.redistribution!.losses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ muscleGroup: 'peito', sets: 3, reason: 'nao_coube' }),
+        expect.objectContaining({ muscleGroup: 'triceps', sets: 2, reason: 'nao_coube' }),
+      ]),
+    );
+  });
+
+  it('planMissedRedistribution: receptor excluído não recebe nem conta no teto do grupo', () => {
+    // Único exercício de peito da receptora está excluído (cortado) → o grupo não
+    // tem capacidade nessa sessão; tudo vira perda registrada.
+    const plan = planMissedRedistribution({
+      sessions: [
+        sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
+        sess('sex', '2026-07-17', [ex('f1', 'peito', 'accessory', 8)]),
+      ],
+      todayISO: '2026-07-16',
+      currentSessionId: 'sex',
+      excludedReceiverExerciseIds: ['f1'],
+    });
+    expect(plan!.additions).toEqual([]);
+    expect(plan!.losses).toEqual([
+      expect.objectContaining({ muscleGroup: 'peito', sets: 4, reason: 'nao_coube' }),
+    ]);
+  });
+
   it('deload de hoje pode ser CORTADA por tempo (reduzir é permitido; compensar não)', () => {
     const proposal = replanByRules({
       sessions: [sessaoMista({ id: 'hoje', sessionType: 'Deload' })],

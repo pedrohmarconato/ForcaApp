@@ -226,10 +226,10 @@ type GroupVolume = {
   priorReplanSets: number; // séries inseridas por replans anteriores
 };
 
-/** Volume por grupo muscular de uma sessão, na ordem de aparição dos exercícios. */
-const groupVolumes = (session: ReplanSession): GroupVolume[] => {
+/** Volume por grupo muscular de um conjunto de exercícios, na ordem de aparição. */
+const groupVolumes = (exercises: ReplanExercise[]): GroupVolume[] => {
   const byKey = new Map<string, GroupVolume>();
-  const ordered = [...session.exercises].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
+  const ordered = [...exercises].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
   for (const ex of ordered) {
     const key = ex.muscleGroup == null ? null : normalizeName(ex.muscleGroup);
     const mapKey = key ?? '__sem_grupo__';
@@ -266,9 +266,16 @@ export const planMissedRedistribution = (params: {
   todayISO: string;
   /** Sessão sendo aberta agora: é "restante" mesmo com data de hoje. */
   currentSessionId?: string;
+  /**
+   * Exercícios que NÃO podem receber séries (ex.: cortados pela escada de tempo
+   * do MESMO replan — achado do review: inserir num exercício cortado registra
+   * volume que nunca será executado). Excluídos também não contam no teto do grupo.
+   */
+  excludedReceiverExerciseIds?: string[];
   config?: ReplanConfig;
 }): MissedRedistributionPlan | null => {
   const cfg = params.config ?? REPLAN_CONFIG;
+  const excludedReceivers = new Set(params.excludedReceiverExerciseIds ?? []);
   const today = dayIndex(params.todayISO);
   if (today == null) return null;
 
@@ -310,10 +317,13 @@ export const planMissedRedistribution = (params: {
 
   // Capacidade restante por (receptora, grupo): teto sobre as séries ORIGINAIS,
   // já descontando o que replans anteriores inseriram (faltas múltiplas não empilham).
+  // Exercícios excluídos (cortados neste replan) ficam FORA da base do teto: o
+  // volume deles não será executado, então não sustenta capacidade de receber.
   const capacity = new Map<string, number>();
   const capKey = (sessionId: string, groupKey: string) => `${sessionId}::${groupKey}`;
   for (const t of targets) {
-    for (const vol of groupVolumes(t)) {
+    const receivable = t.exercises.filter((ex) => !excludedReceivers.has(ex.id));
+    for (const vol of groupVolumes(receivable)) {
       if (vol.key === '__sem_grupo__') continue;
       const cap = Math.floor(cfg.redistributionCapPct * vol.originalSets) - vol.priorReplanSets;
       capacity.set(capKey(t.id, vol.key), Math.max(0, cap));
@@ -323,6 +333,7 @@ export const planMissedRedistribution = (params: {
   // Exercício receptor por (receptora, grupo): o de maior prioridade, depois ordem.
   const receiverExercise = (target: ReplanSession, groupKey: string): ReplanExercise | null => {
     const candidates = target.exercises
+      .filter((ex) => !excludedReceivers.has(ex.id))
       .filter((ex) => ex.muscleGroup != null && normalizeName(ex.muscleGroup) === groupKey)
       .sort(
         (a, b) =>
@@ -352,7 +363,7 @@ export const planMissedRedistribution = (params: {
 
   for (const lost of missed) {
     const deload = isDeloadSession(lost, cfg);
-    for (const vol of groupVolumes(lost)) {
+    for (const vol of groupVolumes(lost.exercises)) {
       if (vol.key === '__sem_grupo__') {
         registerLoss(lost.id, vol.label, vol.originalSets + vol.priorReplanSets, 'sem_grupo_muscular');
         continue;
@@ -448,6 +459,9 @@ export const replanByRules = (params: {
     todayISO: params.todayISO,
   });
   const current = params.sessions.find((s) => s.id === params.currentSessionId) ?? null;
+  // O corte vem PRIMEIRO: a redistribuição do mesmo replan não pode escolher como
+  // receptor um exercício que este corte tira do treino de hoje (achado do review
+  // — seria volume registrado que nunca é executado, consumindo o teto à toa).
   const timeCut =
     current && params.availableMinutes != null
       ? planTimeCut({ session: current, availableMinutes: params.availableMinutes, config: cfg })
@@ -456,6 +470,7 @@ export const replanByRules = (params: {
     sessions: params.sessions,
     todayISO: params.todayISO,
     currentSessionId: params.currentSessionId,
+    excludedReceiverExerciseIds: timeCut?.cutExercises.map((c) => c.exerciseId),
     config: cfg,
   });
   return {
