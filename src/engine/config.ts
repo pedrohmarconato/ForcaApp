@@ -33,3 +33,37 @@ export const ADAPT_CONFIG: AdaptConfig = {
   bodyweightRepStep: 2, // peso corporal: sugere ±2 reps no alvo
   maxOptions: 3,
 };
+
+// ============================================================
+// Fase 6 — Replanejamento semanal por regras (weeklyReplanner.ts)
+// ⚠️ TODOS os números abaixo são PADRÕES A VALIDAR por um profissional de
+// educação física. As escadas implementam os degraus ~100% / 66% / 45% do plano:
+// os limiares são as FRONTEIRAS entre os degraus (0.66 cai no degrau "sem
+// acessórios"; 0.45 cai no degrau "só primários").
+// ============================================================
+
+export type ReplanConfig = {
+  /** Escadas de tempo (razão minutos disponíveis / estimados da sessão). */
+  timeLadder: {
+    /** Razão a partir da qual a sessão fica INTEIRA (degrau ~100%). */
+    fullMinRatio: number;
+    /** Razão a partir da qual mantém primários+secundários (degrau ~66%); abaixo, só primários (degrau ~45%). */
+    secondaryMinRatio: number;
+  };
+  /** Teto de volume redistribuído por grupo muscular numa sessão receptora (fração das séries originais). */
+  redistributionCapPct: number;
+  /** Distância mínima, em dias, para receber volume de um grupo já treinado perto (1 = não empilhar em dias consecutivos). */
+  minRestDaysSameGroup: number;
+  /** Tokens (sem acento, minúsculos) que identificam sessão de deload em session_type/título. */
+  deloadTokens: string[];
+};
+
+export const REPLAN_CONFIG: ReplanConfig = {
+  timeLadder: {
+    fullMinRatio: 0.85, // ≥85% do tempo → sessão inteira — PADRÃO A VALIDAR
+    secondaryMinRatio: 0.55, // 55–85% → corta acessórios; <55% → só primários — PADRÃO A VALIDAR
+  },
+  redistributionCapPct: 0.25, // +25% por grupo muscular na sessão receptora — PADRÃO A VALIDAR
+  minRestDaysSameGroup: 1, // não empilhar o mesmo grupo em dias consecutivos — PADRÃO A VALIDAR
+  deloadTokens: ['deload', 'descarga'], // detecção por texto: o volume semanal da IA não é persistido
+};
