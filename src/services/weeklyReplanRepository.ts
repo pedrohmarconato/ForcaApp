@@ -29,6 +29,39 @@ import {
   type WeeklyReplanProposal,
 } from '../engine/weeklyReplanner';
 
+/**
+ * Falha na aplicação de um replanejamento confirmado, com o ESTÁGIO em que parou.
+ * `replanApplied === true` (falha no skip) significa que as séries e o snapshot JÁ
+ * persistiram: o chamador NÃO pode reaplicar a mesma proposta (re-inseriria as
+ * mesmas séries — achado nº 2 do review); deve refletir `addedSets`, descartar a
+ * proposta e recalcular do servidor. Nos estágios anteriores nada ficou aplicado.
+ */
+export class ReplanApplyError extends Error {
+  readonly stage: 'insert' | 'snapshot' | 'skip';
+  readonly replanApplied: boolean;
+  readonly addedSets: AddedSetRow[];
+  readonly cause?: unknown;
+
+  constructor(
+    stage: 'insert' | 'snapshot' | 'skip',
+    cause: unknown,
+    options: { applied: boolean; addedSets?: AddedSetRow[]; fallbackMessage?: string } ,
+  ) {
+    const message =
+      (typeof cause === 'object' && cause !== null &&
+        typeof (cause as { message?: unknown }).message === 'string' &&
+        (cause as { message: string }).message) ||
+      options.fallbackMessage ||
+      'Não foi possível aplicar o replanejamento.';
+    super(message);
+    this.name = 'ReplanApplyError';
+    this.stage = stage;
+    this.replanApplied = options.applied;
+    this.addedSets = options.addedSets ?? [];
+    this.cause = cause;
+  }
+}
+
 type RawPlannedSet = {
   id: string;
   set_order: number;
@@ -215,7 +248,9 @@ export const applyConfirmedReplan = async (params: {
       .from('planned_sets')
       .insert(rowsToInsert)
       .select('id, exercise_id, set_order, target_reps_min, target_reps_max, target_load_kg, target_rir');
-    if (insertRes.error) throw insertRes.error;
+    if (insertRes.error) {
+      throw new ReplanApplyError('insert', insertRes.error, { applied: false });
+    }
     addedSets = ((insertRes.data ?? []) as any[]).map((r) => ({
       id: r.id,
       sessionId: exerciseById.get(r.exercise_id)?.session.id ?? '',
@@ -286,12 +321,16 @@ export const applyConfirmedReplan = async (params: {
         console.warn('[weeklyReplan] rollback das séries inseridas falhou:', rollbackError);
       }
     }
-    throw snapRes.error ?? new Error('Não foi possível registrar o replanejamento.');
+    throw new ReplanApplyError('snapshot', snapRes.error, {
+      applied: false,
+      fallbackMessage: 'Não foi possível registrar o replanejamento.',
+    });
   }
 
   // 3. Marca as sessões perdidas como 'skipped' (só as ainda pendentes — não
-  // atropela uma mudança concorrente). Falha aqui propaga, mas o snapshot do
-  // passo 2 já garante que uma nova proposta não empilha volume.
+  // atropela uma mudança concorrente). Falha aqui NÃO faz rollback: as séries já
+  // estão REGISTRADAS no snapshot (o teto as enxerga), então o erro sai tipado
+  // com replanApplied=true — a proposta antiga fica inutilizável para retry.
   const missedIds = redistribution?.missedSessionIds ?? [];
   if (missedIds.length > 0) {
     const skipRes = await supabase
@@ -300,7 +339,9 @@ export const applyConfirmedReplan = async (params: {
       .in('id', missedIds)
       .eq('user_id', context.userId)
       .eq('status', 'pending');
-    if (skipRes.error) throw skipRes.error;
+    if (skipRes.error) {
+      throw new ReplanApplyError('skip', skipRes.error, { applied: true, addedSets });
+    }
   }
 
   return { addedSets };

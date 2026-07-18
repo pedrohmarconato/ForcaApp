@@ -299,6 +299,39 @@ it('snapshot falhou → remove as séries recém-inseridas, NÃO pula sessão e 
   expect(tabelas).not.toContain('planned_sessions');
 });
 
+it('SKIP falhou após inserir+registrar → erro tipado (applied) SEM rollback das séries', async () => {
+  // As séries e o snapshot persistiram; o chamador NÃO pode reusar a proposta
+  // antiga (re-inseriria). O erro carrega o estágio e as séries aplicadas.
+  const insertB = builder({
+    data: [{ id: 'novo-1', exercise_id: 'f1', set_order: 3, target_reps_min: 8, target_reps_max: 12, target_load_kg: null, target_rir: null }],
+    error: null,
+  });
+  const snapB = builder({ data: [{ id: 'log-1' }], error: null });
+  const skipB = builder({ data: null, error: { message: 'timeout no update' } });
+  fromMock.mockImplementation((table: string) => {
+    if (table === 'planned_sets') return insertB;
+    if (table === 'session_logs') return snapB;
+    return skipB;
+  });
+
+  await expect(
+    applyConfirmedReplan({
+      context: contextoBase(),
+      proposal: propostaBase(),
+      sessionLogId: 'log-1',
+      confirmedAtISO: '2026-07-17T12:00:00Z',
+    }),
+  ).rejects.toMatchObject({
+    name: 'ReplanApplyError',
+    stage: 'skip',
+    replanApplied: true,
+    addedSets: [expect.objectContaining({ id: 'novo-1' })],
+  });
+
+  // nada de rollback: as séries inseridas estão REGISTRADAS no snapshot
+  expect(insertB.delete).not.toHaveBeenCalled();
+});
+
 it('snapshot com 0 linhas atualizadas = falha (log alheio/inexistente não passa em silêncio)', async () => {
   const insertB = builder({ data: [], error: null });
   const snapB = builder({ data: [], error: null }); // RLS filtrou → nada atualizado

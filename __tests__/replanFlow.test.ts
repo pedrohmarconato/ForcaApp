@@ -263,6 +263,79 @@ it('falha na aplicação: a proposta FICA de pé e o erro aparece (nunca sucesso
   expect(store().draft!.exercises[0].sets).toHaveLength(2);
 });
 
+it('confirmações CONCORRENTES: o repositório é chamado UMA única vez (achado nº 2)', async () => {
+  let liberar!: (v: { addedSets: never[] }) => void;
+  mock(applyConfirmedReplan).mockImplementation(
+    () => new Promise((res) => { liberar = res; }),
+  );
+  await abrir();
+
+  // duplo-toque: a 2ª confirmação entra enquanto a 1ª ainda está no ar
+  const p1 = store().confirmReplan();
+  const p2 = store().confirmReplan();
+  liberar({ addedSets: [] });
+  const [r1, r2] = await Promise.all([p1, p2]);
+
+  expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1);
+  expect([r1, r2].sort()).toEqual([false, true]); // uma aplica, a outra é recusada
+});
+
+it('falha no SKIP após inserir+registrar: proposta obsoleta é descartada e o retry NÃO re-insere', async () => {
+  // O repositório sinaliza que séries+snapshot JÁ persistiram (replanApplied) —
+  // reusar a proposta antiga re-inseriria as mesmas séries (achado nº 2).
+  const novaSerie = {
+    id: 'novo-1',
+    sessionId: 'sess-1',
+    exerciseId: 'ex-1',
+    setOrder: 5,
+    targetRepsMin: 8,
+    targetRepsMax: 10,
+    targetLoadKg: null,
+    targetRir: 2,
+  };
+  mock(applyConfirmedReplan).mockRejectedValueOnce({
+    name: 'ReplanApplyError',
+    message: 'não foi possível marcar a sessão perdida como pulada',
+    stage: 'skip',
+    replanApplied: true,
+    addedSets: [novaSerie],
+  });
+  // Recálculo pós-falha vem do SERVIDOR: a série inserida já aparece marcada
+  // (teto consumido) → a nova proposta não tem mais adições, só o skip pendente.
+  const contextoAtualizado = makeContext();
+  contextoAtualizado.sessions[1].exercises[0].sets = [
+    ...[1, 2, 3, 4].map((i) => ({ id: `ex1-s${i}`, setOrder: i })),
+    { id: 'novo-1', setOrder: 5, addedByReplan: true },
+  ];
+  mock(getWeekReplanContext)
+    .mockResolvedValueOnce(makeContext()) // abrir
+    .mockResolvedValueOnce(contextoAtualizado); // refresh pós-falha
+
+  await abrir();
+  const ok = await store().confirmReplan();
+  expect(ok).toBe(false);
+
+  // o que FOI aplicado reflete no rascunho (série nova anexada) e o erro aparece
+  const setsEx1 = store().draft!.exercises.find((e) => e.exerciseId === 'ex-1')!.sets;
+  expect(setsEx1.map((s) => s.plannedSetId)).toContain('novo-1');
+  expect(store().saveError).toMatch(/pulada/);
+
+  // a proposta foi RECALCULADA do servidor: skip ainda pendente, SEM novas adições
+  const pr = store().pendingReplan!;
+  expect(pr.proposal.redistribution!.missedSessionIds).toEqual(['seg']);
+  expect(pr.proposal.redistribution!.additions).toEqual([]);
+
+  // retry: aplica de novo SÓ com o skip (nenhuma série para inserir)
+  mock(applyConfirmedReplan).mockResolvedValueOnce({ addedSets: [] });
+  const ok2 = await store().confirmReplan();
+  expect(ok2).toBe(true);
+  const segundaChamada = mock(applyConfirmedReplan).mock.calls[1][0];
+  expect(segundaChamada.proposal.redistribution.additions).toEqual([]);
+  // e o rascunho não ganhou série duplicada
+  const setsDepois = store().draft!.exercises.find((e) => e.exerciseId === 'ex-1')!.sets;
+  expect(setsDepois.filter((s) => s.plannedSetId === 'novo-1')).toHaveLength(1);
+});
+
 it('proposta de OUTRA sessão não é aplicável (troca de sessão descarta, nada escreve)', async () => {
   await abrir();
   // troca de sessão sem passar pela tela: novo log, proposta antiga fica órfã

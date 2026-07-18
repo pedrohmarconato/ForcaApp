@@ -45,6 +45,7 @@ import {
   parseReplanSnapshot,
   lastTimeCutForSession,
   type WeeklyReplanProposal,
+  type AddedSetRow,
 } from '../engine/weeklyReplanner';
 import {
   getWeekReplanContext,
@@ -511,6 +512,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   },
 
   confirmReplan: async () => {
+    // Reentrância (duplo-toque/corrida): uma aplicação por vez. A checagem e o
+    // set são síncronos no mesmo tick — a 2ª chamada é recusada, nunca duplica
+    // o INSERT no servidor (achado nº 2 do review).
+    if (get().replanBusy) return false;
     const pr = get().pendingReplan;
     if (!pr || !pr.proposal.hasChanges) return true;
     const draft = get().draft;
@@ -555,9 +560,71 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       }
       return true;
     } catch (e) {
-      // A proposta fica de pé para tentar de novo; o erro aparece, nunca é engolido.
-      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
+      if (operationEpoch !== epoch || get().draft?.sessionLogId !== sid) return false;
+      // Duck-type (o repositório é mockado nos testes): replanApplied=true significa
+      // que séries+snapshot JÁ persistiram e só o skip falhou.
+      const failure = e as { replanApplied?: boolean; addedSets?: AddedSetRow[] };
+      if (failure?.replanApplied !== true) {
+        // Nada foi aplicado (insert/snapshot falharam com rollback): a proposta
+        // fica de pé para tentar de novo; o erro aparece, nunca é engolido.
         set({ saveError: errMsg(e) });
+        return false;
+      }
+      // Aplicado em parte (só o skip falhou). Reaplicar a MESMA proposta
+      // re-inseriria as séries (achado nº 2): reflete o que persistiu no
+      // rascunho, DESCARTA a proposta obsoleta e recalcula do servidor — o
+      // snapshot já registra os adds, então a nova proposta respeita o teto e
+      // só re-propõe o skip pendente.
+      const atual = get().draft;
+      if (atual && atual.sessionLogId === sid) {
+        let novo = atual;
+        if (pr.proposal.timeCut) {
+          novo = applyTimeCutToDraft(
+            novo,
+            pr.proposal.timeCut.cutExercises.map((c) => c.exerciseId),
+          );
+        }
+        const daSessaoAtual = (failure.addedSets ?? []).filter(
+          (r) => r.sessionId === atual.plannedSessionId,
+        );
+        if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
+        set({ draft: novo, pendingReplan: null, saveError: errMsg(e) });
+        try {
+          await saveDraft(novo);
+        } catch (storageError) {
+          console.warn('[activeSession] rascunho não persistido (não-fatal):', storageError);
+        }
+      } else {
+        set({ pendingReplan: null, saveError: errMsg(e) });
+      }
+      try {
+        const refreshed = await getWeekReplanContext(
+          pr.context.userId,
+          pr.context.planId,
+          pr.context.weekNumber,
+        );
+        const depois = get().draft;
+        if (operationEpoch === epoch && depois && depois.sessionLogId === sid) {
+          const proposal = replanByRules({
+            sessions: refreshed.sessions,
+            todayISO: localTodayISO(),
+            currentSessionId: depois.plannedSessionId,
+            availableMinutes: null,
+            completedSetsBySession: refreshed.completedSetsBySession,
+          });
+          set({
+            pendingReplan: {
+              sessionLogId: sid,
+              requestedMinutes: null,
+              redistributionDismissed: false,
+              context: refreshed,
+              proposal,
+            },
+          });
+        }
+      } catch (refreshError) {
+        // Sem recálculo o banner some; a próxima abertura da sessão recalcula.
+        console.warn('[activeSession] replanejamento não recalculado (não-fatal):', refreshError);
       }
       return false;
     } finally {
