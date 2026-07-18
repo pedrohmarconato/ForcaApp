@@ -240,6 +240,29 @@ export const saveSetLog = async (
 };
 
 /**
+ * Grava a DECISÃO de adaptação (Fase 5) numa série JÁ registrada, via UPDATE direto.
+ * A RLS "own set logs" é `for all` — o dono pode atualizar a própria linha. É secundário
+ * à experiência (o chamador trata a falha como não-fatal), mas o erro PROPAGA aqui, nunca
+ * é engolido. Não colide com o first-write-wins do save_set_log (aquele guarda o INSERT;
+ * este só carimba a coluna `adaptation`, que o save_set_log nunca toca).
+ */
+export const updateSetLogAdaptation = async (
+  setLogId: string,
+  adaptation: unknown,
+): Promise<void> => {
+  let response: any;
+  try {
+    response = await supabase
+      .from('set_logs')
+      .update({ adaptation })
+      .eq('id', setLogId);
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
+};
+
+/**
  * Fecha a execução de forma ATÔMICA via RPC `finish_session` (migration 0004):
  * numa transação, seta finished_at e a sessão 'completed'. Repetir no mesmo log do
  * usuário é sucesso; log inexistente/alheio continua sendo erro (F4/F6).

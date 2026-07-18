@@ -7,9 +7,11 @@ import {
   evaluateSet,
   recommendByRules,
   roundToIncrement,
+  applyAdjustmentToNextSet,
   type Adjustment,
 } from '../src/engine/intraSessionAdaptation';
 import { ADAPT_CONFIG } from '../src/engine/config';
+import type { SessionDraft } from '../src/engine/sessionModel';
 
 const NORMAL = { isBodyweight: false, injury: false };
 
@@ -209,5 +211,122 @@ describe('recommendByRules — teto de mudança', () => {
     const load = asLoad(r.recommended);
     expect(load.pct).toBe(ADAPT_CONFIG.maxLoadPct); // 10 reps * 3% = 30% → capado em 12%
     expect(load.direction).toBe('decrease');
+  });
+});
+
+// ---- aplicação da decisão ao rascunho (o "aplicada à próxima série" do plano) ----
+
+const makeDraft = (
+  sets: Array<{
+    setOrder: number;
+    targetRepsMin: number;
+    targetRepsMax: number;
+    targetLoadKg: number | null;
+  }>,
+): SessionDraft => ({
+  version: 1,
+  plannedSessionId: 'sess-1',
+  sessionLogId: 'log-1',
+  userId: 'u-1',
+  title: 'Push A',
+  weekNumber: 1,
+  startedAt: null,
+  status: 'active',
+  lastLoadByExercise: {},
+  exercises: [
+    {
+      exerciseId: 'ex-1',
+      name: 'Supino',
+      order: 1,
+      equipment: 'Barra',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 2.5,
+      restSeconds: 90,
+      priority: 'primary',
+      targetRmPercent: 75,
+      repsRaw: '8-10',
+      sets: sets.map((s) => ({
+        plannedSetId: `st-${s.setOrder}`,
+        setOrder: s.setOrder,
+        targetRepsMin: s.targetRepsMin,
+        targetRepsMax: s.targetRepsMax,
+        targetLoadKg: s.targetLoadKg,
+        targetRir: 2,
+        actualReps: null,
+        actualLoadKg: null,
+        actualRir: null,
+        status: 'pending',
+        outcome: null,
+        setLogId: null,
+        adaptation: null,
+      })),
+    },
+  ],
+});
+
+const LOAD_DEC: Adjustment = {
+  kind: 'load',
+  direction: 'decrease',
+  fromKg: 50,
+  toKg: 45,
+  deltaKg: -5,
+  pct: 0.12,
+  label: 'Reduzir para 45 kg',
+  reason: '...',
+};
+
+describe('applyAdjustmentToNextSet', () => {
+  it('load: registra a escolha na série feita e ajusta o alvo da PRÓXIMA', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 2, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+    ]);
+    const out = applyAdjustmentToNextSet(draft, 'ex-1', 1, LOAD_DEC);
+    const sets = out.exercises[0].sets;
+    expect(sets[0].adaptation).toEqual(LOAD_DEC); // registrada na série concluída
+    expect(sets[1].targetLoadKg).toBe(45); // aplicada à próxima
+  });
+
+  it('reps: desloca a faixa-alvo da próxima série (piso 1)', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 10, targetRepsMax: 12, targetLoadKg: null },
+      { setOrder: 2, targetRepsMin: 10, targetRepsMax: 12, targetLoadKg: null },
+    ]);
+    const repsAdj: Adjustment = {
+      kind: 'reps',
+      direction: 'increase',
+      deltaReps: 2,
+      label: '+2 reps',
+      reason: '...',
+    };
+    const out = applyAdjustmentToNextSet(draft, 'ex-1', 1, repsAdj);
+    expect(out.exercises[0].sets[1].targetRepsMin).toBe(12);
+    expect(out.exercises[0].sets[1].targetRepsMax).toBe(14);
+  });
+
+  it('última série (sem próxima) → só registra a escolha, nada mais muda', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 2, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+    ]);
+    const out = applyAdjustmentToNextSet(draft, 'ex-1', 2, LOAD_DEC);
+    expect(out.exercises[0].sets[1].adaptation).toEqual(LOAD_DEC);
+    expect(out.exercises[0].sets[0].targetLoadKg).toBe(50); // intocada
+  });
+
+  it('keep: registra a recusa e NÃO mexe no alvo da próxima', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 2, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+    ]);
+    const keepAdj: Adjustment = {
+      kind: 'keep',
+      label: 'Manter a carga',
+      reason: 'Recusado.',
+    };
+    const out = applyAdjustmentToNextSet(draft, 'ex-1', 1, keepAdj);
+    expect(out.exercises[0].sets[0].adaptation).toEqual(keepAdj);
+    expect(out.exercises[0].sets[1].targetLoadKg).toBe(50); // inalterada
   });
 });

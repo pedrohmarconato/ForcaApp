@@ -24,10 +24,18 @@ import {
   finishSessionLog,
   getOpenSessionLog,
   getLastLoadByExerciseName,
+  updateSetLogAdaptation,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
   type OpenSessionLog,
 } from '../services/sessionExecutionRepository';
+import {
+  evaluateSet,
+  recommendByRules,
+  applyAdjustmentToNextSet,
+  type Recommendation,
+  type Adjustment,
+} from '../engine/intraSessionAdaptation';
 import {
   saveDraft,
   loadDraft,
@@ -36,10 +44,20 @@ import {
 
 type Status = 'idle' | 'loading' | 'active' | 'finished' | 'error';
 
+// Adaptação pendente de decisão do aluno após concluir uma série fora do alvo (Fase 5).
+// A UI observa este campo para abrir o bottom sheet; nada é aplicado sem confirmação.
+export type PendingAdaptation = {
+  exerciseId: string;
+  setOrder: number;
+  setLogId: string | null;
+  recommendation: Recommendation;
+};
+
 interface ActiveSessionState {
   draft: SessionDraft | null;
   status: Status;
   saveError: string | null;
+  pendingAdaptation: PendingAdaptation | null;
 
   startOrResume: (args: {
     sessionId: string;
@@ -52,6 +70,7 @@ interface ActiveSessionState {
   stepLoad: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
   setRir: (exerciseId: string, setOrder: number, rir: number | null) => void;
   completeSet: (exerciseId: string, setOrder: number) => Promise<boolean>;
+  resolveAdaptation: (adjustment: Adjustment) => Promise<void>;
   finishSession: () => Promise<boolean>;
   clearError: () => void;
   reset: () => void;
@@ -255,6 +274,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   draft: null,
   status: 'idle',
   saveError: null,
+  pendingAdaptation: null,
 
   startOrResume: async ({ sessionId, userId, detail }) => {
     const epoch = ++operationEpoch;
@@ -516,6 +536,37 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         lastLoadByExercise: lastLoad,
       };
       set({ draft: novo, saveError: null });
+
+      // Fase 5: série fora do alvo → propõe uma adaptação para a próxima; o aluno decide
+      // no bottom sheet (a UI observa pendingAdaptation). On-target não incomoda ninguém.
+      const evaluated = evaluateSet({
+        actualReps: saved.actualReps,
+        targetRepsMin: serie.targetRepsMin,
+        targetRepsMax: serie.targetRepsMax,
+      });
+      if (evaluated.outcome !== 'on_target') {
+        const recommendation = recommendByRules({
+          evaluated,
+          currentLoadKg: saved.actualLoadKg,
+          incrementKg: exercise.loadIncrementKg,
+          ctx: { isBodyweight: exercise.isBodyweight, injury: exercise.hasInjury },
+          actualRir: saved.actualRir,
+        });
+        // Só interrompe o aluno quando há um ajuste CONCRETO a decidir. Quando o guardrail
+        // (lesão), o piso ou o RIR resultam em "apenas manter", não há o que escolher — não
+        // abre sheet (a série fica registrada normalmente, sem nag).
+        if (recommendation.recommended.kind !== 'keep') {
+          set({
+            pendingAdaptation: {
+              exerciseId,
+              setOrder,
+              setLogId: saved.setLogId,
+              recommendation,
+            },
+          });
+        }
+      }
+
       try {
         await saveDraft(novo);
       } catch (e) {
@@ -548,6 +599,39 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return false;
     } finally {
       inFlight.delete(lockKey);
+    }
+  },
+
+  resolveAdaptation: async (adjustment) => {
+    const pending = get().pendingAdaptation;
+    if (!pending) return;
+    // Fecha o sheet e aplica ao rascunho da MESMA sessão (applyAdjustmentToNextSet é puro):
+    // registra a escolha na série concluída e ajusta o alvo da próxima. Nunca sem confirmar.
+    const atual = get().draft;
+    if (atual && atual.exercises.some((e) => e.exerciseId === pending.exerciseId)) {
+      const novo = applyAdjustmentToNextSet(
+        atual,
+        pending.exerciseId,
+        pending.setOrder,
+        adjustment,
+      );
+      set({ draft: novo, pendingAdaptation: null });
+      try {
+        await saveDraft(novo);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      }
+    } else {
+      set({ pendingAdaptation: null });
+    }
+    // Registra a decisão no servidor (best-effort): a experiência não trava se falhar, mas
+    // a escolha — inclusive a recusa ("manter") — fica gravada em set_logs.adaptation.
+    if (pending.setLogId) {
+      try {
+        await updateSetLogAdaptation(pending.setLogId, adjustment);
+      } catch (e) {
+        console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
+      }
     }
   },
 
@@ -599,6 +683,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
   reset: () => {
     operationEpoch += 1;
-    set({ draft: null, status: 'idle', saveError: null });
+    set({ draft: null, status: 'idle', saveError: null, pendingAdaptation: null });
   },
 }));

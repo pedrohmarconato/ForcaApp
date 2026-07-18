@@ -25,6 +25,9 @@ export type DraftSet = {
   // id do set_log no servidor; preenchido após gravar com sucesso.
   // Guarda contra gravação dupla ao retomar uma sessão.
   setLogId: string | null;
+  // Decisão de adaptação registrada nesta série (Fase 5). Null até o aluno decidir.
+  // Tipo importado só como tipo (sem ciclo em runtime — sessionModel não importa o motor).
+  adaptation: import('./intraSessionAdaptation').Adjustment | null;
 };
 
 export type DraftExercise = {
@@ -33,6 +36,8 @@ export type DraftExercise = {
   order: number;
   equipment: string | null;
   isBodyweight: boolean;
+  // Há alguma flag de lesão? Guardrail da Fase 5: nunca sugere subir carga (F5).
+  hasInjury: boolean;
   loadIncrementKg: number;
   restSeconds: number | null;
   priority: 'primary' | 'secondary' | 'accessory';
@@ -179,6 +184,7 @@ export const buildDraftFromDetail = (
     order: ex.exercise_order,
     equipment: ex.equipment,
     isBodyweight: isBodyweightEquipment(ex.equipment),
+    hasInjury: (ex.injury_flags ?? []).length > 0,
     // numeric do PostgREST pode vir como string → coage (F4 do review).
     loadIncrementKg: toNum(ex.load_increment_kg) ?? 2.5,
     restSeconds: ex.rest_seconds,
@@ -198,6 +204,7 @@ export const buildDraftFromDetail = (
       status: 'pending',
       outcome: null,
       setLogId: null,
+      adaptation: null,
     })),
   }));
 

@@ -30,6 +30,9 @@ export type PlannedExercise = {
   reps_raw: string | null;
   method: string | null;
   notes: string | null;
+  // Flags de lesão do exercício (coluna injury_flags text[] da 0001). O select usa '*',
+  // então já vem do banco; guardrail da Fase 5 usa "há alguma flag" p/ nunca subir carga.
+  injury_flags?: string[] | null;
   planned_sets: PlannedSet[];
 };
 

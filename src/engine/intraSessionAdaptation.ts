@@ -8,7 +8,7 @@
 //  - NUNCA inventa: sem carga conhecida num exercício COM carga, recomenda "manter".
 //  - Guardrails vencem a tabela: lesão não sobe carga; peso corporal mexe reps, não carga.
 
-import type { Outcome } from './sessionModel';
+import type { Outcome, SessionDraft } from './sessionModel';
 import { computeOutcome } from './sessionModel';
 import { ADAPT_CONFIG, type AdaptConfig } from './config';
 import { adjustsRepsNotLoad, forbidsLoadIncrease, type GuardrailContext } from './guardrails';
@@ -222,3 +222,48 @@ export const recommendByRules = (params: {
       : [];
   return build(rec, alt);
 };
+
+/**
+ * Aplica a decisão do aluno ao rascunho (PURO, sem I/O):
+ *  - registra a escolha na série concluída (`set.adaptation`);
+ *  - aplica o efeito à PRÓXIMA série do mesmo exercício:
+ *      • load  → define o `targetLoadKg` da próxima série (a sugestão passa a refletir o novo peso);
+ *      • reps  → desloca a faixa-alvo (min/max) da próxima série, com piso de 1 rep;
+ *      • keep  → nada muda no alvo (só registra a recusa).
+ *  - última série (sem próxima) → só registra a escolha (a "anotação p/ a próxima sessão"
+ *    é o próprio registro em set_logs.adaptation; redistribuir entre sessões é a Fase 6).
+ * Nunca aplica sozinho: só é chamado após a confirmação do aluno.
+ */
+export const applyAdjustmentToNextSet = (
+  draft: SessionDraft,
+  exerciseId: string,
+  setOrder: number,
+  adjustment: Adjustment,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) => {
+    if (ex.exerciseId !== exerciseId) return ex;
+    // A "próxima série" é a de menor setOrder acima da atual (robusto a ordens não contíguas).
+    const nextOrder = ex.sets
+      .map((s) => s.setOrder)
+      .filter((o) => o > setOrder)
+      .sort((a, b) => a - b)[0];
+    return {
+      ...ex,
+      sets: ex.sets.map((s) => {
+        if (s.setOrder === setOrder) return { ...s, adaptation: adjustment };
+        if (nextOrder != null && s.setOrder === nextOrder) {
+          if (adjustment.kind === 'load') {
+            return { ...s, targetLoadKg: adjustment.toKg };
+          }
+          if (adjustment.kind === 'reps') {
+            const min = Math.max(1, s.targetRepsMin + adjustment.deltaReps);
+            const max = Math.max(min, s.targetRepsMax + adjustment.deltaReps);
+            return { ...s, targetRepsMin: min, targetRepsMax: max };
+          }
+        }
+        return s;
+      }),
+    };
+  }),
+});
