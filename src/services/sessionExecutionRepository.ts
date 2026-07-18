@@ -27,6 +27,10 @@ export type OpenSessionLog = {
   sessionLogId: string;
   startedAt: string;
   setLogs: ServerSetLog[];
+  // Fase 6 — replanejamento confirmado fica registrado no log; a retomada reaplica
+  // o corte de tempo a partir daqui (o rascunho local não é autoritativo).
+  availableMinutes: number | null;
+  adherenceSnapshot: unknown;
 };
 
 type RequestErrorKind = 'transport' | 'server';
@@ -138,7 +142,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
+        'id, started_at, available_minutes, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -172,6 +176,8 @@ export const getOpenSessionLog = async (
     sessionLogId: row.id as string,
     startedAt: row.started_at as string,
     setLogs,
+    availableMinutes: toNum(row.available_minutes),
+    adherenceSnapshot: row.adherence_snapshot ?? null,
   };
 };
 

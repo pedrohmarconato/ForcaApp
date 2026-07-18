@@ -162,3 +162,9 @@ __pycache__/
 forca-app-mockup-*.html
 branding/
 mockups/
+
+# graphify: grafo local (reconstruído automaticamente pelo hook post-commit)
+graphify-out/
+
+# estado temporário do Supabase CLI (link do projeto, versões)
+supabase/.temp/

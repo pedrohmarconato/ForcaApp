@@ -38,6 +38,9 @@ export type DraftExercise = {
   isBodyweight: boolean;
   // Há alguma flag de lesão? Guardrail da Fase 5: nunca sugere subir carga (F5).
   hasInjury: boolean;
+  // Cortado pela escada de tempo confirmada (Fase 6). Séries pendentes dele não
+  // contam no progresso/conclusão; as já feitas permanecem no histórico.
+  cutByReplan?: boolean;
   loadIncrementKg: number;
   restSeconds: number | null;
   priority: 'primary' | 'secondary' | 'accessory';
@@ -243,6 +246,8 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
   ),
   exercises: (draft.exercises ?? []).map((ex) => ({
     ...ex,
+    // Rascunho anterior à Fase 6 não tem o campo → default seguro (não cortado).
+    cutByReplan: ex.cutByReplan === true,
     order: toNum(ex.order) ?? 0,
     loadIncrementKg: toNum(ex.loadIncrementKg) ?? 2.5,
     restSeconds: ex.restSeconds == null ? null : toNum(ex.restSeconds),
@@ -288,12 +293,17 @@ export const reconcileInjuryFlags = (
   };
 };
 
-/** Total de séries e quantas já foram concluídas (para cabeçalho de progresso). */
+/**
+ * Total de séries e quantas já foram concluídas (para cabeçalho de progresso).
+ * Exercício cortado pela escada de tempo (Fase 6): as séries PENDENTES dele saem
+ * da conta (não seguram o "Concluir treino"); as já feitas continuam contando.
+ */
 export const sessionProgress = (draft: SessionDraft): { done: number; total: number } => {
   let done = 0;
   let total = 0;
   for (const ex of draft.exercises) {
     for (const s of ex.sets) {
+      if (ex.cutByReplan === true && s.status !== 'done') continue;
       total += 1;
       if (s.status === 'done') done += 1;
     }
