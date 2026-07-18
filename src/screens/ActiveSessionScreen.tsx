@@ -32,6 +32,8 @@ import {
 } from '../store/activeSessionStore';
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
 import SetRow from '../components/session/SetRow';
+import AdaptationSheet from '../components/session/AdaptationSheet';
+import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
 
@@ -55,6 +57,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const finishSession = useActiveSessionStore((s) => s.finishSession);
   const clearError = useActiveSessionStore((s) => s.clearError);
   const reset = useActiveSessionStore((s) => s.reset);
+  const pendingAdaptation = useActiveSessionStore((s) => s.pendingAdaptation);
+  const resolveAdaptation = useActiveSessionStore((s) => s.resolveAdaptation);
 
   const iniciar = useCallback(async () => {
     if (!user) return;
@@ -243,6 +247,30 @@ const ActiveSessionScreen = ({ route }: Props) => {
           <Text style={styles.finishBtnText}>Concluir treino</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <AdaptationSheet
+        recommendation={pendingAdaptation?.recommendation ?? null}
+        exerciseName={
+          draft.exercises.find(
+            (e) => e.exerciseId === pendingAdaptation?.exerciseId,
+          )?.name ?? ''
+        }
+        onChoose={resolveAdaptation}
+        onDismiss={() => {
+          // Fechar pelo fundo = recusar → registra "manter" (a recusa é gravada).
+          const keep = pendingAdaptation?.recommendation.options.find(
+            (o) => o.kind === 'keep',
+          );
+          resolveAdaptation(
+            keep ??
+              ({
+                kind: 'keep',
+                label: 'Manter a carga',
+                reason: 'Recusado.',
+              } as Adjustment),
+          );
+        }}
+      />
     </SafeAreaView>
   );
 };

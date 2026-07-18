@@ -335,3 +335,46 @@ finalizado e de log alheio.
 ### Próximo passo
 Abrir o PR da Fase 4.2 (base `fase-4.1-correcoes-review`), aplicar a 0004 + rodar a
 prova em HML, smoke E2E. Merge só com OK do dono.
+
+## Fase 5 — Motor de adaptação intra-sessão por regras + decisão do aluno
+
+Branch `fase-5-motor-intra-sessao` (base = `main`, já com as Fases 4/4.1/4.2 mescladas).
+Ao concluir uma série FORA do alvo, o app calcula um ajuste por regras e o aluno decide;
+nada é aplicado sem confirmação.
+
+### Entregas
+1. **Motor puro** (`src/engine/intraSessionAdaptation.ts`): `evaluateSet` (desvio vs. faixa),
+   `recommendByRules` (déficit/superávit → ~3%/rep, teto 12%, piso 5%, arredonda ao
+   incremento; RIR baixo em superávit não sobe; sem carga conhecida = manter, não inventa)
+   e `applyAdjustmentToNextSet` (aplica ao alvo da próxima série; última série só registra).
+2. **Guardrails** (`src/engine/guardrails.ts`): lesão nunca sobe carga; peso corporal mexe
+   reps, não carga. `injury_flags` agora é threadado planned_exercises → SessionDetail →
+   `DraftExercise.hasInjury` (o guardrail funciona de verdade).
+3. **Config** (`src/engine/config.ts`, `ADAPT_CONFIG`): TODOS os números centralizados e
+   marcados "PADRÃO A VALIDAR por profissional" — a tabela §4.2 exata do dono não está no
+   repo; usei a essência do plano.
+4. **UI** (`src/components/session/AdaptationSheet.tsx`): bottom sheet pós-série, recomendada
+   destacada, "manter" sempre presente (recusa). Optei por Modal do RN em vez de
+   @gorhom/bottom-sheet (sem dep nativa nova, testável) — troca é refino.
+5. **Wiring** (store): `completeSet` fora do alvo levanta `pendingAdaptation` (só quando há
+   ajuste concreto — guardrail/piso/RIR que dão "manter" não geram sheet); `resolveAdaptation`
+   aplica à próxima série, registra na série concluída e grava best-effort em
+   `set_logs.adaptation` (UPDATE direto — RLS "own set logs" for all). **Sem migration nova.**
+
+### Verificação
+- `tsc --noEmit`: **0 erros**. `jest`: **155 → 166** (22 suites, 100% verde). Sem open handles.
+- 20 testes de motor (tabela + bordas §9: 1ª sessão sem histórico, RIR baixo à falha, lesão,
+  peso corporal, teto, arredondamento) + 3 de fluxo do store (levanta/aplica/recusa +
+  supressão por lesão) + 3 de render do sheet.
+
+### Pendências honestas (NÃO sucesso otimista)
+1. **E2E device/Supabase real não rodado** (sem ambiente): só verificação headless.
+2. **Números do `ADAPT_CONFIG` precisam da validação do dono** (ou da spec §4.2) antes de
+   produção — são padrões plausíveis, não a tabela oficial.
+3. Sheet é Modal (não gesto/arrasto); trocar por @gorhom/bottom-sheet é refino opcional.
+4. Redistribuição entre sessões (a "anotação p/ próxima sessão" da última série) é só
+   registrada agora; aplicá-la é a Fase 6 (replanejamento).
+
+### Próximo passo
+Abrir o PR da Fase 5 (base `main`). Merge só com OK do dono. Depois: Fase 6 (replanejamento
+semanal por regras).

@@ -14,6 +14,7 @@ import {
   normalizeName,
   suggestLoad,
   canCompleteSet,
+  reconcileInjuryFlags,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
@@ -24,10 +25,19 @@ import {
   finishSessionLog,
   getOpenSessionLog,
   getLastLoadByExerciseName,
+  updateSetLogAdaptation,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
   type OpenSessionLog,
 } from '../services/sessionExecutionRepository';
+import {
+  evaluateSet,
+  recommendByRules,
+  applyAdjustmentToNextSet,
+  replayAdaptations,
+  type Recommendation,
+  type Adjustment,
+} from '../engine/intraSessionAdaptation';
 import {
   saveDraft,
   loadDraft,
@@ -36,10 +46,23 @@ import {
 
 type Status = 'idle' | 'loading' | 'active' | 'finished' | 'error';
 
+// Adaptação pendente de decisão do aluno após concluir uma série fora do alvo (Fase 5).
+// A UI observa este campo para abrir o bottom sheet; nada é aplicado sem confirmação.
+export type PendingAdaptation = {
+  exerciseId: string;
+  setOrder: number;
+  setLogId: string | null;
+  // Sessão a que esta decisão pertence — resolveAdaptation só aplica ao rascunho se ainda
+  // for esta sessão (defesa contra troca de sessão durante a decisão).
+  sessionLogId: string | null;
+  recommendation: Recommendation;
+};
+
 interface ActiveSessionState {
   draft: SessionDraft | null;
   status: Status;
   saveError: string | null;
+  pendingAdaptation: PendingAdaptation | null;
 
   startOrResume: (args: {
     sessionId: string;
@@ -52,6 +75,7 @@ interface ActiveSessionState {
   stepLoad: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
   setRir: (exerciseId: string, setOrder: number, rir: number | null) => void;
   completeSet: (exerciseId: string, setOrder: number) => Promise<boolean>;
+  resolveAdaptation: (adjustment: Adjustment) => Promise<void>;
   finishSession: () => Promise<boolean>;
   clearError: () => void;
   reset: () => void;
@@ -199,10 +223,19 @@ const seedLastLoads = async (
 const applyServerSetLogs = (
   draft: SessionDraft,
   aberta: OpenSessionLog,
+  local?: SessionDraft | null,
 ): SessionDraft => {
   const porPlannedSet = new Map(
     aberta.setLogs.map((sl) => [sl.planned_set_id, sl]),
   );
+  // Adaptações do rascunho local por planned_set: preenchem a lacuna quando a gravação
+  // best-effort no servidor ainda não chegou (evita perder a decisão já aplicada localmente).
+  const localAdapt = new Map<string, DraftSet['adaptation']>();
+  for (const ex of local?.exercises ?? []) {
+    for (const s of ex.sets) {
+      if (s.adaptation) localAdapt.set(s.plannedSetId, s.adaptation);
+    }
+  }
   const lastLoad = { ...draft.lastLoadByExercise };
   const latestFromOpenLog = new Map<
     string,
@@ -234,6 +267,9 @@ const applyServerSetLogs = (
         actualLoadKg: sl.actual_load_kg,
         actualRir: sl.actual_rir,
         outcome: sl.outcome,
+        // Restaura a decisão de adaptação: servidor é autoritativo; se ele ainda não a tem
+        // (gravação best-effort pendente), usa a do rascunho local.
+        adaptation: sl.adaptation ?? localAdapt.get(s.plannedSetId) ?? null,
       };
     }),
   }));
@@ -242,19 +278,21 @@ const applyServerSetLogs = (
   for (const [key, value] of latestFromOpenLog) {
     if (!(key in lastLoad)) lastLoad[key] = value.load;
   }
-  return {
+  // Reaplica os efeitos das adaptações restauradas às próximas séries pendentes (retomada).
+  return replayAdaptations({
     ...draft,
     sessionLogId: aberta.sessionLogId,
     startedAt: aberta.startedAt,
     exercises,
     lastLoadByExercise: lastLoad,
-  };
+  });
 };
 
 export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   draft: null,
   status: 'idle',
   saveError: null,
+  pendingAdaptation: null,
 
   startOrResume: async ({ sessionId, userId, detail }) => {
     const epoch = ++operationEpoch;
@@ -265,8 +303,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       // antes de adotar (F3/F6): o SERVIDOR é autoritativo. Não gravamos série em log
       // finalizado, e não adotamos o rascunho local CRU (pode ter série "feita" que
       // nunca persistiu, ou carga obsoleta).
-      const local = await loadDraft(userId, sessionId);
+      const local0 = await loadDraft(userId, sessionId);
       if (!isCurrent()) return;
+      // Reconcilia o flag de lesão contra o SessionDetail autoritativo antes de qualquer
+      // uso: um rascunho anterior à Fase 5 não tem `hasInjury` e adotá-lo cru desligaria
+      // silenciosamente o guardrail de lesão (HIGH do review).
+      const local = local0 ? reconcileInjuryFlags(local0, detail) : null;
       if (
         local &&
         local.plannedSessionId === sessionId &&
@@ -314,6 +356,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         const draftServidor = applyServerSetLogs(
           buildDraftFromDetail(detail, userId, seed),
           aberta,
+          local, // preserva adaptações locais ainda não confirmadas no servidor
         );
         set({ draft: draftServidor, status: 'active' });
         try {
@@ -515,9 +558,53 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      set({ draft: novo, saveError: null });
+      // Fase 5: série fora do alvo → recomenda um ajuste. On-target não gera nada.
+      const evaluated = evaluateSet({
+        actualReps: saved.actualReps,
+        targetRepsMin: serie.targetRepsMin,
+        targetRepsMax: serie.targetRepsMax,
+      });
+      let finalDraft = novo;
+      let pending: PendingAdaptation | null = null;
+      if (evaluated.outcome !== 'on_target') {
+        const recommendation = recommendByRules({
+          evaluated,
+          currentLoadKg: saved.actualLoadKg,
+          incrementKg: exercise.loadIncrementKg,
+          ctx: { isBodyweight: exercise.isBodyweight, injury: exercise.hasInjury },
+          actualRir: saved.actualRir,
+        });
+        if (recommendation.recommended.kind !== 'keep') {
+          // Há um ajuste CONCRETO → o aluno decide no bottom sheet (a UI observa pending).
+          pending = {
+            exerciseId,
+            setOrder,
+            setLogId: saved.setLogId,
+            sessionLogId: sid,
+            recommendation,
+          };
+        } else {
+          // Guardrail (lesão) / piso / RIR / incremento grosso resultaram em "manter": é uma
+          // decisão AUTOMÁTICA de segurança, não uma escolha do aluno. Não abre sheet, mas
+          // registra (auto:true) para a coluna não ficar null (achado MEDIUM do review).
+          const autoKeep: Adjustment = {
+            kind: 'keep',
+            auto: true,
+            label: recommendation.recommended.label,
+            reason: recommendation.recommended.reason,
+          };
+          finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
+          if (saved.setLogId) {
+            updateSetLogAdaptation(saved.setLogId, autoKeep).catch((e) =>
+              console.warn('[activeSession] adaptação automática não persistida (não-fatal):', e),
+            );
+          }
+        }
+      }
+      set({ draft: finalDraft, saveError: null, pendingAdaptation: pending });
+
       try {
-        await saveDraft(novo);
+        await saveDraft(finalDraft);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
       }
@@ -548,6 +635,43 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return false;
     } finally {
       inFlight.delete(lockKey);
+    }
+  },
+
+  resolveAdaptation: async (adjustment) => {
+    const pending = get().pendingAdaptation;
+    if (!pending) return;
+    // Fecha o sheet e aplica ao rascunho da MESMA sessão (applyAdjustmentToNextSet é puro):
+    // registra a escolha na série concluída e ajusta o alvo da próxima. Nunca sem confirmar.
+    const atual = get().draft;
+    if (
+      atual &&
+      atual.sessionLogId === pending.sessionLogId &&
+      atual.exercises.some((e) => e.exerciseId === pending.exerciseId)
+    ) {
+      const novo = applyAdjustmentToNextSet(
+        atual,
+        pending.exerciseId,
+        pending.setOrder,
+        adjustment,
+      );
+      set({ draft: novo, pendingAdaptation: null });
+      try {
+        await saveDraft(novo);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      }
+    } else {
+      set({ pendingAdaptation: null });
+    }
+    // Registra a decisão no servidor (best-effort): a experiência não trava se falhar, mas
+    // a escolha — inclusive a recusa ("manter") — fica gravada em set_logs.adaptation.
+    if (pending.setLogId) {
+      try {
+        await updateSetLogAdaptation(pending.setLogId, adjustment);
+      } catch (e) {
+        console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
+      }
     }
   },
 
@@ -599,6 +723,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
   reset: () => {
     operationEpoch += 1;
-    set({ draft: null, status: 'idle', saveError: null });
+    set({ draft: null, status: 'idle', saveError: null, pendingAdaptation: null });
   },
 }));

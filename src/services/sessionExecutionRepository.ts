@@ -18,6 +18,8 @@ export type ServerSetLog = {
   actual_load_kg: number | null;
   actual_rir: number | null;
   outcome: Outcome | null;
+  // Decisão de adaptação persistida (Fase 5). Restaurada e reaplicada na retomada.
+  adaptation: import('../engine/intraSessionAdaptation').Adjustment | null;
   completed_at: string;
 };
 
@@ -136,7 +138,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, completed_at)',
+        'id, started_at, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -158,6 +160,7 @@ export const getOpenSessionLog = async (
       actual_load_kg: toNum(s.actual_load_kg),
       actual_rir: toNum(s.actual_rir),
       outcome: s.outcome,
+      adaptation: s.adaptation ?? null,
       completed_at: s.completed_at,
     }))
     .filter((s) => typeof s.id === 'string' && s.actual_reps != null)
@@ -237,6 +240,29 @@ export const saveSetLog = async (
     actualRir,
     outcome: row.outcome as Outcome,
   };
+};
+
+/**
+ * Grava a DECISÃO de adaptação (Fase 5) numa série JÁ registrada, via UPDATE direto.
+ * A RLS "own set logs" é `for all` — o dono pode atualizar a própria linha. É secundário
+ * à experiência (o chamador trata a falha como não-fatal), mas o erro PROPAGA aqui, nunca
+ * é engolido. Não colide com o first-write-wins do save_set_log (aquele guarda o INSERT;
+ * este só carimba a coluna `adaptation`, que o save_set_log nunca toca).
+ */
+export const updateSetLogAdaptation = async (
+  setLogId: string,
+  adaptation: unknown,
+): Promise<void> => {
+  let response: any;
+  try {
+    response = await supabase
+      .from('set_logs')
+      .update({ adaptation })
+      .eq('id', setLogId);
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
 };
 
 /**
