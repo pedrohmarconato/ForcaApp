@@ -215,6 +215,45 @@ export const buildDraftFromDetail = (
   };
 };
 
+/**
+ * Sanitiza os campos numéricos de um rascunho PERSISTIDO (F8). Um rascunho gravado
+ * por versão antiga do app — ou vindo de numeric-string do PostgREST antes da coerção —
+ * pode ter "40" em vez de 40. No stepper, `"40" + incremento` vira "402.5" (concatena)
+ * ou NaN. Reforçamos a coerção na fronteira de LEITURA, sem confiar em quem gravou.
+ * Os campos que alimentam aritmética (carga/incremento) são os críticos; coagimos
+ * todos por robustez. Mantém `null` como `null`.
+ */
+export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
+  ...draft,
+  weekNumber: toNum(draft.weekNumber) ?? 0,
+  // O mapa de última carga também alimenta a sugestão/stepper — um "40" legado aqui
+  // contaminaria do mesmo jeito. Coage os valores (descarta os que não são número).
+  lastLoadByExercise: Object.fromEntries(
+    Object.entries(draft.lastLoadByExercise ?? {}).flatMap(([k, v]) => {
+      const n = toNum(v);
+      return n == null ? [] : [[k, n] as [string, number]];
+    }),
+  ),
+  exercises: (draft.exercises ?? []).map((ex) => ({
+    ...ex,
+    order: toNum(ex.order) ?? 0,
+    loadIncrementKg: toNum(ex.loadIncrementKg) ?? 2.5,
+    restSeconds: ex.restSeconds == null ? null : toNum(ex.restSeconds),
+    targetRmPercent: ex.targetRmPercent == null ? null : toNum(ex.targetRmPercent),
+    sets: (ex.sets ?? []).map((s) => ({
+      ...s,
+      setOrder: toNum(s.setOrder) ?? 0,
+      targetRepsMin: toNum(s.targetRepsMin) ?? 0,
+      targetRepsMax: toNum(s.targetRepsMax) ?? 0,
+      targetLoadKg: s.targetLoadKg == null ? null : toNum(s.targetLoadKg),
+      targetRir: s.targetRir == null ? null : toNum(s.targetRir),
+      actualReps: s.actualReps == null ? null : toNum(s.actualReps),
+      actualLoadKg: s.actualLoadKg == null ? null : toNum(s.actualLoadKg),
+      actualRir: s.actualRir == null ? null : toNum(s.actualRir),
+    })),
+  })),
+});
+
 /** Total de séries e quantas já foram concluídas (para cabeçalho de progresso). */
 export const sessionProgress = (draft: SessionDraft): { done: number; total: number } => {
   let done = 0;

@@ -18,6 +18,8 @@ import {
   getLastLoadByExerciseName,
   getCompletedSessions,
   getSessionLogDetail,
+  isTransportSessionExecutionError,
+  SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 
 const fromMock = supabase.from as jest.Mock;
@@ -36,7 +38,8 @@ const makeBuilder = (result: { data?: unknown; error: unknown }) => {
   builder.order = jest.fn(chain);
   builder.limit = jest.fn(chain);
   builder.single = jest.fn(() => Promise.resolve(result));
-  builder.then = (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject);
+  builder.then = (resolve: any, reject: any) =>
+    Promise.resolve(result).then(resolve, reject);
   return builder;
 };
 
@@ -47,56 +50,174 @@ beforeEach(() => {
 
 describe('startSessionLog (RPC atômica start_session)', () => {
   it('devolve id + started_at da linha retornada', async () => {
-    rpcMock.mockResolvedValueOnce({ data: { id: 'sl-1', started_at: '2026-07-17T10:00:00Z' }, error: null });
+    rpcMock.mockResolvedValueOnce({
+      data: { id: 'sl-1', started_at: '2026-07-17T10:00:00Z' },
+      error: null,
+    });
     const res = await startSessionLog('ps-1');
-    expect(res).toEqual({ sessionLogId: 'sl-1', startedAt: '2026-07-17T10:00:00Z' });
-    expect(rpcMock).toHaveBeenCalledWith('start_session', { p_planned_session_id: 'ps-1' });
+    expect(res).toEqual({
+      sessionLogId: 'sl-1',
+      startedAt: '2026-07-17T10:00:00Z',
+    });
+    expect(rpcMock).toHaveBeenCalledWith('start_session', {
+      p_planned_session_id: 'ps-1',
+    });
   });
 
   it('aceita retorno em formato array', async () => {
-    rpcMock.mockResolvedValueOnce({ data: [{ id: 'sl-2', started_at: 'T1' }], error: null });
-    expect(await startSessionLog('ps-1')).toEqual({ sessionLogId: 'sl-2', startedAt: 'T1' });
+    rpcMock.mockResolvedValueOnce({
+      data: [{ id: 'sl-2', started_at: 'T1' }],
+      error: null,
+    });
+    expect(await startSessionLog('ps-1')).toEqual({
+      sessionLogId: 'sl-2',
+      startedAt: 'T1',
+    });
   });
 
   it('erro da RPC propaga (não engole)', async () => {
-    rpcMock.mockResolvedValueOnce({ data: null, error: new Error('rpc negou') });
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: new Error('rpc negou'),
+    });
     await expect(startSessionLog('ps-1')).rejects.toThrow('rpc negou');
   });
 });
 
-describe('saveSetLog (UPSERT idempotente)', () => {
-  it('faz UPSERT com onConflict e SEM adaptation (Fase 5)', async () => {
-    const b = makeBuilder({ data: { id: 'set-1' }, error: null });
-    fromMock.mockReturnValueOnce(b);
+describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado explícito)', () => {
+  // O .upsert(onConflict) do PostgREST gera ON CONFLICT SEM predicado → NÃO infere o
+  // índice único PARCIAL (WHERE planned_set_id IS NOT NULL) → 42P10 em runtime. Por
+  // isso a gravação passa a ser via RPC save_set_log (ON CONFLICT ... WHERE explícito).
+  it('chama a RPC save_set_log com os p_ params e devolve o id da linha retornada', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: {
+        id: 'set-1',
+        actual_reps: 8,
+        actual_load_kg: '40',
+        actual_rir: 2,
+        outcome: 'on_target',
+      },
+      error: null,
+      status: 200,
+    });
 
     const res = await saveSetLog({
-      sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8,
-      actualLoadKg: 40, actualRir: 2, outcome: 'on_target',
+      sessionLogId: 'sl-1',
+      plannedSetId: 'st-1',
+      actualReps: 8,
+      actualLoadKg: 40,
+      actualRir: 2,
+      outcome: 'on_target',
     });
 
-    expect(res).toEqual({ setLogId: 'set-1' });
-    expect(fromMock).toHaveBeenCalledWith('set_logs');
-    const [payload, opts] = b.upsert.mock.calls[0];
-    expect(payload).toEqual({
-      session_log_id: 'sl-1', planned_set_id: 'st-1', actual_reps: 8,
-      actual_load_kg: 40, actual_rir: 2, outcome: 'on_target',
+    expect(res).toEqual({
+      setLogId: 'set-1',
+      actualReps: 8,
+      actualLoadKg: 40,
+      actualRir: 2,
+      outcome: 'on_target',
     });
-    expect('adaptation' in payload).toBe(false);
-    expect(opts).toEqual({ onConflict: 'session_log_id,planned_set_id' });
+    expect(rpcMock).toHaveBeenCalledWith('save_set_log', {
+      p_session_log_id: 'sl-1',
+      p_planned_set_id: 'st-1',
+      p_actual_reps: 8,
+      p_actual_load_kg: 40,
+      p_actual_rir: 2,
+      p_outcome: 'on_target',
+    });
+    // NÃO usa mais .from(...).upsert(...): o upsert do PostgREST é justamente o bug.
+    expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it('bodyweight grava carga nula', async () => {
-    const b = makeBuilder({ data: { id: 'set-2' }, error: null });
-    fromMock.mockReturnValueOnce(b);
-    await saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-3', actualReps: 15, actualLoadKg: null, actualRir: null, outcome: 'over' });
-    expect(b.upsert.mock.calls[0][0].actual_load_kg).toBeNull();
+  it('aceita retorno em formato array (alguns setups devolvem a linha em array)', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'set-2',
+          actual_reps: 15,
+          actual_load_kg: null,
+          actual_rir: null,
+          outcome: 'over',
+        },
+      ],
+      error: null,
+    });
+    const res = await saveSetLog({
+      sessionLogId: 'sl-1',
+      plannedSetId: 'st-3',
+      actualReps: 15,
+      actualLoadKg: null,
+      actualRir: null,
+      outcome: 'over',
+    });
+    expect(res).toEqual({
+      setLogId: 'set-2',
+      actualReps: 15,
+      actualLoadKg: null,
+      actualRir: null,
+      outcome: 'over',
+    });
   });
 
-  it('erro do banco PROPAGA', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('RLS negou upsert') }));
+  it('erro do banco PROPAGA (ex.: a função recusa log finalizado/alheio)', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: new Error('já finalizado'),
+    });
     await expect(
-      saveSetLog({ sessionLogId: 'sl-1', plannedSetId: 'st-1', actualReps: 8, actualLoadKg: 40, actualRir: null, outcome: 'on_target' }),
-    ).rejects.toThrow('RLS negou upsert');
+      saveSetLog({
+        sessionLogId: 'sl-1',
+        plannedSetId: 'st-1',
+        actualReps: 8,
+        actualLoadKg: 40,
+        actualRir: null,
+        outcome: 'on_target',
+      }),
+    ).rejects.toThrow('já finalizado');
+  });
+
+  it('resposta sem id NÃO vira sucesso silencioso (propaga erro)', async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: null });
+    await expect(
+      saveSetLog({
+        sessionLogId: 'sl-1',
+        plannedSetId: 'st-1',
+        actualReps: 8,
+        actualLoadKg: 40,
+        actualRir: null,
+        outcome: 'on_target',
+      }),
+    ).rejects.toThrow(/não retornou/i);
+  });
+
+  it('encaminha AbortSignal ao postgrest-js', async () => {
+    const abortSignal = jest.fn().mockResolvedValue({
+      data: {
+        id: 'set-3',
+        actual_reps: 8,
+        actual_load_kg: '42.5',
+        actual_rir: 1,
+        outcome: 'on_target',
+      },
+      error: null,
+      status: 200,
+    });
+    rpcMock.mockReturnValueOnce({ abortSignal });
+    const controller = new AbortController();
+
+    await saveSetLog(
+      {
+        sessionLogId: 'sl-1',
+        plannedSetId: 'st-1',
+        actualReps: 8,
+        actualLoadKg: 42.5,
+        actualRir: 1,
+        outcome: 'on_target',
+      },
+      controller.signal,
+    );
+
+    expect(abortSignal).toHaveBeenCalledWith(controller.signal);
   });
 });
 
@@ -107,28 +228,75 @@ describe('getOpenSessionLog', () => {
   });
 
   it('ORDENA os set_logs e COAGE numeric string para número (F4/F8)', async () => {
-    const logBuilder = makeBuilder({ data: [{ id: 'sl-9', started_at: 'T0' }], error: null });
-    const setsBuilder = makeBuilder({
+    const logBuilder = makeBuilder({
       data: [
-        // actual_load_kg como STRING, do jeito que o PostgREST devolve numeric
-        { id: 'set-1', planned_set_id: 'st-1', actual_reps: 8, actual_load_kg: '50', actual_rir: 2, outcome: 'on_target' },
+        {
+          id: 'sl-9',
+          started_at: 'T0',
+          set_logs: [
+            {
+              id: 'set-2',
+              planned_set_id: 'st-2',
+              actual_reps: '9',
+              actual_load_kg: '52.5',
+              actual_rir: '1',
+              outcome: 'on_target',
+              completed_at: '2026-07-17T11:00:00Z',
+            },
+            // actual_load_kg como STRING, do jeito que o PostgREST devolve numeric
+            {
+              id: 'set-1',
+              planned_set_id: 'st-1',
+              actual_reps: 8,
+              actual_load_kg: '50',
+              actual_rir: 2,
+              outcome: 'on_target',
+              completed_at: '2026-07-17T10:00:00Z',
+            },
+          ],
+        },
       ],
       error: null,
     });
-    fromMock.mockReturnValueOnce(logBuilder).mockReturnValueOnce(setsBuilder);
+    fromMock.mockReturnValueOnce(logBuilder);
 
     const res = await getOpenSessionLog('user-1', 'ps-1');
 
     expect(res?.sessionLogId).toBe('sl-9');
     expect(res?.setLogs[0].actual_load_kg).toBe(50); // number, não "50"
     expect(typeof res?.setLogs[0].actual_load_kg).toBe('number');
+    expect(res?.setLogs[1].actual_reps).toBe(9);
     expect(logBuilder.is).toHaveBeenCalledWith('finished_at', null);
-    expect(setsBuilder.order).toHaveBeenCalledWith('completed_at', { ascending: true });
+    expect(fromMock).toHaveBeenCalledTimes(1);
   });
 
-  it('erro propaga', async () => {
-    fromMock.mockReturnValueOnce(makeBuilder({ data: null, error: new Error('falha log') }));
-    await expect(getOpenSessionLog('user-1', 'ps-1')).rejects.toThrow('falha log');
+  it('HTTP 403 sem code continua sendo erro de servidor, não offline', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: null,
+        error: { message: 'Forbidden' },
+        status: 403,
+      } as any),
+    );
+    const error = await getOpenSessionLog('user-1', 'ps-1').catch((e) => e);
+    expect(error).toBeInstanceOf(SessionExecutionRequestError);
+    expect(error.kind).toBe('server');
+    expect(error.code).toBeNull();
+    expect(isTransportSessionExecutionError(error)).toBe(false);
+  });
+
+  it('status 0 é transporte mesmo quando o payload possui code', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: null,
+        error: { message: 'socket closed', code: 'ECONNRESET' },
+        status: 0,
+      } as any),
+    );
+    const error = await getOpenSessionLog('user-1', 'ps-1').catch((e) => e);
+    expect(error.kind).toBe('transport');
+    expect(error.code).toBe('ECONNRESET');
+    expect(isTransportSessionExecutionError(error)).toBe(true);
   });
 });
 
@@ -136,11 +304,15 @@ describe('finishSessionLog (RPC atômica finish_session)', () => {
   it('chama a RPC com o id do log', async () => {
     rpcMock.mockResolvedValueOnce({ error: null });
     await finishSessionLog('sl-1');
-    expect(rpcMock).toHaveBeenCalledWith('finish_session', { p_session_log_id: 'sl-1' });
+    expect(rpcMock).toHaveBeenCalledWith('finish_session', {
+      p_session_log_id: 'sl-1',
+    });
   });
 
   it('erro (ex.: 0 linhas → exceção da função) PROPAGA', async () => {
-    rpcMock.mockResolvedValueOnce({ error: new Error('inexistente, alheio ou já finalizado') });
+    rpcMock.mockResolvedValueOnce({
+      error: new Error('inexistente, alheio ou já finalizado'),
+    });
     await expect(finishSessionLog('sl-1')).rejects.toThrow('já finalizado');
   });
 });
@@ -155,13 +327,28 @@ describe('getLastLoadByExerciseName', () => {
     fromMock.mockReturnValueOnce(
       makeBuilder({
         data: [
-          { actual_load_kg: '42.5', completed_at: '2026-07-17T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
-          { actual_load_kg: '40', completed_at: '2026-07-10T10:00:00Z', planned_sets: { planned_exercises: { name: 'Supino Reto' } } },
+          {
+            actual_load_kg: '42.5',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: { planned_exercises: { name: 'Supino Reto' } },
+          },
+          {
+            actual_load_kg: '40',
+            completed_at: '2026-07-10T10:00:00Z',
+            planned_sets: { planned_exercises: { name: 'Supino Reto' } },
+          },
+          {
+            actual_load_kg: 'abc',
+            completed_at: '2026-07-17T11:00:00Z',
+            planned_sets: { planned_exercises: { name: 'Agachamento' } },
+          },
         ],
         error: null,
       }),
     );
-    expect(await getLastLoadByExerciseName(['Supino Reto'])).toEqual({ 'supino reto': 42.5 });
+    expect(
+      await getLastLoadByExerciseName(['Supino Reto', 'Agachamento']),
+    ).toEqual({ 'supino reto': 42.5 });
   });
 });
 
@@ -171,8 +358,15 @@ describe('getCompletedSessions', () => {
       makeBuilder({
         data: [
           {
-            id: 'sl-1', planned_session_id: 'ps-1', started_at: '2026-07-17T09:00:00Z', finished_at: '2026-07-17T10:00:00Z',
-            planned_sessions: { title: 'Push A', week_number: 2, muscle_groups: ['Peito'] },
+            id: 'sl-1',
+            planned_session_id: 'ps-1',
+            started_at: '2026-07-17T09:00:00Z',
+            finished_at: '2026-07-17T10:00:00Z',
+            planned_sessions: {
+              title: 'Push A',
+              week_number: 2,
+              muscle_groups: ['Peito'],
+            },
           },
         ],
         error: null,
@@ -180,8 +374,13 @@ describe('getCompletedSessions', () => {
     );
     const res = await getCompletedSessions('user-1');
     expect(res[0]).toEqual({
-      sessionLogId: 'sl-1', plannedSessionId: 'ps-1', title: 'Push A', weekNumber: 2,
-      muscleGroups: ['Peito'], startedAt: '2026-07-17T09:00:00Z', finishedAt: '2026-07-17T10:00:00Z',
+      sessionLogId: 'sl-1',
+      plannedSessionId: 'ps-1',
+      title: 'Push A',
+      weekNumber: 2,
+      muscleGroups: ['Peito'],
+      startedAt: '2026-07-17T09:00:00Z',
+      finishedAt: '2026-07-17T10:00:00Z',
     });
   });
 });
@@ -189,13 +388,38 @@ describe('getCompletedSessions', () => {
 describe('getSessionLogDetail', () => {
   it('agrupa por exercício, ordena séries e coage numeric', async () => {
     const cabecalho = makeBuilder({
-      data: { id: 'sl-1', started_at: 'T0', finished_at: 'T1', planned_sessions: { title: 'Push A', week_number: 2 } },
+      data: {
+        id: 'sl-1',
+        started_at: 'T0',
+        finished_at: 'T1',
+        planned_sessions: { title: 'Push A', week_number: 2 },
+      },
       error: null,
     });
     const linhas = makeBuilder({
       data: [
-        { actual_reps: 10, actual_load_kg: '40', actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 2, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
-        { actual_reps: 8, actual_load_kg: '40', actual_rir: 2, outcome: 'on_target', completed_at: 'z', planned_sets: { set_order: 1, planned_exercises: { name: 'Supino', exercise_order: 1 } } },
+        {
+          actual_reps: 10,
+          actual_load_kg: '40',
+          actual_rir: 2,
+          outcome: 'on_target',
+          completed_at: 'z',
+          planned_sets: {
+            set_order: 2,
+            planned_exercises: { name: 'Supino', exercise_order: 1 },
+          },
+        },
+        {
+          actual_reps: 8,
+          actual_load_kg: '40',
+          actual_rir: 2,
+          outcome: 'on_target',
+          completed_at: 'z',
+          planned_sets: {
+            set_order: 1,
+            planned_exercises: { name: 'Supino', exercise_order: 1 },
+          },
+        },
       ],
       error: null,
     });

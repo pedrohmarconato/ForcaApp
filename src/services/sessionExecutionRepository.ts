@@ -18,6 +18,7 @@ export type ServerSetLog = {
   actual_load_kg: number | null;
   actual_rir: number | null;
   outcome: Outcome | null;
+  completed_at: string;
 };
 
 export type OpenSessionLog = {
@@ -26,8 +27,73 @@ export type OpenSessionLog = {
   setLogs: ServerSetLog[];
 };
 
+type RequestErrorKind = 'transport' | 'server';
+
 /**
- * Abre a execução de forma ATÔMICA via RPC `start_session` (migration 0003):
+ * Erro normalizado na fronteira do Supabase. A classificação usa o status HTTP
+ * que o postgrest-js entrega junto da resposta: status 0 é fetch/abort; qualquer
+ * resposta HTTP (inclusive 401/403 sem `.code`) é falha do servidor e não pode ser
+ * mascarada como retomada offline.
+ */
+export class SessionExecutionRequestError extends Error {
+  readonly kind: RequestErrorKind;
+  readonly status: number | null;
+  readonly code: string | null;
+  readonly details: string | null;
+  readonly hint: string | null;
+
+  constructor(
+    error: unknown,
+    options: { status?: number | null; kind?: RequestErrorKind } = {},
+  ) {
+    const record =
+      typeof error === 'object' && error !== null
+        ? (error as Record<string, unknown>)
+        : null;
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof record?.message === 'string'
+          ? record.message
+          : 'Erro inesperado ao falar com o servidor.';
+    super(message);
+    this.name = 'SessionExecutionRequestError';
+    this.status = options.status ?? null;
+    this.kind = options.kind ?? (options.status === 0 ? 'transport' : 'server');
+    this.code =
+      typeof record?.code === 'string' && record.code.length > 0
+        ? record.code
+        : null;
+    this.details = typeof record?.details === 'string' ? record.details : null;
+    this.hint = typeof record?.hint === 'string' ? record.hint : null;
+  }
+}
+
+export const isTransportSessionExecutionError = (
+  error: unknown,
+): error is SessionExecutionRequestError =>
+  error instanceof SessionExecutionRequestError && error.kind === 'transport';
+
+const thrownRequestError = (error: unknown): SessionExecutionRequestError => {
+  const name =
+    typeof error === 'object' &&
+    error !== null &&
+    typeof (error as { name?: unknown }).name === 'string'
+      ? (error as { name: string }).name
+      : '';
+  // fetch em React Native rejeita com TypeError; AbortController usa AbortError.
+  const transport = error instanceof TypeError || name === 'AbortError';
+  return new SessionExecutionRequestError(error, {
+    kind: transport ? 'transport' : 'server',
+  });
+};
+
+const throwResponseError = (error: unknown, status?: number): never => {
+  throw new SessionExecutionRequestError(error, { status: status ?? null });
+};
+
+/**
+ * Abre a execução de forma ATÔMICA via RPC `start_session` (migrations 0004/0005):
  * numa transação, reaproveita o session_log aberto ou cria um novo e marca a
  * sessão planejada 'in_progress'. Idempotente (reusa log aberto) — não duplica
  * session_log em retry/corrida. Retorna id + started_at do servidor.
@@ -35,14 +101,23 @@ export type OpenSessionLog = {
 export const startSessionLog = async (
   plannedSessionId: string,
 ): Promise<{ sessionLogId: string; startedAt: string }> => {
-  const { data, error } = await supabase.rpc('start_session', {
-    p_planned_session_id: plannedSessionId,
-  });
-  if (error) throw error;
+  let response: any;
+  try {
+    response = await supabase.rpc('start_session', {
+      p_planned_session_id: plannedSessionId,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  const { data, error, status } = response;
+  if (error) throwResponseError(error, status);
   // A função retorna a linha de session_logs (objeto; alguns setups devolvem array).
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.id) throw new Error('start_session não retornou a sessão de log.');
-  return { sessionLogId: row.id as string, startedAt: row.started_at as string };
+  return {
+    sessionLogId: row.id as string,
+    startedAt: row.started_at as string,
+  };
 };
 
 /**
@@ -54,87 +129,131 @@ export const getOpenSessionLog = async (
   userId: string,
   plannedSessionId: string,
 ): Promise<OpenSessionLog | null> => {
-  const log = await supabase
-    .from('session_logs')
-    .select('id, started_at')
-    .eq('user_id', userId)
-    .eq('planned_session_id', plannedSessionId)
-    .is('finished_at', null)
-    .order('started_at', { ascending: false })
-    .limit(1);
-  if (log.error) throw log.error;
-  const row = log.data?.[0];
+  let response: any;
+  try {
+    // Uma única instrução SQL/PostgREST produz um snapshot coerente: não há janela
+    // para finish_session acontecer entre a leitura do log e a leitura das séries.
+    response = await supabase
+      .from('session_logs')
+      .select(
+        'id, started_at, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, completed_at)',
+      )
+      .eq('user_id', userId)
+      .eq('planned_session_id', plannedSessionId)
+      .is('finished_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1);
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
+  const row = response.data?.[0];
   if (!row) return null;
 
-  const sets = await supabase
-    .from('set_logs')
-    .select('id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome')
-    .eq('session_log_id', row.id)
-    // Ordem determinística: a semente de "última carga" pega a série MAIS RECENTE (F8).
-    .order('completed_at', { ascending: true });
-  if (sets.error) throw sets.error;
+  const setLogs = ((row.set_logs ?? []) as any[])
+    .map((s) => ({
+      id: s.id,
+      planned_set_id: s.planned_set_id,
+      actual_reps: toNum(s.actual_reps),
+      actual_load_kg: toNum(s.actual_load_kg),
+      actual_rir: toNum(s.actual_rir),
+      outcome: s.outcome,
+      completed_at: s.completed_at,
+    }))
+    .filter((s) => typeof s.id === 'string' && s.actual_reps != null)
+    .sort((a, b) =>
+      String(a.completed_at).localeCompare(String(b.completed_at)),
+    ) as ServerSetLog[];
 
   return {
     sessionLogId: row.id as string,
     startedAt: row.started_at as string,
-    // numeric (actual_load_kg) pode vir como string do PostgREST → coage (F4).
-    setLogs: ((sets.data ?? []) as any[]).map((s) => ({
-      id: s.id,
-      planned_set_id: s.planned_set_id,
-      actual_reps: s.actual_reps,
-      actual_load_kg: toNum(s.actual_load_kg),
-      actual_rir: s.actual_rir,
-      outcome: s.outcome,
-    })) as ServerSetLog[],
+    setLogs,
   };
 };
 
 /**
- * Grava a execução de UMA série. Erro propaga (a série NÃO pode ser marcada
- * como feita se o banco recusou). Devolve o id do set_log para guardar contra
- * gravação dupla ao retomar.
+ * Grava a execução de UMA série via RPC ATÔMICA `save_set_log` (migrations 0004/0005).
+ * Erro propaga (a série NÃO pode ser marcada como feita se o banco recusou).
+ * Devolve o id do set_log para guardar contra gravação dupla ao retomar.
+ *
+ * Por que RPC e não `.upsert(...,{onConflict})` (F1 — BLOCKER): o supabase-js gera
+ * `ON CONFLICT (cols)` SEM predicado, e o índice único é PARCIAL
+ * (`WHERE planned_set_id IS NOT NULL`) — o Postgres NÃO consegue inferir um índice
+ * parcial sem o predicado explícito e devolve 42P10. A função usa
+ * `ON CONFLICT (...) WHERE planned_set_id IS NOT NULL`, que casa o índice parcial
+ * (F1). A 0005 mantém a primeira linha em retries concorrentes e a devolve como
+ * resultado autoritativo. A função ainda recusa log finalizado/alheio e planned_set
+ * de outra sessão (F2/F6/F9). adaptation continua nulo (Fase 5).
  */
-export const saveSetLog = async (params: {
-  sessionLogId: string;
-  plannedSetId: string;
+export const saveSetLog = async (
+  params: {
+    sessionLogId: string;
+    plannedSetId: string;
+    actualReps: number;
+    actualLoadKg: number | null;
+    actualRir: number | null;
+    outcome: Outcome;
+  },
+  signal?: AbortSignal,
+): Promise<{
+  setLogId: string;
   actualReps: number;
   actualLoadKg: number | null;
   actualRir: number | null;
   outcome: Outcome;
-}): Promise<{ setLogId: string }> => {
-  // UPSERT idempotente: o índice único (session_log_id, planned_set_id) da migration
-  // 0003 garante 1 set_log por série. Retry/duplo-toque atualiza a mesma linha em vez
-  // de criar uma segunda (F2/F3). adaptation continua nulo (Fase 5).
-  const { data, error } = await supabase
-    .from('set_logs')
-    .upsert(
-      {
-        session_log_id: params.sessionLogId,
-        planned_set_id: params.plannedSetId,
-        actual_reps: params.actualReps,
-        actual_load_kg: params.actualLoadKg,
-        actual_rir: params.actualRir,
-        outcome: params.outcome,
-      },
-      { onConflict: 'session_log_id,planned_set_id' },
-    )
-    .select('id')
-    .single();
-  if (error) throw error;
-  return { setLogId: data?.id as string };
+}> => {
+  const request = supabase.rpc('save_set_log', {
+    p_session_log_id: params.sessionLogId,
+    p_planned_set_id: params.plannedSetId,
+    p_actual_reps: params.actualReps,
+    p_actual_load_kg: params.actualLoadKg,
+    p_actual_rir: params.actualRir,
+    p_outcome: params.outcome,
+  });
+  let response: any;
+  try {
+    response = signal ? await request.abortSignal(signal) : await request;
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  const { data, error, status } = response;
+  if (error) throwResponseError(error, status);
+  // A função retorna a linha de set_logs (objeto; alguns setups devolvem array).
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id) throw new Error('save_set_log não retornou a série gravada.');
+  const actualReps = toNum(row.actual_reps);
+  const actualRir = toNum(row.actual_rir);
+  if (
+    actualReps == null ||
+    !['on_target', 'under', 'over'].includes(row.outcome)
+  ) {
+    throw new Error('save_set_log retornou uma série inválida.');
+  }
+  return {
+    setLogId: row.id as string,
+    actualReps,
+    actualLoadKg: toNum(row.actual_load_kg),
+    actualRir,
+    outcome: row.outcome as Outcome,
+  };
 };
 
 /**
- * Fecha a execução de forma ATÔMICA via RPC `finish_session` (migration 0003):
- * numa transação, seta finished_at e a sessão 'completed'. A RPC LEVANTA exceção
- * se 0 linhas forem afetadas (log inexistente, alheio ou já finalizado) — então
- * um update que não pega nada NÃO vira sucesso falso (F5/F6).
+ * Fecha a execução de forma ATÔMICA via RPC `finish_session` (migration 0004):
+ * numa transação, seta finished_at e a sessão 'completed'. Repetir no mesmo log do
+ * usuário é sucesso; log inexistente/alheio continua sendo erro (F4/F6).
  */
 export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
-  const { error } = await supabase.rpc('finish_session', {
-    p_session_log_id: sessionLogId,
-  });
-  if (error) throw error;
+  let response: any;
+  try {
+    response = await supabase.rpc('finish_session', {
+      p_session_log_id: sessionLogId,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
 };
 
 /**
@@ -151,7 +270,9 @@ export const getLastLoadByExerciseName = async (
 
   const { data, error } = await supabase
     .from('set_logs')
-    .select('actual_load_kg, completed_at, planned_sets(planned_exercises(name))')
+    .select(
+      'actual_load_kg, completed_at, planned_sets(planned_exercises(name))',
+    )
     .not('actual_load_kg', 'is', null)
     .order('completed_at', { ascending: false })
     .limit(300);
@@ -159,13 +280,15 @@ export const getLastLoadByExerciseName = async (
 
   const mapa: Record<string, number> = {};
   for (const linha of (data ?? []) as any[]) {
-    const nome: string | undefined = linha?.planned_sets?.planned_exercises?.name;
+    const nome: string | undefined =
+      linha?.planned_sets?.planned_exercises?.name;
     const carga = linha?.actual_load_kg;
     if (!nome || carga == null) continue;
     const chave = normalizeName(nome);
     if (!alvo.has(chave)) continue;
     // Ordenado por completed_at desc → o PRIMEIRO visto é o mais recente.
-    if (!(chave in mapa)) mapa[chave] = Number(carga);
+    const numeric = toNum(carga);
+    if (!(chave in mapa) && numeric != null) mapa[chave] = numeric;
   }
   return mapa;
 };
@@ -259,8 +382,10 @@ export const getSessionLogDetail = async (
   // Agrupa por exercício (ordem + nome), preservando a ordem das séries.
   const porExercicio = new Map<string, HistoryExercise>();
   for (const l of (linhas.data ?? []) as any[]) {
-    const nome: string = l?.planned_sets?.planned_exercises?.name ?? 'Exercício';
-    const ordemEx: number = l?.planned_sets?.planned_exercises?.exercise_order ?? 0;
+    const nome: string =
+      l?.planned_sets?.planned_exercises?.name ?? 'Exercício';
+    const ordemEx: number =
+      l?.planned_sets?.planned_exercises?.exercise_order ?? 0;
     const chave = `${ordemEx}::${nome}`;
     if (!porExercicio.has(chave)) {
       porExercicio.set(chave, { name: nome, order: ordemEx, sets: [] });
