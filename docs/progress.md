@@ -453,3 +453,23 @@ os status do snapshot. **Nenhuma migration nesta fase; nada a aplicar em HML/pro
 ### Próximo passo
 Abrir o PR da Fase 6 (base main) e aguardar OK do dono — merge SÓ com OK
 explícito. Depois: Fase 7 (camada de IA das adaptações, endpoint /api/adapt).
+
+### Fase 6.1 — correções do review do dono (18/07/2026, mesmos branch/PR #9)
+Dois bloqueadores apontados pelo dono, **ambos confirmados no código vivo** e
+corrigidos testes-primeiro (5 testes RED reproduzindo as falhas → verdes):
+1. **Corte × redistribuição no mesmo replan**: a proposta combinada inseria
+   séries num exercício que o próprio replan cortava. Fix: `replanByRules`
+   calcula o corte primeiro e passa `excludedReceiverExerciseIds` à
+   redistribuição — cortado não recebe nem conta na base do teto; o volume vai
+   a outra sessão apta ou vira perda registrada.
+2. **Idempotência da aplicação**: (a) guarda síncrona de reentrância em
+   `confirmReplan` (confirmações concorrentes → 1 chamada ao repositório);
+   (b) `ReplanApplyError` tipado por estágio — insert/snapshot falham sem nada
+   aplicado (proposta fica para retry); skip falho sai com `replanApplied=true`
+   + `addedSets`: o store reflete o que persistiu, DESCARTA a proposta obsoleta
+   e recalcula do servidor (adds já no snapshot → nova proposta sem additions,
+   só o skip pendente) — retry nunca re-insere.
+Verificação: tsc 0 · jest 27 suítes/221 · pytest 67. **Pendência registrada
+(decisão do dono)**: índice único em `planned_sets(exercise_id, set_order)`
+como backstop de banco contra duplicação cross-device exigiria migration 0007
+(HML primeiro) — não feito nesta fase.
