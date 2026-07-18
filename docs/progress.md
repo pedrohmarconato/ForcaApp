@@ -473,3 +473,28 @@ Verificação: tsc 0 · jest 27 suítes/221 · pytest 67. **Pendência registrad
 (decisão do dono)**: índice único em `planned_sets(exercise_id, set_order)`
 como backstop de banco contra duplicação cross-device exigiria migration 0007
 (HML primeiro) — não feito nesta fase.
+
+### Fase 6.2 — backstop cross-device (18/07/2026, mesmos branch/PR #9)
+O dono autorizou o backstop. Duas peças, testes-primeiro:
+1. **Migration `0007_planned_sets_unicidade.sql`**: índice único
+   `planned_sets_exercise_set_order_key` em `(exercise_id, set_order)`, com
+   pré-checagem que ABORTA listando duplicatas pré-existentes (nunca apaga dado
+   às cegas) e asserção de catálogo ao final. Dois aparelhos confirmando o mesmo
+   replan geram os MESMOS set_order (`max+i`); o segundo INSERT falha com 23505
+   — e o bulk insert do PostgREST é um statement só, então falha inteiro.
+2. **Classificação do conflito no store**: `23505` no estágio `insert` =
+   "outro aparelho aplicou primeiro". Nada desta tentativa persistiu (rascunho
+   intacto, sem corte nem séries), mas a proposta está OBSOLETA — reaplicá-la
+   falharia para sempre. O store a descarta, avisa ("Replanejamento já aplicado
+   em outro aparelho") e recalcula do servidor pelo mesmo caminho do skip-falho:
+   a falta já resolvida não é re-proposta e o retry nunca re-insere.
+
+**Prova em Postgres LOCAL descartável (16.14, homebrew)** — HML segue pendente
+(sem credencial da conta Marconato neste ambiente): cadeia 0000→0007 aplicada
+limpa sobre stub mínimo do schema auth; PROVA 1 duplicata → 23505 e contagem
+intacta; PROVA 2 insert legítimo (max+1) passa; PROVA 3 re-execução idempotente,
+pré-checagem aborta com a lista do ofensor e aplica após limpeza.
+
+Verificação: tsc 0 · jest 27 suítes/223 (221→223) · pytest 67. **Pendências:
+(a) aplicar a 0007 em HML (`forcaapp-hml`) e rodar a PROVA do rodapé — bloqueado
+na credencial; (b) prod continua GATED; (c) revogar os 2 PATs expostos (dono).**
