@@ -378,3 +378,78 @@ nada é aplicado sem confirmação.
 ### Próximo passo
 Abrir o PR da Fase 5 (base `main`). Merge só com OK do dono. Depois: Fase 6 (replanejamento
 semanal por regras).
+
+---
+
+## ✅ Fase 6 — Replanejamento semanal por regras (18/07/2026, branch fase-6-replanejamento-semanal)
+
+Faltou ao treino ou tem menos tempo hoje → a semana se reorganiza, SEMPRE com
+confirmação do aluno; recusa mantém o plano original (proposta é só overlay em
+memória — nada é escrito sem o toque em "Aplicar").
+
+### Decisão do dono (confirmada nesta sessão)
+Preservar o original **SEM migration nova**: o evento de replanejamento (status
+originais, IDs das séries inseridas, perdas aceitas, corte de tempo) é gravado em
+`session_logs.adherence_snapshot` — coluna jsonb JÁ reservada para a Fase 6 na
+migration 0001 (`available_minutes` idem). A aplicação é só ADITIVA (insere
+séries + marca 'skipped'); reverter = apagar as séries de `addedSets` + restaurar
+os status do snapshot. **Nenhuma migration nesta fase; nada a aplicar em HML/prod.**
+
+### O que foi feito (testes-primeiro)
+- **Motor puro** `src/engine/weeklyReplanner.ts`: `computeAdherence` (sessões e
+  volume; taxa NULA sem base — nada inventado), `planTimeCut` (escadas
+  ~100%/66%/45% por prioridade da Fase 3; sem estimated_minutes → não propõe),
+  `planMissedRedistribution` (teto +25%/grupo na receptora sobre as séries
+  ORIGINAIS; recuperação = não empilhar grupo em dias consecutivos; faltas
+  múltiplas NÃO empilham — replans anteriores contam no teto; deload não compensa
+  nem recebe; o que não coube é PERDA registrada), `replanByRules` (orquestra),
+  helpers de overlay (`applyTimeCutToDraft`, `appendAddedSetsToDraft`) e do
+  snapshot (`parseReplanSnapshot` defensivo, `addedSetIdsFromSnapshots`,
+  `lastTimeCutForSession`).
+- **`REPLAN_CONFIG`** em `src/engine/config.ts` — TODOS os números marcados
+  "PADRÃO A VALIDAR": escadas fullMinRatio 0.85 / secondaryMinRatio 0.55,
+  teto 0.25, recuperação 1 dia, tokens de deload ['deload','descarga'].
+- **Repositório** `src/services/weeklyReplanRepository.ts`: contexto da semana
+  (séries de replans anteriores marcadas; executado por sessão) e
+  `applyConfirmedReplan` com ordem deliberada: INSERT (copia alvo da última série
+  original) → snapshot MERGE → skip. Snapshot falhou → rollback das inseridas +
+  erro propaga; skip falhou → snapshot já impede empilhar. Skip restrito a
+  user_id + status 'pending'.
+- **Store/UI**: `computeReplan` ao ABRIR a sessão (best-effort — sem rede o treino
+  segue sem banner), toggle "menos tempo hoje" (input de minutos → recalcula a
+  proposta), `ReplanBanner` (faltas, adições, perdas registradas, corte; Aplicar/
+  Manter plano original), recusa não volta pelo recálculo, retomada reaplica corte
+  confirmado do servidor (getOpenSessionLog agora traz available_minutes +
+  adherence_snapshot). Exercício cortado sai do caminho (séries feitas ficam;
+  pendentes não seguram o "Concluir treino").
+
+### Verificação
+- `npx tsc --noEmit`: **0 erros**. `npx jest --runInBand`: **172 → 216** (27
+  suítes, 100% verde). `python3 -m pytest backend/tests -q`: **67 verdes**
+  (backend NÃO tocado — 0 arquivos em backend/).
+- Fluxo exercitado DE VERDADE pela tela real (`replanScreenFlow.test.tsx`): abrir
+  → banner da falta → recusar (nada escrito) → 40 min → corte proposto → aplicar
+  → repositório chamado e acessório cortado na tela. Store+motor+telas reais; só
+  a fronteira de rede mockada. + `replanFlow.test.ts` (7 casos de store, incluindo
+  falha na aplicação sem sucesso otimista e proposta órfã de outra sessão).
+
+### Pendências honestas (NÃO sucesso otimista)
+1. **E2E device/Supabase real não rodado** (mesma limitação das fases anteriores):
+   verificação headless + tsc + jest. Ao testar em device, conferir o UPDATE de
+   `adherence_snapshot`/`available_minutes` e o INSERT em planned_sets sob RLS real.
+2. **Números do REPLAN_CONFIG precisam de validação profissional** (escadas, teto
+   de +25%, 1 dia de recuperação) — são a essência do plano, não tabela oficial.
+3. **Detecção de deload é por TEXTO** (session_type/título): o enum de volume
+   semanal que a IA declara ("Deload") NÃO é persistido no modelo — se o plano só
+   marcar deload no nível da semana, a Fase 6 não o vê. Persistir isso exigiria
+   migration (fica registrado, não feito).
+4. Aplicação não é transacional (PostgREST, 3 escritas): a ordem escolhida
+   (insert → snapshot → skip) garante que falha parcial nunca EMPILHA volume, mas
+   pode deixar sessão perdida ainda 'pending' com séries já adicionadas (a
+   reproposta seguinte respeita o teto). RPC transacional seria refino com migration.
+5. Sem tela de "reverter replanejamento": o snapshot preserva os dados para
+   reverter/auditar; a UI de rollback não fazia parte da fase.
+
+### Próximo passo
+Abrir o PR da Fase 6 (base main) e aguardar OK do dono — merge SÓ com OK
+explícito. Depois: Fase 7 (camada de IA das adaptações, endpoint /api/adapt).
