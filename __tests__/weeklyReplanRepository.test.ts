@@ -269,6 +269,41 @@ it('aplica confirmado: insere copiando o alvo, snapshot MERGE antes do skip, ski
   expect(skipB.eq).toHaveBeenCalledWith('user_id', 'user-1');
 });
 
+it('INSERT falhou (23505 do índice único = outro aparelho) → erro tipado stage insert com a CAUSA preservada, nada aplicado', async () => {
+  // Backstop da 0007: o segundo aparelho colide no índice único de
+  // planned_sets(exercise_id, set_order). O bulk insert do PostgREST é um
+  // statement só (atômico), então nada persistiu; o store precisa do
+  // cause.code para classificar o conflito e descartar a proposta obsoleta.
+  const conflito = {
+    message: 'duplicate key value violates unique constraint "planned_sets_exercise_set_order_key"',
+    code: '23505',
+  };
+  const insertB = builder({ data: null, error: conflito });
+  const tabelas: string[] = [];
+  fromMock.mockImplementation((table: string) => {
+    tabelas.push(table);
+    return insertB;
+  });
+
+  await expect(
+    applyConfirmedReplan({
+      context: contextoBase(),
+      proposal: propostaBase(),
+      sessionLogId: 'log-1',
+      confirmedAtISO: '2026-07-17T12:00:00Z',
+    }),
+  ).rejects.toMatchObject({
+    name: 'ReplanApplyError',
+    stage: 'insert',
+    replanApplied: false,
+    cause: { code: '23505' },
+  });
+
+  // parou no insert: nem snapshot, nem skip, nem rollback (nada a desfazer)
+  expect(tabelas).toEqual(['planned_sets']);
+  expect(insertB.delete).not.toHaveBeenCalled();
+});
+
 it('snapshot falhou → remove as séries recém-inseridas, NÃO pula sessão e propaga', async () => {
   const insertB = builder({
     data: [{ id: 'novo-1', exercise_id: 'f1', set_order: 3, target_reps_min: 8, target_reps_max: 12, target_load_kg: null, target_rir: null }],

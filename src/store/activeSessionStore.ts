@@ -563,40 +563,63 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (operationEpoch !== epoch || get().draft?.sessionLogId !== sid) return false;
       // Duck-type (o repositório é mockado nos testes): replanApplied=true significa
       // que séries+snapshot JÁ persistiram e só o skip falhou.
-      const failure = e as { replanApplied?: boolean; addedSets?: AddedSetRow[] };
-      if (failure?.replanApplied !== true) {
+      const failure = e as {
+        replanApplied?: boolean;
+        addedSets?: AddedSetRow[];
+        stage?: string;
+        cause?: { code?: string };
+      };
+      // Conflito de unicidade no INSERT = OUTRO aparelho aplicou este replan
+      // primeiro (backstop do índice único da migration 0007). Nada desta
+      // tentativa persistiu, mas a proposta está obsoleta — reaplicá-la
+      // falharia para sempre; o caminho certo é recalcular do servidor.
+      const insertConflict = failure?.stage === 'insert' && failure?.cause?.code === '23505';
+      if (failure?.replanApplied !== true && !insertConflict) {
         // Nada foi aplicado (insert/snapshot falharam com rollback): a proposta
         // fica de pé para tentar de novo; o erro aparece, nunca é engolido.
         set({ saveError: errMsg(e) });
         return false;
       }
-      // Aplicado em parte (só o skip falhou). Reaplicar a MESMA proposta
-      // re-inseriria as séries (achado nº 2): reflete o que persistiu no
-      // rascunho, DESCARTA a proposta obsoleta e recalcula do servidor — o
-      // snapshot já registra os adds, então a nova proposta respeita o teto e
-      // só re-propõe o skip pendente.
-      const atual = get().draft;
-      if (atual && atual.sessionLogId === sid) {
-        let novo = atual;
-        if (pr.proposal.timeCut) {
-          novo = applyTimeCutToDraft(
-            novo,
-            pr.proposal.timeCut.cutExercises.map((c) => c.exerciseId),
-          );
-        }
-        const daSessaoAtual = (failure.addedSets ?? []).filter(
-          (r) => r.sessionId === atual.plannedSessionId,
-        );
-        if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
-        set({ draft: novo, pendingReplan: null, saveError: errMsg(e) });
-        try {
-          await saveDraft(novo);
-        } catch (storageError) {
-          console.warn('[activeSession] rascunho não persistido (não-fatal):', storageError);
-        }
+      if (insertConflict) {
+        // Rascunho intacto (nem corte nem séries persistiram por aqui); só
+        // descarta a proposta obsoleta — o recálculo abaixo traz o estado do
+        // servidor, que já contém o replan do outro aparelho.
+        set({
+          pendingReplan: null,
+          saveError: 'Replanejamento já aplicado em outro aparelho. Proposta atualizada.',
+        });
       } else {
-        set({ pendingReplan: null, saveError: errMsg(e) });
+        // Aplicado em parte (só o skip falhou). Reaplicar a MESMA proposta
+        // re-inseriria as séries (achado nº 2): reflete o que persistiu no
+        // rascunho, DESCARTA a proposta obsoleta e recalcula do servidor — o
+        // snapshot já registra os adds, então a nova proposta respeita o teto e
+        // só re-propõe o skip pendente.
+        const atual = get().draft;
+        if (atual && atual.sessionLogId === sid) {
+          let novo = atual;
+          if (pr.proposal.timeCut) {
+            novo = applyTimeCutToDraft(
+              novo,
+              pr.proposal.timeCut.cutExercises.map((c) => c.exerciseId),
+            );
+          }
+          const daSessaoAtual = (failure.addedSets ?? []).filter(
+            (r) => r.sessionId === atual.plannedSessionId,
+          );
+          if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
+          set({ draft: novo, pendingReplan: null, saveError: errMsg(e) });
+          try {
+            await saveDraft(novo);
+          } catch (storageError) {
+            console.warn('[activeSession] rascunho não persistido (não-fatal):', storageError);
+          }
+        } else {
+          set({ pendingReplan: null, saveError: errMsg(e) });
+        }
       }
+      // Recálculo do servidor (comum ao conflito e ao skip falho): a nova
+      // proposta parte do estado autoritativo — adds anteriores contam no teto,
+      // sessão já pulada não é re-proposta.
       try {
         const refreshed = await getWeekReplanContext(
           pr.context.userId,

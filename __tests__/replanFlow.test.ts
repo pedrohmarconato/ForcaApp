@@ -336,6 +336,52 @@ it('falha no SKIP após inserir+registrar: proposta obsoleta é descartada e o r
   expect(setsDepois.filter((s) => s.plannedSetId === 'novo-1')).toHaveLength(1);
 });
 
+it('conflito de unicidade no INSERT (23505 = outro aparelho aplicou antes): descarta a proposta obsoleta e recalcula do servidor', async () => {
+  // Backstop da migration 0007 (índice único em planned_sets(exercise_id,
+  // set_order)): dois aparelhos com o mesmo contexto geram os MESMOS set_order —
+  // o segundo INSERT falha com 23505. Nada desta tentativa persistiu, mas a
+  // proposta está obsoleta: reaplicá-la falharia para sempre.
+  mock(applyConfirmedReplan).mockRejectedValueOnce({
+    name: 'ReplanApplyError',
+    message: 'duplicate key value violates unique constraint "planned_sets_exercise_set_order_key"',
+    stage: 'insert',
+    replanApplied: false,
+    addedSets: [],
+    cause: { code: '23505' },
+  });
+  // Refresh do servidor: o OUTRO aparelho já aplicou tudo — série inserida
+  // (marcada como de replan) e a sessão perdida já 'skipped'.
+  const contextoAtualizado = makeContext();
+  contextoAtualizado.sessions[0].status = 'skipped';
+  contextoAtualizado.sessions[1].exercises[0].sets = [
+    ...[1, 2, 3, 4].map((i) => ({ id: `ex1-s${i}`, setOrder: i })),
+    { id: 'outro-1', setOrder: 5, addedByReplan: true },
+  ];
+  mock(getWeekReplanContext)
+    .mockResolvedValueOnce(makeContext()) // abrir
+    .mockResolvedValueOnce(contextoAtualizado); // refresh pós-conflito
+
+  await abrir();
+  store().requestTimeCut(40); // corte + adição na mesma proposta
+  const ok = await store().confirmReplan();
+  expect(ok).toBe(false);
+
+  // NADA desta tentativa persistiu → rascunho intacto: sem corte e sem série nova
+  const draft = store().draft!;
+  expect(draft.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).not.toBe(true);
+  expect(draft.exercises.find((e) => e.exerciseId === 'ex-1')!.sets).toHaveLength(2);
+
+  // o erro explica o conflito, sem sucesso otimista
+  expect(store().saveError).toMatch(/outro aparelho/i);
+
+  // a proposta obsoleta foi DESCARTADA e recalculada do servidor: a falta já foi
+  // resolvida pelo outro aparelho → nada a propor (retry nunca re-insere)
+  expect(mock(getWeekReplanContext)).toHaveBeenCalledTimes(2);
+  const pr = store().pendingReplan;
+  expect(pr === null || pr.proposal.hasChanges === false).toBe(true);
+  expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1);
+});
+
 it('proposta de OUTRA sessão não é aplicável (troca de sessão descarta, nada escreve)', async () => {
   await abrir();
   // troca de sessão sem passar pela tela: novo log, proposta antiga fica órfã
