@@ -11,11 +11,18 @@ import {
   planTimeCut,
   planMissedRedistribution,
   replanByRules,
+  applyTimeCutToDraft,
+  appendAddedSetsToDraft,
+  parseReplanSnapshot,
+  addedSetIdsFromSnapshots,
+  lastTimeCutForSession,
   type ReplanSession,
   type ReplanExercise,
   type ReplanSetRef,
+  type ReplanSnapshot,
 } from '../src/engine/weeklyReplanner';
 import { REPLAN_CONFIG } from '../src/engine/config';
+import type { SessionDraft } from '../src/engine/sessionModel';
 
 // ---------------------------------------------------------------
 // Fixtures compactas
@@ -393,5 +400,159 @@ describe('replanByRules', () => {
     });
     expect(proposal.timeCut).not.toBeNull();
     expect(proposal.redistribution).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------
+// Aplicação ao rascunho (overlay confirmado) e snapshot
+// ---------------------------------------------------------------
+
+const draftSet = (plannedSetId: string, setOrder: number, status: 'pending' | 'done' = 'pending') => ({
+  plannedSetId,
+  setOrder,
+  targetRepsMin: 8,
+  targetRepsMax: 10,
+  targetLoadKg: null,
+  targetRir: 2,
+  actualReps: status === 'done' ? 9 : null,
+  actualLoadKg: null,
+  actualRir: null,
+  status,
+  outcome: null,
+  setLogId: null,
+  adaptation: null,
+});
+
+const makeDraft = (): SessionDraft => ({
+  version: 1,
+  plannedSessionId: 'sess-1',
+  sessionLogId: 'log-1',
+  userId: 'user-1',
+  title: 'Push A',
+  weekNumber: 1,
+  startedAt: null,
+  status: 'active',
+  exercises: [
+    {
+      exerciseId: 'ex-1',
+      name: 'Supino',
+      order: 1,
+      equipment: 'Barra',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 2.5,
+      restSeconds: 90,
+      priority: 'primary',
+      targetRmPercent: null,
+      repsRaw: '8-10',
+      sets: [draftSet('st-1', 1, 'done'), draftSet('st-2', 2)],
+    },
+    {
+      exerciseId: 'ex-2',
+      name: 'Tríceps Corda',
+      order: 2,
+      equipment: 'Polia',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 2.5,
+      restSeconds: 60,
+      priority: 'accessory',
+      targetRmPercent: null,
+      repsRaw: '10-12',
+      sets: [draftSet('st-3', 1)],
+    },
+  ],
+  lastLoadByExercise: {},
+});
+
+describe('applyTimeCutToDraft / appendAddedSetsToDraft', () => {
+  it('corte marca só os exercícios listados; séries feitas ficam intactas', () => {
+    const out = applyTimeCutToDraft(makeDraft(), ['ex-2']);
+    expect(out.exercises[0].cutByReplan).toBeUndefined();
+    expect(out.exercises[1].cutByReplan).toBe(true);
+    expect(out.exercises[0].sets[0].status).toBe('done');
+  });
+
+  it('anexa as séries inseridas na sessão atual, ordenadas e SEM duplicar (idempotente)', () => {
+    const rows = [
+      {
+        id: 'new-1',
+        sessionId: 'sess-1',
+        exerciseId: 'ex-1',
+        setOrder: 3,
+        targetRepsMin: 8,
+        targetRepsMax: 10,
+        targetLoadKg: 42.5,
+        targetRir: 2,
+      },
+    ];
+    const once = appendAddedSetsToDraft(makeDraft(), rows);
+    const twice = appendAddedSetsToDraft(once, rows);
+    const setsEx1 = twice.exercises[0].sets;
+    expect(setsEx1.map((s) => s.plannedSetId)).toEqual(['st-1', 'st-2', 'new-1']);
+    expect(setsEx1[2]).toMatchObject({ status: 'pending', targetLoadKg: 42.5, setOrder: 3 });
+    expect(twice.exercises[1].sets).toHaveLength(1); // outro exercício intocado
+  });
+});
+
+describe('snapshot do replanejamento (parse defensivo)', () => {
+  const event = (over: any = {}) => ({
+    confirmedAtISO: '2026-07-17T10:00:00Z',
+    planId: 'plan-1',
+    weekNumber: 1,
+    adherence: {
+      sessionsDue: 0,
+      sessionsCompleted: 0,
+      sessionRate: null,
+      setsDue: 0,
+      setsCompleted: 0,
+      volumeRate: null,
+    },
+    redistribution: null,
+    timeCut: null,
+    ...over,
+  });
+
+  it('forma inesperada → null (nunca inventa eventos)', () => {
+    expect(parseReplanSnapshot(null)).toBeNull();
+    expect(parseReplanSnapshot('lixo')).toBeNull();
+    expect(parseReplanSnapshot({ version: 2, events: [] })).toBeNull();
+    expect(parseReplanSnapshot({ version: 1, events: 'x' })).toBeNull();
+  });
+
+  it('extrai os IDs de séries adicionadas por replans anteriores de todos os snapshots', () => {
+    const snap: ReplanSnapshot = {
+      version: 1,
+      events: [
+        event({
+          redistribution: {
+            missedSessions: [],
+            addedSets: [{ id: 'a1', sessionId: 's', exerciseId: 'e', setOrder: 5 }],
+            losses: [],
+          },
+        }),
+      ],
+    };
+    expect([...addedSetIdsFromSnapshots([snap, null])]).toEqual(['a1']);
+  });
+
+  it('lastTimeCutForSession devolve o ÚLTIMO corte da sessão (e ignora o de outra)', () => {
+    const cutFor = (sessionId: string, minutes: number) => ({
+      sessionId,
+      availableMinutes: minutes,
+      estimatedMinutes: 60,
+      keptPriorities: ['primary'] as const,
+      cutExercises: [],
+    });
+    const snap = parseReplanSnapshot({
+      version: 1,
+      events: [
+        event({ timeCut: cutFor('sess-1', 30) }),
+        event({ timeCut: cutFor('outra', 20) }),
+        event({ timeCut: cutFor('sess-1', 45) }),
+      ],
+    });
+    expect(lastTimeCutForSession(snap, 'sess-1')?.availableMinutes).toBe(45);
+    expect(lastTimeCutForSession(snap, 'sem-corte')).toBeNull();
   });
 });

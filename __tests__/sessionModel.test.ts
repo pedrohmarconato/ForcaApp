@@ -224,3 +224,25 @@ describe('sessionProgress / isSessionComplete', () => {
     expect(isSessionComplete(draft)).toBe(true);
   });
 });
+
+describe('sessionProgress com exercício cortado por tempo (Fase 6)', () => {
+  it('séries PENDENTES de exercício cortado saem da conta; as feitas continuam', () => {
+    const draft = buildDraftFromDetail(detalheExemplo, 'user-1');
+    // 3 séries no total; marca a 1ª do 1º exercício como feita e corta esse exercício
+    draft.exercises[0].sets[0].status = 'done';
+    draft.exercises[0].cutByReplan = true;
+    const progresso = sessionProgress(draft);
+    // a série feita conta; as pendentes do exercício cortado não seguram a conclusão
+    expect(progresso.done).toBe(1);
+    const pendentesForaDoCorte = draft.exercises
+      .filter((ex) => ex.cutByReplan !== true)
+      .reduce((n, ex) => n + ex.sets.length, 0);
+    expect(progresso.total).toBe(1 + pendentesForaDoCorte);
+
+    // completa o resto (fora do corte) → sessão é considerada completa
+    draft.exercises
+      .filter((ex) => ex.cutByReplan !== true)
+      .forEach((ex) => ex.sets.forEach((s) => (s.status = 'done')));
+    expect(isSessionComplete(draft)).toBe(true);
+  });
+});

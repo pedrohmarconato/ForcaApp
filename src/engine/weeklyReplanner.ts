@@ -16,7 +16,7 @@
 //  - faltas múltiplas NÃO empilham: o teto vale para o TOTAL redistribuído
 //    (replans anteriores contam), não por falta.
 
-import { normalizeName } from './sessionModel';
+import { normalizeName, type SessionDraft } from './sessionModel';
 import { REPLAN_CONFIG, type ReplanConfig } from './config';
 
 export type Priority = 'primary' | 'secondary' | 'accessory';
@@ -464,4 +464,150 @@ export const replanByRules = (params: {
     redistribution,
     hasChanges: timeCut != null || redistribution != null,
   };
+};
+
+// ---------------------------------------------------------------
+// Aplicação ao RASCUNHO da sessão ativa (pura — chamada só após confirmação)
+// ---------------------------------------------------------------
+
+/**
+ * Marca no rascunho os exercícios cortados pela escada de tempo. As séries já
+ * concluídas ficam intactas (histórico não se reescreve); as pendentes desses
+ * exercícios saem do caminho de conclusão (sessionProgress as ignora).
+ */
+export const applyTimeCutToDraft = (
+  draft: SessionDraft,
+  cutExerciseIds: string[],
+): SessionDraft => {
+  const cut = new Set(cutExerciseIds);
+  return {
+    ...draft,
+    exercises: draft.exercises.map((ex) =>
+      cut.has(ex.exerciseId) ? { ...ex, cutByReplan: true } : ex,
+    ),
+  };
+};
+
+/** Linha de planned_sets inserida por um replanejamento confirmado. */
+export type AddedSetRow = {
+  id: string;
+  sessionId: string;
+  exerciseId: string;
+  setOrder: number;
+  targetRepsMin: number;
+  targetRepsMax: number;
+  targetLoadKg: number | null;
+  targetRir: number | null;
+};
+
+/**
+ * Anexa ao rascunho as séries que a redistribuição confirmada inseriu na PRÓPRIA
+ * sessão ativa (as das sessões futuras só existem no banco). Idempotente: uma
+ * série já presente (mesmo plannedSetId) não é anexada duas vezes.
+ */
+export const appendAddedSetsToDraft = (
+  draft: SessionDraft,
+  rows: AddedSetRow[],
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) => {
+    const novas = rows.filter(
+      (r) =>
+        r.exerciseId === ex.exerciseId &&
+        !ex.sets.some((s) => s.plannedSetId === r.id),
+    );
+    if (novas.length === 0) return ex;
+    return {
+      ...ex,
+      sets: [
+        ...ex.sets,
+        ...novas.map((r) => ({
+          plannedSetId: r.id,
+          setOrder: r.setOrder,
+          targetRepsMin: r.targetRepsMin,
+          targetRepsMax: r.targetRepsMax,
+          targetLoadKg: r.targetLoadKg,
+          targetRir: r.targetRir,
+          actualReps: null,
+          actualLoadKg: null,
+          actualRir: null,
+          status: 'pending' as const,
+          outcome: null,
+          setLogId: null,
+          adaptation: null,
+        })),
+      ].sort((a, b) => a.setOrder - b.setOrder),
+    };
+  }),
+});
+
+// ---------------------------------------------------------------
+// Snapshot do replanejamento (gravado em session_logs.adherence_snapshot)
+// ---------------------------------------------------------------
+// Decisão do dono (Fase 6): preservar o original SEM migration nova — a coluna
+// jsonb adherence_snapshot foi reservada para a Fase 6 na 0001. A aplicação é
+// só ADITIVA (insere séries + marca 'skipped'), então o evento abaixo basta
+// para auditar e reverter: apagar as séries de addedSets + restaurar os status
+// originais de missedSessions.
+
+export type ReplanEvent = {
+  confirmedAtISO: string;
+  planId: string;
+  weekNumber: number;
+  adherence: WeekAdherence;
+  redistribution: {
+    missedSessions: { id: string; originalStatus: ReplanSessionStatus }[];
+    addedSets: { id: string; sessionId: string; exerciseId: string; setOrder: number }[];
+    losses: ReplanLoss[];
+  } | null;
+  timeCut: {
+    sessionId: string;
+    availableMinutes: number;
+    estimatedMinutes: number;
+    keptPriorities: Priority[];
+    cutExercises: { exerciseId: string; name: string; setsCut: number }[];
+  } | null;
+};
+
+export type ReplanSnapshot = { version: 1; events: ReplanEvent[] };
+
+/** Leitura defensiva do jsonb: forma inesperada → null (nunca inventa eventos). */
+export const parseReplanSnapshot = (value: unknown): ReplanSnapshot | null => {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as { version?: unknown; events?: unknown };
+  if (v.version !== 1 || !Array.isArray(v.events)) return null;
+  return {
+    version: 1,
+    events: v.events.filter(
+      (e): e is ReplanEvent => typeof e === 'object' && e !== null,
+    ),
+  };
+};
+
+/** IDs de séries inseridas por replans anteriores (todas as fontes da semana). */
+export const addedSetIdsFromSnapshots = (
+  snapshots: (ReplanSnapshot | null)[],
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const snap of snapshots) {
+    for (const ev of snap?.events ?? []) {
+      for (const added of ev.redistribution?.addedSets ?? []) {
+        if (typeof added?.id === 'string') ids.add(added.id);
+      }
+    }
+  }
+  return ids;
+};
+
+/** Último corte de tempo confirmado para uma sessão (para reaplicar na retomada). */
+export const lastTimeCutForSession = (
+  snapshot: ReplanSnapshot | null,
+  plannedSessionId: string,
+): ReplanEvent['timeCut'] | null => {
+  const events = snapshot?.events ?? [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const cut = events[i]?.timeCut;
+    if (cut && cut.sessionId === plannedSessionId) return cut;
+  }
+  return null;
 };
