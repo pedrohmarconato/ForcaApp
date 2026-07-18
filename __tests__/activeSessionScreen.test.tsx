@@ -1,0 +1,133 @@
+// __tests__/activeSessionScreen.test.tsx
+// Fase 4 — exercita a SESSÃO INTEIRA na tela (o "verificar de verdade" headless):
+// iniciar → registrar 2 séries com carga (2ª já sugere a última) → 1 série
+// bodyweight (sem kg) → concluir o treino. Também cobre a barreira da 1ª carga
+// e a ausência de campo de kg no bodyweight.
+
+import React from 'react';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
+
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn(), canGoBack: () => true, popToTop: jest.fn() }),
+}));
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = require('react-native');
+  return { SafeAreaView: View };
+});
+
+const mockAuthState = { user: { id: 'user-1', email: 'p@e.com' }, profile: { full_name: 'Pedro' } };
+jest.mock('../src/contexts/AuthContext', () => ({ useAuth: () => mockAuthState }));
+
+jest.mock('../src/services/sessionExecutionRepository', () => ({
+  startSessionLog: jest.fn(async () => ({ sessionLogId: 'sl-1', startedAt: 'T0' })),
+  saveSetLog: jest.fn(async () => ({ setLogId: 'set-x' })),
+  finishSessionLog: jest.fn(async () => undefined),
+  getOpenSessionLog: jest.fn(async () => null),
+  getLastLoadByExerciseName: jest.fn(async () => ({})),
+}));
+jest.mock('../src/services/sessionDraftStorage', () => ({
+  saveDraft: jest.fn(async () => undefined),
+  loadDraft: jest.fn(async () => null),
+  clearDraft: jest.fn(async () => undefined),
+}));
+
+const detail = {
+  id: 'sess-1', plan_id: 'plan-1', user_id: 'user-1', week_number: 1, day_of_week: null,
+  order_in_week: 1, title: 'Push A', session_type: 'Hipertrofia', scheduled_date: '2026-07-20',
+  estimated_minutes: 60, status: 'pending', muscle_groups: ['Peito'],
+  planned_exercises: [
+    {
+      id: 'ex-1', session_id: 'sess-1', exercise_order: 1, name: 'Supino Reto', muscle_group: 'Peito',
+      priority: 'primary', equipment: 'Barra', load_increment_kg: 2.5, rest_seconds: 90,
+      target_rm_percent: 75, sets_planned: 2, reps_raw: '8-10', method: null, notes: null,
+      planned_sets: [
+        { id: 'st-1', exercise_id: 'ex-1', set_order: 1, target_reps_min: 8, target_reps_max: 10, target_load_kg: null, target_rir: 2 },
+        { id: 'st-2', exercise_id: 'ex-1', set_order: 2, target_reps_min: 8, target_reps_max: 10, target_load_kg: null, target_rir: 2 },
+      ],
+    },
+    {
+      id: 'ex-2', session_id: 'sess-1', exercise_order: 2, name: 'Flexão', muscle_group: 'Peito',
+      priority: 'accessory', equipment: 'Peso corporal', load_increment_kg: 2.5, rest_seconds: 60,
+      target_rm_percent: null, sets_planned: 1, reps_raw: 'AMRAP', method: null, notes: null,
+      planned_sets: [
+        { id: 'st-3', exercise_id: 'ex-2', set_order: 1, target_reps_min: 10, target_reps_max: 20, target_load_kg: null, target_rir: 0 },
+      ],
+    },
+  ],
+};
+
+jest.mock('../src/services/trainingRepository', () => ({
+  getSessionDetail: jest.fn(async () => detail),
+  formatExerciseTarget: jest.fn(() => '× reps'),
+}));
+
+import { saveSetLog, finishSessionLog } from '../src/services/sessionExecutionRepository';
+import { clearDraft } from '../src/services/sessionDraftStorage';
+import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
+
+const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+  mock(saveSetLog).mockResolvedValue({ setLogId: 'set-x' });
+  mock(finishSessionLog).mockResolvedValue(undefined);
+});
+
+const renderScreen = () =>
+  render(<ActiveSessionScreen route={{ params: { sessionId: 'sess-1' } }} />);
+
+it('executa a sessão de ponta a ponta e conclui o treino', async () => {
+  const screen = renderScreen();
+  await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
+
+  // --- Série 1 do Supino (barra): 1ª carga precisa ser informada ---
+  fireEvent.press(screen.getAllByText('Iniciar série')[0]);
+  // barreira da primeira carga: aparece a dica e o botão fica desabilitado
+  expect(screen.getByText(/informe a carga usada/i)).toBeTruthy();
+
+  fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '8');
+  fireEvent.changeText(screen.getByLabelText('Carga da série 1'), '40');
+  fireEvent.press(screen.getByText('Concluir série'));
+
+  await waitFor(() => expect(screen.getByText(/8 reps × 40 kg/)).toBeTruthy());
+  expect(screen.getByText('No alvo')).toBeTruthy();
+
+  // --- Série 2 do Supino: a carga já vem sugerida (40) ---
+  fireEvent.press(screen.getAllByText('Iniciar série')[0]);
+  fireEvent.changeText(screen.getByLabelText('Repetições da série 2'), '9');
+  // não informo carga: a sugestão 40 foi pré-carregada → dá pra concluir direto
+  fireEvent.press(screen.getByText('Concluir série'));
+  await waitFor(() => expect(screen.getByText(/9 reps × 40 kg/)).toBeTruthy());
+
+  // --- Flexão (bodyweight): sem campo de kg, conclui só com reps ---
+  fireEvent.press(screen.getByText('Iniciar série'));
+  expect(screen.getByText('Peso corporal')).toBeTruthy();
+  expect(screen.queryByLabelText('Carga da série 1')).toBeNull(); // bodyweight não tem input de kg
+  fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '15');
+  fireEvent.press(screen.getByText('Concluir série'));
+  await waitFor(() => expect(screen.getByText(/15 reps · peso corporal/)).toBeTruthy());
+
+  // a série bodyweight gravou carga nula
+  const chamadas = mock(saveSetLog).mock.calls.map((c) => c[0]);
+  const flexao = chamadas.find((p) => p.plannedSetId === 'st-3');
+  expect(flexao.actualLoadKg).toBeNull();
+  expect(flexao.outcome).toBe('on_target');
+
+  // --- Concluir o treino (todas as séries feitas → sem confirmação) ---
+  fireEvent.press(screen.getByText('Concluir treino'));
+  await waitFor(() => expect(screen.getByText(/Treino concluído/)).toBeTruthy());
+  expect(finishSessionLog).toHaveBeenCalled();
+  expect(clearDraft).toHaveBeenCalledWith('user-1');
+});
+
+it('erro ao carregar o detalhe mostra erro (não sessão vazia)', async () => {
+  const { getSessionDetail } = require('../src/services/trainingRepository');
+  (getSessionDetail as jest.Mock).mockRejectedValueOnce(new Error('rede'));
+
+  const screen = renderScreen();
+  await waitFor(() =>
+    expect(screen.getByText(/Não foi possível abrir o treino/)).toBeTruthy(),
+  );
+});

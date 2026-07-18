@@ -8,6 +8,11 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
+// Fase 4: as telas ganharam entradas de navegação (Iniciar treino / Histórico).
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
+
 // Variáveis prefixadas com "mock" são permitidas dentro de factories do jest.mock.
 const mockAuthState = {
   user: { id: 'user-123', email: 'pedro@exemplo.com' },

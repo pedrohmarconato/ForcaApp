@@ -6,30 +6,72 @@ import { Feather } from '@expo/vector-icons';
 // Tipo dos nomes de ícone válidos do Feather (evita string genérica)
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
-// Importar as novas telas
+// Importar as telas
 import HomeScreen from '../screens/HomeScreen';
 import TrainingSessionScreen from '../screens/TrainingSessionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
+import ActiveSessionScreen from '../screens/ActiveSessionScreen';
+import SessionHistoryScreen from '../screens/SessionHistoryScreen';
+import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
 
-// Crie um Bottom Tab Navigator
+// Fase 4 — navegação tipada. A execução da sessão (ActiveSession) é registrada
+// tanto na Home (Home → Detalhe → Iniciar) quanto na aba Treino (Iniciar/Retomar
+// direto). O histórico vive no Perfil. Cada stack declara seu ParamList.
+export type HomeStackParamList = {
+  HomeMain: undefined;
+  WorkoutDetail: { sessionId: string };
+  ActiveSession: { sessionId: string };
+};
+
+export type TrainingStackParamList = {
+  TrainingOverview: undefined;
+  ActiveSession: { sessionId: string };
+};
+
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
+  SessionHistory: undefined;
+  SessionHistoryDetail: { sessionLogId: string; title?: string };
+};
+
 const BottomTab = createBottomTabNavigator();
-
-// Stack Navigator para a Home (para permitir navegação de detalhes)
-const HomeStack = createStackNavigator();
+const HomeStack = createStackNavigator<HomeStackParamList>();
+const TrainingStack = createStackNavigator<TrainingStackParamList>();
+const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
 function HomeStackNavigator() {
   return (
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
+      <HomeStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
     </HomeStack.Navigator>
+  );
+}
+
+function TrainingStackNavigator() {
+  return (
+    <TrainingStack.Navigator screenOptions={{ headerShown: false }}>
+      <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
+      <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
+    </TrainingStack.Navigator>
+  );
+}
+
+function ProfileStackNavigator() {
+  return (
+    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStack.Screen name="SessionHistory" component={SessionHistoryScreen} />
+      <ProfileStack.Screen name="SessionHistoryDetail" component={SessionHistoryDetailScreen} />
+    </ProfileStack.Navigator>
   );
 }
 
 const MainNavigator = () => {
   return (
-    <BottomTab.Navigator 
+    <BottomTab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ color, size }) => {
@@ -60,8 +102,8 @@ const MainNavigator = () => {
       })}
     >
       <BottomTab.Screen name="Home" component={HomeStackNavigator} />
-      <BottomTab.Screen name="Training" component={TrainingSessionScreen} />
-      <BottomTab.Screen name="Profile" component={ProfileScreen} />
+      <BottomTab.Screen name="Training" component={TrainingStackNavigator} />
+      <BottomTab.Screen name="Profile" component={ProfileStackNavigator} />
     </BottomTab.Navigator>
   );
 };

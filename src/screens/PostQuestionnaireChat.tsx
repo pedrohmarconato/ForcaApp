@@ -165,11 +165,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
       }
       await updateProfile(profileUpdate);
       
-      // Navegação após sucesso
-      // FIXME(Fase 5): a rota 'App' não existe no OnboardingStack; a transição
-      // para o app principal ocorre via RootContext (profile.onboarding_completed).
-      // Supressão de tipo até refatorar o fluxo de chat na Fase 5.
-      navigation.reset({ index: 0, routes: [{ name: 'App' as any, params: { screen: 'Home' } }] });
+      // Sem navegação manual: updateProfile marcou onboarding_completed=true e o
+      // RootNavigator troca OnboardingNavigator → MainNavigator ao reavaliar o
+      // profile (AuthContext). A antiga rota 'App' não existia neste stack.
     } else {
       throw new Error(result.message || "Falha ao gerar o plano de treino.");
     }
@@ -347,9 +345,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         console.log(`[Chat ${userId}] Chat já concluído anteriormente.`);
                         chatAlreadyCompleted = true;
                         if (user?.onboarding_completed) {
-                            console.log(`[Chat ${userId}] Onboarding já completo. Navegando para App.`);
-                            // FIXME(Fase 5): vide comentário acima — rota 'App' inexistente.
-                            navigation.reset({ index: 0, routes: [{ name: 'App' as any, params: { screen: 'Home' } }] });
+                            console.log(`[Chat ${userId}] Onboarding já completo; o RootNavigator já exibe o app principal.`);
+                            // Sem navegação manual: a troca de navigator é dirigida pelo
+                            // AuthContext (profile.onboarding_completed). Só encerra aqui.
                             return;
                         } else {
                             console.warn(`[Chat ${userId}] Chat completo, mas onboarding não. Tentando gerar plano.`);

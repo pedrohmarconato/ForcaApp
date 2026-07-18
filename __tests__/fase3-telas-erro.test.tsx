@@ -6,6 +6,11 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
+// Fase 4: TrainingSession/WorkoutDetail agora usam useNavigation (botão Iniciar).
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
+
 const mockAuthState = {
   user: { id: 'user-123', email: 'pedro@exemplo.com' },
   profile: { full_name: 'Pedro Marconato' },

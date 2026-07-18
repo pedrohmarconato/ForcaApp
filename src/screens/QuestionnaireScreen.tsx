@@ -153,18 +153,15 @@ const QuestionnaireScreen = () => {
     if (typeof signOut === 'function') {
     await signOut(); // Usa a função signOut do AuthContext
     } else {
-    // Fallback caso signOut não esteja disponível (pouco provável)
+    // signOut do AuthContext indisponível (muito improvável): limpa a preferência
+    // local. A volta ao login ocorre quando o AuthContext zera a sessão e o
+    // RootNavigator troca para o AuthNavigator — sem reset cross-navigator.
     await AsyncStorage.removeItem('@userShouldStayLoggedIn');
-    // FIXME(Fase 5): reset cross-navigator para 'Login' (AuthNavigator) não é válido
-    // pelo tipo do OnboardingStack. Fluxo de erro de sessão será revisto na Fase 5.
-    navigation.reset({ index: 0, routes: [{ name: 'Login' as any }] });
     }
     } catch (error) {
     console.error("[QuestionnaireScreen] Erro ao fazer logout via handleSessionExpiration:", error);
-    // Força navegação para login em último caso
-    // FIXME(Fase 5): reset cross-navigator para 'Login' (AuthNavigator) não é válido
-    // pelo tipo do OnboardingStack. Fluxo de erro de sessão será revisto na Fase 5.
-    navigation.reset({ index: 0, routes: [{ name: 'Login' as any }] });
+    // Sem reset cross-navigator: signOut já limpa o estado mesmo em erro, e o
+    // RootNavigator troca para o AuthNavigator ao reavaliar a sessão.
     } finally {
     setIsLoading(false);
     }
