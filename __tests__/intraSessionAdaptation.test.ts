@@ -8,6 +8,7 @@ import {
   recommendByRules,
   roundToIncrement,
   applyAdjustmentToNextSet,
+  replayAdaptations,
   type Adjustment,
 } from '../src/engine/intraSessionAdaptation';
 import { ADAPT_CONFIG } from '../src/engine/config';
@@ -86,13 +87,13 @@ describe('recommendByRules — déficit (under) reduz a carga', () => {
     expect(load.direction).toBe('decrease');
     expect(load.toKg).toBe(47.5);
     expect(load.deltaKg).toBe(-2.5);
-    expect(load.pct).toBe(0.06);
+    expect(load.pct).toBe(0.05); // pct REAL após arredondar (2.5/50), não o teórico 0.06
     // "manter" é sempre uma saída registrável
     expect(r.options.some((o) => o.kind === 'keep')).toBe(true);
     expect(r.options[0]).toBe(r.recommended);
   });
 
-  it('déficit grande (5 reps) satura no teto de 12% e oferece alternativa mais suave', () => {
+  it('déficit grande (5 reps): mudança real respeita o teto e alt é MENOS agressiva', () => {
     const r = recommendByRules({
       evaluated: evaluateSet({ actualReps: 1, targetRepsMin: 6, targetRepsMax: 8 }),
       currentLoadKg: 50,
@@ -101,11 +102,15 @@ describe('recommendByRules — déficit (under) reduz a carga', () => {
     });
     expect(r.tier).toBe('grande');
     const load = asLoad(r.recommended);
-    expect(load.toKg).toBe(45); // 50*0.88=44 → arredonda p/ 45
-    expect(load.pct).toBe(ADAPT_CONFIG.maxLoadPct); // saturou em 0.12
-    // recomendada + alternativa de 1 incremento + manter
+    expect(load.toKg).toBe(45); // candidata mais perto de 12% dentro do teto (10%)
+    expect(load.pct).toBe(0.1); // pct REAL
+    // a mudança real NUNCA passa do teto (o bug era gravar 0.12 escondendo 12.5%+)
+    expect(Math.abs(load.toKg - 50) / 50).toBeLessThanOrEqual(ADAPT_CONFIG.maxLoadPct);
+    // recomendada + alternativa mais suave + manter
     expect(r.options).toHaveLength(3);
     expect(r.options.map((o) => o.kind)).toContain('keep');
+    const alt = asLoad(r.options[1]);
+    expect(Math.abs(alt.toKg - 50)).toBeLessThan(Math.abs(load.toKg - 50)); // menos agressiva
   });
 
   it('déficit leve com carga alta cai abaixo do piso mínimo → mantém', () => {
@@ -201,7 +206,7 @@ describe('recommendByRules — §9 primeira sessão sem histórico', () => {
 });
 
 describe('recommendByRules — teto de mudança', () => {
-  it('desvio enorme satura em maxLoadPct', () => {
+  it('desvio enorme: a mudança REAL nunca passa do teto', () => {
     const r = recommendByRules({
       evaluated: evaluateSet({ actualReps: 2, targetRepsMin: 12, targetRepsMax: 15 }),
       currentLoadKg: 100,
@@ -209,8 +214,57 @@ describe('recommendByRules — teto de mudança', () => {
       ctx: NORMAL,
     });
     const load = asLoad(r.recommended);
-    expect(load.pct).toBe(ADAPT_CONFIG.maxLoadPct); // 10 reps * 3% = 30% → capado em 12%
     expect(load.direction).toBe('decrease');
+    expect(load.toKg).toBe(90); // maior redução alinhada ao incremento dentro de 12% (=10%)
+    expect(Math.abs(load.toKg - 100) / 100).toBeLessThanOrEqual(ADAPT_CONFIG.maxLoadPct);
+    expect(load.pct).toBe(0.1);
+  });
+});
+
+// ---- achado HIGH do review: arredondamento NÃO pode violar o teto ----
+describe('recommendByRules — teto respeitado após arredondar (achado do review)', () => {
+  it('incremento grosso que só produziria +20% → recomenda MANTER, não estoura o teto', () => {
+    // 100kg, incremento 20: o único passo (120kg) é +20% > teto 12% → nenhuma candidata válida.
+    const over = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 12, targetRepsMin: 6, targetRepsMax: 8 }),
+      currentLoadKg: 100,
+      incrementKg: 20,
+      ctx: NORMAL,
+      actualRir: 3,
+    });
+    expect(over.recommended.kind).toBe('keep'); // antes: recomendava +20% (bug)
+
+    const under = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 1, targetRepsMin: 6, targetRepsMax: 8 }),
+      currentLoadKg: 100,
+      incrementKg: 20,
+      ctx: NORMAL,
+    });
+    expect(under.recommended.kind).toBe('keep');
+  });
+
+  it('propriedade: nenhuma OPÇÃO de carga estoura o teto nem fica abaixo do piso', () => {
+    for (const [reps, min, max, load, inc] of [
+      [2, 12, 15, 100, 2.5],
+      [1, 6, 8, 50, 2.5],
+      [14, 6, 8, 80, 5],
+      [4, 10, 12, 37.5, 2.5],
+    ] as const) {
+      const r = recommendByRules({
+        evaluated: evaluateSet({ actualReps: reps, targetRepsMin: min, targetRepsMax: max }),
+        currentLoadKg: load,
+        incrementKg: inc,
+        ctx: NORMAL,
+        actualRir: 3,
+      });
+      for (const opt of r.options) {
+        if (opt.kind !== 'load') continue;
+        const real = Math.abs(opt.toKg - load) / load;
+        expect(real).toBeLessThanOrEqual(ADAPT_CONFIG.maxLoadPct + 1e-9);
+        expect(real).toBeGreaterThanOrEqual(ADAPT_CONFIG.minLoadPct - 1e-9);
+        expect(opt.pct).toBeCloseTo(real, 6); // pct persistido = mudança real
+      }
+    }
   });
 });
 
@@ -328,5 +382,30 @@ describe('applyAdjustmentToNextSet', () => {
     const out = applyAdjustmentToNextSet(draft, 'ex-1', 1, keepAdj);
     expect(out.exercises[0].sets[0].adaptation).toEqual(keepAdj);
     expect(out.exercises[0].sets[1].targetLoadKg).toBe(50); // inalterada
+  });
+
+  it('MEDIUM: pula a próxima série se ela já estiver concluída', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 2, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 3, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+    ]);
+    draft.exercises[0].sets[1].status = 'done'; // série 2 já executada
+    const out = applyAdjustmentToNextSet(draft, 'ex-1', 1, LOAD_DEC);
+    expect(out.exercises[0].sets[1].targetLoadKg).toBe(50); // série 2 (done) intacta
+    expect(out.exercises[0].sets[2].targetLoadKg).toBe(45); // aplica na 3 (pendente)
+  });
+});
+
+describe('replayAdaptations (retomada)', () => {
+  it('reaplica o efeito das adaptações restauradas às próximas séries pendentes', () => {
+    const draft = makeDraft([
+      { setOrder: 1, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+      { setOrder: 2, targetRepsMin: 8, targetRepsMax: 10, targetLoadKg: 50 },
+    ]);
+    // Simula o que vem do servidor: adaptation restaurada na série 1, mas alvo da 2 ainda cru.
+    draft.exercises[0].sets[0].adaptation = LOAD_DEC;
+    const out = replayAdaptations(draft);
+    expect(out.exercises[0].sets[1].targetLoadKg).toBe(45);
   });
 });

@@ -257,9 +257,36 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
       actualReps: s.actualReps == null ? null : toNum(s.actualReps),
       actualLoadKg: s.actualLoadKg == null ? null : toNum(s.actualLoadKg),
       actualRir: s.actualRir == null ? null : toNum(s.actualRir),
+      // Rascunho de versão anterior à Fase 5 não tem o campo → default seguro.
+      adaptation: s.adaptation ?? null,
     })),
   })),
 });
+
+/**
+ * Reconcilia o flag de lesão de um rascunho contra o SessionDetail AUTORITATIVO.
+ * Um rascunho persistido antes da Fase 5 não tem `hasInjury` (fica undefined) e, se
+ * adotado direto na retomada offline, DESLIGA silenciosamente o guardrail de lesão.
+ * Aqui o `hasInjury` é sempre re-derivado de `injury_flags` do plano — ausência no
+ * rascunho NUNCA é lida como "sem lesão".
+ */
+export const reconcileInjuryFlags = (
+  draft: SessionDraft,
+  detail: SessionDetail,
+): SessionDraft => {
+  const byId = new Map(detail.planned_exercises.map((e) => [e.id, e]));
+  return {
+    ...draft,
+    exercises: draft.exercises.map((ex) => {
+      const d = byId.get(ex.exerciseId);
+      // No plano → autoritativo. Fora do plano (não deveria ocorrer) → preserva o que houver.
+      return {
+        ...ex,
+        hasInjury: d ? (d.injury_flags ?? []).length > 0 : ex.hasInjury === true,
+      };
+    }),
+  };
+};
 
 /** Total de séries e quantas já foram concluídas (para cabeçalho de progresso). */
 export const sessionProgress = (draft: SessionDraft): { done: number; total: number } => {

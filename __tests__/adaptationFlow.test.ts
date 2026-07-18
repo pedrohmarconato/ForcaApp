@@ -37,10 +37,27 @@ import {
   getOpenSessionLog,
   getLastLoadByExerciseName,
   updateSetLogAdaptation,
+  SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 import { saveDraft, loadDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import {
+  buildDraftFromDetail,
+  coerceDraftNumerics,
+} from '../src/engine/sessionModel';
+import { applyAdjustmentToNextSet, type Adjustment } from '../src/engine/intraSessionAdaptation';
 import type { SessionDetail } from '../src/services/trainingRepository';
+
+const REDUZIR_45: Adjustment = {
+  kind: 'load',
+  direction: 'decrease',
+  fromKg: 50,
+  toKg: 45,
+  deltaKg: -5,
+  pct: 0.1,
+  label: 'Reduzir para 45 kg',
+  reason: 'Abaixo do alvo.',
+};
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
@@ -165,11 +182,80 @@ it('recusar (manter) grava a decisão mas NÃO altera o alvo da próxima série'
   expect(store().pendingAdaptation).toBeNull();
 });
 
-it('lesão declarada com superávit → recomenda manter → NÃO abre o sheet (sem nag)', async () => {
+it('MEDIUM: superávit com lesão → sem sheet, mas REGISTRA decisão automática (não fica null)', async () => {
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail(['ombro']) });
   store().setReps('ex-1', 1, 12); // acima do alvo 8–10 (superávit)
   store().setLoad('ex-1', 1, 50);
   await store().completeSet('ex-1', 1);
-  // guardrail: lesão nunca sobe carga → recomendação é "manter" → nada a decidir → sem sheet
+  // guardrail: lesão nunca sobe carga → "manter" → nada a decidir → sem sheet…
   expect(store().pendingAdaptation).toBeNull();
+  // …mas a decisão automática de segurança é registrada (não é escolha do aluno).
+  const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
+  expect(set1.adaptation).toMatchObject({ kind: 'keep', auto: true });
+  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
+    'sl-1',
+    expect.objectContaining({ kind: 'keep', auto: true }),
+  );
+});
+
+it('HIGH: draft legado lesionado (sem hasInjury) reconcilia e NUNCA recomenda aumento', async () => {
+  // rascunho gravado por versão anterior à Fase 5: sem hasInjury, mas com sessionLogId.
+  const legacy = buildDraftFromDetail(makeDetail(['ombro']), 'user-1');
+  legacy.sessionLogId = 'log-1';
+  delete (legacy.exercises[0] as any).hasInjury;
+  mock(loadDraft).mockResolvedValue(coerceDraftNumerics(legacy));
+  // rede falha por transporte → o store adota o rascunho local (caminho vulnerável).
+  mock(getOpenSessionLog).mockRejectedValue(
+    new SessionExecutionRequestError({ message: 'net' }, { kind: 'transport' }),
+  );
+
+  await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail(['ombro']) });
+  store().setReps('ex-1', 1, 15); // acima do alvo (superávit)
+  store().setLoad('ex-1', 1, 50);
+  await store().completeSet('ex-1', 1);
+
+  // Sem a reconciliação, ctx.injury viria undefined e o motor recomendaria +55kg. Corrigido:
+  expect(store().pendingAdaptation).toBeNull();
+  const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
+  expect(set1.adaptation).toMatchObject({ kind: 'keep', auto: true });
+});
+
+it('HIGH: retomada online preserva e REAPLICA a adaptation à próxima série', async () => {
+  // Estado local: série 1 concluída com adaptação reduzir p/ 45; série 2 já ajustada.
+  const base = buildDraftFromDetail(makeDetail(), 'user-1');
+  base.sessionLogId = 'log-1';
+  base.exercises[0].sets[0] = {
+    ...base.exercises[0].sets[0],
+    status: 'done',
+    setLogId: 'sl-1',
+    actualReps: 5,
+    actualLoadKg: 50,
+    actualRir: null,
+    outcome: 'under',
+  };
+  const local = applyAdjustmentToNextSet(base, 'ex-1', 1, REDUZIR_45);
+  mock(loadDraft).mockResolvedValue(local);
+  // servidor tem a série 1 gravada COM a adaptation.
+  mock(getOpenSessionLog).mockResolvedValue({
+    sessionLogId: 'log-1',
+    startedAt: '2026-07-20T10:00:00Z',
+    setLogs: [
+      {
+        id: 'sl-1',
+        planned_set_id: 'st-1',
+        actual_reps: 5,
+        actual_load_kg: 50,
+        actual_rir: null,
+        outcome: 'under',
+        adaptation: REDUZIR_45,
+        completed_at: '2026-07-20T10:05:00Z',
+      },
+    ],
+  });
+
+  await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+
+  const sets = store().draft!.exercises[0].sets;
+  expect(sets.find((s) => s.setOrder === 1)!.adaptation).toEqual(REDUZIR_45); // restaurada
+  expect(sets.find((s) => s.setOrder === 2)!.targetLoadKg).toBe(45); // reaplicada
 });

@@ -53,14 +53,23 @@ const AdaptationSheet = ({
         style={styles.backdrop}
         onPress={onDismiss}
         testID="adaptation-backdrop"
+        accessibilityRole="button"
+        accessibilityLabel="Fechar e manter a carga"
       >
         {/* Absorve o toque no card para não fechar o sheet ao interagir com ele. */}
-        <Pressable style={styles.card} onPress={() => undefined}>
+        <Pressable
+          style={styles.card}
+          onPress={() => undefined}
+          accessibilityViewIsModal
+          accessibilityLabel="Sugestão de ajuste da série"
+        >
           {recommendation ? (
             <>
               <View style={styles.handle} />
               <Text style={styles.kicker}>{exerciseName}</Text>
-              <Text style={styles.title}>{titleFor(recommendation)}</Text>
+              <Text style={styles.title} accessibilityRole="header">
+                {titleFor(recommendation)}
+              </Text>
               <Text style={styles.reason}>
                 {recommendation.recommended.reason}
               </Text>
@@ -75,6 +84,11 @@ const AdaptationSheet = ({
                     ]}
                     onPress={() => onChoose(opt)}
                     testID={`adaptation-option-${i}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isRecommended ? `${opt.label} (recomendado)` : opt.label
+                    }
+                    accessibilityHint={opt.reason}
                   >
                     <Text
                       style={[

@@ -16,7 +16,9 @@ import { adjustsRepsNotLoad, forbidsLoadIncrease, type GuardrailContext } from '
 export type DeviationTier = 'none' | 'leve' | 'moderado' | 'grande';
 
 export type Adjustment =
-  | { kind: 'keep'; label: string; reason: string }
+  // `auto: true` = decisão automática de segurança registrada pelo sistema (lesão/piso/
+  // RIR/incremento grosso), NÃO uma escolha do aluno. Ausente/false = escolha do aluno.
+  | { kind: 'keep'; label: string; reason: string; auto?: boolean }
   | {
       kind: 'load';
       direction: 'increase' | 'decrease';
@@ -101,7 +103,10 @@ const loadAdjustment = (
   fromKg: round2(fromKg),
   toKg: round2(toKg),
   deltaKg: round2(toKg - fromKg),
-  pct: round2(pct),
+  // pct = mudança REAL (após arredondar o kg ao incremento). NÃO arredondar aqui: o campo
+  // não é exibido (o rótulo usa o kg) e arredondá-lo reintroduziria a mentira que o review
+  // pegou (gravar um pct que não corresponde à mudança de fato).
+  pct,
   label: `${direction === 'increase' ? 'Aumentar' : 'Reduzir'} para ${round2(toKg)} kg`,
   reason:
     direction === 'increase'
@@ -116,6 +121,33 @@ const sameAdjustment = (a: Adjustment, b: Adjustment): boolean => {
   }
   if (a.kind === 'reps' && b.kind === 'reps') return a.deltaReps === b.deltaReps;
   return true; // dois 'keep'
+};
+
+/**
+ * Cargas alinhadas ao incremento, na direção dada, cuja mudança REAL (após arredondar)
+ * cai dentro de [minLoadPct, maxLoadPct]. É a fonte única das opções de carga: garante que
+ * NENHUMA opção estoure o teto nem fique abaixo do piso — o bug era validar o percentual
+ * teórico e deixar o arredondamento violar o limite (ex.: 100kg + incremento 20 → +20%).
+ */
+const loadCandidates = (
+  current: number,
+  direction: 'increase' | 'decrease',
+  increment: number,
+  cfg: AdaptConfig,
+): { toKg: number; pct: number }[] => {
+  const step = Number.isFinite(increment) && increment > 0 ? increment : 2.5;
+  const sign = direction === 'increase' ? 1 : -1;
+  const out: { toKg: number; pct: number }[] = [];
+  // k limitado só como salvaguarda; o teto encerra o laço bem antes na prática.
+  for (let k = 1; k <= 1000; k++) {
+    const toKg = round2(current + sign * k * step);
+    if (toKg < 0) break;
+    const pct = Math.abs(toKg - current) / current;
+    if (pct > cfg.maxLoadPct + 1e-9) break; // passou do teto → não há mais candidatas
+    if (pct + 1e-9 >= cfg.minLoadPct) out.push({ toKg, pct });
+    if (sign < 0 && toKg === 0) break;
+  }
+  return out;
 };
 
 /**
@@ -186,40 +218,35 @@ export const recommendByRules = (params: {
     );
   }
 
-  const pct = Math.min(cfg.loadPctPerRep * deviationReps, cfg.maxLoadPct);
-
-  // 5. Superávit → subir carga (a menos que RIR baixo indique que foi à falha).
-  if (outcome === 'over') {
-    const rir = params.actualRir;
-    if (rir != null && rir < cfg.minRirForIncrease) {
-      return build(
-        keep(`Você passou do alvo, mas com RIR ${rir} (perto da falha): mantenha a carga desta vez.`),
-      );
-    }
-    const toKg = roundToIncrement(currentLoadKg * (1 + pct), incrementKg);
-    if (toKg <= currentLoadKg || toKg - currentLoadKg < currentLoadKg * cfg.minLoadPct) {
-      return build(keep('O ajuste ficaria abaixo do incremento mínimo — mantenha a carga.'));
-    }
-    const rec = loadAdjustment('increase', currentLoadKg, toKg, pct);
-    const oneStep = roundToIncrement(currentLoadKg + incrementKg, incrementKg);
-    const alt =
-      oneStep > currentLoadKg && oneStep !== toKg
-        ? [loadAdjustment('increase', currentLoadKg, oneStep, (oneStep - currentLoadKg) / currentLoadKg)]
-        : [];
-    return build(rec, alt);
+  // 5/6. Fora do alvo com carga conhecida → ajustar a carga. Superávit sobe, déficit baixa.
+  // RIR baixo num superávit (foi à/perto da falha) → não sobe (guardrail antes de calcular).
+  const rir = params.actualRir;
+  if (outcome === 'over' && rir != null && rir < cfg.minRirForIncrease) {
+    return build(
+      keep(`Você passou do alvo, mas com RIR ${rir} (perto da falha): mantenha a carga desta vez.`),
+    );
   }
-
-  // 6. Déficit → baixar carga.
-  const toKg = roundToIncrement(currentLoadKg * (1 - pct), incrementKg);
-  if (toKg >= currentLoadKg || currentLoadKg - toKg < currentLoadKg * cfg.minLoadPct) {
-    return build(keep('O ajuste ficaria abaixo do incremento mínimo — mantenha a carga.'));
+  const desiredPct = Math.min(cfg.loadPctPerRep * deviationReps, cfg.maxLoadPct);
+  // Desvio pequeno demais para valer um ajuste (alvo abaixo do piso) → manter.
+  if (desiredPct < cfg.minLoadPct) {
+    return build(keep('O desvio é pequeno demais para mexer na carga — mantenha.'));
   }
-  const rec = loadAdjustment('decrease', currentLoadKg, toKg, pct);
-  const oneStep = roundToIncrement(currentLoadKg - incrementKg, incrementKg);
-  const alt =
-    oneStep < currentLoadKg && oneStep >= 0 && oneStep !== toKg
-      ? [loadAdjustment('decrease', currentLoadKg, oneStep, (currentLoadKg - oneStep) / currentLoadKg)]
-      : [];
+  const direction: 'increase' | 'decrease' = outcome === 'over' ? 'increase' : 'decrease';
+  const cands = loadCandidates(currentLoadKg, direction, incrementKg, cfg);
+  // Nenhum passo do incremento cai dentro de [piso, teto] (incremento grosso demais) → manter.
+  if (cands.length === 0) {
+    return build(keep('Nenhum ajuste alinhado ao incremento cabe dentro dos limites — mantenha.'));
+  }
+  // Recomendada: a candidata cuja mudança REAL fica mais perto do alvo desejado.
+  const pick = cands.reduce((best, c) =>
+    Math.abs(c.pct - desiredPct) < Math.abs(best.pct - desiredPct) ? c : best,
+  );
+  // Alternativa: a candidata válida MENOS agressiva que a recomendada (nunca mais agressiva).
+  const gentler = cands.filter((c) => c.pct < pick.pct).sort((a, b) => b.pct - a.pct)[0];
+  const rec = loadAdjustment(direction, currentLoadKg, pick.toKg, pick.pct);
+  const alt = gentler
+    ? [loadAdjustment(direction, currentLoadKg, gentler.toKg, gentler.pct)]
+    : [];
   return build(rec, alt);
 };
 
@@ -243,10 +270,12 @@ export const applyAdjustmentToNextSet = (
   ...draft,
   exercises: draft.exercises.map((ex) => {
     if (ex.exerciseId !== exerciseId) return ex;
-    // A "próxima série" é a de menor setOrder acima da atual (robusto a ordens não contíguas).
+    // A "próxima série" é a de menor setOrder acima da atual QUE AINDA NÃO FOI CONCLUÍDA
+    // (a UI permite executar fora de ordem; ajustar o alvo de uma série já 'done' seria
+    // reescrever uma execução passada). Robusto a ordens não contíguas.
     const nextOrder = ex.sets
+      .filter((s) => s.setOrder > setOrder && s.status !== 'done')
       .map((s) => s.setOrder)
-      .filter((o) => o > setOrder)
       .sort((a, b) => a - b)[0];
     return {
       ...ex,
@@ -267,3 +296,21 @@ export const applyAdjustmentToNextSet = (
     };
   }),
 });
+
+/**
+ * Reaplica ao rascunho os EFEITOS de todas as adaptações já registradas nas séries
+ * (usado na RETOMADA: sem isso, restaurar `set.adaptation` do servidor não recolocaria
+ * o `targetLoadKg`/reps da próxima série). Idempotente: `applyAdjustmentToNextSet` pula
+ * séries já concluídas, então só as pendentes recebem o alvo ajustado.
+ */
+export const replayAdaptations = (draft: SessionDraft): SessionDraft => {
+  let out = draft;
+  for (const ex of draft.exercises) {
+    for (const s of ex.sets) {
+      if (s.adaptation) {
+        out = applyAdjustmentToNextSet(out, ex.exerciseId, s.setOrder, s.adaptation);
+      }
+    }
+  }
+  return out;
+};
