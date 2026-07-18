@@ -15,6 +15,7 @@ import {
   buildDraftFromDetail,
   sessionProgress,
   isSessionComplete,
+  toNum,
 } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
@@ -177,6 +178,38 @@ describe('buildDraftFromDetail', () => {
   it('semeia a última carga por exercício quando fornecida', () => {
     const draft = buildDraftFromDetail(detalheExemplo, 'user-1', { 'supino reto': 60 });
     expect(draft.lastLoadByExercise['supino reto']).toBe(60);
+  });
+
+  it('coage numeric que vem como STRING do PostgREST (F4)', () => {
+    const d: any = {
+      ...detalheExemplo,
+      planned_exercises: [
+        {
+          ...detalheExemplo.planned_exercises[0],
+          load_increment_kg: '2.5',
+          planned_sets: [
+            { ...detalheExemplo.planned_exercises[0].planned_sets[0], target_load_kg: '40' },
+          ],
+        },
+      ],
+    };
+    const draft = buildDraftFromDetail(d, 'user-1');
+    expect(draft.exercises[0].loadIncrementKg).toBe(2.5);
+    expect(typeof draft.exercises[0].loadIncrementKg).toBe('number');
+    expect(draft.exercises[0].sets[0].targetLoadKg).toBe(40);
+    // e o stepper funciona com número (não concatena string)
+    expect(stepLoad(draft.exercises[0].sets[0].targetLoadKg, draft.exercises[0].loadIncrementKg, 1)).toBe(42.5);
+  });
+});
+
+describe('toNum — coerção de numeric do PostgREST', () => {
+  it('string numérica → number; null/inválido → null', () => {
+    expect(toNum('50')).toBe(50);
+    expect(toNum('2.5')).toBe(2.5);
+    expect(toNum(40)).toBe(40);
+    expect(toNum(null)).toBeNull();
+    expect(toNum(undefined)).toBeNull();
+    expect(toNum('abc')).toBeNull();
   });
 });
 

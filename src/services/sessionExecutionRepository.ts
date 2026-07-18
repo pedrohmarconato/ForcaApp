@@ -9,7 +9,7 @@
 
 import { supabase } from '../config/supabaseClient';
 import type { Outcome } from '../engine/sessionModel';
-import { normalizeName } from '../engine/sessionModel';
+import { normalizeName, toNum } from '../engine/sessionModel';
 
 export type ServerSetLog = {
   id: string;
@@ -27,30 +27,22 @@ export type OpenSessionLog = {
 };
 
 /**
- * Abre a execução: cria um session_log e marca a sessão planejada como
- * 'in_progress'. Retorna o id e o started_at do servidor.
- * Chame getOpenSessionLog ANTES para não duplicar a execução em retry.
+ * Abre a execução de forma ATÔMICA via RPC `start_session` (migration 0003):
+ * numa transação, reaproveita o session_log aberto ou cria um novo e marca a
+ * sessão planejada 'in_progress'. Idempotente (reusa log aberto) — não duplica
+ * session_log em retry/corrida. Retorna id + started_at do servidor.
  */
 export const startSessionLog = async (
-  userId: string,
   plannedSessionId: string,
 ): Promise<{ sessionLogId: string; startedAt: string }> => {
-  const inserido = await supabase
-    .from('session_logs')
-    .insert({ planned_session_id: plannedSessionId, user_id: userId })
-    .select('id, started_at')
-    .single();
-  if (inserido.error) throw inserido.error;
-  const sessionLogId = inserido.data?.id as string;
-  const startedAt = inserido.data?.started_at as string;
-
-  const status = await supabase
-    .from('planned_sessions')
-    .update({ status: 'in_progress' })
-    .eq('id', plannedSessionId);
-  if (status.error) throw status.error;
-
-  return { sessionLogId, startedAt };
+  const { data, error } = await supabase.rpc('start_session', {
+    p_planned_session_id: plannedSessionId,
+  });
+  if (error) throw error;
+  // A função retorna a linha de session_logs (objeto; alguns setups devolvem array).
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id) throw new Error('start_session não retornou a sessão de log.');
+  return { sessionLogId: row.id as string, startedAt: row.started_at as string };
 };
 
 /**
@@ -77,13 +69,23 @@ export const getOpenSessionLog = async (
   const sets = await supabase
     .from('set_logs')
     .select('id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome')
-    .eq('session_log_id', row.id);
+    .eq('session_log_id', row.id)
+    // Ordem determinística: a semente de "última carga" pega a série MAIS RECENTE (F8).
+    .order('completed_at', { ascending: true });
   if (sets.error) throw sets.error;
 
   return {
     sessionLogId: row.id as string,
     startedAt: row.started_at as string,
-    setLogs: (sets.data ?? []) as ServerSetLog[],
+    // numeric (actual_load_kg) pode vir como string do PostgREST → coage (F4).
+    setLogs: ((sets.data ?? []) as any[]).map((s) => ({
+      id: s.id,
+      planned_set_id: s.planned_set_id,
+      actual_reps: s.actual_reps,
+      actual_load_kg: toNum(s.actual_load_kg),
+      actual_rir: s.actual_rir,
+      outcome: s.outcome,
+    })) as ServerSetLog[],
   };
 };
 
@@ -100,17 +102,22 @@ export const saveSetLog = async (params: {
   actualRir: number | null;
   outcome: Outcome;
 }): Promise<{ setLogId: string }> => {
+  // UPSERT idempotente: o índice único (session_log_id, planned_set_id) da migration
+  // 0003 garante 1 set_log por série. Retry/duplo-toque atualiza a mesma linha em vez
+  // de criar uma segunda (F2/F3). adaptation continua nulo (Fase 5).
   const { data, error } = await supabase
     .from('set_logs')
-    .insert({
-      session_log_id: params.sessionLogId,
-      planned_set_id: params.plannedSetId,
-      actual_reps: params.actualReps,
-      actual_load_kg: params.actualLoadKg,
-      actual_rir: params.actualRir,
-      outcome: params.outcome,
-      // adaptation: intencionalmente nulo nesta fase (Fase 5).
-    })
+    .upsert(
+      {
+        session_log_id: params.sessionLogId,
+        planned_set_id: params.plannedSetId,
+        actual_reps: params.actualReps,
+        actual_load_kg: params.actualLoadKg,
+        actual_rir: params.actualRir,
+        outcome: params.outcome,
+      },
+      { onConflict: 'session_log_id,planned_set_id' },
+    )
     .select('id')
     .single();
   if (error) throw error;
@@ -118,24 +125,16 @@ export const saveSetLog = async (params: {
 };
 
 /**
- * Fecha a execução: finished_at agora e sessão planejada 'completed'.
+ * Fecha a execução de forma ATÔMICA via RPC `finish_session` (migration 0003):
+ * numa transação, seta finished_at e a sessão 'completed'. A RPC LEVANTA exceção
+ * se 0 linhas forem afetadas (log inexistente, alheio ou já finalizado) — então
+ * um update que não pega nada NÃO vira sucesso falso (F5/F6).
  */
-export const finishSessionLog = async (
-  sessionLogId: string,
-  plannedSessionId: string,
-  finishedAtISO: string,
-): Promise<void> => {
-  const fim = await supabase
-    .from('session_logs')
-    .update({ finished_at: finishedAtISO })
-    .eq('id', sessionLogId);
-  if (fim.error) throw fim.error;
-
-  const status = await supabase
-    .from('planned_sessions')
-    .update({ status: 'completed' })
-    .eq('id', plannedSessionId);
-  if (status.error) throw status.error;
+export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
+  const { error } = await supabase.rpc('finish_session', {
+    p_session_log_id: sessionLogId,
+  });
+  if (error) throw error;
 };
 
 /**
@@ -269,7 +268,7 @@ export const getSessionLogDetail = async (
     porExercicio.get(chave)!.sets.push({
       setOrder: l?.planned_sets?.set_order ?? null,
       actualReps: l.actual_reps,
-      actualLoadKg: l.actual_load_kg,
+      actualLoadKg: toNum(l.actual_load_kg), // numeric pode vir como string (F4)
       actualRir: l.actual_rir,
       outcome: l.outcome,
     });

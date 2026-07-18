@@ -219,3 +219,56 @@ inclusive) · **erro do banco ao salvar a série NÃO é engolido como sucesso**
 Abrir PR #5 (base `fase-3-persistencia`) e aguardar OK do dono. Merge só com OK
 explícito. Depois: Fase 5 (motor de adaptação intra-sessão + decisão do aluno) —
 `set_logs.adaptation` já está reservado e fica nulo nesta fase.
+
+---
+
+## ✅ Fase 4.1 — Correções do review adversarial da Fase 4 (17/07/2026, branch fase-4.1-correcoes-review)
+
+Review adversarial do PR #5 (IA externa) achou 12 pontos; **7 HIGH + alguns MÉDIOS
+confirmados contra o código vivo**, concentrados em RETOMADA/HISTÓRICO e
+idempotência/atomicidade (modos que os testes da Fase 4 mascararam ao mockar o
+banco com números limpos). PR empilhado sobre `fase-4-sessao-interativa`, testes-primeiro.
+
+### Corrigido (cada um com teste que reproduz o modo de falha)
+1. **numeric como string (F4)**: helper `toNum` no modelo; coerção em `buildDraftFromDetail`
+   (target_load_kg, load_increment_kg, target_rm_percent), `getOpenSessionLog` e
+   `getSessionLogDetail` (actual_load_kg). Sem isso, retomar dava `"50"+2.5="502.5"` / NaN.
+2. **Idempotência do completeSet (F2/F3)**: guarda `status==='done'`; trava de
+   reentrância por planned_set; `saveSetLog` virou **UPSERT** (onConflict
+   session_log_id,planned_set_id); série é marcada feita ASSIM que o servidor
+   confirma e a falha de persistência local é NÃO-fatal (insert confirmado nunca
+   re-tentado como falha).
+3. **Start/finish atômicos (F5/F6)**: trocados pelas RPCs `start_session` /
+   `finish_session`; finish LEVANTA exceção em 0 linhas → sem "concluído" falso.
+4. **Retomada reconciliada (F1/F8)**: antes de adotar o rascunho local, confirma no
+   servidor se o log ainda está aberto (finalizado → não retoma; servidor off →
+   retomada offline). `getOpenSessionLog` agora ordena os set_logs (última carga
+   determinística).
+5. **Sugestão ≠ medição (F10)**: `activateSet` não pré-preenche a carga; a sugestão
+   só vira valor gravado quando o aluno digita ou toca "Usar sugestão".
+6. **RIR clamp no núcleo (F12)**: `store.setRir` clampa 0–10 (a UI já clampava).
+
+### Verificação
+- `tsc --noEmit`: **0 erros**. `jest`: **108 → 117** (17 suites, 100% verde).
+- **Retomada exercitada DE VERDADE** com numeric string: `resumeNumericIntegration.test.ts`
+  usa repositório + store + modelo REAIS (só o cliente Supabase mockado), retoma do
+  servidor com `actual_load_kg:"50"` e prova que o stepper dá **52.5** (não "502.5"/NaN).
+
+### ⛔ Dependência de banco NOVA e BLOQUEANTE
+O app agora chama `start_session`/`finish_session` (RPC) e faz UPSERT com
+`onConflict`. **Sem a migration 0003 aplicada** (índices únicos + as 2 RPCs
+`SECURITY INVOKER`) o iniciar/concluir/gravar série QUEBRA em runtime. O SQL da
+0003 está no "Prompt Supabase" entregue ao dono — precisa ser aplicado ANTES de
+exercitar em device/prod. Pré-checks de duplicidade (set_logs e logs abertos) antes
+de criar os índices únicos.
+
+### Pendências honestas
+1. **E2E device/Supabase real ainda não rodado** (sem ambiente). Verificação headless
+   + tsc + jest, agora incluindo o caminho de retomada com string.
+2. 0003 + RPCs **precisam ser aplicados** (bloqueia runtime). Confirmar também que as
+   policies vivas do 0002 batem com o repo (0002 foi reconstruído de transmissão corrompida).
+3. Não avancei para a Fase 5 (era o combinado do prompt).
+
+### Próximo passo
+Abrir o PR da Fase 4.1 (base `fase-4-sessao-interativa`), aplicar a 0003 no Supabase,
+depois smoke E2E. Merge só com OK do dono.

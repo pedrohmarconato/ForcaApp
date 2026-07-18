@@ -70,6 +70,17 @@ export const computeOutcome = (
   return 'on_target';
 };
 
+/**
+ * Coerção de coluna `numeric` do PostgREST para number. O PostgREST serializa
+ * numeric como STRING (para preservar precisão): sem isso, "50" + incremento vira
+ * concatenação ("502.5") ou NaN no stepper. Devolve null se não for número finito.
+ */
+export const toNum = (v: unknown): number | null => {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 /** Normaliza texto: sem acento, minúsculo, hífens/underscores viram espaço. */
 export const normalizeName = (s: string): string =>
   s
@@ -168,17 +179,18 @@ export const buildDraftFromDetail = (
     order: ex.exercise_order,
     equipment: ex.equipment,
     isBodyweight: isBodyweightEquipment(ex.equipment),
-    loadIncrementKg: ex.load_increment_kg ?? 2.5,
+    // numeric do PostgREST pode vir como string → coage (F4 do review).
+    loadIncrementKg: toNum(ex.load_increment_kg) ?? 2.5,
     restSeconds: ex.rest_seconds,
     priority: ex.priority,
-    targetRmPercent: ex.target_rm_percent,
+    targetRmPercent: toNum(ex.target_rm_percent),
     repsRaw: ex.reps_raw,
     sets: (ex.planned_sets ?? []).map((s) => ({
       plannedSetId: s.id,
       setOrder: s.set_order,
       targetRepsMin: s.target_reps_min,
       targetRepsMax: s.target_reps_max,
-      targetLoadKg: s.target_load_kg,
+      targetLoadKg: toNum(s.target_load_kg),
       targetRir: s.target_rir,
       actualReps: null,
       actualLoadKg: null,
