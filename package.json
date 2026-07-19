@@ -84,7 +84,6 @@
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
     "react-native-clean-project": "^4.0.1",
-    "react-native-dotenv": "^3.4.11",
     "react-test-renderer": "18.2.0",
     "ts-jest": "^29.1.1",
     "typescript": "^5.2.2"
@@ -106,9 +105,6 @@
     "transformIgnorePatterns": [
       "node_modules/(?!(react-native|@react-native|react-native-vector-icons|@react-navigation|expo|@expo|expo-secure-store|@react-native-async-storage|react-native-paper)/)"
     ],
-    "moduleNameMapper": {
-      "^@env$": "<rootDir>/mocks/envMock.js"
-    },
     "moduleFileExtensions": [
       "ts",
       "tsx",
