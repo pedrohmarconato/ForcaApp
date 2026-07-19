@@ -27,6 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getItem as secureGetItem, setItem as secureSetItem } from '../services/auth/secureStorage';
 import { useAuth } from '../contexts/AuthContext'; // Importa o hook de autenticação
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
+import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
 
 // Tipagem da navegação no fluxo de onboarding
 type QuestionnaireNavigationProp = StackNavigationProp<OnboardingStackParamList, 'Questionnaire'>;
@@ -62,44 +63,9 @@ const STORAGE_KEY_BASE = '@questionnaire_data';
 const API_BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1` : '';
 if (!API_BASE_URL) { console.error("CRITICAL ERROR: Supabase URL is not configured!"); }
 
-// --- Função API (sem alterações) ---
-// Função para salvar os dados do questionário via API Supabase
-const saveQuestionnaireDataAPI = async (authToken: string | null, formDataWithUserId: any): Promise<any> => {
-    const endpoint = `${API_BASE_URL}/questionario_usuario`;
-    if (!API_BASE_URL) throw new Error("A URL da API não está configurada.");
-    if (!authToken) throw new Error("Token de autenticação ausente.");
-    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-    if (!anonKey) { console.error("CRITICAL ERROR: Supabase Anon Key is not configured!"); throw new Error("Chave da API não configurada."); }
-    const headers: HeadersInit = { 'Content-Type': 'application/json', 'apikey': anonKey, 'Authorization': `Bearer ${authToken}`, 'Prefer': 'return=minimal' };
-    try {
-    const response = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(formDataWithUserId) });
-    if (!response.ok) {
-    let errorBody = null;
-    try { errorBody = await response.json(); } catch (e) { /* ignore */ }
-    const details = errorBody?.details ? `Detalhes: ${errorBody.details}` : '';
-    const message = errorBody?.message || 'Erro desconhecido do servidor.';
-    console.error(`[API] Erro ao salvar questionário: ${response.status} - ${message} ${details}`, errorBody);
-
-    // Detectar token expirado
-    if (response.status === 401 && (errorBody?.code === 'PGRST301' || message.includes('JWT expired'))) {
-    throw new Error(`TOKEN_EXPIRED`);
-    }
-
-    if (response.status === 409 || errorBody?.code === '23505') {
-    throw new Error(`QUESTIONNAIRE_ALREADY_EXISTS`);
-    }
-    if (response.status === 401 || response.status === 403) {
-    throw new Error(`Sem permissão para salvar os dados. Verifique as políticas RLS. (Erro ${response.status})`);
-    }
-    throw new Error(`Falha ao salvar o questionário. Status: ${response.status}. ${message}`);
-    }
-    console.log('[API] Dados do questionário INSERIDOS com sucesso.');
-    return { success: true };
-    } catch (error: any) {
-    if (error instanceof Error) { console.error('[API] Erro capturado ao salvar questionário:', error.message); throw error; }
-    else { console.error('[API] Erro de rede/inesperado ao salvar questionário:', error); throw new Error("Erro de conexão ao tentar salvar o questionário."); }
-    }
-};
+// A gravação do questionário (upsert no PostgREST) vive em
+// services/api/questionnaireService.ts — testável e com o UPSERT que faz a
+// re-submissão ATUALIZAR a linha em vez de descartar as respostas novas.
 
 const QuestionnaireScreen = () => {
   const navigation = useNavigation<QuestionnaireNavigationProp>();
@@ -341,7 +307,7 @@ const QuestionnaireScreen = () => {
 
     // 2. Tentar salvar na API (Supabase)
     try {
-      await saveQuestionnaireDataAPI(authToken, formDataForApi);
+      await saveQuestionnaireDataAPI(formDataForApi);
       console.log('[QuestionnaireScreen] Dados salvos na API com sucesso.');
     } catch (apiError: any) {
       // Verificar se é erro de token expirado
