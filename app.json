@@ -19,21 +19,20 @@
     ],
     "ios": {
       "supportsTablet": true
-      // Você pode adicionar o bundleIdentifier aqui também, se quiser, para iOS:
-      // "bundleIdentifier": "com.pmarconato.forcaapp"
     },
     "android": {
-      // ADICIONE ESTA LINHA:
-      "package": "com.pmarconato.forcaapp", // <-- Use este ou escolha outro nome único
-
-      // Suas configurações existentes:
+      "package": "com.pmarconato.forcaapp",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A0A0A" // Pode manter sua cor de fundo ou usar #FFFFFF
+        "backgroundColor": "#0A0A0A"
       }
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
   }
 }

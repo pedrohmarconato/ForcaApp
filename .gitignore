@@ -168,3 +168,6 @@ graphify-out/
 
 # estado temporário do Supabase CLI (link do projeto, versões)
 supabase/.temp/
+
+# estado local do Expo (devices, cache web) — não versionar
+.expo/
