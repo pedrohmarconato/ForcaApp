@@ -498,3 +498,45 @@ pré-checagem aborta com a lista do ofensor e aplica após limpeza.
 Verificação: tsc 0 · jest 27 suítes/223 (221→223) · pytest 67. **Pendências:
 (a) aplicar a 0007 em HML (`forcaapp-hml`) e rodar a PROVA do rodapé — bloqueado
 na credencial; (b) prod continua GATED; (c) revogar os 2 PATs expostos (dono).**
+
+## Alinhamento DB × app + reconciliação de ambiente (18/07/2026, PR de alinhamento)
+
+**Decisão do dono registrada:** o Supabase do Força é UM só — `forcaapp-hml`
+(ref `zanqygwsgxkyjiuhrzju`, conta pedrohmarconato@gmail.com). NÃO existe
+produção separada com tabelas legadas `fato_*`/`dim_*` (verificado: 0 resultados
+em todos os schemas). Detalhes e autenticação: `AGENTS.md` +
+`docs/AMBIENTE_SUPABASE.md`. As "pendências de prod GATED" de fases anteriores
+ficam SEM OBJETO.
+
+Revisão adversarial das mudanças de alinhamento (migration 0008 + env fix +
+docs), com cada achado confirmado no código vivo e corrigido:
+
+- **H1 (histórico de migrations)**: 0007/0008 aplicadas via SQL direto SEM
+  registro remoto (migration list com Remote vazio) → `supabase migration
+  repair --status applied 0007 0008`; a 0009 entrou por `db push`, provando o
+  fluxo restaurado. `migration list`: 0000→0009 local = remote.
+- **H2 (docs)**: AGENTS.md afirmava "0000→0007 registradas" (falso à época) —
+  corrigido para o estado real + regra "migration só via db push/repair".
+- **M1 (re-submissão do questionário)**: o 409 da PK era engolido e as
+  respostas novas DESCARTADAS no banco. `saveQuestionnaireDataAPI` saiu da tela
+  para `services/api/questionnaireService.ts` usando o cliente supabase
+  compartilhado com **UPSERT** (`onConflict: usuario_id`) — re-fazer o
+  questionário atualiza a linha. 5 testes novos (upsert íntegro 13/13 campos,
+  TOKEN_EXPIRED, 23505 residual, RLS 42501, rede ≠ sucesso). Aprendizado: o
+  babel-preset-expo INLINA `process.env.EXPO_PUBLIC_*` no transform — serviço
+  testável não lê env direto; usa o cliente compartilhado (mockável).
+- **M2 (updated_at estático)**: migration `0009_questionario_updated_at.sql`
+  (trigger `set_updated_at`). PROVA transacional no HML (rollback via RAISE):
+  upsert atualizou e o trigger sobrescreveu updated_at forjado com now().
+- **M3 (resíduos do @env)**: removidos plugin `react-native-dotenv` do babel,
+  `moduleNameMapper ^@env$` do jest, `mocks/envMock.js` e a dependência.
+- **NITs registrados**: grants remotos com 7 privilégios são default de
+  plataforma em TODAS as tabelas (RLS cobre a API; sem ação); sem policy DELETE
+  no questionário de propósito; `supabase/config.toml` do init commitado
+  (major_version 17 = remoto).
+
+**Aprovadas sem mudança**: env fix do `supabaseClient.js` (todos os testes que
+importam o módulo o mockam; `storageReady` intacto; inline do babel-preset-expo
+vale para .js e .tsx) e o flag offline (`=== 'true'`, chave computada).
+
+Verificação: tsc 0 · jest 28 suítes/228 (223→228) · pytest 67.
