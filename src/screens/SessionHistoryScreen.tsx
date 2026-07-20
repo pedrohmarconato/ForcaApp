@@ -1,12 +1,15 @@
 // src/screens/SessionHistoryScreen.tsx
 // Fase 4 — histórico de sessões concluídas (aberto pelo Perfil). Lista o que foi
 // feito; toque abre o detalhe com reps/cargas reais. Erro de banco ≠ lista vazia.
+//
+// Direção 02: linhas de mesma geometria das demais listas, com a duração real
+// da sessão quando os dois carimbos existem.
 
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+
 import theme from '../theme/theme';
 import { useAuth } from '../contexts/AuthContext';
 import type { ProfileStackParamList } from '../navigation/MainNavigator';
@@ -14,6 +17,10 @@ import {
   getCompletedSessions,
   type CompletedSessionSummary,
 } from '../services/sessionExecutionRepository';
+import { duracaoEmMinutos, formatarDuracao } from '../utils/weekSummary';
+import { Screen, ScreenTitle, ListRow } from '../components/ui/Surface';
+import Button from '../components/ui/Button';
+import { EmptyState, Notice } from '../components/ui/Feedback';
 
 const formatarQuando = (iso: string): string => {
   const d = new Date(iso);
@@ -54,68 +61,66 @@ const SessionHistoryScreen = () => {
     }, [buscar]),
   );
 
-  const renderItem = ({ item }: { item: CompletedSessionSummary }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() =>
-        navigation.navigate('SessionHistoryDetail', {
-          sessionLogId: item.sessionLogId,
-          title: item.title,
-        })
-      }
-    >
-      <Text style={styles.cardTitle}>{item.title}</Text>
-      <Text style={styles.cardMeta}>
-        {item.weekNumber ? `Semana ${item.weekNumber} · ` : ''}
-        {item.finishedAt ? formatarQuando(item.finishedAt) : formatarQuando(item.startedAt)}
-      </Text>
-      {item.muscleGroups?.length ? (
-        <Text style={styles.cardGroups}>{item.muscleGroups.join(' · ')}</Text>
-      ) : null}
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }: { item: CompletedSessionSummary }) => {
+    // Só entra na linha o que existe de fato — duração ausente não vira zero.
+    const detalhes = [
+      item.weekNumber ? `Semana ${item.weekNumber}` : null,
+      item.finishedAt ? formatarQuando(item.finishedAt) : formatarQuando(item.startedAt),
+      formatarDuracao(duracaoEmMinutos(item)),
+    ].filter(Boolean);
+
+    return (
+      <ListRow
+        title={item.title}
+        subtitle={[detalhes.join(' · '), item.muscleGroups?.join(' · ')]
+          .filter(Boolean)
+          .join('\n')}
+        showChevron
+        onPress={() =>
+          navigation.navigate('SessionHistoryDetail', {
+            sessionLogId: item.sessionLogId,
+            title: item.title,
+          })
+        }
+      />
+    );
+  };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <Text style={styles.title}>Histórico de treinos</Text>
+    <Screen>
+      <ScreenTitle kicker="Perfil" title="Histórico de treinos" />
+
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 24 }} color={theme.colors.accent.main} />
+        <ActivityIndicator style={styles.loader} color={theme.colors.accent.main} />
       ) : loadError ? (
-        <Text style={styles.muted}>
-          Não foi possível carregar seu histórico. Verifique a conexão e tente novamente.
-        </Text>
+        <Notice
+          tone="danger"
+          title="Falha ao carregar"
+          description="Não foi possível carregar seu histórico. Verifique a conexão e tente novamente."
+          action={<Button label="Tentar novamente" variant="outline" compact onPress={buscar} />}
+        />
       ) : items.length === 0 ? (
-        <Text style={styles.muted}>
-          Você ainda não concluiu nenhum treino. Ao terminar uma sessão, ela aparece aqui.
-        </Text>
+        <EmptyState
+          icon="activity"
+          title="Nenhum treino concluído ainda"
+          description="Você ainda não concluiu nenhum treino. Ao terminar uma sessão, ela aparece aqui."
+        />
       ) : (
         <FlatList
           data={items}
           keyExtractor={(i) => i.sessionLogId}
           renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
         />
       )}
-    </SafeAreaView>
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.surface.canvas, padding: 16 },
-  title: { color: theme.colors.text.primary, fontSize: 22, fontWeight: 'bold', marginBottom: 12 },
-  list: { paddingBottom: 24 },
-  card: {
-    backgroundColor: theme.colors.surface.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-  },
-  cardTitle: { color: theme.colors.text.primary, fontSize: 16, fontWeight: '700' },
-  cardMeta: { color: theme.colors.text.secondary, marginTop: 4, fontSize: 13 },
-  cardGroups: { color: theme.colors.text.quiet, marginTop: 4, fontSize: 12 },
-  muted: { color: theme.colors.text.secondary, textAlign: 'center', marginTop: 24 },
+  loader: { marginTop: theme.spacing.xxl },
+  list: { paddingBottom: theme.spacing.xxl },
 });
 
 export default SessionHistoryScreen;

@@ -1,8 +1,8 @@
 // src/navigation/RootNavigator.js
 import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
-import { Text } from 'react-native-paper';
+import { ActivityIndicator, View, StyleSheet, Text } from 'react-native';
+import theme from '../theme/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import AuthNavigator from './AuthNavigator';
@@ -43,7 +43,7 @@ const RootNavigator = () => {
     console.log('[RootNavigator] Tela de Loading Inicial: loadingSession=' + loadingSession + ', isLoadingPreference=' + isLoadingPreference);
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0000ff" />
+        <ActivityIndicator size="large" color={theme.colors.accent.main} />
         <Text style={styles.loadingText}>Carregando...</Text>
       </View>
     );
@@ -71,7 +71,7 @@ const RootNavigator = () => {
      console.log('[RootNavigator] Sessão ativa, perfil carregando...');
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0000ff" />
+        <ActivityIndicator size="large" color={theme.colors.accent.main} />
         <Text style={styles.loadingText}>Carregando dados do usuário...</Text>
       </View>
     );
@@ -117,19 +117,22 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.colors.surface.canvas,
   },
   loadingText: {
-    marginTop: 10,
-    fontSize: 16,
+    marginTop: theme.spacing.md,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
   },
   errorText: {
-      fontSize: 16,
-      color: 'red',
-      textAlign: 'center',
-      marginHorizontal: 20,
-      marginBottom: 5,
-  }
+    marginHorizontal: theme.spacing.xl,
+    marginBottom: theme.spacing.xxs,
+    color: theme.colors.status.danger,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    textAlign: 'center',
+  },
 });
 
 export default RootNavigator;

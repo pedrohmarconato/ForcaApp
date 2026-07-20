@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xxs,
     borderRadius: theme.borderRadius.pill,
   },
-  chip_neutral: { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+  chip_neutral: { backgroundColor: theme.colors.veil.faint },
   chip_accent: { backgroundColor: theme.colors.accent.soft },
   chip_info: { backgroundColor: theme.colors.status.infoSoft },
   chip_danger: { backgroundColor: theme.colors.status.dangerSoft },
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     height: 5,
     overflow: 'hidden',
     borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: theme.colors.veil.soft,
   },
   trackFill: {
     height: '100%',

@@ -56,6 +56,15 @@ export const colors = {
 
   surface: surfaces,
 
+  // Véus claros usados sobre as superfícies escuras: trilho de progresso,
+  // fundo de chip neutro e marcador inativo. Não são degraus tonais — são
+  // transparências, e por isso vivem separados de `surface`.
+  veil: {
+    faint: 'rgba(255, 255, 255, 0.05)',
+    soft: 'rgba(255, 255, 255, 0.06)',
+    medium: 'rgba(255, 255, 255, 0.12)',
+  },
+
   text: {
     primary: BRANCO,
     secondary: CINZA, // informação auxiliar (brandbook)

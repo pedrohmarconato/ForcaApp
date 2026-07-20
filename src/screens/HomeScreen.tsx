@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: theme.colors.veil.medium,
   },
   weekDotDone: { backgroundColor: theme.colors.accent.main },
   weekDayLabel: {

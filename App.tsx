@@ -4,7 +4,6 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import { PaperProvider } from 'react-native-paper';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
@@ -30,10 +29,8 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <PaperProvider>
-        <StatusBar style="light" />
-        <RootNavigator />
-      </PaperProvider>
+      <StatusBar style="light" />
+      <RootNavigator />
     </AuthProvider>
   );
 }

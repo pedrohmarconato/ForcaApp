@@ -1,86 +1,165 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+// src/screens/ProfileScreen.tsx
+// Tela 06 do fluxo — Perfil: identidade da conta, números do treino e saída.
+//
+// Regra de dado: as três métricas vêm do histórico REAL de execuções. Sem
+// amostra, cada uma renderiza "—" (ver componente Metric) em vez de zero
+// travestido de resultado. Nenhuma linha de preferência é exibida sem tela
+// correspondente — controle morto é pior que ausência.
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+
 import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
 import type { ProfileStackParamList } from '../navigation/MainNavigator';
+import {
+  getCompletedSessions,
+  type CompletedSessionSummary,
+} from '../services/sessionExecutionRepository';
+import { resumirSemana, minutosTotais, formatarDuracao } from '../utils/weekSummary';
+import { Screen, ScreenTitle, Card, ListRow } from '../components/ui/Surface';
+import Button from '../components/ui/Button';
+import { Metric, MetricGroup, Notice } from '../components/ui/Feedback';
+
+/** Iniciais para o bloco de identidade (no máximo duas). */
+const iniciais = (nome: string): string =>
+  nome
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((parte) => parte[0]?.toUpperCase() ?? '')
+    .join('');
 
 const ProfileScreen = () => {
   const { user, profile, signOut } = useAuth();
   const navigation = useNavigation<StackNavigationProp<ProfileStackParamList, 'ProfileMain'>>();
 
+  const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
+  const [statsError, setStatsError] = useState(false);
+
+  const buscarHistorico = useCallback(async () => {
+    if (!user) return;
+    setStatsError(false);
+    try {
+      setCompleted(await getCompletedSessions(user.id));
+    } catch (err) {
+      console.error('Erro ao buscar histórico do perfil:', err);
+      // Falha ≠ zero: mantém `completed` nulo para as métricas exibirem "—".
+      setCompleted(null);
+      setStatsError(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    buscarHistorico();
+  }, [buscarHistorico]);
+
+  const nome = profile?.full_name || user?.email || 'Atleta';
+
+  // `null` significa "sem amostra confiável" e chega ao Metric como "—".
+  const metricas = useMemo(() => {
+    if (!completed) return { sessoes: null, tempo: null, semana: null };
+
+    return {
+      sessoes: completed.length,
+      tempo: formatarDuracao(minutosTotais(completed)),
+      semana: resumirSemana(completed, new Date()).concluidas,
+    };
+  }, [completed]);
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Perfil</Text>
-      <View style={styles.profileSection}>
-        <Text style={styles.name}>{profile?.full_name || user?.email}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-      </View>
-      <TouchableOpacity
-        style={styles.historyButton}
+    <Screen scroll>
+      <ScreenTitle kicker="Conta" title="Seu perfil." />
+
+      <Card style={styles.identity}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{iniciais(nome)}</Text>
+        </View>
+        <View style={styles.identityCopy}>
+          <Text style={styles.name}>{profile?.full_name || user?.email}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+        </View>
+      </Card>
+
+      {statsError ? (
+        <Notice
+          tone="danger"
+          title="Não foi possível carregar seus números"
+          description="Eles voltam a aparecer quando a conexão for restabelecida."
+          style={styles.notice}
+          action={<Button label="Tentar novamente" variant="outline" compact onPress={buscarHistorico} />}
+        />
+      ) : null}
+
+      <MetricGroup style={styles.metrics}>
+        <Metric value={metricas.sessoes} label="Sessões" />
+        <Metric value={metricas.tempo} label="Tempo total" />
+        <Metric value={metricas.semana} label="Nesta semana" />
+      </MetricGroup>
+
+      <Text style={styles.listTitle}>Treino</Text>
+      <ListRow
+        title="Histórico de treinos"
+        subtitle="Séries, cargas e repetições registradas"
+        showChevron
         onPress={() => navigation.navigate('SessionHistory')}
-      >
-        <Text style={styles.historyText}>Histórico de treinos</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
-        <Text style={styles.logoutText}>Sair</Text>
-      </TouchableOpacity>
-    </View>
+      />
+
+      <Button label="Sair" variant="danger" onPress={signOut} style={styles.logout} />
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.surface.canvas,
-    padding: 16,
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
-  title: {
-    color: theme.colors.text.primary,
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 16,
+  avatar: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.accent.soft,
   },
-  profileSection: {
-    backgroundColor: theme.colors.surface.card,
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 16,
+  avatarText: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.md,
+    fontWeight: theme.typography.fontWeights.bold,
   },
+  identityCopy: { flex: 1, minWidth: 0 },
   name: {
     color: theme.colors.text.primary,
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.md,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
   email: {
+    marginTop: 2,
     color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
   },
-  historyButton: {
-    backgroundColor: theme.colors.surface.card,
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-  },
-  historyText: {
+
+  notice: { marginBottom: theme.spacing.lg },
+  metrics: { marginBottom: theme.spacing.xxl },
+
+  listTitle: {
+    marginBottom: theme.spacing.md,
     color: theme.colors.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
-  logoutButton: {
-    backgroundColor: theme.colors.accent.main,
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  logoutText: {
-    color: theme.colors.text.primary,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+
+  logout: { marginTop: theme.spacing.xxl },
 });
 
 export default ProfileScreen;
