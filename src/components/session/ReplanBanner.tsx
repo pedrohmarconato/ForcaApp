@@ -115,10 +115,10 @@ const ReplanBanner = ({ proposal, sessionLabelById, busy, onConfirm, onDecline }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: theme.colors.background.card ?? '#1c1c1e',
+    backgroundColor: theme.colors.surface.card ?? '#1c1c1e',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.primary.main,
+    borderColor: theme.colors.accent.main,
     padding: 16,
     marginBottom: 16,
   },
@@ -130,23 +130,23 @@ const styles = StyleSheet.create({
   },
   block: { marginBottom: 10 },
   blockTitle: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 13,
     fontWeight: '700',
     marginBottom: 4,
   },
   line: { color: theme.colors.text.secondary, fontSize: 13, marginTop: 2 },
-  loss: { color: theme.colors.text.muted, fontSize: 13, marginTop: 2 },
+  loss: { color: theme.colors.text.quiet, fontSize: 13, marginTop: 2 },
   actions: { flexDirection: 'row', marginTop: 6 },
   confirmBtn: {
     flex: 1,
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
     marginRight: 8,
   },
-  confirmText: { color: theme.colors.primary.contrast, fontWeight: '700', fontSize: 14 },
+  confirmText: { color: theme.colors.accent.on, fontWeight: '700', fontSize: 14 },
   declineBtn: {
     flex: 1,
     borderRadius: 8,

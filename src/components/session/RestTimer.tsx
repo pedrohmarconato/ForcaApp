@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(235, 255, 0, 0.08)',
   },
   label: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontWeight: '600',
   },
   skip: {

@@ -137,7 +137,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   if (detailLoading || status === 'loading') {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary.main} />
+        <ActivityIndicator size="large" color={theme.colors.accent.main} />
         <Text style={styles.muted}>Preparando sua sessão...</Text>
       </View>
     );
@@ -243,7 +243,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
                 onChangeText={setMinutesText}
                 keyboardType="number-pad"
                 placeholder="min"
-                placeholderTextColor={theme.colors.text.muted}
+                placeholderTextColor={theme.colors.text.quiet}
                 testID="replan-minutes-input"
                 accessibilityLabel="Minutos disponíveis hoje"
               />
@@ -361,10 +361,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background.dark },
+  container: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   centered: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
+    backgroundColor: theme.colors.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -386,20 +386,20 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   exerciseMeta: {
-    color: theme.colors.text.muted,
+    color: theme.colors.text.quiet,
     fontSize: 13,
     marginBottom: 10,
   },
   exerciseNameCut: { textDecorationLine: 'line-through', opacity: 0.6 },
   cutNote: {
-    color: theme.colors.text.muted,
+    color: theme.colors.text.quiet,
     fontSize: 13,
     fontStyle: 'italic',
     marginBottom: 10,
   },
   timeRow: { marginBottom: 8 },
   timeToggle: { alignSelf: 'flex-start', paddingVertical: 4 },
-  timeToggleText: { color: theme.colors.primary.main, fontSize: 13, fontWeight: '600' },
+  timeToggleText: { color: theme.colors.accent.main, fontSize: 13, fontWeight: '600' },
   timeInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   timeInput: {
     borderWidth: 1,
@@ -412,12 +412,12 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   timeApplyBtn: {
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 8,
     paddingVertical: 9,
     paddingHorizontal: 14,
   },
-  timeApplyText: { color: theme.colors.primary.contrast, fontWeight: '700', fontSize: 13 },
+  timeApplyText: { color: theme.colors.accent.on, fontWeight: '700', fontSize: 13 },
   timeFullNote: {
     color: theme.colors.text.secondary,
     fontSize: 13,
@@ -430,9 +430,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
   },
-  errorBannerText: { color: theme.colors.status.error, fontSize: 13 },
+  errorBannerText: { color: theme.colors.status.danger, fontSize: 13 },
   finishBtn: {
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 10,
     paddingVertical: 16,
     alignItems: 'center',
@@ -441,24 +441,24 @@ const styles = StyleSheet.create({
   },
   finishBtnDisabled: { opacity: 0.4 },
   finishBtnText: {
-    color: theme.colors.primary.contrast,
+    color: theme.colors.accent.on,
     fontWeight: '700',
     fontSize: 16,
   },
   doneTitle: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
   },
   retryBtn: {
     marginTop: 20,
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 24,
   },
-  retryText: { color: theme.colors.primary.contrast, fontWeight: '700' },
+  retryText: { color: theme.colors.accent.on, fontWeight: '700' },
 });
 
 export default ActiveSessionScreen;

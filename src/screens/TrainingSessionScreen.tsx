@@ -125,7 +125,7 @@ const TrainingSessionScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
+    backgroundColor: theme.colors.surface.canvas,
     padding: 16,
   },
   title: {
@@ -141,19 +141,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   startButton: {
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 10,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 12,
   },
   startButtonText: {
-    color: theme.colors.primary.contrast,
+    color: theme.colors.accent.on,
     fontWeight: '700',
     fontSize: 16,
   },
   exerciseItem: {
-    backgroundColor: theme.colors.background.card,
+    backgroundColor: theme.colors.surface.card,
     padding: 16,
     marginBottom: 8,
     borderRadius: 8,

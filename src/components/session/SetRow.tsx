@@ -150,7 +150,7 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
               setReps(exercise.exerciseId, set.setOrder, parseIntOrNull(t))
             }
             placeholder={String(set.targetRepsMin)}
-            placeholderTextColor={theme.colors.text.muted}
+            placeholderTextColor={theme.colors.text.quiet}
             accessibilityLabel={`Repetições da série ${set.setOrder}`}
           />
         </View>
@@ -187,7 +187,7 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
                 placeholder={
                   suggestedLoad != null ? String(suggestedLoad) : 'kg'
                 }
-                placeholderTextColor={theme.colors.text.muted}
+                placeholderTextColor={theme.colors.text.quiet}
                 accessibilityLabel={`Carga da série ${set.setOrder}`}
               />
               <TouchableOpacity
@@ -218,7 +218,7 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
               );
             }}
             placeholder="—"
-            placeholderTextColor={theme.colors.text.muted}
+            placeholderTextColor={theme.colors.text.quiet}
             accessibilityLabel={`RIR da série ${set.setOrder}`}
           />
         </View>
@@ -257,7 +257,7 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
       >
         {saving ? (
           <ActivityIndicator
-            color={theme.colors.primary.contrast}
+            color={theme.colors.accent.on}
             size="small"
           />
         ) : (
@@ -270,12 +270,12 @@ const SetRow = ({ exercise, set, suggestedLoad, isLast }: Props) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: theme.colors.background.card,
+    backgroundColor: theme.colors.surface.card,
     borderRadius: 10,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderColor: theme.colors.border.subtle,
   },
   cardActive: { borderColor: theme.colors.border.focus },
   cardDone: { opacity: 0.9 },
@@ -289,7 +289,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
   },
-  target: { color: theme.colors.text.muted, fontSize: 13 },
+  target: { color: theme.colors.text.quiet, fontSize: 13 },
   chip: { fontWeight: '700', fontSize: 13 },
   doneText: { color: theme.colors.text.secondary, marginTop: 6, fontSize: 14 },
   startBtn: {
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  startBtnText: { color: theme.colors.primary.main, fontWeight: '700' },
+  startBtnText: { color: theme.colors.accent.main, fontWeight: '700' },
   inputsRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -308,12 +308,12 @@ const styles = StyleSheet.create({
   },
   field: { flex: 1 },
   fieldWide: { flex: 1.6 },
-  fieldLabel: { color: theme.colors.text.muted, fontSize: 12, marginBottom: 4 },
+  fieldLabel: { color: theme.colors.text.quiet, fontSize: 12, marginBottom: 4 },
   repsInput: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderColor: theme.colors.border.subtle,
     color: theme.colors.text.primary,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stepBtnText: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderColor: theme.colors.border.subtle,
     color: theme.colors.text.primary,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -365,13 +365,13 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border.focus,
   },
   suggestText: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 13,
     fontWeight: '600',
   },
   completeBtn: {
     marginTop: 12,
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
   completeBtnDisabled: { opacity: 0.4 },
   controlDisabled: { opacity: 0.4 },
   completeBtnText: {
-    color: theme.colors.primary.contrast,
+    color: theme.colors.accent.on,
     fontWeight: '700',
     fontSize: 15,
   },

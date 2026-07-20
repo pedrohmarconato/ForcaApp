@@ -33,7 +33,7 @@ const ProfileScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
+    backgroundColor: theme.colors.surface.canvas,
     padding: 16,
   },
   title: {
@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   profileSection: {
-    backgroundColor: theme.colors.background.card,
+    backgroundColor: theme.colors.surface.card,
     padding: 16,
     borderRadius: 8,
     marginBottom: 16,
@@ -57,13 +57,13 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
   },
   historyButton: {
-    backgroundColor: theme.colors.background.card,
+    backgroundColor: theme.colors.surface.card,
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderColor: theme.colors.border.subtle,
   },
   historyText: {
     color: theme.colors.text.primary,
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   logoutButton: {
-    backgroundColor: theme.colors.primary.main,
+    backgroundColor: theme.colors.accent.main,
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',

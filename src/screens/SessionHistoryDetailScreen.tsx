@@ -55,7 +55,7 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.primary.main} />
+        <ActivityIndicator color={theme.colors.accent.main} />
       </View>
     );
   }
@@ -113,10 +113,10 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background.dark, padding: 16 },
+  container: { flex: 1, backgroundColor: theme.colors.surface.canvas, padding: 16 },
   centered: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
+    backgroundColor: theme.colors.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   subtitle: { color: theme.colors.text.secondary, marginBottom: 12 },
   list: { paddingBottom: 24 },
   exerciseName: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 15,
     fontWeight: '700',
     marginTop: 16,
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border.light,
+    borderBottomColor: theme.colors.border.subtle,
   },
   setText: { color: theme.colors.text.secondary, fontSize: 14, flex: 1 },
   chip: { fontWeight: '700', fontSize: 13, marginLeft: 8 },

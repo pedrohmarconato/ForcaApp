@@ -79,7 +79,7 @@ const SessionHistoryScreen = () => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <Text style={styles.title}>Histórico de treinos</Text>
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 24 }} color={theme.colors.primary.main} />
+        <ActivityIndicator style={{ marginTop: 24 }} color={theme.colors.accent.main} />
       ) : loadError ? (
         <Text style={styles.muted}>
           Não foi possível carregar seu histórico. Verifique a conexão e tente novamente.
@@ -101,20 +101,20 @@ const SessionHistoryScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background.dark, padding: 16 },
+  container: { flex: 1, backgroundColor: theme.colors.surface.canvas, padding: 16 },
   title: { color: theme.colors.text.primary, fontSize: 22, fontWeight: 'bold', marginBottom: 12 },
   list: { paddingBottom: 24 },
   card: {
-    backgroundColor: theme.colors.background.card,
+    backgroundColor: theme.colors.surface.card,
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderColor: theme.colors.border.subtle,
   },
   cardTitle: { color: theme.colors.text.primary, fontSize: 16, fontWeight: '700' },
   cardMeta: { color: theme.colors.text.secondary, marginTop: 4, fontSize: 13 },
-  cardGroups: { color: theme.colors.text.muted, marginTop: 4, fontSize: 12 },
+  cardGroups: { color: theme.colors.text.quiet, marginTop: 4, fontSize: 12 },
   muted: { color: theme.colors.text.secondary, textAlign: 'center', marginTop: 24 },
 });
 

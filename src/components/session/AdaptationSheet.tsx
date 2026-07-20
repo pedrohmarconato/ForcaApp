@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: theme.colors.background.card ?? '#1c1c1e',
+    backgroundColor: theme.colors.surface.card ?? '#1c1c1e',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -130,11 +130,11 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: theme.colors.text.muted,
+    backgroundColor: theme.colors.text.quiet,
     marginBottom: 12,
   },
   kicker: {
-    color: theme.colors.text.muted,
+    color: theme.colors.text.quiet,
     fontSize: 13,
     marginBottom: 2,
   },
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   optionRecommended: {
-    borderColor: theme.colors.primary.main,
+    borderColor: theme.colors.accent.main,
     backgroundColor: 'rgba(235,255,0,0.08)',
   },
   optionLabel: {
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
   },
   badge: {
-    color: theme.colors.primary.main,
+    color: theme.colors.accent.main,
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 12,
