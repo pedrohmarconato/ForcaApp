@@ -269,7 +269,10 @@ const QuestionnaireScreen = () => {
   ]);
 
   // --- handleSubmit ---
-  const handleSubmit = async () => {
+  // pularChat=true vem do botão "Gerar treino direto": a persistência é a
+  // mesma, só muda o destino — a tela de chat recebe skipChat para disparar
+  // a geração sem mostrar a escolha inicial.
+  const handleSubmit = async (pularChat: boolean = false) => {
     if (typeof updateProfile !== 'function') { console.error("[QuestionnaireScreen] A função updateProfile não está disponível no AuthContext!"); Alert.alert('Erro Interno', 'Funcionalidade indisponível. Tente novamente mais tarde.'); return; }
     if (!userId || !authToken) { Alert.alert('Erro', 'Usuário não autenticado. Faça login novamente.'); return; }
     if (!userStorageKey) { Alert.alert('Erro Interno', 'Não foi possível determinar o armazenamento local.'); return; }
@@ -322,7 +325,11 @@ const QuestionnaireScreen = () => {
 
     // 3. Navegar para a tela de Chat
     console.log('[QuestionnaireScreen] Navegando para PostQuestionnaireChat...');
-    navigation.navigate('PostQuestionnaireChat', { formData: formDataForStorage });
+    if (pularChat) {
+      navigation.navigate('PostQuestionnaireChat', { formData: formDataForStorage, skipChat: true });
+    } else {
+      navigation.navigate('PostQuestionnaireChat', { formData: formDataForStorage });
+    }
 
     } catch (submissionError: any) {
       console.error('[QuestionnaireScreen] Falha no processo de submissão (fora do erro 409/token):', submissionError);
@@ -561,10 +568,20 @@ const QuestionnaireScreen = () => {
           <Button
             label="Conversar com IA"
             icon="message-circle"
-            onPress={handleSubmit}
+            onPress={() => handleSubmit(false)}
             loading={isLoading}
             disabled={!isFormValid()}
             style={styles.submit}
+          />
+
+          <Button
+            label="Gerar treino direto"
+            variant="outline"
+            icon="zap"
+            onPress={() => handleSubmit(true)}
+            loading={isLoading}
+            disabled={!isFormValid()}
+            style={styles.submitDirect}
           />
 
           <Text style={styles.signature}>Desenvolvido no Brasil</Text>
@@ -691,6 +708,7 @@ const styles = StyleSheet.create({
   days: { flexDirection: 'row', gap: theme.spacing.xs },
 
   submit: { marginTop: theme.spacing.xxl },
+  submitDirect: { marginTop: theme.spacing.md },
   signature: {
     marginTop: theme.spacing.xl,
     color: theme.colors.text.quiet,
