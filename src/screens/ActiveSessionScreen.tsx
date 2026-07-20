@@ -32,6 +32,8 @@ import {
   suggestionFor,
 } from '../store/activeSessionStore';
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
+import Button from '../components/ui/Button';
+import { Notice, ProgressTrack } from '../components/ui/Feedback';
 import SetRow from '../components/session/SetRow';
 import AdaptationSheet from '../components/session/AdaptationSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
@@ -137,7 +139,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   if (detailLoading || status === 'loading') {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary.main} />
+        <ActivityIndicator size="large" color={theme.colors.accent.main} />
         <Text style={styles.muted}>Preparando sua sessão...</Text>
       </View>
     );
@@ -151,9 +153,12 @@ const ActiveSessionScreen = ({ route }: Props) => {
           Não foi possível abrir o treino. Verifique a conexão e tente
           novamente.
         </Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={iniciar}>
-          <Text style={styles.retryText}>Tentar de novo</Text>
-        </TouchableOpacity>
+        <Button
+          label="Tentar de novo"
+          variant="outline"
+          onPress={iniciar}
+          style={styles.stateAction}
+        />
       </View>
     );
   }
@@ -165,9 +170,12 @@ const ActiveSessionScreen = ({ route }: Props) => {
         <Text style={styles.muted}>
           {saveError ?? 'Não foi possível iniciar a sessão.'}
         </Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={iniciar}>
-          <Text style={styles.retryText}>Tentar de novo</Text>
-        </TouchableOpacity>
+        <Button
+          label="Tentar de novo"
+          variant="outline"
+          onPress={iniciar}
+          style={styles.stateAction}
+        />
       </View>
     );
   }
@@ -181,14 +189,13 @@ const ActiveSessionScreen = ({ route }: Props) => {
           Suas séries foram registradas. Veja o resumo no seu histórico (aba
           Perfil).
         </Text>
-        <TouchableOpacity
-          style={styles.retryBtn}
+        <Button
+          label="Voltar ao início"
           onPress={() =>
             navigation.canGoBack() ? navigation.popToTop() : undefined
           }
-        >
-          <Text style={styles.retryText}>Voltar ao início</Text>
-        </TouchableOpacity>
+          style={styles.stateAction}
+        />
       </View>
     );
   }
@@ -210,14 +217,21 @@ const ActiveSessionScreen = ({ route }: Props) => {
         <Text style={styles.subtitle}>
           Semana {draft.weekNumber} · {progresso.done}/{progresso.total} séries
         </Text>
+        {/* Progresso concluído — dado real do rascunho, um dos usos do neon. */}
+        <ProgressTrack
+          ratio={progresso.total > 0 ? progresso.done / progresso.total : 0}
+          accessibilityLabel="Progresso das séries desta sessão"
+          style={styles.progress}
+        />
       </View>
 
       {saveError ? (
-        <TouchableOpacity style={styles.errorBanner} onPress={clearError}>
-          <Text style={styles.errorBannerText}>
-            {saveError} (toque para dispensar)
-          </Text>
-        </TouchableOpacity>
+        <Notice
+          tone="danger"
+          title={`${saveError} (toque para dispensar)`}
+          style={styles.errorBanner}
+          action={<Button label="Dispensar" variant="ghost" compact onPress={clearError} />}
+        />
       ) : null}
 
       <ScrollView
@@ -243,7 +257,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
                 onChangeText={setMinutesText}
                 keyboardType="number-pad"
                 placeholder="min"
-                placeholderTextColor={theme.colors.text.muted}
+                placeholderTextColor={theme.colors.text.quiet}
                 testID="replan-minutes-input"
                 accessibilityLabel="Minutos disponíveis hoje"
               />
@@ -321,16 +335,12 @@ const ActiveSessionScreen = ({ route }: Props) => {
           );
         })}
 
-        <TouchableOpacity
-          style={[
-            styles.finishBtn,
-            progresso.done === 0 && styles.finishBtnDisabled,
-          ]}
+        <Button
+          label="Concluir treino"
           onPress={onConcluirTreino}
           disabled={progresso.done === 0}
-        >
-          <Text style={styles.finishBtnText}>Concluir treino</Text>
-        </TouchableOpacity>
+          style={styles.finishBtn}
+        />
       </ScrollView>
 
       <AdaptationSheet
@@ -361,104 +371,128 @@ const ActiveSessionScreen = ({ route }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background.dark },
+  container: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   centered: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
+    backgroundColor: theme.colors.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: theme.spacing.xxl,
   },
   muted: {
+    marginTop: theme.spacing.md,
     color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
     textAlign: 'center',
-    marginTop: 12,
   },
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
-  title: { color: theme.colors.text.primary, fontSize: 22, fontWeight: 'bold' },
-  subtitle: { color: theme.colors.text.secondary, marginTop: 4 },
-  scroll: { padding: 16, paddingTop: 4 },
-  exerciseBlock: { marginBottom: 20 },
-  exerciseName: {
+  stateAction: { marginTop: theme.spacing.xl, alignSelf: 'stretch' },
+  doneTitle: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.display,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
+    textAlign: 'center',
+  },
+
+  header: {
+    paddingHorizontal: theme.spacing.xl,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.lg,
+  },
+  title: {
     color: theme.colors.text.primary,
-    fontSize: 17,
-    fontWeight: '700',
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.display,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
+  },
+  subtitle: {
+    marginTop: theme.spacing.xxs,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+  },
+  progress: { marginTop: theme.spacing.md },
+
+  scroll: { padding: theme.spacing.xl, paddingTop: theme.spacing.xxs },
+
+  exerciseBlock: { marginBottom: theme.spacing.xxl },
+  exerciseName: {
     marginBottom: 2,
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.md,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
   exerciseMeta: {
-    color: theme.colors.text.muted,
-    fontSize: 13,
-    marginBottom: 10,
+    marginBottom: theme.spacing.md,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
   },
   exerciseNameCut: { textDecorationLine: 'line-through', opacity: 0.6 },
   cutNote: {
-    color: theme.colors.text.muted,
-    fontSize: 13,
-    fontStyle: 'italic',
-    marginBottom: 10,
+    marginBottom: theme.spacing.md,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
   },
-  timeRow: { marginBottom: 8 },
-  timeToggle: { alignSelf: 'flex-start', paddingVertical: 4 },
-  timeToggleText: { color: theme.colors.primary.main, fontSize: 13, fontWeight: '600' },
-  timeInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+
+  timeRow: { marginBottom: theme.spacing.md },
+  timeToggle: { alignSelf: 'flex-start', paddingVertical: theme.spacing.xxs },
+  timeToggleText: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  timeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
   timeInput: {
+    width: 84,
+    minHeight: theme.hitTarget.compact,
+    paddingHorizontal: theme.spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 8,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface.card,
     color: theme.colors.text.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    width: 80,
-    marginRight: 8,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.md,
   },
   timeApplyBtn: {
-    backgroundColor: theme.colors.primary.main,
-    borderRadius: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    minHeight: theme.hitTarget.compact,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.accent.main,
   },
-  timeApplyText: { color: theme.colors.primary.contrast, fontWeight: '700', fontSize: 13 },
+  timeApplyText: {
+    color: theme.colors.accent.on,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
   timeFullNote: {
+    marginBottom: theme.spacing.md,
     color: theme.colors.text.secondary,
-    fontSize: 13,
-    marginBottom: 8,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
   },
+
   errorBanner: {
-    backgroundColor: 'rgba(244, 67, 54, 0.15)',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 12,
-    borderRadius: 8,
+    marginHorizontal: theme.spacing.xl,
+    marginBottom: theme.spacing.md,
   },
-  errorBannerText: { color: theme.colors.status.error, fontSize: 13 },
-  finishBtn: {
-    backgroundColor: theme.colors.primary.main,
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 32,
-  },
-  finishBtnDisabled: { opacity: 0.4 },
-  finishBtnText: {
-    color: theme.colors.primary.contrast,
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  doneTitle: {
-    color: theme.colors.primary.main,
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  retryBtn: {
-    marginTop: 20,
-    backgroundColor: theme.colors.primary.main,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  retryText: { color: theme.colors.primary.contrast, fontWeight: '700' },
+
+  finishBtn: { marginTop: theme.spacing.sm, marginBottom: theme.spacing.xxxl },
 });
 
 export default ActiveSessionScreen;

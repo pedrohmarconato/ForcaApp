@@ -1,169 +1,217 @@
-// Sistema de cores com variantes para diferentes estados e modos
+// src/theme/theme.ts
+// Fonte ÚNICA de tokens da identidade "Força sem ruído" (Direção visual 02).
+//
+// Paleta: brandbook `branding/forca-identidade-final.md`.
+// Geometria (espaçamento, raios, escala tipográfica, estados): extraída do
+// protótipo `forca-app-mockup-atual.html`.
+//
+// Princípios do sistema:
+//  1. Acento com propósito — o neon aparece só em foco, ação principal e
+//     progresso concluído. Nunca como preenchimento dominante.
+//  2. Hierarquia editorial — títulos humanos, dados compactos, espaço generoso.
+//  3. Superfícies tonais — grafites próximos no lugar de contornos, sombras e
+//     efeitos luminosos.
+//  4. Padrões consistentes — cards, botões, campos e navegação compartilham a
+//     mesma geometria e escala.
+//
+// Nenhuma tela deve declarar cor, fonte, raio ou espaçamento fora daqui.
+
+// --- Âncoras do brandbook -------------------------------------------------
+const PRETO = '#0A0A0A'; // base principal
+const GRAFITE = '#171A1D'; // superfícies secundárias
+const CINZA = '#8B9098'; // informação auxiliar
+const BRANCO = '#FFFFFF'; // contraste e versão negativa
+const NEON = '#EBFF00'; // assinatura, ação e progresso concluído
+const AZUL_FUNCIONAL = '#0A66FF'; // estados digitais que não podem virar neon
+
+export const palette = {
+  preto: PRETO,
+  grafite: GRAFITE,
+  cinza: CINZA,
+  branco: BRANCO,
+  neon: NEON,
+  azulFuncional: AZUL_FUNCIONAL,
+} as const;
+
+// --- Superfícies ----------------------------------------------------------
+// Escada tonal neutra ancorada nas duas superfícies do brandbook (preto e
+// grafite). Substitui contornos e sombras: a hierarquia vem do degrau de tom.
+export const surfaces = {
+  canvas: PRETO, // fundo do app
+  raised: '#101315', // 1º degrau — barras, faixas discretas
+  card: GRAFITE, // 2º degrau — cards, campos, linhas de lista
+  elevated: '#1F2328', // 3º degrau — topo do card de destaque
+} as const;
+
 export const colors = {
-    primary: {
-      main: '#EBFF00',       // Amarelo neon vibrante
-      light: '#F2FF66',
-      dark: '#CCDD00',
-      contrast: '#000000',   // Texto sobre cor primária
-    },
-    background: {
-      dark: '#0A0A0A',
-      darker: '#050505',
-      card: 'rgba(26, 26, 26, 0.8)',
-      gradient: ['#0A0A0A', '#1A1A1A'],
-    },
-    text: {
-      primary: '#FFFFFF',
-      secondary: 'rgba(255, 255, 255, 0.7)',
-      muted: 'rgba(255, 255, 255, 0.5)',
-      inverse: '#000000',
-    },
-    border: {
-      light: 'rgba(255, 255, 255, 0.1)',
-      medium: 'rgba(255, 255, 255, 0.2)',
-      focus: 'rgba(235, 255, 0, 0.5)',
-    },
-    status: {
-      success: '#4CAF50',
-      warning: '#FF9800',
-      error: '#F44336',
-      info: '#2196F3',
-    },
-    overlay: 'rgba(0, 0, 0, 0.4)',
-    shadow: {
-      color: '#000',
-      colorAlt: 'rgba(235, 255, 0, 0.2)',
-    },
-    transparent: 'transparent',
-  };
-  
-  // Sistema de tipografia com variantes para diferentes usos
-  export const typography = {
-    fontSizes: {
-      xs: 12,
-      sm: 14,
-      md: 16,
-      lg: 18,
-      xl: 20,
-      xxl: 24,
-      xxxl: 32,
-    },
-    fontWeights: {
-      light: '300',
-      regular: '400',
-      medium: '500',
-      semiBold: '600',
-      bold: '700',
-    },
-    lineHeights: {
-      tight: 1.2,
-      normal: 1.5,
-      relaxed: 1.75,
-    },
-  };
-  
-  // Sistema de espaçamento e layout
-  export const spacing = {
-    xs: 4,
-    sm: 8,
-    md: 16,
-    lg: 24,
-    xl: 32,
-    xxl: 48,
-  };
-  
-  // Sistema de bordas arredondadas
-  export const borderRadius = {
-    sm: 4,
-    md: 8,
-    lg: 16,
-    xl: 24,
-    circle: 9999,
-  };
-  
-  // Sistema de sombras
-  export const shadows = {
-    light: {
-      shadowColor: colors.shadow.color,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 8,
-      elevation: 3,
-    },
-    medium: {
-      shadowColor: colors.shadow.color,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 12,
-      elevation: 5,
-    },
-    primary: {
-      shadowColor: colors.shadow.colorAlt,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.4,
-      shadowRadius: 16,
-      elevation: 8,
-    },
-  };
-  
-  // Camadas de Z-index para controle de sobreposição
-  export const zIndex = {
-    base: 0,
-    content: 10,
-    header: 20,
-    modal: 30,
-    toast: 40,
-    tooltip: 50,
-  };
-  
-  // Variáveis de animação
-  export const animation = {
-    durations: {
-      short: 150,
-      medium: 300,
-      long: 500,
-    },
-    easings: {
-      easeIn: 'cubic-bezier(0.4, 0, 1, 1)',
-      easeOut: 'cubic-bezier(0, 0, 0.2, 1)',
-      easeInOut: 'cubic-bezier(0.4, 0, 0.2, 1)',
-    },
-  };
-  
-  // Funções utilitárias para theming
-  export const utils = {
-    // Função para criar estilo de glassmorphism
-    createGlassmorphism: (opacity = 0.1) => ({
-      backgroundColor: `rgba(26, 26, 26, ${opacity})`,
-      borderColor: colors.border.light,
-      borderWidth: 1,
-      shadowColor: colors.shadow.color,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.2,
-      shadowRadius: 24,
-      elevation: 10,
-    }),
-    
-    // Função para criar degradê
-    createGradientColors: (variant = 'default') => {
-      const gradients = {
-        default: colors.background.gradient,
-        success: [colors.status.success, `${colors.status.success}88`],
-        warning: [colors.status.warning, `${colors.status.warning}88`],
-        error: [colors.status.error, `${colors.status.error}88`],
-      };
-      return gradients[variant] || gradients.default;
-    },
-  };
-  
-  // Exportar tema completo
-  export default {
-    colors,
-    typography,
-    spacing,
-    borderRadius,
-    shadows,
-    zIndex,
-    animation,
-    utils,
-  };
+  // Acento — usar com parcimônia (princípio 1)
+  accent: {
+    main: NEON,
+    // Fundo tênue para chips/estados selecionados: sinaliza sem preencher.
+    soft: 'rgba(235, 255, 0, 0.075)',
+    border: 'rgba(235, 255, 0, 0.45)',
+    // Texto/ícone sobre neon. "Preto sobre neon" é uso aprovado no brandbook.
+    on: PRETO,
+  },
+
+  surface: surfaces,
+
+  // Véus claros usados sobre as superfícies escuras: trilho de progresso,
+  // fundo de chip neutro e marcador inativo. Não são degraus tonais — são
+  // transparências, e por isso vivem separados de `surface`.
+  veil: {
+    faint: 'rgba(255, 255, 255, 0.05)',
+    soft: 'rgba(255, 255, 255, 0.06)',
+    medium: 'rgba(255, 255, 255, 0.12)',
+  },
+
+  text: {
+    primary: BRANCO,
+    secondary: CINZA, // informação auxiliar (brandbook)
+    quiet: '#61666D', // rótulos, metadados, texto de 3º nível
+    inverse: PRETO,
+    accent: NEON,
+  },
+
+  border: {
+    subtle: 'rgba(255, 255, 255, 0.10)', // padrão: separa sem contornar
+    strong: 'rgba(255, 255, 255, 0.18)',
+    focus: 'rgba(235, 255, 0, 0.45)',
+  },
+
+  // Estados funcionais. O azul existe justamente para não competir com o neon.
+  status: {
+    info: AZUL_FUNCIONAL,
+    infoSoft: 'rgba(10, 102, 255, 0.12)',
+    success: '#8CAE85',
+    successSoft: 'rgba(140, 174, 133, 0.12)',
+    warning: '#D8B15C',
+    warningSoft: 'rgba(216, 177, 92, 0.12)',
+    danger: '#DC827B',
+    dangerSoft: 'rgba(220, 130, 123, 0.10)',
+    dangerBorder: 'rgba(220, 130, 123, 0.18)',
+  },
+
+  overlay: 'rgba(0, 0, 0, 0.62)',
+  transparent: 'transparent',
+} as const;
+
+// --- Tipografia -----------------------------------------------------------
+// Barlow Semi Condensed ExtraBold: wordmark e display. Inter: todo o resto.
+// Os arquivos vivem em `assets/fonts/` e são carregados por `expo-font`
+// (ver `App.tsx`). Nada de fonte via rede.
+export const fonts = {
+  display: 'BarlowSemiCondensed-ExtraBold',
+  ui: 'Inter',
+} as const;
+
+export const typography = {
+  fonts,
+  fontSizes: {
+    micro: 9, // rótulos em caixa alta, legendas de gráfico
+    xs: 10, // rótulos de campo, metadados
+    sm: 11, // texto de apoio, linhas de lista
+    base: 12, // corpo padrão da interface
+    md: 14, // títulos de seção, corpo destacado
+    lg: 16, // títulos de card
+    xl: 20, // números de destaque
+    display: 24, // títulos de tela
+    hero: 30, // wordmark em telas de autenticação
+  },
+  fontWeights: {
+    regular: '400',
+    medium: '500',
+    semiBold: '600',
+    bold: '700',
+    extraBold: '800',
+  },
+  lineHeights: {
+    tight: 1.15,
+    snug: 1.35,
+    normal: 1.5,
+    relaxed: 1.65,
+  },
+  // Espaçamento ótico das caixas-altas (eyebrows, kickers, rótulos).
+  letterSpacing: {
+    tight: -0.6,
+    display: -0.9,
+    normal: 0,
+    wide: 1.1,
+    wider: 1.6,
+  },
+} as const;
+
+// --- Espaçamento ----------------------------------------------------------
+export const spacing = {
+  xxs: 4,
+  xs: 6,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+  huge: 40,
+} as const;
+
+// --- Raios ----------------------------------------------------------------
+export const borderRadius = {
+  sm: 9, // chips, quadradinhos de dia
+  md: 12, // botões, campos
+  lg: 14, // linhas de lista
+  xl: 18, // cards
+  xxl: 22, // cards de destaque, barra de navegação
+  pill: 999,
+} as const;
+
+// --- Elevação -------------------------------------------------------------
+// A Direção 02 troca sombra por tom. Mantemos um único nível discreto para
+// superfícies que realmente flutuam (barra de abas, folhas modais).
+export const elevation = {
+  none: {},
+  floating: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+} as const;
+
+export const zIndex = {
+  base: 0,
+  content: 10,
+  header: 20,
+  modal: 30,
+  toast: 40,
+} as const;
+
+export const animation = {
+  durations: {
+    short: 150,
+    medium: 260,
+    long: 420,
+  },
+} as const;
+
+// Altura mínima de alvo tocável — usada por botões, linhas e campos.
+export const hitTarget = {
+  compact: 44,
+  regular: 50,
+} as const;
+
+const theme = {
+  palette,
+  colors,
+  surfaces,
+  typography,
+  fonts,
+  spacing,
+  borderRadius,
+  elevation,
+  zIndex,
+  animation,
+  hitTarget,
+};
+
+export default theme;

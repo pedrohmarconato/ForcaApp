@@ -1,16 +1,43 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+// src/screens/HomeScreen.tsx
+// Tela 04 do fluxo — "Hoje": prioridade e ritmo.
+//
+// A leitura desce em prioridade: o que treinar agora, como está a semana, o que
+// vem depois. O neon aparece uma vez por bloco — na ação principal e nos dias
+// já concluídos.
+//
+// Regra de dado: tudo aqui vem do plano e do histórico REAIS. Onde não há
+// amostra, a tela mostra um estado vazio desenhado — nunca um número
+// placeholder. Não existe meta semanal persistida no app, então a semana é
+// apresentada como contagem e dias marcados, sem percentual de adesão.
+
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
 
 import { useAuth } from '../contexts/AuthContext';
+import { useDiaLocal } from '../hooks/useDiaLocal';
 import {
   getTodaySession,
   getUpcomingSessions,
   PlannedSession,
 } from '../services/trainingRepository';
+import {
+  getCompletedSessions,
+  CompletedSessionSummary,
+} from '../services/sessionExecutionRepository';
+import {
+  resumirSemana,
+  duracaoEmMinutos,
+  formatarDuracao,
+  formatarDataCurta,
+  DIAS_DA_SEMANA,
+} from '../utils/weekSummary';
+import theme from '../theme/theme';
+import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
+import Button from '../components/ui/Button';
+import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 
 // Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail)
 type HomeStackParamList = {
@@ -21,30 +48,36 @@ type HomeStackParamList = {
 const formatarData = (isoDate: string | null): string =>
   isoDate ? new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR') : '';
 
-// Data local (não UTC) no formato YYYY-MM-DD, para comparar com scheduled_date
-const hojeISO = (): string => {
-  const agora = new Date();
-  const mes = String(agora.getMonth() + 1).padStart(2, '0');
-  const dia = String(agora.getDate()).padStart(2, '0');
-  return `${agora.getFullYear()}-${mes}-${dia}`;
+const saudacao = (hora: number): string => {
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
 };
 
-// Fase 3: a Home lê o plano REAL persistido — card do treino de hoje e a
-// lista dos próximos treinos. As estatísticas de progresso só mostram números
-// quando houver execuções registradas (Fase 4); sem amostra, exibem "—".
 const HomeScreen = () => {
   const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'HomeMain'>>();
   const { user, profile } = useAuth();
   const [todaySession, setTodaySession] = useState<PlannedSession | null>(null);
   const [upcoming, setUpcoming] = useState<PlannedSession[]>([]);
+  // `null` = "ainda não sei": o estado vazio da semana só aparece depois de o
+  // banco confirmar que o histórico está mesmo vazio.
+  const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "nenhum treino": estados distintos (achado #9 do review)
   const [loadError, setLoadError] = useState(false);
+  // O histórico falha de forma independente: o plano continua utilizável.
+  const [historyError, setHistoryError] = useState(false);
+  // Cada carga tem uma geração; resposta de geração antiga é descartada para
+  // um retry não ser sobrescrito por uma resposta atrasada.
+  const geracaoPlanoRef = useRef(0);
+  const geracaoHistoricoRef = useRef(0);
 
   const userName = profile?.full_name || 'Atleta';
+  const primeiroNome = userName.split(' ')[0];
 
-  const fetchData = useCallback(async () => {
+  const carregarPlano = useCallback(async () => {
     if (!user) return;
+    const geracao = ++geracaoPlanoRef.current;
     setLoading(true);
     setLoadError(false);
     try {
@@ -52,351 +85,381 @@ const HomeScreen = () => {
         getTodaySession(user.id),
         getUpcomingSessions(user.id, 5),
       ]);
+      if (geracao !== geracaoPlanoRef.current) return;
       setTodaySession(hoje);
       // A lista não repete o treino que já está no card de hoje
       setUpcoming(proximos.filter((sessao) => sessao.id !== hoje?.id));
     } catch (error) {
       console.error('Erro ao buscar treinos:', error);
+      if (geracao !== geracaoPlanoRef.current) return;
       setTodaySession(null);
       setUpcoming([]);
       setLoadError(true);
     } finally {
-      setLoading(false);
+      if (geracao === geracaoPlanoRef.current) setLoading(false);
     }
     // Depende do ID (estável), não da identidade do objeto user: evita
     // relançar o efeito a cada render se o contexto recriar o objeto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  // O histórico alimenta "Sua semana" e "Última sessão". Uma falha aqui não
+  // pode derrubar o card do treino de hoje.
+  const carregarHistorico = useCallback(async () => {
+    if (!user) return;
+    const geracao = ++geracaoHistoricoRef.current;
+    setHistoryError(false);
+    try {
+      const historico = await getCompletedSessions(user.id);
+      if (geracao !== geracaoHistoricoRef.current) return;
+      setCompleted(historico);
+    } catch (error) {
+      console.error('Erro ao buscar histórico:', error);
+      if (geracao !== geracaoHistoricoRef.current) return;
+      setCompleted(null);
+      setHistoryError(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Em paralelo: o histórico não espera o plano nem é derrubado por ele.
+  const fetchData = useCallback(() => {
+    carregarPlano();
+    carregarHistorico();
+  }, [carregarPlano, carregarHistorico]);
+
+  // Foco, não montagem: concluir um treino e voltar via popToTop não remonta
+  // esta tela — sem isso, contagem e "Última sessão" ficariam obsoletas.
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [fetchData]),
+  );
 
   const abrirDetalhe = (sessionId: string) => {
     navigation.navigate('WorkoutDetail', { sessionId });
   };
 
+  // Dia local vivo: vira à meia-noite e ao voltar ao primeiro plano, para a
+  // semana não continuar na anterior depois do domingo.
+  const hoje = useDiaLocal();
+
+  // Semana corrente derivada do histórico real (ver src/utils/weekSummary.ts);
+  // `null` enquanto o histórico ainda não respondeu.
+  const semana = useMemo(
+    () => (completed ? resumirSemana(completed, new Date(`${hoje}T12:00:00`)) : null),
+    [completed, hoje],
+  );
+  const ultima = completed?.[0] ?? null;
+
+  const ehHoje = todaySession?.scheduled_date === hoje;
+  const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
+
+  const descricaoSessao = (sessao: PlannedSession): string =>
+    sessao.muscle_groups?.length
+      ? sessao.muscle_groups.join(' · ')
+      : sessao.session_type || 'Sessão do seu plano';
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Olá,</Text>
-            <Text style={styles.userName}>{userName}</Text>
-          </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Feather name="bell" size={24} color="#EBFF00" />
-          </TouchableOpacity>
-        </View>
+    <Screen scroll testID="home-screen">
+      <View style={styles.header}>
+        <Text style={styles.greeting}>{saudacao(new Date().getHours())}</Text>
+        <Text style={styles.userName}>{primeiroNome}.</Text>
+      </View>
 
-        {/* Treino de hoje/próximo (dado real do plano; rótulo honesto — achado #8) */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {todaySession && todaySession.scheduled_date !== hojeISO()
-              ? 'Seu próximo treino'
-              : 'Seu treino de hoje'}
-          </Text>
-          {loading ? (
-            <Text style={styles.loadingText}>Carregando treino...</Text>
-          ) : loadError ? (
-            <View style={styles.todayWorkoutCard}>
-              <View style={styles.workoutInfo}>
-                <Text style={styles.workoutTitle}>Não foi possível carregar</Text>
-                <Text style={styles.workoutDescription}>
-                  Verifique a conexão e tente novamente.
-                </Text>
-              </View>
+      {/* --- Treino em destaque --- */}
+      <View style={styles.section}>
+        <SectionHeader title={tituloDestaque} />
+
+        {loading ? (
+          <Card>
+            <ActivityIndicator color={theme.colors.accent.main} />
+          </Card>
+        ) : loadError ? (
+          <Notice
+            tone="danger"
+            title="Não foi possível carregar"
+            description="Verifique a conexão e tente novamente."
+            action={
+              <Button label="Tentar novamente" variant="outline" compact onPress={carregarPlano} />
+            }
+          />
+        ) : todaySession ? (
+          <Card
+            elevated
+            testID="card-treino-destaque"
+            onPress={() => abrirDetalhe(todaySession.id)}
+            accessibilityLabel={`Abrir o treino ${todaySession.title}`}
+          >
+            <View style={styles.heroTop}>
+              <Text style={styles.kicker}>{ehHoje ? 'Treino de hoje' : 'Próximo treino'}</Text>
+              <Text style={styles.heroMeta}>Semana {todaySession.week_number}</Text>
             </View>
-          ) : todaySession ? (
-            <TouchableOpacity
-              style={styles.todayWorkoutCard}
+
+            <Text style={styles.heroTitle}>{todaySession.title}</Text>
+            <Text style={styles.heroDescription}>{descricaoSessao(todaySession)}</Text>
+
+            <View style={styles.metaRow}>
+              {todaySession.estimated_minutes ? (
+                <View style={styles.metaItem}>
+                  <Feather name="clock" size={13} color={theme.colors.accent.main} />
+                  <Text style={styles.metaText}>{todaySession.estimated_minutes} min</Text>
+                </View>
+              ) : null}
+              {todaySession.scheduled_date ? (
+                <View style={styles.metaItem}>
+                  <Feather name="calendar" size={13} color={theme.colors.accent.main} />
+                  <Text style={styles.metaText}>{formatarData(todaySession.scheduled_date)}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <Button
+              label="Ver treino"
+              icon="arrow-right"
+              compact
               onPress={() => abrirDetalhe(todaySession.id)}
-            >
-              <View style={styles.workoutInfo}>
-                <Text style={styles.workoutTitle}>{todaySession.title}</Text>
-                <Text style={styles.workoutDescription}>
-                  {todaySession.muscle_groups?.length
-                    ? todaySession.muscle_groups.join(' · ')
-                    : todaySession.session_type || 'Sessão do seu plano'}
-                </Text>
-                <View style={styles.workoutMeta}>
-                  {todaySession.estimated_minutes ? (
-                    <View style={styles.metaItem}>
-                      <Feather name="clock" size={16} color="#EBFF00" />
-                      <Text style={styles.metaText}>{todaySession.estimated_minutes} min</Text>
-                    </View>
-                  ) : null}
-                  <View style={styles.metaItem}>
-                    <Feather name="calendar" size={16} color="#EBFF00" />
-                    <Text style={styles.metaText}>
-                      Semana {todaySession.week_number}
-                      {todaySession.scheduled_date
-                        ? ` · ${formatarData(todaySession.scheduled_date)}`
-                        : ''}
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={styles.startButton}
-                  onPress={() => abrirDetalhe(todaySession.id)}
-                >
-                  <Text style={styles.startButtonText}>Ver treino</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.todayWorkoutCard}>
-              <View style={styles.workoutInfo}>
-                <Text style={styles.workoutTitle}>Nenhum treino pendente</Text>
-                <Text style={styles.workoutDescription}>
-                  Complete o questionário e gere seu plano para começar.
+            />
+          </Card>
+        ) : (
+          <Card>
+            <EmptyState
+              icon="calendar"
+              title="Nenhum treino pendente"
+              description="Complete o questionário e gere seu plano para começar."
+            />
+          </Card>
+        )}
+      </View>
+
+      {/* --- Sua semana: contagem e dias REAIS, sem meta inventada --- */}
+      <View style={styles.section}>
+        <SectionHeader title="Sua semana" />
+
+        {historyError ? (
+          <Notice
+            tone="danger"
+            title="Não foi possível carregar sua semana"
+            description="Seus treinos concluídos aparecem aqui quando a conexão voltar."
+            action={
+              <Button
+                label="Tentar novamente"
+                variant="outline"
+                compact
+                onPress={carregarHistorico}
+              />
+            }
+          />
+        ) : !semana ? (
+          // Histórico ainda pendente: "não sei" não é "nenhum treino"
+          <Card>
+            <ActivityIndicator color={theme.colors.accent.main} />
+          </Card>
+        ) : semana.concluidas === 0 ? (
+          <Card>
+            <EmptyState
+              icon="activity"
+              title="Nenhum treino concluído nesta semana"
+              description="O resumo aparece assim que você finalizar a primeira sessão."
+            />
+          </Card>
+        ) : (
+          <Card testID="card-semana">
+            <View style={styles.weekTop}>
+              <Text style={styles.weekLabel}>Concluídos</Text>
+              <View style={styles.weekCount}>
+                <Text style={styles.weekValue}>{semana.concluidas}</Text>
+                <Text style={styles.weekUnit}>
+                  {semana.concluidas === 1 ? 'treino' : 'treinos'}
                 </Text>
               </View>
             </View>
-          )}
-        </View>
 
-        {/* Próximos treinos (lista real do plano) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Próximos treinos</Text>
-          </View>
-
-          {loading ? (
-            <Text style={styles.loadingText}>Carregando treinos...</Text>
-          ) : loadError ? (
-            <Text style={styles.noWorkoutsText}>
-              Não foi possível carregar seus treinos.
-            </Text>
-          ) : upcoming.length > 0 ? (
-            upcoming.map((sessao) => (
-              <TouchableOpacity
-                key={sessao.id}
-                style={styles.workoutCard}
-                onPress={() => abrirDetalhe(sessao.id)}
-              >
-                <View style={styles.workoutCardContent}>
-                  <Text style={styles.workoutCardTitle}>{sessao.title}</Text>
-                  <Text style={styles.workoutCardDescription}>
-                    {sessao.muscle_groups?.length
-                      ? sessao.muscle_groups.join(' · ')
-                      : sessao.session_type || ''}
+            <View style={styles.weekDays}>
+              {DIAS_DA_SEMANA.map((dia, indice) => (
+                <View key={dia} style={styles.weekDay}>
+                  <View
+                    style={[styles.weekDot, semana.diasComTreino[indice] && styles.weekDotDone]}
+                  />
+                  <Text
+                    style={[
+                      styles.weekDayLabel,
+                      semana.diasComTreino[indice] && styles.weekDayLabelDone,
+                    ]}
+                  >
+                    {dia}
                   </Text>
-                  <View style={styles.workoutCardMeta}>
-                    <Text style={styles.workoutCardDate}>
-                      Semana {sessao.week_number}
-                      {sessao.scheduled_date ? ` · ${formatarData(sessao.scheduled_date)}` : ''}
-                    </Text>
-                  </View>
                 </View>
-                <Feather name="chevron-right" size={24} color="#EBFF00" />
-              </TouchableOpacity>
-            ))
-          ) : (
-            <Text style={styles.noWorkoutsText}>Nenhum treino agendado</Text>
-          )}
-        </View>
-
-        {/* Progresso: sem execuções registradas ainda (Fase 4), sem número inventado */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Seu progresso</Text>
-          <View style={styles.progressCard}>
-            <Text style={styles.progressTitle}>Estatísticas da semana</Text>
-            <View style={styles.statsContainer}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>—</Text>
-                <Text style={styles.statLabel}>Treinos</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>—</Text>
-                <Text style={styles.statLabel}>Tempo total</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>—</Text>
-                <Text style={styles.statLabel}>Calorias</Text>
-              </View>
+              ))}
             </View>
-            <Text style={styles.progressHint}>
-              Disponível quando você concluir seus primeiros treinos.
-            </Text>
-          </View>
+          </Card>
+        )}
+      </View>
+
+      {/* --- Última sessão concluída --- */}
+      {ultima ? (
+        <View style={styles.section}>
+          <SectionHeader title="Última sessão" />
+          <ListRow
+            title={ultima.title}
+            subtitle={[
+              formatarDuracao(duracaoEmMinutos(ultima)),
+              formatarDataCurta(ultima.finishedAt),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            testID="linha-ultima-sessao"
+          />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      ) : null}
+
+      {/* --- Próximos treinos --- */}
+      <View style={styles.section}>
+        <SectionHeader title="Próximos treinos" />
+
+        {loading ? (
+          <ActivityIndicator color={theme.colors.accent.main} style={styles.inlineLoader} />
+        ) : loadError ? (
+          <Text style={styles.quietLine}>Não foi possível carregar seus treinos.</Text>
+        ) : upcoming.length > 0 ? (
+          upcoming.map((sessao) => (
+            <ListRow
+              key={sessao.id}
+              title={sessao.title}
+              subtitle={descricaoSessao(sessao)}
+              leading={
+                <Chip
+                  label={
+                    sessao.scheduled_date ? formatarData(sessao.scheduled_date).slice(0, 5) : '—'
+                  }
+                />
+              }
+              showChevron
+              onPress={() => abrirDetalhe(sessao.id)}
+            />
+          ))
+        ) : (
+          <Text style={styles.quietLine}>Nenhum treino agendado</Text>
+        )}
+      </View>
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-    padding: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
+  header: { marginBottom: theme.spacing.xxl },
   greeting: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    opacity: 0.7,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
   },
   userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    marginTop: theme.spacing.xxs,
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.display,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
   },
-  notificationButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(235, 255, 0, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
+
+  section: { marginBottom: theme.spacing.xxl },
+
+  heroTop: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing.lg,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 16,
+  kicker: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.bold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
   },
-  todayWorkoutCard: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 8,
+  heroMeta: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
   },
-  workoutInfo: {
-    padding: 16,
+  heroTitle: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xl,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
   },
-  workoutTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
+  heroDescription: {
+    marginTop: theme.spacing.xxs,
+    marginBottom: theme.spacing.lg,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
   },
-  workoutDescription: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.7,
-    marginBottom: 16,
-  },
-  workoutMeta: {
+  metaRow: {
     flexDirection: 'row',
-    marginBottom: 16,
+    gap: theme.spacing.lg,
+    marginBottom: theme.spacing.lg,
   },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
   metaText: {
-    color: '#FFFFFF',
-    marginLeft: 4,
-    fontSize: 14,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
   },
-  startButton: {
-    backgroundColor: '#EBFF00',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
+
+  weekTop: { marginBottom: theme.spacing.lg },
+  weekLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
   },
-  startButtonText: {
-    color: '#0A0A0A',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  workoutCard: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+  weekCount: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'baseline',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xxs,
   },
-  workoutCardContent: {
-    flex: 1,
+  weekValue: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xl,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.tight,
   },
-  workoutCardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
+  weekUnit: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
   },
-  workoutCardDescription: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.7,
-    marginBottom: 8,
+  weekDays: { flexDirection: 'row', justifyContent: 'space-between' },
+  weekDay: { alignItems: 'center', gap: theme.spacing.xs },
+  weekDot: {
+    width: 6,
+    height: 6,
+    borderRadius: theme.borderRadius.pill,
+    backgroundColor: theme.colors.veil.medium,
   },
-  workoutCardMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  weekDotDone: { backgroundColor: theme.colors.accent.main },
+  weekDayLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
   },
-  workoutCardDate: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.5,
-  },
-  progressCard: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 16,
-    padding: 16,
-  },
-  progressTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 16,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#EBFF00',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.7,
-  },
-  progressHint: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.5,
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    textAlign: 'center',
-    padding: 16,
-  },
-  noWorkoutsText: {
-    color: '#FFFFFF',
-    opacity: 0.7,
-    textAlign: 'center',
-    padding: 16,
+  weekDayLabelDone: { color: theme.colors.text.primary },
+
+  inlineLoader: { paddingVertical: theme.spacing.lg },
+  quietLine: {
+    paddingVertical: theme.spacing.lg,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
   },
 });
 

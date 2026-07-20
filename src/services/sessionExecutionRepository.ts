@@ -339,21 +339,39 @@ export type CompletedSessionSummary = {
   finishedAt: string | null;
 };
 
-/** Sessões concluídas do usuário (finished_at preenchido), mais recentes antes. */
+// O PostgREST corta qualquer resposta em `max_rows` (1000 no config deste
+// projeto) mesmo sem `.limit()` — sem paginação, "Sessões" e "Tempo total"
+// virariam números parciais plausíveis a partir do registro 1001.
+const PAGINA_HISTORICO = 1000;
+
+/**
+ * TODAS as sessões concluídas do usuário (finished_at preenchido), ordenadas
+ * pela CONCLUSÃO mais recente — é a conclusão que define "última sessão", não
+ * o início. Pagina até a última linha para os agregados serem totais de fato.
+ */
 export const getCompletedSessions = async (
   userId: string,
 ): Promise<CompletedSessionSummary[]> => {
-  const { data, error } = await supabase
-    .from('session_logs')
-    .select(
-      'id, planned_session_id, started_at, finished_at, planned_sessions(title, week_number, muscle_groups)',
-    )
-    .eq('user_id', userId)
-    .not('finished_at', 'is', null)
-    .order('started_at', { ascending: false });
-  if (error) throw error;
+  const linhas: any[] = [];
 
-  return ((data ?? []) as any[]).map((linha) => ({
+  for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
+    const { data, error } = await supabase
+      .from('session_logs')
+      .select(
+        'id, planned_session_id, started_at, finished_at, planned_sessions(title, week_number, muscle_groups)',
+      )
+      .eq('user_id', userId)
+      .not('finished_at', 'is', null)
+      .order('finished_at', { ascending: false })
+      .range(inicio, inicio + PAGINA_HISTORICO - 1);
+    if (error) throw error;
+
+    const pagina = (data ?? []) as any[];
+    linhas.push(...pagina);
+    if (pagina.length < PAGINA_HISTORICO) break;
+  }
+
+  return linhas.map((linha) => ({
     sessionLogId: linha.id,
     plannedSessionId: linha.planned_session_id,
     title: linha.planned_sessions?.title ?? 'Treino',

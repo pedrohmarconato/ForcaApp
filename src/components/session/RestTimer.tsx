@@ -61,19 +61,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(235, 255, 0, 0.08)',
+    marginTop: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    // Descanso é estado corrente, não ação: fundo tênue, nunca preenchimento.
+    backgroundColor: theme.colors.accent.soft,
   },
   label: {
-    color: theme.colors.primary.main,
-    fontWeight: '600',
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
   skip: {
     color: theme.colors.text.secondary,
-    fontWeight: '600',
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
 });
 

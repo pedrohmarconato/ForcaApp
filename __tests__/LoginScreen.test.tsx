@@ -1,10 +1,13 @@
 // __tests__/LoginScreen.test.tsx
 // Reproduz a falha de segurança corrigida: a senha do usuário NUNCA pode
-// ser persistida no AsyncStorage (nem no fluxo "Manter-me conectado").
+// ser persistida no AsyncStorage (nem no fluxo de lembrar o acesso).
+//
+// A tela foi remodelada para a identidade "Força sem ruído" — os campos agora
+// são o TextField próprio (sem react-native-paper) e as consultas usam o nome
+// acessível do campo. O comportamento coberto é o mesmo de antes.
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { Text as RNText, TextInput as RNTextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from '../src/screens/LoginScreen';
 
@@ -21,40 +24,9 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({ signIn: mockSignIn }),
 }));
 
-jest.mock('expo-linear-gradient', () => {
-  const React = require('react');
-  const { View } = require('react-native');
-  return {
-    LinearGradient: ({ children }: { children: React.ReactNode }) => <View>{children}</View>,
-  };
-});
-
 jest.mock('@expo/vector-icons', () => ({
   Feather: () => null,
 }));
-
-jest.mock('expo-checkbox', () => ({
-  __esModule: true,
-  default: () => null,
-}));
-
-// Mock enxuto do react-native-paper com componentes RN puros
-jest.mock('react-native-paper', () => {
-  const React = require('react');
-  const { Text, TextInput, View } = require('react-native');
-  const defaultTheme = { colors: { primary: '', text: '', placeholder: '', background: '', outline: '', onSurfaceVariant: '', error: '' } };
-  const MockTextInput = (props: any) => <TextInput placeholder={props.label} {...props} />;
-  MockTextInput.Icon = () => null; // sub-componente estático do Paper
-  return {
-    Text: (props: any) => <Text {...props} />,
-    HelperText: (props: any) => (props.visible ? <Text {...props} /> : null),
-    TextInput: MockTextInput,
-    Button: ({ children, onPress }: any) => (
-      <Text onPress={onPress}>{children}</Text>
-    ),
-    useTheme: () => defaultTheme,
-  };
-});
 
 const mockedSetItem = AsyncStorage.setItem as jest.Mock;
 const mockedRemoveItem = AsyncStorage.removeItem as jest.Mock;
@@ -68,21 +40,25 @@ describe('LoginScreen — segurança de credenciais', () => {
     mockedGetItem.mockResolvedValue(null);
   });
 
-  it('NUNCA persiste a senha no AsyncStorage, mesmo com "Manter-me conectado"', async () => {
-    const { getByPlaceholderText, getByText } = render(<LoginScreen navigation={navigation} />);
+  it('NUNCA persiste a senha no AsyncStorage, mesmo com "Lembrar acesso"', async () => {
+    const { getByLabelText } = render(<LoginScreen navigation={navigation} />);
 
-    fireEvent.changeText(getByPlaceholderText('Endereço de e-mail'), 'user@teste.com');
-    fireEvent.changeText(getByPlaceholderText('Senha'), 'SenhaSuperSecreta123');
+    fireEvent.changeText(getByLabelText('E-mail'), 'user@teste.com');
+    fireEvent.changeText(getByLabelText('Senha'), 'SenhaSuperSecreta123');
 
-    // Marca "Manter-me conectado"
-    fireEvent.press(getByText('Manter-me conectado'));
+    // Marca "Lembrar acesso"
+    fireEvent.press(getByLabelText('Lembrar acesso'));
 
-    fireEvent.press(getByText('Entrar'));
+    fireEvent.press(getByLabelText('Entrar'));
 
-    await waitFor(() => expect(mockSignIn).toHaveBeenCalledWith('user@teste.com', 'SenhaSuperSecreta123'));
+    await waitFor(() =>
+      expect(mockSignIn).toHaveBeenCalledWith('user@teste.com', 'SenhaSuperSecreta123'),
+    );
 
     // O e-mail pode ser lembrado...
-    await waitFor(() => expect(mockedSetItem).toHaveBeenCalledWith('rememberedEmail', 'user@teste.com'));
+    await waitFor(() =>
+      expect(mockedSetItem).toHaveBeenCalledWith('rememberedEmail', 'user@teste.com'),
+    );
 
     // ...mas a senha JAMAIS pode aparecer em qualquer escrita no storage
     for (const call of mockedSetItem.mock.calls) {
@@ -101,15 +77,51 @@ describe('LoginScreen — segurança de credenciais', () => {
       return null;
     });
 
-    const { getByPlaceholderText } = render(<LoginScreen navigation={navigation} />);
+    const { getByLabelText } = render(<LoginScreen navigation={navigation} />);
 
     await waitFor(() => {
-      expect(getByPlaceholderText('Endereço de e-mail').props.value).toBe('legado@teste.com');
+      expect(getByLabelText('E-mail').props.value).toBe('legado@teste.com');
     });
 
     // O campo de senha NÃO pode ser preenchido a partir do storage
-    expect(getByPlaceholderText('Senha').props.value).toBe('');
+    expect(getByLabelText('Senha').props.value).toBe('');
     // O legado deve ser limpo na montagem
     await waitFor(() => expect(mockedRemoveItem).toHaveBeenCalledWith('rememberedPassword'));
+  });
+
+  it('a senha começa oculta e só é revelada sob ação explícita', () => {
+    const { getByLabelText } = render(<LoginScreen navigation={navigation} />);
+
+    expect(getByLabelText('Senha').props.secureTextEntry).toBe(true);
+
+    fireEvent.press(getByLabelText('Mostrar senha'));
+
+    expect(getByLabelText('Senha').props.secureTextEntry).toBe(false);
+  });
+
+  it('exibe mensagem de erro sem vazar detalhes quando as credenciais falham', async () => {
+    mockSignIn.mockResolvedValueOnce({
+      error: new Error('Invalid login credentials'),
+    } as any);
+
+    const { getByLabelText, findByText } = render(<LoginScreen navigation={navigation} />);
+
+    fireEvent.changeText(getByLabelText('E-mail'), 'user@teste.com');
+    fireEvent.changeText(getByLabelText('Senha'), 'errada');
+    fireEvent.press(getByLabelText('Entrar'));
+
+    expect(await findByText('Email ou senha inválidos.')).toBeTruthy();
+    // Uma falha de login não pode gravar nada no storage
+    expect(mockedSetItem).not.toHaveBeenCalled();
+  });
+
+  it('navega para cadastro e recuperação de senha', () => {
+    const { getByText } = render(<LoginScreen navigation={navigation} />);
+
+    fireEvent.press(getByText('Cadastre-se'));
+    expect(navigation.navigate).toHaveBeenCalledWith('SignUp');
+
+    fireEvent.press(getByText('Esqueceu a senha?'));
+    expect(navigation.navigate).toHaveBeenCalledWith('ForgotPassword');
   });
 });

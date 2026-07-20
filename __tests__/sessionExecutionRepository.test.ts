@@ -37,6 +37,7 @@ const makeBuilder = (result: { data?: unknown; error: unknown }) => {
   builder.not = jest.fn(chain);
   builder.order = jest.fn(chain);
   builder.limit = jest.fn(chain);
+  builder.range = jest.fn(chain);
   builder.single = jest.fn(() => Promise.resolve(result));
   builder.then = (resolve: any, reject: any) =>
     Promise.resolve(result).then(resolve, reject);
@@ -382,6 +383,58 @@ describe('getCompletedSessions', () => {
       startedAt: '2026-07-17T09:00:00Z',
       finishedAt: '2026-07-17T10:00:00Z',
     });
+  });
+
+  it('ordena pela CONCLUSÃO, não pelo início (achado #10)', async () => {
+    const builder = makeBuilder({ data: [], error: null });
+    fromMock.mockReturnValueOnce(builder);
+
+    await getCompletedSessions('user-1');
+
+    expect(builder.order).toHaveBeenCalledWith('finished_at', { ascending: false });
+  });
+
+  it('pagina além do teto de 1000 linhas do PostgREST (achado #2)', async () => {
+    const linha = (i: number) => ({
+      id: `sl-${i}`,
+      planned_session_id: `ps-${i}`,
+      started_at: '2026-07-17T09:00:00Z',
+      finished_at: '2026-07-17T10:00:00Z',
+      planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+    });
+    const paginaCheia = Array.from({ length: 1000 }, (_, i) => linha(i));
+    const paginaResto = Array.from({ length: 40 }, (_, i) => linha(1000 + i));
+
+    const builder1 = makeBuilder({ data: paginaCheia, error: null });
+    const builder2 = makeBuilder({ data: paginaResto, error: null });
+    fromMock.mockReturnValueOnce(builder1).mockReturnValueOnce(builder2);
+
+    const res = await getCompletedSessions('user-1');
+
+    expect(res).toHaveLength(1040);
+    expect(builder1.range).toHaveBeenCalledWith(0, 999);
+    expect(builder2.range).toHaveBeenCalledWith(1000, 1999);
+  });
+
+  it('página incompleta encerra a paginação com uma única consulta', async () => {
+    const builder = makeBuilder({
+      data: [
+        {
+          id: 'sl-1',
+          planned_session_id: 'ps-1',
+          started_at: '2026-07-17T09:00:00Z',
+          finished_at: '2026-07-17T10:00:00Z',
+          planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(builder);
+
+    const res = await getCompletedSessions('user-1');
+
+    expect(res).toHaveLength(1);
+    expect(fromMock).toHaveBeenCalledTimes(1);
   });
 });
 

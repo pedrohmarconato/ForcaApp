@@ -3,6 +3,8 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
 
+import theme from '../theme/theme';
+
 // Tipo dos nomes de ícone válidos do Feather (evita string genérica)
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
@@ -93,17 +95,41 @@ const MainNavigator = () => {
 
           return <Feather name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: '#EBFF00', // Sua cor primária
-        tabBarInactiveTintColor: 'gray',
+        // A aba ativa é um dos poucos lugares onde o neon aparece no chrome.
+        tabBarActiveTintColor: theme.colors.accent.main,
+        tabBarInactiveTintColor: theme.colors.text.quiet,
         tabBarStyle: {
-          backgroundColor: '#0A0A0A', // Cor de fundo escura
-          borderTopWidth: 0,
+          height: 64,
+          paddingTop: theme.spacing.sm,
+          paddingBottom: theme.spacing.sm,
+          borderTopWidth: 1,
+          borderTopColor: theme.colors.border.subtle,
+          backgroundColor: theme.colors.surface.canvas,
+          elevation: 0,
+        },
+        tabBarLabelStyle: {
+          fontFamily: theme.fonts.ui,
+          fontSize: theme.typography.fontSizes.micro,
+          fontWeight: theme.typography.fontWeights.semiBold,
         },
       })}
     >
-      <BottomTab.Screen name="Home" component={HomeStackNavigator} />
-      <BottomTab.Screen name="Training" component={TrainingStackNavigator} />
-      <BottomTab.Screen name="Profile" component={ProfileStackNavigator} />
+      {/* Os nomes de rota seguem os mesmos; só os rótulos visíveis mudam. */}
+      <BottomTab.Screen
+        name="Home"
+        component={HomeStackNavigator}
+        options={{ tabBarLabel: 'Hoje' }}
+      />
+      <BottomTab.Screen
+        name="Training"
+        component={TrainingStackNavigator}
+        options={{ tabBarLabel: 'Plano' }}
+      />
+      <BottomTab.Screen
+        name="Profile"
+        component={ProfileStackNavigator}
+        options={{ tabBarLabel: 'Perfil' }}
+      />
     </BottomTab.Navigator>
   );
 };

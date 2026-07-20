@@ -11,6 +11,7 @@ import {
   type HistorySetLog,
 } from '../services/sessionExecutionRepository';
 import type { Outcome } from '../engine/sessionModel';
+import { duracaoEmMinutos, formatarDuracao } from '../utils/weekSummary';
 
 const OUTCOME_LABEL: Record<Outcome, string> = { on_target: 'No alvo', under: 'Abaixo', over: 'Acima' };
 const outcomeColor = (o: Outcome): string =>
@@ -55,7 +56,7 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.primary.main} />
+        <ActivityIndicator color={theme.colors.accent.main} />
       </View>
     );
   }
@@ -80,10 +81,18 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
 
   const sections = detail.exercises.map((ex) => ({ title: ex.name, data: ex.sets }));
 
+  const subtitulo = [
+    detail.weekNumber ? `Semana ${detail.weekNumber}` : null,
+    formatarDuracao(duracaoEmMinutos(detail)),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{detail.title}</Text>
-      {detail.weekNumber ? <Text style={styles.subtitle}>Semana {detail.weekNumber}</Text> : null}
+      {/* Só entra o que existe: semana ausente e duração desconhecida somem. */}
+      {subtitulo ? <Text style={styles.subtitle}>{subtitulo}</Text> : null}
       <SectionList
         sections={sections}
         keyExtractor={(item, index) => `${item.setOrder ?? 'x'}-${index}`}
@@ -113,35 +122,71 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background.dark, padding: 16 },
+  container: {
+    flex: 1,
+    padding: theme.spacing.xl,
+    backgroundColor: theme.colors.surface.canvas,
+  },
   centered: {
     flex: 1,
-    backgroundColor: theme.colors.background.dark,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    justifyContent: 'center',
+    padding: theme.spacing.xxl,
+    backgroundColor: theme.colors.surface.canvas,
   },
-  title: { color: theme.colors.text.primary, fontSize: 22, fontWeight: 'bold' },
-  subtitle: { color: theme.colors.text.secondary, marginBottom: 12 },
-  list: { paddingBottom: 24 },
+  title: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.display,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
+  },
+  subtitle: {
+    marginTop: theme.spacing.xxs,
+    marginBottom: theme.spacing.lg,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+  },
+  list: { paddingBottom: theme.spacing.xxl },
+  // Cabeçalho de exercício em branco, não em neon: são muitos por tela, e o
+  // acento perderia o sentido de destaque.
   exerciseName: {
-    color: theme.colors.primary.main,
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 6,
+    marginTop: theme.spacing.xl,
+    marginBottom: theme.spacing.sm,
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.md,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
   setRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    paddingVertical: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border.light,
+    borderBottomColor: theme.colors.border.subtle,
   },
-  setText: { color: theme.colors.text.secondary, fontSize: 14, flex: 1 },
-  chip: { fontWeight: '700', fontSize: 13, marginLeft: 8 },
-  muted: { color: theme.colors.text.secondary, textAlign: 'center', marginTop: 24 },
+  setText: {
+    flex: 1,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+  },
+  chip: {
+    marginLeft: theme.spacing.sm,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  muted: {
+    marginTop: theme.spacing.xxl,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+    textAlign: 'center',
+  },
 });
 
 export default SessionHistoryDetailScreen;

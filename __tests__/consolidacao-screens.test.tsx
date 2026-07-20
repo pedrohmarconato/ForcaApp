@@ -11,6 +11,11 @@ import { render, waitFor } from '@testing-library/react-native';
 // Fase 4: as telas ganharam entradas de navegação (Iniciar treino / Histórico).
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
+  // As telas recarregam por foco (achado #6 do review do PR #13)
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
 }));
 
 // Variáveis prefixadas com "mock" são permitidas dentro de factories do jest.mock.
