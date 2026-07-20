@@ -2,6 +2,9 @@
 // Feature B — chat com IA indisponível e usuário retomando conversa em
 // andamento. Garante que exista sempre uma saída: o ✓ "Finalizar ajustes"
 // fica habilitado e um CTA "Gerar treino sem ajustes" aparece.
+//
+// Atualizado para a nova arquitetura: startPlanJob + waitForPlanJob +
+// consolidateChat em vez de requestTrainingPlanGeneration.
 
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -34,7 +37,6 @@ jest.mock('../src/contexts/AuthContext', () => ({
 
 const mockQuestionario = JSON.stringify({ objetivo: 'hipertrofia', nome: 'Pedro' });
 
-// Chat em andamento: já há uma conversa (sem ser escolha inicial)
 const mockChatEmAndamento = JSON.stringify({
   messages: [
     { role: 'model', parts: [{ text: 'Olá, Pedro!' }] },
@@ -66,6 +68,13 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 jest.mock('../src/services/api/trainingPlanService', () => ({
   requestTrainingPlanGeneration: jest.fn(async () => ({ success: true, planId: 'plan-1' })),
+  consolidateChat: jest.fn(async () => ({
+    preferencias: [], restricoes: [], excecoes_estruturais: [],
+  })),
+  startPlanJob: jest.fn(async () => 'job-test'),
+  waitForPlanJob: jest.fn(async () => ({
+    status: 'salvo', plan_id: 'plan-1', progress: { step: 'salvo', detail: 'ok' },
+  })),
 }));
 
 jest.mock('../src/services/api/claudeService', () => ({
@@ -74,9 +83,10 @@ jest.mock('../src/services/api/claudeService', () => ({
 }));
 
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
-import { requestTrainingPlanGeneration } from '../src/services/api/trainingPlanService';
+import { startPlanJob, waitForPlanJob } from '../src/services/api/trainingPlanService';
 
-const mockRequestTrainingPlanGeneration = requestTrainingPlanGeneration as jest.Mock;
+const mockStartPlanJob = startPlanJob as jest.Mock;
+const mockWaitForPlanJob = waitForPlanJob as jest.Mock;
 
 describe('PostQuestionnaireChat — IA indisponível com chat em andamento', () => {
   beforeEach(() => {
@@ -87,32 +97,22 @@ describe('PostQuestionnaireChat — IA indisponível com chat em andamento', () 
   it('mostra o CTA "Gerar treino sem ajustes" e o ✓ "Finalizar ajustes" habilitado', async () => {
     const { findByText, getByLabelText } = render(<PostQuestionnaireChat />);
 
-    // Aviso persistente de indisponibilidade
     await findByText('Assistente indisponível no momento.');
 
-    // CTA de saída aparece
     const cta = await findByText('Gerar treino sem ajustes');
     expect(cta).toBeTruthy();
 
-    // O ✓ "Finalizar ajustes" NÃO está desabilitado (é a saída principal)
     const finalizar = getByLabelText('Finalizar ajustes');
     expect(finalizar.props.accessibilityState?.disabled).not.toBe(true);
   });
 
-  it('tocar no CTA "Gerar treino sem ajustes" dispara a geração preservando ajustes', async () => {
+  it('tocar no CTA "Gerar treino sem ajustes" dispara a geração via startPlanJob', async () => {
     const { findByText } = render(<PostQuestionnaireChat />);
 
     const cta = await findByText('Gerar treino sem ajustes');
     fireEvent.press(cta);
 
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
-
-    // O ajuste acumulado na conversa precisa chegar à geração
-    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledWith(
-      'user-123',
-      expect.any(Object),
-      expect.arrayContaining(['Quero mais volume no treino']),
-    );
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -123,34 +123,28 @@ describe('PostQuestionnaireChat — retry de geração falha', () => {
   });
 
   it('em falha de geração, mostra "Tentar novamente" e redispara geração', async () => {
-    // Primeira chamada falha, segunda sucede
-    mockRequestTrainingPlanGeneration
+    mockWaitForPlanJob
       .mockImplementationOnce(async () => { throw new Error('boom'); })
-      .mockImplementationOnce(async () => ({ success: true, planId: 'plan-2' }));
+      .mockImplementationOnce(async () => ({ status: 'salvo', plan_id: 'plan-2', progress: { step: 'salvo', detail: 'ok' } }));
 
-    // Limpa o storage de chat para que skipChat não dispare no init
     const { supabaseSecureStorage } = require('../src/services/auth/secureStorage');
     (supabaseSecureStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
       if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
       return null;
     });
 
-    // skipChat true para entrar direto no fluxo de geração (que falha)
     mockRouteParams.skipChat = true;
 
     const { findByText } = render(<PostQuestionnaireChat />);
 
-    // Primeira tentativa dispara
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
 
-    // Aparece o botão de retry
     const retry = await findByText('Tentar novamente');
     expect(retry).toBeTruthy();
 
     fireEvent.press(retry);
 
-    // Segunda chamada dispara
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(2));
   });
 });
 
@@ -158,8 +152,6 @@ describe('PostQuestionnaireChat — sem avisos duplicados de indisponibilidade',
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
-    // O describe de retry (acima) troca a implementação do getItem; este
-    // cenário precisa do chat em andamento de volta.
     const { supabaseSecureStorage } = require('../src/services/auth/secureStorage');
     (supabaseSecureStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
       if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
@@ -171,11 +163,8 @@ describe('PostQuestionnaireChat — sem avisos duplicados de indisponibilidade',
   it('com o aviso de saída visível, o chatError de indisponibilidade não empilha', async () => {
     const { findByText, queryByText } = render(<PostQuestionnaireChat />);
 
-    // O aviso com CTA (B2) é o único responsável por comunicar indisponibilidade
     await findByText('Assistente indisponível no momento.');
 
-    // O chatError do init ("Assistente IA indisponível...") não pode aparecer
-    // junto — dois banners dizendo a mesma coisa.
     expect(queryByText('Assistente IA indisponível. Você pode gerar o treino sem ajustes.')).toBeNull();
   });
 });
@@ -187,9 +176,8 @@ describe('PostQuestionnaireChat — retry não dispara geração concorrente', (
   });
 
   it('dois toques no "Tentar novamente" produzem UMA geração extra, não duas', async () => {
-    // 1ª geração (init/skipChat) falha; 2ª (retry) fica pendurada.
     let resolver2!: (v: unknown) => void;
-    mockRequestTrainingPlanGeneration
+    mockWaitForPlanJob
       .mockImplementationOnce(async () => { throw new Error('boom'); })
       .mockImplementationOnce(() => new Promise((resolve) => { resolver2 = resolve; }) as any);
 
@@ -204,12 +192,12 @@ describe('PostQuestionnaireChat — retry não dispara geração concorrente', (
 
     const retry = await findByText('Tentar novamente');
     fireEvent.press(retry);
-    fireEvent.press(retry); // toque duplo imediato
+    fireEvent.press(retry);
 
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(2));
     await new Promise((r) => setTimeout(r, 50));
-    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2);
+    expect(mockStartPlanJob).toHaveBeenCalledTimes(2);
 
-    resolver2({ success: true, planId: 'plan-3' });
+    resolver2({ status: 'salvo', plan_id: 'plan-3', progress: { step: 'salvo', detail: 'ok' } });
   });
 });

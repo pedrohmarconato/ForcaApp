@@ -80,8 +80,20 @@ def get_model_name(default: str = "claude-sonnet-4-6") -> str:
     """Nome do modelo (default ativo: claude-sonnet-4-6).
 
     claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28.
+
+    Prefira get_chat_model_name() e get_plan_model_name() para as rotas.
     """
     return get_env_variable("CLAUDE_MODEL_NAME", default) or default
+
+
+def get_chat_model_name() -> str:
+    """Modelo do chat (proxy /api/chat). Default haiku-4-5: mais barato viável."""
+    return get_env_variable("CHAT_MODEL_NAME", "claude-haiku-4-5") or "claude-haiku-4-5"
+
+
+def get_plan_model_name() -> str:
+    """Modelo da geração do molde (job async). Default opus-4-8 com thinking."""
+    return get_env_variable("PLAN_MODEL_NAME", "claude-opus-4-8") or "claude-opus-4-8"
 
 
 def get_anthropic_timeout_seconds() -> float:

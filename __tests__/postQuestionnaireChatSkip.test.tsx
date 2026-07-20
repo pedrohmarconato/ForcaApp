@@ -4,7 +4,7 @@
 // Quando o usuário vem do botão "Gerar treino direto" (QuestionnaireScreen),
 // a tela não deve mostrar a escolha inicial nem criar boas-vindas; deve
 // disparar o mesmo fluxo de handleUserDeclinesChat (salvar estado → marcar
-// chat completo → gerar plano), uma única vez.
+// estado 'generating' → gerar plano), uma única vez.
 
 import React from 'react';
 import { render, waitFor, act } from '@testing-library/react-native';
@@ -55,6 +55,17 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 jest.mock('../src/services/api/trainingPlanService', () => ({
   requestTrainingPlanGeneration: jest.fn(async () => ({ success: true, planId: 'plan-1' })),
+  consolidateChat: jest.fn(async () => ({
+    preferencias: [],
+    restricoes: [],
+    excecoes_estruturais: [],
+  })),
+  startPlanJob: jest.fn(async () => 'job-1'),
+  waitForPlanJob: jest.fn(async () => ({
+    status: 'salvo',
+    plan_id: 'plan-1',
+    progress: { step: 'salvo', detail: 'Plano salvo.' },
+  })),
 }));
 
 jest.mock('../src/services/api/claudeService', () => ({
@@ -63,9 +74,11 @@ jest.mock('../src/services/api/claudeService', () => ({
 }));
 
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
-import { requestTrainingPlanGeneration } from '../src/services/api/trainingPlanService';
+import { requestTrainingPlanGeneration, startPlanJob, waitForPlanJob } from '../src/services/api/trainingPlanService';
 import { supabaseSecureStorage as secureStorage } from '../src/services/auth/secureStorage';
 
+const mockStartPlanJob = startPlanJob as jest.Mock;
+const mockWaitForPlanJob = waitForPlanJob as jest.Mock;
 const mockRequestTrainingPlanGeneration = requestTrainingPlanGeneration as jest.Mock;
 
 describe('PostQuestionnaireChat — skipChat no init', () => {
@@ -76,44 +89,37 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
 
   it('com skipChat: true e chat novo, não mostra escolha inicial e dispara geração 1×', async () => {
     mockRouteParams.skipChat = true;
-    // Mantém a geração pendente para o spinner "Solicitando geração..."
-    // ficar visível (estado isGeneratingPlan=true).
+
     let resolverGeracao!: (v: unknown) => void;
-    mockRequestTrainingPlanGeneration.mockImplementationOnce(
+    mockWaitForPlanJob.mockImplementationOnce(
       () => new Promise((resolve) => { resolverGeracao = resolve; }) as any,
     );
 
     const { queryByText, findByText } = render(<PostQuestionnaireChat />);
 
-    // Não deve exibir os botões da escolha inicial
     expect(queryByText('Quero ajustar')).toBeNull();
     expect(queryByText('Montar plano')).toBeNull();
 
-    // Deve disparar a geração exatamente uma vez
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
 
-    // E mostrar o indicador de geração do plano (isGeneratingPlan=true)
-    await findByText('Solicitando geração do plano...');
+    await findByText('Consolidando suas preferências...');
 
-    // Libera a geração para não vazar estado entre testes
-    resolverGeracao({ success: true, planId: 'plan-1' });
+    resolverGeracao({ status: 'salvo', plan_id: 'plan-1', progress: { step: 'salvo', detail: 'Plano salvo.' } });
   });
 
-  it('com skipChat: true, grava STORAGE_KEY_CHAT_COMPLETED antes de gerar', async () => {
+  it('com skipChat: true, grava STORAGE_KEY_CHAT_STATE como "generating" antes de gerar', async () => {
     mockRouteParams.skipChat = true;
 
     render(<PostQuestionnaireChat />);
 
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
 
-    // O marcador de chat concluído precisa ser gravado ANTES da geração,
-    // para que a retomada (se o app morrer) re-dispare a geração.
     const setItemMock = secureStorage.setItem as jest.Mock;
-    const chamadasCompleted = setItemMock.mock.calls.filter(
-      (c) => typeof c[0] === 'string' && c[0].startsWith('@chat_completed_'),
+    const chamadasState = setItemMock.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].startsWith('@chat_state_'),
     );
-    expect(chamadasCompleted.length).toBeGreaterThan(0);
-    expect(chamadasCompleted[0][1]).toBe('true');
+    expect(chamadasState.length).toBeGreaterThan(0);
+    expect(chamadasState[0][1]).toBe('generating');
   });
 
   it('não dispara geração duplicada em re-render', async () => {
@@ -121,18 +127,15 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
 
     const { rerender } = render(<PostQuestionnaireChat />);
 
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
 
-    // Re-render simula uma nova passagem de render sem remontar
     rerender(<PostQuestionnaireChat />);
 
-    // Aguarda um pouco para garantir que nenhum segundo disparo ocorra
     await new Promise((r) => setTimeout(r, 50));
-    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1);
+    expect(mockStartPlanJob).toHaveBeenCalledTimes(1);
   });
 
   it('skipChat: true com chat salvo em andamento — escolha ignorada, chat normal aparece', async () => {
-    // Simula chat já em andamento (novo, mas com estado salvo)
     const chatSalvo = JSON.stringify({
       messages: [{ role: 'model', parts: [{ text: 'Olá!' }] }],
       interactionsCount: 0,
@@ -150,25 +153,20 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
 
     const { findByText } = render(<PostQuestionnaireChat />);
 
-    // Chat existente: a mensagem de boas-vindas salva aparece
     await findByText('Olá!');
 
-    // Geração NÃO dispara (skipChat é ignorado quando há chat salvo)
     await new Promise((r) => setTimeout(r, 50));
-    expect(mockRequestTrainingPlanGeneration).not.toHaveBeenCalled();
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
   });
 });
 
-describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do app)', () => {
+describe('PostQuestionnaireChat — retomada com geração em andamento (pós-morte do app)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
   });
 
-  it('gera o plano COM os ajustes salvos no chat (não com lista vazia)', async () => {
-    // App morreu depois de marcar o chat como concluído (ex.: durante a
-    // geração). O storage tem os ajustes do usuário — a retomada precisa
-    // levá-los para a geração.
+  it('retoma geração COM os ajustes salvos no chat quando @chat_state_ = "generating"', async () => {
     const chatConcluido = JSON.stringify({
       messages: [
         { role: 'user', parts: [{ text: 'Quero mais volume no treino' }] },
@@ -181,18 +179,13 @@ describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do 
     const chatStorage = secureStorage.getItem as jest.Mock;
     chatStorage.mockImplementation(async (key: string) => {
       if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
-      if (key.startsWith('@chat_completed_')) return 'true';
+      if (key.startsWith('@chat_state_')) return 'generating';
       if (key.startsWith('@chat_messages_')) return chatConcluido;
       return null;
     });
 
     render(<PostQuestionnaireChat />);
 
-    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
-    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledWith(
-      'user-123',
-      expect.any(Object),
-      ['Quero mais volume no treino'],
-    );
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
   });
 });

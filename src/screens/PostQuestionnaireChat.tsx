@@ -23,7 +23,7 @@ import { Feather } from '@expo/vector-icons';
 
 // Serviços e Contextos
 import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeService';
-import { requestTrainingPlanGeneration } from '../services/api/trainingPlanService';
+import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress } from '../services/api/trainingPlanService';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import theme from '../theme/theme';
@@ -36,10 +36,13 @@ type ChatScreenRouteParams = { formData?: any; skipChat?: boolean };
 type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackParamList, 'PostQuestionnaireChat'>;
 
 // --- Constantes Funcionais ---
-const MAX_INTERACTIONS = 3;
+const MAX_INTERACTIONS = 6;
 const STORAGE_KEY_CHAT_PREFIX = '@chat_messages_';
 const STORAGE_KEY_QUESTIONNAIRE_PREFIX = '@questionnaire_data_';
-const STORAGE_KEY_CHAT_COMPLETED_PREFIX = '@chat_completed_';
+// Substitui @chat_completed_: agora é máquina de estados, não booleano.
+// "in_progress" | "awaiting_generation" | "completed"
+// NUNCA bloqueia reentrada na conversa com base em estado armazenado (R1).
+const STORAGE_KEY_CHAT_STATE_PREFIX = '@chat_state_';
 
 const PostQuestionnaireChat = () => {
     const route = useRoute<RouteProp<{ params: ChatScreenRouteParams }, 'params'>>();
@@ -63,6 +66,7 @@ const PostQuestionnaireChat = () => {
     const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
     const [summaryContent, setSummaryContent] = useState('');
     const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+    const [jobProgressText, setJobProgressText] = useState<string | null>(null);
     // Guarda o disparo do declínio por skipChat para evitar duplicação em
     // re-renders do init. completeOnboardingAndGeneratePlan já se protege com
     // isGeneratingPlan, mas o disparo do declínio precisa da própria guarda.
@@ -85,7 +89,7 @@ const PostQuestionnaireChat = () => {
     const userId = user?.id;
     const STORAGE_KEY_CHAT = useMemo(() => userId ? `${STORAGE_KEY_CHAT_PREFIX}${userId}` : null, [userId]);
     const STORAGE_KEY_QUESTIONNAIRE = useMemo(() => userId ? `${STORAGE_KEY_QUESTIONNAIRE_PREFIX}${userId}` : null, [userId]);
-    const STORAGE_KEY_CHAT_COMPLETED = useMemo(() => userId ? `${STORAGE_KEY_CHAT_COMPLETED_PREFIX}${userId}` : null, [userId]);
+    const STORAGE_KEY_CHAT_STATE = useMemo(() => userId ? `${STORAGE_KEY_CHAT_STATE_PREFIX}${userId}` : null, [userId]);
 
     // --- FUNÇÕES ---
 
@@ -109,7 +113,7 @@ const PostQuestionnaireChat = () => {
 
     // ** Função para gerar o plano **
 
-// Corrected version (inserted)
+// Corrigido: fluxo novo — consolida chat → job async → polling
 const completeOnboardingAndGeneratePlan = useCallback(async () => {
   const currentQuestionnaireData = questionnaireDataRef.current;
   if (isGeneratingPlanRef.current || !userId || !currentQuestionnaireData) {
@@ -121,27 +125,44 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
   isGeneratingPlanRef.current = true;
   setIsGeneratingPlan(true);
   setChatError(null);
+  setJobProgressText('Consolidando suas preferências...');
 
   try {
-    const currentAdjustments = [...adjustmentsRef.current]; 
-    
-    const result = await requestTrainingPlanGeneration(
-      userId,
-      currentQuestionnaireData,
-      currentAdjustments
-    );
+    const currentAdjustments = [...adjustmentsRef.current];
 
-    if (result.success) {
-      console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId ?? '(offline, sem plano no banco)'}`);
+    const historyForApi = messages
+      .filter(msg => msg.role !== 'system')
+      .map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.parts[0]?.text ?? '' }));
+
+    let diretrizes;
+    try {
+      diretrizes = await consolidateChat(historyForApi, currentQuestionnaireData);
+      console.log(`[Chat ${userId}] Diretrizes consolidadas:`, JSON.stringify(diretrizes).substring(0, 200));
+    } catch (consolidateError: any) {
+      console.log(`[Chat ${userId}] Consolidação falhou, usando diretrizes vazias:`, consolidateError?.message);
+      diretrizes = { preferencias: currentAdjustments, restricoes: [], excecoes_estruturais: [] };
+      if (currentAdjustments.length > 0) {
+        diretrizes.observacoes_gerais = currentAdjustments.join('; ');
+      }
+    }
+
+    const jobId = await startPlanJob(currentQuestionnaireData, diretrizes);
+    console.log(`[Chat ${userId}] Job iniciado: ${jobId}`);
+
+    const result = await waitForPlanJob(jobId, (progress: JobProgress) => {
+      setJobProgressText(progress.progress?.detail || progress.status);
+    });
+
+    if (result.status === 'salvo' && result.plan_id) {
+      console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.plan_id}`);
       const profileUpdate: { onboarding_completed: boolean; current_plan_id?: string } = {
         onboarding_completed: true,
+        current_plan_id: result.plan_id,
       };
-      if (result.planId) {
-        profileUpdate.current_plan_id = result.planId;
-      }
       await updateProfile(profileUpdate);
     } else {
-      throw new Error(result.message || "Falha ao gerar o plano de treino.");
+      const errMsg = result.error?.message || 'Erro desconhecido na geração.';
+      throw new Error(errMsg);
     }
   } catch (error: any) {
     console.error(`[Chat ${userId}] Erro ao gerar plano:`, error);
@@ -149,9 +170,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
   } finally {
     isGeneratingPlanRef.current = false;
     setIsGeneratingPlan(false);
+    setJobProgressText(null);
   }
-}, [userId, updateProfile, navigation]);
-// End of corrected version
+}, [userId, updateProfile, messages]);
 
 
 
@@ -162,23 +183,20 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
     // Ajustar dependências se completeOnboardingAndGeneratePlan foi alterada
     const handleUserDeclinesChat = useCallback(async () => {
-        // ... (implementação inalterada, mas verifica dependências) ...
         setShowInitialChoice(false);
         setIsChatEnded(true);
         const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, vamos gerar seu treino com base nas respostas." }] };
-        // Cria uma cópia atualizada das mensagens para salvar
         const updatedMessages = [...messages, systemMessage];
         setMessages(updatedMessages);
 
         if (STORAGE_KEY_CHAT) {
-            // Salva o estado ANTES de chamar a geração
             await saveChatState(STORAGE_KEY_CHAT, updatedMessages, interactionsCount, true, adjustments);
         }
-        if (STORAGE_KEY_CHAT_COMPLETED) {
-            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+        if (STORAGE_KEY_CHAT_STATE) {
+            await secureStorage.setItem(STORAGE_KEY_CHAT_STATE, 'generating');
         }
         await completeOnboardingAndGeneratePlan();
-    }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_COMPLETED, saveChatState, completeOnboardingAndGeneratePlan]); // completeOnboardingAndGeneratePlan agora é estável
+    }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_STATE, saveChatState, completeOnboardingAndGeneratePlan]);
 
     const generateSummary = useCallback(() => {
         // ... (implementação inalterada) ...
@@ -213,7 +231,6 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
     // Ajustar dependências se completeOnboardingAndGeneratePlan foi alterada
     const handleConfirmEndChat = useCallback(async () => {
-        // ... (implementação inalterada, mas verifica dependências) ...
         setIsSummaryModalVisible(false);
         setIsChatEnded(true);
         const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, gerando seu plano de treino com base no questionário e ajustes..." }] };
@@ -223,11 +240,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         if (STORAGE_KEY_CHAT) {
             await saveChatState(STORAGE_KEY_CHAT, updatedMessages, interactionsCount, true, adjustments);
         }
-        if (STORAGE_KEY_CHAT_COMPLETED) {
-            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+        if (STORAGE_KEY_CHAT_STATE) {
+            await secureStorage.setItem(STORAGE_KEY_CHAT_STATE, 'generating');
         }
         await completeOnboardingAndGeneratePlan();
-    }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_COMPLETED, saveChatState, completeOnboardingAndGeneratePlan]); // completeOnboardingAndGeneratePlan agora é estável
+    }, [messages, interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_STATE, saveChatState, completeOnboardingAndGeneratePlan]);
 
     const handleCancelEndChat = useCallback(() => {
         // ... (implementação inalterada) ...
@@ -278,8 +295,8 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                 if (STORAGE_KEY_CHAT) {
                     await saveChatState(STORAGE_KEY_CHAT, finalMessages, newInteractionCount, chatEndedAfterResponse, currentAdjustments);
                 }
-                if (chatEndedAfterResponse && STORAGE_KEY_CHAT_COMPLETED) {
-                    await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+                if (chatEndedAfterResponse && STORAGE_KEY_CHAT_STATE) {
+                    await secureStorage.setItem(STORAGE_KEY_CHAT_STATE, 'in_progress');
                 }
 
             } else {
@@ -296,7 +313,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         }
     }, [
         inputText, isLoadingAi, isChatEnded, isApiAvailable, isGeneratingPlan, messages,
-        interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_COMPLETED, saveChatState, userId
+        interactionsCount, adjustments, STORAGE_KEY_CHAT, STORAGE_KEY_CHAT_STATE, saveChatState, userId
     ]);
 
 
@@ -310,25 +327,21 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             console.log(`[Chat ${userId}] Iniciando inicialização... (isInitializing: ${isInitializing})`);
             setChatError(null);
             let loadedQuestionnaireData = null;
-            let chatAlreadyCompleted = false;
+            let chatStateFlag: string | null = null;
             let apiOk = null;
 
             try {
-                // 0. Verificar se o chat já foi concluído
-                if (STORAGE_KEY_CHAT_COMPLETED) {
-                    const completedStatus = await secureStorage.getItem(STORAGE_KEY_CHAT_COMPLETED);
-                    if (completedStatus === 'true') {
-                        console.log(`[Chat ${userId}] Chat já concluído anteriormente.`);
-                        chatAlreadyCompleted = true;
-                        if (user?.onboarding_completed) {
-                            console.log(`[Chat ${userId}] Onboarding já completo; o RootNavigator já exibe o app principal.`);
-                            // Sem navegação manual: a troca de navigator é dirigida pelo
-                            // AuthContext (profile.onboarding_completed). Só encerra aqui.
-                            return;
-                        } else {
-                            console.warn(`[Chat ${userId}] Chat completo, mas onboarding não. Tentando gerar plano.`);
-                        }
-                    }
+                // 0. Verificar estado do chat (máquina de estados, NÃO booleano).
+                // "completed" = plano gerado, onboarding completo → RootNavigator assume.
+                // "generating" = geração em andamento (retomada pós-crash), prossegue.
+                // null/"in_progress" = fluxo normal.
+                if (STORAGE_KEY_CHAT_STATE) {
+                    chatStateFlag = await secureStorage.getItem(STORAGE_KEY_CHAT_STATE);
+                }
+
+                if (user?.onboarding_completed) {
+                    console.log(`[Chat ${userId}] Onboarding já completo; o RootNavigator já exibe o app principal.`);
+                    return;
                 }
 
                 // 1. Carregar dados do questionário
@@ -351,8 +364,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                     throw new Error("Chave do questionário inválida.");
                 }
 
-                // Se chat completo, tenta gerar plano e sai
-                if (chatAlreadyCompleted && loadedQuestionnaireData) {
+                // R1: se havia geração em andamento (crash anterior), prossegue.
+                // NUNCA bloqueia a entrada na conversa — o chat é sempre oferecido.
+                if (chatStateFlag === 'generating' && loadedQuestionnaireData) {
                     // Recupera os ajustes salvos ANTES de gerar: sem isso, a
                     // retomada (ex.: app morto durante a geração) gerava o
                     // plano ignorando os ajustes feitos no chat — o storage
@@ -370,10 +384,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                                     adjustmentsRef.current = ajustesSalvos;
                                 }
                             } catch (parseError) {
-                                console.log(`[Chat ${userId}] Chat salvo ilegível na retomada; gerando sem ajustes.`);
+                                console.log(`[Chat ${userId}] Chat salvo ilegível na retomada.`);
                             }
                         }
                     }
+                    setIsInitializing(false);
                     await completeOnboardingAndGeneratePlan();
                     return;
                 }
@@ -438,8 +453,8 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         if (STORAGE_KEY_CHAT) {
                             await saveChatState(STORAGE_KEY_CHAT, skipMessages, 0, true, []);
                         }
-                        if (STORAGE_KEY_CHAT_COMPLETED) {
-                            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+                        if (STORAGE_KEY_CHAT_STATE) {
+                            await secureStorage.setItem(STORAGE_KEY_CHAT_STATE, 'generating');
                         }
                         // Libera isInitializing ANTES do await da geração: a tela
                         // precisa sair do spinner "Preparando..." e mostrar o
@@ -940,7 +955,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         <View style={styles.estado}>
                             {isGeneratingPlan ? (
                                 <>
-                                    <Text style={styles.textoSistema}>Solicitando geração do plano...</Text>
+                                    <Text style={styles.textoSistema}>
+                                        {jobProgressText || 'Solicitando geração do plano...'}
+                                    </Text>
                                     <ActivityIndicator style={{ marginTop: theme.spacing.sm }} color={theme.colors.accent.main} />
                                 </>
                             ) : (

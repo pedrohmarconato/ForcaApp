@@ -21,6 +21,7 @@ export const ENDPOINTS = {
     GENERATE_PLAN: '/generate-plan', // POST /api/generate-plan
   },
   CHAT: '/chat', // POST /api/chat — proxy seguro para o Claude
+  CONSOLIDATE_CHAT: '/consolidate-chat', // POST /api/consolidate-chat — consolida chat em diretrizes
   HEALTH: '/health', // GET /api/health (o Flask expõe /health e /api/health)
   READY: '/ready', // GET /api/ready — readiness (config + deps locais)
 };
