@@ -4,7 +4,12 @@
 // - rótulo honesto: "hoje" só quando a data é hoje (achado #8 do review)
 // - erro de banco ≠ "nenhum treino" (achado #9 do review)
 // - lista de próximos treinos navegável por sessionId
-// - estatísticas sem execução registrada exibem "—" (nunca número fake)
+//
+// Atualizado na remodelagem para a Direção 02: o bloco de estatísticas com três
+// "—" deu lugar a "Sua semana", alimentado pelo histórico REAL de execuções.
+// A garantia é a mesma e ficou mais forte — sem amostra, estado vazio; com
+// amostra, apenas contagem e dias observados. Nunca percentual de adesão, que
+// exigiria uma meta semanal que o app não persiste.
 
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -54,6 +59,8 @@ const sessaoBase = {
 let mockRespostaHoje: any = null;
 let mockRespostaProximos: any[] = [];
 let mockFalhaBanco: Error | null = null;
+let mockConcluidas: any[] = [];
+let mockFalhaHistorico: Error | null = null;
 
 jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(async () => {
@@ -66,12 +73,36 @@ jest.mock('../src/services/trainingRepository', () => ({
   }),
 }));
 
+jest.mock('../src/services/sessionExecutionRepository', () => ({
+  getCompletedSessions: jest.fn(async () => {
+    if (mockFalhaHistorico) throw mockFalhaHistorico;
+    return mockConcluidas;
+  }),
+}));
+
 import HomeScreen from '../src/screens/HomeScreen';
+
+/** Sessão concluída hoje, com duração conhecida. */
+const concluidaHoje = (title: string, duracaoMin: number) => {
+  const fim = new Date();
+  const inicio = new Date(fim.getTime() - duracaoMin * 60000);
+  return {
+    sessionLogId: `log-${title}`,
+    plannedSessionId: 'sess-x',
+    title,
+    weekNumber: 1,
+    muscleGroups: ['Pernas'],
+    startedAt: inicio.toISOString(),
+    finishedAt: fim.toISOString(),
+  };
+};
 
 describe('Fase 3 — Home lê o plano persistido', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockFalhaBanco = null;
+    mockFalhaHistorico = null;
+    mockConcluidas = [];
     mockRespostaHoje = { ...sessaoBase, scheduled_date: hojeLocalISO() };
     mockRespostaProximos = [
       mockRespostaHoje,
@@ -128,11 +159,63 @@ describe('Fase 3 — Home lê o plano persistido', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('WorkoutDetail', { sessionId: 'sess-2' });
   });
+});
 
-  it('sem execuções registradas, estatísticas mostram "—" (nada inventado)', async () => {
-    const { getAllByText, getByText } = render(<HomeScreen />);
+describe('Home — "Sua semana" só mostra dado real', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockFalhaBanco = null;
+    mockFalhaHistorico = null;
+    mockConcluidas = [];
+    mockRespostaHoje = { ...sessaoBase, scheduled_date: hojeLocalISO() };
+    mockRespostaProximos = [];
+  });
+
+  it('sem execuções registradas, mostra estado vazio — nenhum número na tela', async () => {
+    const { getByText, queryByTestId } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('Nenhum treino concluído nesta semana')).toBeTruthy());
+    expect(queryByTestId('card-semana')).toBeNull();
+    // Sem histórico não existe bloco de última sessão
+    expect(queryByTestId('linha-ultima-sessao')).toBeNull();
+  });
+
+  it('com execuções reais, conta os treinos concluídos da semana', async () => {
+    mockConcluidas = [concluidaHoje('Lower body A', 48), concluidaHoje('Upper body A', 52)];
+
+    const { getByTestId, getByText, queryByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByTestId('card-semana')).toBeTruthy());
+    expect(getByText('2')).toBeTruthy();
+    expect(getByText('treinos')).toBeTruthy();
+    // Nada de percentual de adesão: não há meta semanal persistida
+    expect(queryByText(/%/)).toBeNull();
+  });
+
+  it('usa o singular quando há exatamente um treino concluído', async () => {
+    mockConcluidas = [concluidaHoje('Lower body A', 45)];
+
+    const { getByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('1')).toBeTruthy());
+    expect(getByText('treino')).toBeTruthy();
+  });
+
+  it('mostra a última sessão com duração e data reais', async () => {
+    mockConcluidas = [concluidaHoje('Lower body A', 48)];
+
+    const { getByTestId, getByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByTestId('linha-ultima-sessao')).toBeTruthy());
+    expect(getByText(/48 min/)).toBeTruthy();
+  });
+
+  it('falha no histórico não derruba o card do treino de hoje', async () => {
+    mockFalhaHistorico = new Error('rede caiu');
+
+    const { getByText } = render(<HomeScreen />);
 
     await waitFor(() => expect(getByText('Push A')).toBeTruthy());
-    expect(getAllByText('—')).toHaveLength(3);
+    expect(getByText('Não foi possível carregar sua semana')).toBeTruthy();
   });
 });
