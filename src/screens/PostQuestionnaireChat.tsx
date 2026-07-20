@@ -353,7 +353,27 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
                 // Se chat completo, tenta gerar plano e sai
                 if (chatAlreadyCompleted && loadedQuestionnaireData) {
-                    // Chama a função que agora tem referência estável
+                    // Recupera os ajustes salvos ANTES de gerar: sem isso, a
+                    // retomada (ex.: app morto durante a geração) gerava o
+                    // plano ignorando os ajustes feitos no chat — o storage
+                    // os tem desde o saveChatState do fluxo normal.
+                    if (STORAGE_KEY_CHAT) {
+                        const storedChat = await secureStorage.getItem(STORAGE_KEY_CHAT);
+                        if (storedChat) {
+                            try {
+                                const chatState = JSON.parse(storedChat);
+                                if (Array.isArray(chatState?.adjustments)) {
+                                    const ajustesSalvos = chatState.adjustments.filter(
+                                        (a: unknown): a is string => typeof a === 'string',
+                                    );
+                                    setAdjustments(ajustesSalvos);
+                                    adjustmentsRef.current = ajustesSalvos;
+                                }
+                            } catch (parseError) {
+                                console.log(`[Chat ${userId}] Chat salvo ilegível na retomada; gerando sem ajustes.`);
+                            }
+                        }
+                    }
                     await completeOnboardingAndGeneratePlan();
                     return;
                 }
@@ -749,6 +769,13 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     // botão de enviar continuam bloqueados quando a IA não responde.
     const inputBloqueado = isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan;
     const finalizarBloqueado = isLoadingAi || isGeneratingPlan;
+    // Aviso B2 (indisponibilidade com CTA de saída). Quando ele está visível,
+    // o chatError de indisponibilidade setado no init NÃO renderiza — eram
+    // dois banners empilhados dizendo a mesma coisa.
+    const avisoIndisponibilidadeVisivel =
+        isApiAvailable === false && !showInitialChoice && !isChatEnded && !isGeneratingPlan;
+    const chatErrorRedundante =
+        avisoIndisponibilidadeVisivel && !!chatError?.startsWith('Assistente IA indisponível');
 
     return (
         <SafeAreaView style={styles.screen} edges={['bottom']}>
@@ -815,7 +842,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         </View>
                     )}
 
-                    {chatError && !showInitialChoice && (
+                    {chatError && !showInitialChoice && !chatErrorRedundante && (
                         <Notice
                             tone="danger"
                             title={chatError}
@@ -844,7 +871,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         nenhuma saída (input morto, ✓ já desbloqueado mas não
                         óbvio). handleUserDeclinesChat preserva os adjustments
                         acumulados — eles entram na geração. */}
-                    {isApiAvailable === false && !showInitialChoice && !isChatEnded && !isGeneratingPlan && (
+                    {avisoIndisponibilidadeVisivel && (
                         <Notice
                             tone="warning"
                             title="Assistente indisponível no momento."

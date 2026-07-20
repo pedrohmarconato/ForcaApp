@@ -153,3 +153,63 @@ describe('PostQuestionnaireChat — retry de geração falha', () => {
     await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2));
   });
 });
+
+describe('PostQuestionnaireChat — sem avisos duplicados de indisponibilidade', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    // O describe de retry (acima) troca a implementação do getItem; este
+    // cenário precisa do chat em andamento de volta.
+    const { supabaseSecureStorage } = require('../src/services/auth/secureStorage');
+    (supabaseSecureStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
+      if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
+      if (key.startsWith('@chat_messages_')) return mockChatEmAndamento;
+      return null;
+    });
+  });
+
+  it('com o aviso de saída visível, o chatError de indisponibilidade não empilha', async () => {
+    const { findByText, queryByText } = render(<PostQuestionnaireChat />);
+
+    // O aviso com CTA (B2) é o único responsável por comunicar indisponibilidade
+    await findByText('Assistente indisponível no momento.');
+
+    // O chatError do init ("Assistente IA indisponível...") não pode aparecer
+    // junto — dois banners dizendo a mesma coisa.
+    expect(queryByText('Assistente IA indisponível. Você pode gerar o treino sem ajustes.')).toBeNull();
+  });
+});
+
+describe('PostQuestionnaireChat — retry não dispara geração concorrente', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+  });
+
+  it('dois toques no "Tentar novamente" produzem UMA geração extra, não duas', async () => {
+    // 1ª geração (init/skipChat) falha; 2ª (retry) fica pendurada.
+    let resolver2!: (v: unknown) => void;
+    mockRequestTrainingPlanGeneration
+      .mockImplementationOnce(async () => { throw new Error('boom'); })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolver2 = resolve; }) as any);
+
+    const { supabaseSecureStorage } = require('../src/services/auth/secureStorage');
+    (supabaseSecureStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
+      if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
+      return null;
+    });
+    mockRouteParams.skipChat = true;
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+
+    const retry = await findByText('Tentar novamente');
+    fireEvent.press(retry);
+    fireEvent.press(retry); // toque duplo imediato
+
+    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(2);
+
+    resolver2({ success: true, planId: 'plan-3' });
+  });
+});

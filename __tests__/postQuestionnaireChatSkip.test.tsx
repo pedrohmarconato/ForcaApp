@@ -158,3 +158,41 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     expect(mockRequestTrainingPlanGeneration).not.toHaveBeenCalled();
   });
 });
+
+describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do app)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+  });
+
+  it('gera o plano COM os ajustes salvos no chat (não com lista vazia)', async () => {
+    // App morreu depois de marcar o chat como concluído (ex.: durante a
+    // geração). O storage tem os ajustes do usuário — a retomada precisa
+    // levá-los para a geração.
+    const chatConcluido = JSON.stringify({
+      messages: [
+        { role: 'user', parts: [{ text: 'Quero mais volume no treino' }] },
+        { role: 'system', parts: [{ text: 'Ok, gerando seu plano...' }] },
+      ],
+      interactionsCount: 1,
+      isChatEnded: true,
+      adjustments: ['Quero mais volume no treino'],
+    });
+    const chatStorage = secureStorage.getItem as jest.Mock;
+    chatStorage.mockImplementation(async (key: string) => {
+      if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
+      if (key.startsWith('@chat_completed_')) return 'true';
+      if (key.startsWith('@chat_messages_')) return chatConcluido;
+      return null;
+    });
+
+    render(<PostQuestionnaireChat />);
+
+    await waitFor(() => expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1));
+    expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledWith(
+      'user-123',
+      expect.any(Object),
+      ['Quero mais volume no treino'],
+    );
+  });
+});
