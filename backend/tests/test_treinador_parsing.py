@@ -6,6 +6,7 @@
 import json
 import os
 import sys
+import types
 import unittest.mock as mock
 
 import pytest
@@ -67,3 +68,35 @@ def test_resposta_truncada_por_max_tokens_vira_erro_explicito(treinador):
     with mock.patch.object(treinador, "anthropic_client", cliente):
         with pytest.raises(RuntimeError, match="truncad"):
             treinador._chamar_api_claude("prompt qualquer")
+
+
+def test_resposta_com_bloco_thinking_extrai_o_texto(treinador):
+    """Opus 4.8 (adaptive thinking) devolve [thinking, text]; o wrapper deve
+    extrair o texto em vez de quebrar no bloco thinking (que não tem .text)."""
+    resposta = mock.Mock()
+    resposta.stop_reason = "end_turn"
+    thinking = types.SimpleNamespace(type="thinking", thinking="", signature="sig")
+    texto = types.SimpleNamespace(type="text", text='{"plano_principal": {"nome": "X"}}')
+    resposta.content = [thinking, texto]
+
+    cliente = mock.Mock()
+    cliente.messages.create.return_value = resposta
+
+    with mock.patch.object(treinador, "anthropic_client", cliente):
+        out = treinador._chamar_api_claude("prompt")
+    assert out == '{"plano_principal": {"nome": "X"}}'
+
+
+def test_resposta_sem_bloco_texto_retorna_none(treinador):
+    """Se o modelo gastar todo o budget pensando e não houver bloco text,
+    o wrapper retorna None (falha tratada, não crash)."""
+    resposta = mock.Mock()
+    resposta.stop_reason = "end_turn"
+    thinking = types.SimpleNamespace(type="thinking", thinking="...", signature="sig")
+    resposta.content = [thinking]
+
+    cliente = mock.Mock()
+    cliente.messages.create.return_value = resposta
+
+    with mock.patch.object(treinador, "anthropic_client", cliente):
+        assert treinador._chamar_api_claude("prompt") is None

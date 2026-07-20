@@ -431,3 +431,20 @@ def test_cliente_anthropic_do_chat_tem_timeout_configurado(monkeypatch):
     _, kwargs = mock_anthropic.call_args
     assert kwargs.get("timeout") is not None
     assert kwargs["timeout"] <= 120.0  # chat deve falhar antes do timeout do app
+
+
+# --- 15. max_tokens do chat compatível com adaptive thinking ---
+
+def test_chat_usa_max_tokens_compativel_com_thinking(client):
+    """Opus 4.8 effort high pensa antes de responder; 1024 truncaria. A janela
+    de saída deve ser >= 4096 para acomodar thinking + resposta visível."""
+    fake_client = _fake_anthropic_client()
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=fake_client):
+        client.post(
+            "/api/chat",
+            json={"messages": [{"role": "user", "content": "Oi"}]},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    _, kwargs = fake_client.messages.create.call_args
+    assert kwargs["max_tokens"] >= 4096

@@ -29,7 +29,7 @@ class TreinadorEspecialista:
     usando a API Claude e dados do usuário.
     """
     MODEL_NAME = get_model_name()
-    MAX_TOKENS = 4096
+    MAX_TOKENS = 16384
     PLANO_VERSAO = "1.0" # Versão do schema/plano
 
     def __init__(self):
@@ -516,17 +516,22 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                     "Resposta da IA truncada pelo limite de tokens — plano incompleto."
                 )
 
-            # Verifica se a resposta tem o conteúdo esperado
-            if response.content and isinstance(response.content, list) and len(response.content) > 0:
-                # Assume que a resposta principal está no primeiro bloco de conteúdo
-                resposta_texto = response.content[0].text
+            # Modelos com adaptive thinking (Opus 4.8) devolvem blocos `thinking`
+            # antes do `text`; um bloco thinking não tem atributo `.text`. Iteramos
+            # e pegamos o primeiro bloco de texto — nunca logamos conteúdo (PII).
+            resposta_texto = None
+            if response.content and isinstance(response.content, list):
+                for block in response.content:
+                    if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+                        resposta_texto = block.text
+                        break
+            if resposta_texto:
                 self.logger.info("Resposta recebida da API Claude.")
-                self.logger.debug(f"Resposta bruta ({len(resposta_texto)} chars).") # Não logar conteúdo: dados pessoais
+                self.logger.debug(f"Resposta bruta ({len(resposta_texto)} chars).")
                 return resposta_texto
-            else:
-                # Não logar a resposta bruta: pode conter dados pessoais do usuário
-                self.logger.error(f"Resposta inesperada da API Claude (tipo de conteúdo: {type(response.content).__name__}).")
-                return None
+            tipos = [getattr(b, "type", "?") for b in response.content] if isinstance(response.content, list) else []
+            self.logger.error(f"Resposta da API Claude sem bloco de texto (tipos: {tipos}).")
+            return None
 
         except anthropic.APIConnectionError as e:
             self.logger.error(f"Erro de conexão com a API Anthropic: {e}", exc_info=True)

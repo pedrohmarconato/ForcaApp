@@ -6,6 +6,27 @@ import { Alert } from 'react-native';
 
 const AuthContext = createContext(undefined);
 
+// --- Classificação de erros de autenticação (PostgREST/GoTrue) ---
+
+// Desvio de relógio TRANSITÓRIO: logo após um TOKEN_REFRESHED, o `iat` do
+// token recém-emitido pelo GoTrue pode parecer "no futuro" para o PostgREST
+// (PGRST303 "JWT issued at future"). O token é válido e o quadro se resolve
+// sozinho em segundos — NUNCA é motivo para logout.
+export const isClockSkewError = (error) =>
+    error?.code === 'PGRST303' || /issued at future/i.test(error?.message ?? '');
+
+// Sinais de token realmente inválido/expirado — aqui sim o logout é a
+// resposta certa. Skew fica explicitamente de fora.
+export const isTokenInvalidError = (error) =>
+    !isClockSkewError(error) && (
+        error?.status === 401 ||
+        error?.code === 'PGRST301' ||
+        (typeof error?.message === 'string' && error.message.includes('JWT'))
+    );
+
+// Espera do retry quando a sonda cai em desvio de relógio.
+export const CLOCK_SKEW_RETRY_MS = 2000;
+
 export const AuthProvider = ({ children }) => {
     const [session, setSession] = useState(null);
     const [user, setUser] = useState(null);
@@ -72,28 +93,40 @@ export const AuthProvider = ({ children }) => {
             console.log("[AuthContext] Verificando validade do token...");
 
             // Fazer uma requisição simples que requer autenticação
-            const { error } = await supabase
-                .from('profiles')
-                .select('id')
-                .limit(1);
+            const probe = () => supabase.from('profiles').select('id').limit(1);
+            let { error } = await probe();
+
+            if (error && isClockSkewError(error)) {
+                // PGRST303 logo após refresh: espera o relógio do servidor
+                // alcançar o iat do token e tenta UMA vez de novo.
+                console.log("[AuthContext] Desvio de relógio (JWT issued at future). Retentando...");
+                await new Promise((resolve) => setTimeout(resolve, CLOCK_SKEW_RETRY_MS));
+                ({ error } = await probe());
+            }
 
             if (error) {
-                console.error("[AuthContext] Erro ao verificar token:", error);
-
-                // Verificar sinais específicos de token expirado ou inválido
-                if (error.status === 401 ||
-                    error.code === 'PGRST301' ||
-                    error.message?.includes('JWT expired') ||
-                    error.message?.includes('JWT')) {
+                if (isClockSkewError(error)) {
+                    // Skew persistente: o token é criptograficamente válido;
+                    // só os relógios divergem. Mantém a sessão.
+                    console.warn("[AuthContext] Desvio de relógio persistente; mantendo a sessão.");
+                    return true;
+                }
+                if (isTokenInvalidError(error)) {
+                    console.error("[AuthContext] Erro ao verificar token:", error);
                     console.log("[AuthContext] Token inválido/expirado detectado.");
                     return false;
                 }
+                // Erro que não é de autenticação (RLS, indisponibilidade etc.):
+                // não é evidência de sessão inválida.
+                console.warn("[AuthContext] Erro não-auth na verificação de token (mantendo sessão):", error?.code ?? error?.message);
             }
 
             return true;
         } catch (error) {
-            console.error("[AuthContext] Erro ao testar validade do token:", error);
-            return false;
+            // Exceção de transporte (rede fora, timeout) ≠ sessão expirada.
+            // Deslogar o usuário offline seria punição por falta de rede.
+            console.warn("[AuthContext] Não foi possível verificar o token (rede?). Mantendo sessão:", error?.message ?? error);
+            return true;
         }
     }, []); // Dependências vazias
 
@@ -138,13 +171,18 @@ export const AuthProvider = ({ children }) => {
         setErrorProfile(null);
 
         try {
-            // Verificar se o token ainda é válido antes de prosseguir
-            // Acessa a ref da sessão aqui para pegar o valor mais atual sem adicionar como dependência
-            const tokenValido = await verifyTokenValidity(sessionRef.current);
-            if (!tokenValido) {
-                console.log("[AuthContext] Token inválido detectado em fetchProfile");
-                await handleSessionExpiration();
-                return null;
+            // Verificar se o token ainda é válido antes de prosseguir.
+            // Só quando a ref TEM sessão: no primeiro evento do listener a
+            // sessionRef ainda não foi atualizada (só no próximo render) e
+            // validar `null` aqui deslogava um usuário com sessão válida.
+            // Sem a ref, a própria query de perfil abaixo decide (trata 401).
+            if (sessionRef.current) {
+                const tokenValido = await verifyTokenValidity(sessionRef.current);
+                if (!tokenValido) {
+                    console.log("[AuthContext] Token inválido detectado em fetchProfile");
+                    await handleSessionExpiration();
+                    return null;
+                }
             }
 
             const { data, error, status } = await supabase
@@ -159,9 +197,8 @@ export const AuthProvider = ({ children }) => {
                     console.error("[AuthContext] Erro ao buscar perfil (Supabase):", { status, error });
 
                     // Verificar explicitamente por indicações de token expirado/inválido
-                    if (error.status === 401 ||
-                        error.code === 'PGRST301' ||
-                        error.message?.includes('JWT expired')) {
+                    // (desvio de relógio transitório fica de fora — não desloga)
+                    if (isTokenInvalidError(error)) {
                         console.log("[AuthContext] Token expirado detectado ao buscar perfil");
                         await handleSessionExpiration();
                         return null;
@@ -183,7 +220,7 @@ export const AuthProvider = ({ children }) => {
             console.error("[AuthContext] Erro na execução de fetchProfile:", error);
             setProfile(null);
 
-            if (error && (error.status === 401 || error.message?.includes("JWT"))) {
+            if (isTokenInvalidError(error)) {
                 console.log("[AuthContext] Erro 401/JWT detectado ao buscar perfil, tratando como token expirado");
                 setErrorProfile("Sessão expirada. Faça login novamente.");
                 await handleSessionExpiration();
@@ -211,13 +248,15 @@ export const AuthProvider = ({ children }) => {
         setErrorProfile(null);
 
         try {
-            // Verificar validade do token antes de prosseguir
-            // Acessa a ref da sessão aqui
-            const tokenValido = await verifyTokenValidity(sessionRef.current);
-            if (!tokenValido) {
-                console.log("[AuthContext] Token inválido detectado em updateProfile");
-                await handleSessionExpiration();
-                throw new Error("Sessão expirada. Faça login novamente.");
+            // Verificar validade do token antes de prosseguir (mesma guarda do
+            // fetchProfile: ref defasada/null não é evidência de expiração)
+            if (sessionRef.current) {
+                const tokenValido = await verifyTokenValidity(sessionRef.current);
+                if (!tokenValido) {
+                    console.log("[AuthContext] Token inválido detectado em updateProfile");
+                    await handleSessionExpiration();
+                    throw new Error("Sessão expirada. Faça login novamente.");
+                }
             }
 
             const { data, error } = await supabase
@@ -228,10 +267,8 @@ export const AuthProvider = ({ children }) => {
                 .single();
 
             if (error) {
-                // Verificar se é erro de autenticação
-                if (error.status === 401 ||
-                    error.code === 'PGRST301' ||
-                    error.message?.includes('JWT expired')) {
+                // Verificar se é erro de autenticação (skew transitório não conta)
+                if (isTokenInvalidError(error)) {
                     console.log("[AuthContext] Token expirado detectado ao atualizar perfil");
                     await handleSessionExpiration();
                     throw new Error("Sessão expirada. Faça login novamente.");

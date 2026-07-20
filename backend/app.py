@@ -109,6 +109,9 @@ ALLOWED_CHAT_ROLES = {"user", "assistant"}
 MAX_QUESTIONNAIRE_JSON_BYTES = 32 * 1024  # 32 KB serializado
 MAX_ADJUSTMENTS_ITEMS = 10
 MAX_ADJUSTMENT_LENGTH = 1000
+# Janela de saída do chat: acomoda adaptive thinking (Opus 4.8 effort high) junto
+# da resposta visível, sem truncar. Só custa o que for efetivamente gerado.
+CHAT_MAX_TOKENS = 4096
 
 
 def _get_chat_anthropic_client():
@@ -120,11 +123,12 @@ def _get_chat_anthropic_client():
         api_key = get_api_key("ANTHROPIC")
         if not api_key:
             raise RuntimeError("Chave da API Anthropic não configurada no backend (ANTHROPIC_API_KEY).")
-        # Chat responde rápido (max_tokens=1024): timeout curto, sempre abaixo
-        # do timeout do app para não cobrar resposta que o usuário não verá
+        # Cap do timeout do chat: acima do Sonnet para acomodar Opus 4.8 (effort
+        # high, adaptive thinking), porém abaixo do gunicorn (180s) e do nginx
+        # (200s) para não cobrar resposta que o usuário não verá.
         _chat_anthropic_client = anthropic.Anthropic(
             api_key=api_key,
-            timeout=min(get_anthropic_timeout_seconds(), 60.0),
+            timeout=min(get_anthropic_timeout_seconds(), 120.0),
         )
     return _chat_anthropic_client
 
@@ -291,7 +295,7 @@ def handle_chat():
         client = _get_chat_anthropic_client()
         response = client.messages.create(
             model=get_model_name(),
-            max_tokens=1024,
+            max_tokens=CHAT_MAX_TOKENS,
             system=system_prompt,
             messages=messages,
         )
