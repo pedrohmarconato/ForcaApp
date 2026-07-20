@@ -292,23 +292,20 @@ def test_fluxo_completo_modo_novo(client, monkeypatch):
     fake_response_obj = types.SimpleNamespace(content=[
         types.SimpleNamespace(type="text", text=molde_json)
     ])
-    fake_cls = mock.MagicMock()
-    fake_cls.return_value.messages.create.return_value = fake_response_obj
-
-    job = jm.criar_job(user_id=user_id)
 
     from backend.app import _executar_geracao_molde
 
-    with mock.patch("anthropic.Anthropic", fake_cls), \
+    job = jm.criar_job(user_id=user_id)
+
+    with mock.patch("backend.utils.anthropic_retry.criar_mensagem_com_deadline", return_value=fake_response_obj), \
          mock.patch("backend.app.persistir_plano", return_value="db-plan-2"):
         with app.app_context():
-            from flask import g
-            g.access_token = "fake-token"
             _executar_geracao_molde(
                 job,
                 questionnaire_data={"nivelExperiencia": "iniciante"},
                 diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
                 user_id=user_id,
+                access_token="fake-token",
             )
 
     assert job.status == jm.JobStatus.SALVO

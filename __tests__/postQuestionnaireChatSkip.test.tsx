@@ -73,6 +73,10 @@ jest.mock('../src/services/api/claudeService', () => ({
   callClaudeApi: jest.fn(async () => 'nunca chamado'),
 }));
 
+jest.mock('../src/services/trainingRepository', () => ({
+  getActivePlanId: jest.fn(async () => null),
+}));
+
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
 import { requestTrainingPlanGeneration, startPlanJob, waitForPlanJob } from '../src/services/api/trainingPlanService';
 import { supabaseSecureStorage as secureStorage } from '../src/services/auth/secureStorage';

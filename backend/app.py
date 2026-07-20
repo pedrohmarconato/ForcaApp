@@ -403,8 +403,9 @@ def handle_generate_plan():
         job = criar_job(user_id=str(user_id))
         app_logger.info(f"Job de geração criado: {job.job_id} para usuário {user_id}.")
 
+        access_token = g.access_token
         executar_job(job, lambda j: _executar_geracao_molde(
-            j, questionnaire_data, diretrizes, str(user_id),
+            j, questionnaire_data, diretrizes, str(user_id), access_token,
         ))
 
         return jsonify({
@@ -535,6 +536,10 @@ def handle_consolidate_chat():
     """
     user_id = (g.user or {}).get('id', 'desconhecido')
 
+    if _rate_limit_hit("chat", user_id, CHAT_RATE_LIMIT, CHAT_RATE_WINDOW_SECONDS):
+        app_logger.warning(f"Rate limit de consolidação excedido para usuário {user_id}.")
+        return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
+
     if not request.is_json:
         return jsonify({"error": "Requisição inválida. Esperado JSON."}), 400
 
@@ -631,6 +636,7 @@ def _executar_geracao_molde(
     questionnaire_data: dict,
     diretrizes: dict,
     user_id: str,
+    access_token: str,
 ) -> None:
     """
     Pipeline de geração assíncrona no modo molde:
@@ -643,17 +649,18 @@ def _executar_geracao_molde(
     import json as _json
     import jsonschema as _jsonschema
     from backend.schemas.molde_schema import MOLDE_SCHEMA
+    from backend.utils.anthropic_retry import criar_mensagem_com_deadline
 
     job.transition(JobStatus.GERANDO_MOLDE, "gerando_molde", "Montando a estratégia de treino...")
 
     api_key = get_api_key("ANTHROPIC")
     if not api_key:
-        job.set_error("no_api_key", "Chave da API Anthropic não configurada.")
+        job.set_error("no_api_key", "Serviço de IA não configurado.")
         return
 
     client = _anthropic.Anthropic(
         api_key=api_key,
-        timeout=240.0,  # molde é menor que plano direto; thinking consome
+        timeout=240.0,
         max_retries=0,
     )
 
@@ -692,14 +699,16 @@ SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""
 
     try:
-        response = client.messages.create(
+        response = criar_mensagem_com_deadline(
+            client,
+            deadline_seconds=240.0,
             model=get_plan_model_name(),
             max_tokens=32768,
             messages=[{"role": "user", "content": prompt_molde}],
             thinking={"type": "adaptive"},
         )
-    except Exception as e:
-        job.set_error("molde_api_error", f"Erro ao gerar molde: {e}")
+    except Exception:
+        job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
         return
 
     resposta_texto = None
@@ -743,8 +752,8 @@ SCHEMA DO MOLDE:
             "restricoes": questionnaire_data.get("restricoes", []),
         }
         plano_gerado = expandir_plano(molde, dados_usuario)
-    except Exception as e:
-        job.set_error("expander_error", f"Erro ao expandir molde: {e}")
+    except Exception:
+        job.set_error("expander_error", "Erro interno ao expandir o plano. Tente novamente.")
         return
 
     job.transition(JobStatus.SALVANDO, "salvando", "Salvando o plano...")
@@ -755,9 +764,9 @@ SCHEMA DO MOLDE:
         if molde.get("progressao", {}).get("regras"):
             mapeado["plan"]["progression_rules"] = molde["progressao"]["regras"]
 
-        db_plan_id = persistir_plano(mapeado, access_token=g.access_token)
-    except (ValueError, PlanPersistenceError) as e:
-        job.set_error("persist_error", f"Erro ao salvar plano: {e}")
+        db_plan_id = persistir_plano(mapeado, access_token=access_token)
+    except (ValueError, PlanPersistenceError):
+        job.set_error("persist_error", "Erro ao salvar o plano. Tente novamente.")
         return
 
     job.transition(JobStatus.SALVO, "salvo", "Plano salvo com sucesso.")

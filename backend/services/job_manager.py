@@ -72,6 +72,12 @@ def _limpar_jobs_expirados() -> None:
 
 def criar_job(user_id: str) -> PlanJob:
     _limpar_jobs_expirados()
+    with _jobs_lock:
+        # Trava anti-geração-dupla: se já existe job em andamento para este
+        # usuário, devolve o job existente em vez de criar outro (achado #4).
+        for job in _jobs.values():
+            if job.user_id == user_id and job.status not in (JobStatus.SALVO, JobStatus.ERRO):
+                return job
     job_id = str(uuid.uuid4())
     job = PlanJob(job_id=job_id, user_id=user_id)
     with _jobs_lock:
@@ -91,9 +97,9 @@ def executar_job(job: PlanJob, func: Callable[[PlanJob], None]) -> None:
     def _wrapper():
         try:
             func(job)
-        except Exception as e:
+        except Exception:
             if job.status != JobStatus.ERRO:
-                job.set_error("internal_error", str(e))
+                job.set_error("internal_error", "Erro interno no servidor. Tente novamente.")
 
     t = threading.Thread(target=_wrapper, daemon=True)
     t.start()

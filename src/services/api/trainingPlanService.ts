@@ -113,17 +113,45 @@ export const pollPlanJob = async (jobId: string): Promise<JobProgress> => {
 
 /**
  * Polling loop: espera o job terminar (salvo ou erro).
+ * Tolera falhas de rede transitórias (até 3 consecutivas) e trata 404
+ * (job perdido após restart do servidor) como fallback limpo.
  */
 export const waitForPlanJob = async (
   jobId: string,
   onProgress?: (progress: JobProgress) => void,
 ): Promise<JobProgress> => {
-  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
-    const progress = await pollPlanJob(jobId);
-    onProgress?.(progress);
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 3;
 
-    if (progress.status === 'salvo' || progress.status === 'erro') {
-      return progress;
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    try {
+      const progress = await pollPlanJob(jobId);
+      consecutiveFailures = 0;
+      onProgress?.(progress);
+
+      if (progress.status === 'salvo' || progress.status === 'erro') {
+        return progress;
+      }
+    } catch (error: any) {
+      consecutiveFailures++;
+      const status = error?.response?.status;
+
+      if (status === 404) {
+        logger.warn('[TrainingPlanService] Job não encontrado no servidor (possível restart).');
+        return {
+          job_id: jobId,
+          status: 'erro',
+          progress: { step: 'perdido', detail: 'Sessão de geração expirada.' },
+          plan_id: null,
+          error: { code: 'job_lost', message: 'O servidor foi reiniciado. Verifique se o plano foi gerado ou tente novamente.' },
+        };
+      }
+
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        throw new Error('Falha persistente ao verificar progresso do plano.');
+      }
+
+      logger.log(`[TrainingPlanService] Falha de rede no poll (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}), retentando...`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
