@@ -24,6 +24,8 @@ jest.mock('react-native-safe-area-context', () => {
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 
+const mockUpdateProfile = jest.fn(async () => ({}));
+
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: {
@@ -31,8 +33,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
       onboarding_completed: false,
       user_metadata: { full_name: 'Pedro' },
     },
-    updateProfile: jest.fn(async () => ({})),
+    updateProfile: mockUpdateProfile,
   }),
+}));
+
+// A retomada consulta o plano ativo antes de gerar (achado #4 do review);
+// default null = sem plano existente, comportamento de geração normal.
+jest.mock('../src/services/trainingRepository', () => ({
+  getActivePlanId: jest.fn(async () => null),
 }));
 
 const mockQuestionario = JSON.stringify({ objetivo: 'hipertrofia', nome: 'Pedro' });
@@ -65,8 +73,10 @@ jest.mock('../src/services/api/claudeService', () => ({
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
 import { requestTrainingPlanGeneration } from '../src/services/api/trainingPlanService';
 import { supabaseSecureStorage as secureStorage } from '../src/services/auth/secureStorage';
+import { getActivePlanId } from '../src/services/trainingRepository';
 
 const mockRequestTrainingPlanGeneration = requestTrainingPlanGeneration as jest.Mock;
+const mockGetActivePlanId = getActivePlanId as jest.Mock;
 
 describe('PostQuestionnaireChat — skipChat no init', () => {
   beforeEach(() => {
@@ -95,8 +105,13 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     // E mostrar o indicador de geração do plano (isGeneratingPlan=true)
     await findByText('Solicitando geração do plano...');
 
-    // Libera a geração para não vazar estado entre testes
-    resolverGeracao({ success: true, planId: 'plan-1' });
+    // Libera a geração DENTRO de act e espera o estado final (achado #6 do
+    // review: resolução solta deixava updates fora de act e o teste encerrava
+    // sem observar a transição pós-geração).
+    await act(async () => {
+      resolverGeracao({ success: true, planId: 'plan-1' });
+    });
+    await waitFor(() => expect(queryByText('Solicitando geração do plano...')).toBeNull());
   });
 
   it('com skipChat: true, grava STORAGE_KEY_CHAT_COMPLETED antes de gerar', async () => {
@@ -114,6 +129,10 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     );
     expect(chamadasCompleted.length).toBeGreaterThan(0);
     expect(chamadasCompleted[0][1]).toBe('true');
+
+    // Settle da geração dentro de act (mesmo modo de falha do achado #6).
+    await act(async () => {});
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled());
   });
 
   it('não dispara geração duplicada em re-render', async () => {
@@ -127,7 +146,9 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     rerender(<PostQuestionnaireChat />);
 
     // Aguarda um pouco para garantir que nenhum segundo disparo ocorra
-    await new Promise((r) => setTimeout(r, 50));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     expect(mockRequestTrainingPlanGeneration).toHaveBeenCalledTimes(1);
   });
 
@@ -194,6 +215,11 @@ describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do 
       expect.any(Object),
       ['Quero mais volume no treino'],
     );
+
+    // Deixa a geração (mock resolvido) e o finally do init assentarem DENTRO
+    // de act — sem isso o teste encerrava com updates pendentes (achado #6).
+    await act(async () => {});
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled());
   });
 
   it('libera o spinner de init ANTES do await da geração (não fica preso em "Preparando...")', async () => {
@@ -231,6 +257,40 @@ describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do 
     await findByText('Solicitando geração do plano...');
     expect(queryByText('Preparando seus ajustes finais...')).toBeNull();
 
-    resolverGeracao({ success: true, planId: 'plan-1' });
+    // Resolução dentro de act + estado final observado (achado #6 do review).
+    await act(async () => {
+      resolverGeracao({ success: true, planId: 'plan-1' });
+    });
+    await waitFor(() => expect(queryByText('Solicitando geração do plano...')).toBeNull());
+  });
+
+  it('adota plano ativo existente em vez de disparar nova geração (achado #4)', async () => {
+    // App morreu ENTRE a gravação do plano (backend) e a do perfil (app):
+    // na retomada existe plano ativo no banco. Gerar de novo custaria outra
+    // chamada Opus para produzir o que já existe.
+    const chatConcluido = JSON.stringify({
+      messages: [{ role: 'system', parts: [{ text: 'Ok, gerando seu plano...' }] }],
+      interactionsCount: 0,
+      isChatEnded: true,
+      adjustments: [],
+    });
+    const chatStorage = secureStorage.getItem as jest.Mock;
+    chatStorage.mockImplementation(async (key: string) => {
+      if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
+      if (key.startsWith('@chat_completed_')) return 'true';
+      if (key.startsWith('@chat_messages_')) return chatConcluido;
+      return null;
+    });
+    mockGetActivePlanId.mockResolvedValueOnce('plan-ja-salvo');
+
+    render(<PostQuestionnaireChat />);
+
+    await waitFor(() =>
+      expect(mockUpdateProfile).toHaveBeenCalledWith({
+        onboarding_completed: true,
+        current_plan_id: 'plan-ja-salvo',
+      }),
+    );
+    expect(mockRequestTrainingPlanGeneration).not.toHaveBeenCalled();
   });
 });

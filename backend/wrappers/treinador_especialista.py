@@ -21,6 +21,7 @@ except ImportError:
 # pelo próprio `python -m`), então backend.utils.* resolve sem fallback.
 from backend.utils.logger import WrapperLogger
 from backend.utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
+from backend.utils.anthropic_retry import criar_mensagem_com_deadline
 
 
 class TreinadorEspecialista:
@@ -46,11 +47,12 @@ class TreinadorEspecialista:
             raise ValueError("API Key da Anthropic não configurada.")
 
         try:
-            # Timeout explícito (padrão 150s < 180s do app): o backend falha
-            # antes do aplicativo desistir, evitando geração paga perdida.
-            # max_retries=0: o default do SDK (2) re-tenta timeouts — 150s x 3
-            # = 450s de thread presa e até 3 gerações cobradas, muito além dos
-            # 180s do app e dos 200s do nginx. Falhar rápido é o correto aqui.
+            # Cadeia de timeouts ponta a ponta (achado #3 do review): auth ≤10s
+            # + Anthropic ≤150s (deadline absoluto no helper) + persistência
+            # ≤20s = ≤180s < app 190s < nginx 200s. max_retries=0: o retry fica
+            # no helper de deadline (anthropic_retry.py), que re-tenta 1x só
+            # falha transitória rápida e NUNCA timeout — o retry automático do
+            # SDK re-tentava timeouts (150s x 3 = 450s de thread presa).
             self.anthropic_client = anthropic.Anthropic(
                 api_key=self.api_key,
                 timeout=get_anthropic_timeout_seconds(),
@@ -63,7 +65,9 @@ class TreinadorEspecialista:
 
         self.prompt_template_base = self._carregar_prompt_template_base()
         self.schema = self._carregar_schema_json()
-        self.json_template_for_prompt = self._obter_template_json_str()
+        # O template do prompt é montado POR USUÁRIO em _preparar_prompt: o
+        # exemplo de frequencia_semanal usa o valor do questionário (achado #5
+        # do review — um 4 fixo ancorava o modelo contra o pedido do usuário).
 
         self.logger.info("TreinadorEspecialista inicializado com sucesso.")
 
@@ -304,7 +308,26 @@ Exercícios
         }
         return schema
 
-    def _obter_template_json_str(self) -> str:
+    @staticmethod
+    def _frequencia_semanal_do_usuario(disponibilidade: Any, dias_disponiveis: Any) -> int:
+        """Frequência validada do questionário para o TEMPLATE do prompt.
+
+        Um exemplo concreto fixo (4) no template competia com a instrução
+        textual de respeitar a frequência do usuário (achado #5 do review):
+        o modelo copiava o valor do exemplo. Aqui o exemplo VIRA a frequência
+        pedida; sem dado válido, cai no nº de dias preferidos e, por fim, 3.
+        """
+        try:
+            valor = int(disponibilidade)
+            if 1 <= valor <= 7:
+                return valor
+        except (TypeError, ValueError):
+            pass
+        if isinstance(dias_disponiveis, list) and 1 <= len(dias_disponiveis) <= 7:
+            return len(dias_disponiveis)
+        return 3
+
+    def _obter_template_json_str(self, frequencia_semanal: int = 3) -> str:
         """Retorna uma string formatada do template JSON para incluir no prompt."""
         # Cria uma versão simplificada do schema com valores de exemplo/nulos - Mantido como no original
         template = {
@@ -313,7 +336,7 @@ Exercícios
                 "descricao": "Descrição breve do plano e seus objetivos.",
                 "periodizacao": {"tipo": "Tipo (ex: Linear)", "descricao": "Descrição da periodização"},
                 "duracao_semanas": 12,
-                "frequencia_semanal": 4,  # INTEIRO — o modelo copia o tipo do exemplo; string aqui fazia o schema rejeitar o plano
+                "frequencia_semanal": frequencia_semanal,  # INTEIRO validado do questionário — o modelo copia TIPO e VALOR do exemplo (reviews #4/#5)
                 "ciclos": [
                     {
                         "ciclo_id": "Gerado Automaticamente",
@@ -383,6 +406,10 @@ Exercícios
         tempo_treino = dados_usuario.get("tempo_treino", 60)
         disponibilidade_semanal = dados_usuario.get("disponibilidade_semanal", 3)
         dias_disponiveis = dados_usuario.get("dias_disponiveis", [])
+        # Template com a frequência REAL do usuário no exemplo (achado #5):
+        # exemplo fixo competia com a instrução e o modelo copiava o 4.
+        frequencia_validada = self._frequencia_semanal_do_usuario(disponibilidade_semanal, dias_disponiveis)
+        template_json = self._obter_template_json_str(frequencia_semanal=frequencia_validada)
         cardio = dados_usuario.get("cardio", "não")
         alongamento = dados_usuario.get("alongamento", "não")
         conversa_chat = dados_usuario.get("conversa_chat", "Nenhuma conversa registrada.") # Receberá os ajustes
@@ -439,7 +466,7 @@ INSTRUÇÕES ESPECÍFICAS PARA GERAÇÃO DO PLANO:
 
 TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalmente):
 ```json
-{self.json_template_for_prompt}
+{template_json}
 ```""" # Fim do prompt_completo
 
         self.logger.debug(f"Prompt preparado ({len(prompt_completo)} chars).") # Não logar conteúdo: dados pessoais
@@ -505,12 +532,17 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
         """
         self.logger.info(f"Enviando prompt para o modelo {self.MODEL_NAME}...")
         try:
-            response = self.anthropic_client.messages.create(
+            # Retry seletivo com deadline absoluto (achados #1 e #3 do review):
+            # re-tenta 1x apenas falhas transitórias rápidas (429/5xx/529);
+            # timeout nunca — a soma das tentativas respeita o orçamento.
+            response = criar_mensagem_com_deadline(
+                self.anthropic_client,
+                get_anthropic_timeout_seconds(),
                 model=self.MODEL_NAME,
                 max_tokens=self.MAX_TOKENS,
                 messages=[
                     {"role": "user", "content": prompt}
-                ]
+                ],
             )
             # Truncamento não é falha genérica: diagnóstico explícito evita
             # aceitar JSON cortado e explica a geração paga perdida (review #7)

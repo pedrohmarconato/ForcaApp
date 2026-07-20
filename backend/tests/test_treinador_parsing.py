@@ -119,3 +119,23 @@ def test_cliente_anthropic_do_treinador_nao_retenta(treinador):
     (default) — 150s x 3 = 450s de thread presa, além dos 180s do app e dos
     200s do nginx, cobrando gerações que ninguém verá."""
     assert treinador.anthropic_client.max_retries == 0
+
+
+# --- Achado #5 do review externo: exemplo fixo ancorava a frequência ---
+
+def test_template_usa_a_frequencia_do_questionario(treinador):
+    template = json.loads(treinador._obter_template_json_str(frequencia_semanal=5))
+    assert template["plano_principal"]["frequencia_semanal"] == 5
+
+
+def test_prompt_carrega_a_frequencia_validada_no_template(treinador):
+    prompt = treinador._preparar_prompt({"disponibilidade_semanal": "5"})
+    assert '"frequencia_semanal": 5' in prompt
+    assert '"frequencia_semanal": 4' not in prompt
+
+
+def test_frequencia_invalida_cai_nos_dias_preferidos_e_depois_em_3(treinador):
+    assert treinador._frequencia_semanal_do_usuario("abc", ["seg", "qua"]) == 2
+    assert treinador._frequencia_semanal_do_usuario(None, []) == 3
+    assert treinador._frequencia_semanal_do_usuario(99, []) == 3
+    assert treinador._frequencia_semanal_do_usuario("4", []) == 4
