@@ -47,10 +47,14 @@ class TreinadorEspecialista:
 
         try:
             # Timeout explícito (padrão 150s < 180s do app): o backend falha
-            # antes do aplicativo desistir, evitando geração paga perdida
+            # antes do aplicativo desistir, evitando geração paga perdida.
+            # max_retries=0: o default do SDK (2) re-tenta timeouts — 150s x 3
+            # = 450s de thread presa e até 3 gerações cobradas, muito além dos
+            # 180s do app e dos 200s do nginx. Falhar rápido é o correto aqui.
             self.anthropic_client = anthropic.Anthropic(
                 api_key=self.api_key,
                 timeout=get_anthropic_timeout_seconds(),
+                max_retries=0,
             )
             self.logger.info(f"Cliente Anthropic inicializado para o modelo: {self.MODEL_NAME}")
         except Exception as e:
@@ -309,7 +313,7 @@ Exercícios
                 "descricao": "Descrição breve do plano e seus objetivos.",
                 "periodizacao": {"tipo": "Tipo (ex: Linear)", "descricao": "Descrição da periodização"},
                 "duracao_semanas": 12,
-                "frequencia_semanal": "Número de treinos/semana",
+                "frequencia_semanal": 4,  # INTEIRO — o modelo copia o tipo do exemplo; string aqui fazia o schema rejeitar o plano
                 "ciclos": [
                     {
                         "ciclo_id": "Gerado Automaticamente",

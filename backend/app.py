@@ -123,12 +123,14 @@ def _get_chat_anthropic_client():
         api_key = get_api_key("ANTHROPIC")
         if not api_key:
             raise RuntimeError("Chave da API Anthropic não configurada no backend (ANTHROPIC_API_KEY).")
-        # Cap do timeout do chat: acima do Sonnet para acomodar Opus 4.8 (effort
-        # high, adaptive thinking), porém abaixo do gunicorn (180s) e do nginx
-        # (200s) para não cobrar resposta que o usuário não verá.
+        # Cap do timeout do chat: acima do Sonnet para acomodar respostas mais
+        # longas do Opus 4.8, porém abaixo do gunicorn (180s) e do nginx (200s).
+        # max_retries=0: o default do SDK (2) re-tenta timeouts — 120s x 3 =
+        # 360s de thread presa, além do corte de 200s do nginx. Falhar rápido.
         _chat_anthropic_client = anthropic.Anthropic(
             api_key=api_key,
             timeout=min(get_anthropic_timeout_seconds(), 120.0),
+            max_retries=0,
         )
     return _chat_anthropic_client
 

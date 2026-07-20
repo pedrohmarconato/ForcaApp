@@ -374,6 +374,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                             }
                         }
                     }
+                    // Libera isInitializing ANTES do await da geração (igual ao
+                    // caminho skipChat): sem isso a tela ficava presa no spinner
+                    // "Preparando seus ajustes finais..." pelos até 180s da
+                    // geração/timeout, sem progresso nem erro visível.
+                    setIsInitializing(false);
                     await completeOnboardingAndGeneratePlan();
                     return;
                 }

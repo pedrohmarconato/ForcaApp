@@ -448,3 +448,25 @@ def test_chat_usa_max_tokens_compativel_com_thinking(client):
         )
     _, kwargs = fake_client.messages.create.call_args
     assert kwargs["max_tokens"] >= 4096
+
+
+# --- Cliente do chat não re-tenta (review Opus 4.8, 20/07/2026) ---
+
+def test_cliente_anthropic_do_chat_nao_retenta():
+    """Sem max_retries=0 o SDK re-tenta timeouts 2x: 120s x 3 = 360s de
+    thread presa no chat, além do corte de 200s do nginx."""
+    import backend.app as app_module
+
+    original_cliente = app_module._chat_anthropic_client
+    original_key = os.environ.get("ANTHROPIC_API_KEY")
+    app_module._chat_anthropic_client = None
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    try:
+        cliente = app_module._get_chat_anthropic_client()
+        assert cliente.max_retries == 0
+    finally:
+        app_module._chat_anthropic_client = original_cliente
+        if original_key is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = original_key

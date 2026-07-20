@@ -195,4 +195,42 @@ describe('PostQuestionnaireChat — retomada com chat concluído (pós-morte do 
       ['Quero mais volume no treino'],
     );
   });
+
+  it('libera o spinner de init ANTES do await da geração (não fica preso em "Preparando...")', async () => {
+    // Bug de produção (20/07): a retomada com chat concluído fazia
+    // `await completeOnboardingAndGeneratePlan()` com isInitializing ainda
+    // true — a tela ficava no spinner "Preparando seus ajustes finais..."
+    // pelos até 180s da geração (e do timeout ECONNABORTED), sem progresso
+    // nem erro visível. O caminho skipChat já liberava o spinner antes do
+    // await; a retomada precisa fazer o mesmo.
+    const chatConcluido = JSON.stringify({
+      messages: [{ role: 'system', parts: [{ text: 'Ok, gerando seu plano...' }] }],
+      interactionsCount: 0,
+      isChatEnded: true,
+      adjustments: [],
+    });
+    const chatStorage = secureStorage.getItem as jest.Mock;
+    chatStorage.mockImplementation(async (key: string) => {
+      if (key.startsWith('@questionnaire_data_')) return mockQuestionario;
+      if (key.startsWith('@chat_completed_')) return 'true';
+      if (key.startsWith('@chat_messages_')) return chatConcluido;
+      return null;
+    });
+
+    // Mantém a geração pendente: é exatamente durante esse await que a
+    // tela travava no spinner de init.
+    let resolverGeracao!: (v: unknown) => void;
+    mockRequestTrainingPlanGeneration.mockImplementationOnce(
+      () => new Promise((resolve) => { resolverGeracao = resolve; }) as any,
+    );
+
+    const { queryByText, findByText } = render(<PostQuestionnaireChat />);
+
+    // Com a geração ainda pendente, a tela deve mostrar o progresso da
+    // geração — e NÃO o spinner cego de inicialização.
+    await findByText('Solicitando geração do plano...');
+    expect(queryByText('Preparando seus ajustes finais...')).toBeNull();
+
+    resolverGeracao({ success: true, planId: 'plan-1' });
+  });
 });
