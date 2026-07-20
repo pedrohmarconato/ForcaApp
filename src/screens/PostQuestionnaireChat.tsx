@@ -273,7 +273,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                 throw new Error("Resposta da IA vazia ou inválida.");
             }
         } catch (error: any) {
-            console.error(`[Chat ${userId}] Erro ao chamar API Claude:`, error);
+            // Falha operacional já logada (uma vez) pelo interceptor do apiClient
+            // e tratada aqui pela UI (chatError) — log informativo, não error.
+            console.log(`[Chat ${userId}] Falha tratada ao chamar API Claude:`, error?.message ?? error);
             const errorMessage = error.message || "Ocorreu um erro ao contatar o assistente. Tente novamente.";
             setChatError(errorMessage);
         } finally {
@@ -342,7 +344,8 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                 setIsApiAvailable(apiOk);
                 if (!apiOk) {
                     setChatError("Assistente IA indisponível. Você pode gerar o treino sem ajustes.");
-                    console.warn(`[Chat ${userId}] API Claude indisponível.`);
+                    // Indisponibilidade esperada: o único warn é o do interceptor.
+                    console.log(`[Chat ${userId}] API Claude indisponível.`);
                 } else {
                     console.log(`[Chat ${userId}] API Claude disponível.`);
                 }

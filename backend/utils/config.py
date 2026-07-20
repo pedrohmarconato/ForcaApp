@@ -1,107 +1,99 @@
 # backend/utils/config.py
+"""Acesso centralizado à configuração de ambiente do backend.
+
+Carrega EXATAMENTE UM arquivo .env: o do diretório raiz do repositório
+(dois níveis acima deste módulo — backend/utils/config.py). Não há mais
+um bloco que procura backend/.env nem um segundo load_dotenv.
+
+Os nomes públicos (get_env_variable, get_api_key, get_anthropic_api_key,
+get_model_name, get_anthropic_timeout_seconds) são preservados; somente a
+implementação foi simplificada. Nenhum valor de variável de ambiente é
+registrado em log — apenas a presença/ausência.
+"""
+import logging
 import os
-import sys
 from typing import Optional
+
 from dotenv import load_dotenv
 
-# Determina o diretório raiz do projeto (assumindo que backend/ está um nível abaixo)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Constrói o caminho para o arquivo .env na raiz
-DOTENV_PATH = os.path.join(PROJECT_ROOT, '.env')
+# Configurar logging global (basicConfig) é papel do ENTRYPOINT, nunca de um
+# módulo de configuração importável — o basicConfig que vivia aqui duplicava
+# handlers em qualquer processo que importasse o backend.
+logger = logging.getLogger(__name__)
 
-# Verifica se o arquivo .env existe antes de tentar carregá-lo
-if os.path.exists(DOTENV_PATH):
-    load_dotenv(dotenv_path=DOTENV_PATH)
-    # print(f"Arquivo .env carregado de: {DOTENV_PATH}") # Para depuração
+# Raiz do repositório: sobe dois níveis a partir de backend/utils/config.py.
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# FORCA_DOTENV_PATH: caminho alternativo usado pelos testes para provar o
+# carregamento com um .env SINTÉTICO, sem tocar no .env real.
+DOTENV_PATH = os.environ.get("FORCA_DOTENV_PATH") or os.path.join(PROJECT_ROOT, ".env")
+
+if os.environ.get("FORCA_SKIP_DOTENV") == "1":
+    # Modo dos testes (ligado no conftest): o .env real do repositório NÃO é
+    # injetado no processo — a suíte permanece hermética.
+    logger.debug("FORCA_SKIP_DOTENV=1: .env não carregado.")
+elif os.path.exists(DOTENV_PATH):
+    loaded = load_dotenv(dotenv_path=DOTENV_PATH)
+    if loaded:
+        logger.info("Variáveis de ambiente carregadas do .env da raiz do projeto.")
+    else:
+        logger.warning("Arquivo .env encontrado na raiz, mas não pôde ser carregado.")
 else:
-    print(f"AVISO: Arquivo .env não encontrado em {DOTENV_PATH}. Variáveis de ambiente devem ser definidas manualmente.", file=sys.stderr)
+    logger.warning(
+        "Arquivo .env não encontrado na raiz do projeto. Defina as variáveis "
+        "de ambiente manualmente se o ambiente não as prover."
+    )
 
 
 def get_env_variable(var_name: str, default: Optional[str] = None) -> Optional[str]:
-    """Busca uma variável de ambiente."""
+    """Busca uma variável de ambiente, retornando `default` se ausente.
+
+    Não registra o valor; apenas avisa quando a variável não está definida.
+    """
     value = os.getenv(var_name, default)
     if value is None:
-         print(f"AVISO: Variável de ambiente {var_name} não definida.", file=sys.stderr)
+        logger.warning("Variável de ambiente %s não definida.", var_name)
     return value
-
-import os
-import logging
-from dotenv import load_dotenv
-
-# Configuração básica de logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Determina o caminho absoluto para a pasta raiz do projeto (assumindo que config.py está em backend/utils/)
-# Isso sobe dois níveis a partir do diretório atual (__file__)
-project_root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-dotenv_path = os.path.join(project_root_path, '.env')
-
-# Tenta carregar o arquivo .env da raiz do projeto
-if os.path.exists(dotenv_path):
-    loaded = load_dotenv(dotenv_path=dotenv_path)
-    if loaded:
-        logger.info(f"Variáveis de ambiente carregadas com sucesso de: {dotenv_path}")
-    else:
-         logger.warning(f"Arquivo .env encontrado em {dotenv_path}, mas não pôde ser carregado.")
-else:
-    logger.warning(f"Arquivo .env não encontrado em {dotenv_path}. Certifique-se de que ele existe na raiz do projeto ou configure as variáveis de ambiente manualmente.")
 
 
 def get_api_key(service_name: str = "ANTHROPIC") -> Optional[str]:
-    """
-    Obtém a chave de API de uma variável de ambiente (ex: ANTHROPIC_API_KEY).
+    """Obtém a chave <SERVICE_NAME>_API_KEY do ambiente.
 
-    Procura pela variável de ambiente com o nome <SERVICE_NAME>_API_KEY.
-    As variáveis são carregadas do arquivo .env na raiz do projeto, se existir.
-
-    Args:
-        service_name: O nome do serviço (ex: "ANTHROPIC"). O nome será convertido
-                      para maiúsculas e terá "_API_KEY" anexado.
-
-    Returns:
-        A chave da API como string, ou None se a variável de ambiente não for encontrada.
+    Apenas confirma presença/ausência em log — nunca o valor.
     """
     env_var_name = f"{service_name.upper()}_API_KEY"
     api_key = os.getenv(env_var_name)
-
     if not api_key:
-        logger.error(f"ERRO CRÍTICO: A variável de ambiente '{env_var_name}' não foi encontrada ou não está definida no .env ou no ambiente do sistema.")
-        # Você pode optar por lançar um erro aqui se a chave for absolutamente essencial:
-        # raise ValueError(f"A chave da API '{env_var_name}' é necessária mas não foi encontrada.")
+        logger.error(
+            "Variável de ambiente '%s' ausente ou vazia.", env_var_name
+        )
     else:
-        # Apenas confirme que foi encontrada, não logue a chave em si por segurança
-        logger.info(f"Chave API para '{service_name}' lida com sucesso da variável de ambiente '{env_var_name}'.")
-
+        logger.info("Chave API para '%s' disponível (valor omitido).", service_name)
     return api_key
 
-# Função helper opcional para clareza ao buscar a chave específica do Anthropic
+
 def get_anthropic_api_key() -> Optional[str]:
-    """Obtém especificamente a chave da API Anthropic."""
+    """Atalho para get_api_key('ANTHROPIC')."""
     return get_api_key("ANTHROPIC")
 
-    var_name = f"{service_name.upper()}_API_KEY"
-    return get_env_variable(var_name)
 
 def get_model_name(default: str = "claude-sonnet-4-6") -> str:
-    """Obtém o nome do modelo de uma variável de ambiente ou usa o padrão.
-    Padrão: claude-sonnet-4-6 (ativo; claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28)."""
-    return get_env_variable("CLAUDE_MODEL_NAME", default)
+    """Nome do modelo (default ativo: claude-sonnet-4-6).
+
+    claude-3-5-sonnet-20240620 foi aposentado em 2025-10-28.
+    """
+    return get_env_variable("CLAUDE_MODEL_NAME", default) or default
 
 
 def get_anthropic_timeout_seconds() -> float:
-    """Timeout (segundos) das chamadas à API Anthropic no backend.
+    """Timeout (s) das chamadas Anthropic no backend.
 
-    Deve ser MENOR que o timeout do app (180s) para o backend falhar antes do
-    aplicativo desistir — evitando geração paga que o usuário não recebe e
-    retry duplicando custo. Configurável via ANTHROPIC_TIMEOUT_SECONDS.
+    Deve ser MENOR que o timeout do app (180s) para o backend falhar antes
+    do aplicativo desistir — evita geração paga que o usuário não recebe.
     """
     raw = get_env_variable("ANTHROPIC_TIMEOUT_SECONDS", "150")
     try:
         value = float(raw) if raw is not None else 150.0
     except (TypeError, ValueError):
-        logger.warning(f"ANTHROPIC_TIMEOUT_SECONDS inválido ({raw!r}); usando 150s.")
+        logger.warning("ANTHROPIC_TIMEOUT_SECONDS inválido (%r); usando 150s.", raw)
         return 150.0
     return value if value > 0 else 150.0
-
-# Adicione outras configurações conforme necessário

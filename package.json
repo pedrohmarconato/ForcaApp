@@ -11,6 +11,8 @@
     "start:dev": "ENVFILE=.env.development react-native start",
     "start:prod": "ENVFILE=.env.production react-native start",
     "start": "expo start",
+    "backend:dev": "python3 -m backend.app",
+    "backend:dev:debug": "FLASK_DEBUG=true python3 -m backend.app",
     "test": "jest",
     "android": "expo run:android",
     "ios": "expo run:ios",

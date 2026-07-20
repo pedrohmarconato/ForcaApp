@@ -17,13 +17,11 @@ os.environ["SUPABASE_URL"] = "https://teste.supabase.co"
 os.environ["SUPABASE_ANON_KEY"] = "anon-key-teste"
 os.environ.pop("ANTHROPIC_API_KEY", None)  # garante que o treinador inicializa como None
 
-BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO_ROOT = os.path.dirname(BACKEND_DIR)
-for path in (BACKEND_DIR, REPO_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from app import app  # noqa: E402
+from backend.app import app  # noqa: E402
 
 
 @pytest.fixture()
@@ -36,7 +34,7 @@ def client():
 @pytest.fixture(autouse=True)
 def _limpa_rate_limits():
     """Isola o estado do rate limiter entre testes."""
-    import app as app_module
+    import backend.app as app_module
 
     buckets = getattr(app_module, "_rate_buckets", None)
     if isinstance(buckets, dict):
@@ -73,7 +71,7 @@ def test_generate_plan_exige_autenticacao(client):
 def test_token_invalido_retorna_401(client):
     invalid = mock.Mock()
     invalid.status_code = 401
-    with mock.patch("utils.auth.requests.get", return_value=invalid):
+    with mock.patch("backend.utils.auth.requests.get", return_value=invalid):
         response = client.post(
             "/api/chat",
             json={"messages": [{"role": "user", "content": "Oi"}]},
@@ -85,8 +83,8 @@ def test_token_invalido_retorna_401(client):
 # --- 2. Chat como proxy seguro ---
 
 def test_chat_com_token_valido_retorna_reply(client):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
-         mock.patch("app._get_chat_anthropic_client", return_value=_fake_anthropic_client()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=_fake_anthropic_client()):
         response = client.post(
             "/api/chat",
             json={
@@ -103,8 +101,8 @@ def test_chat_com_token_valido_retorna_reply(client):
 def test_chat_nao_envia_system_prompt_do_cliente(client):
     """O campo system deve ser montado no servidor; o cliente não o controla."""
     fake_client = _fake_anthropic_client()
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
-         mock.patch("app._get_chat_anthropic_client", return_value=fake_client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=fake_client):
         response = client.post(
             "/api/chat",
             json={
@@ -130,7 +128,7 @@ def test_chat_nao_envia_system_prompt_do_cliente(client):
     {"messages": [{"role": "assistant", "content": "começa com assistant"}]},  # 1ª msg deve ser user
 ])
 def test_chat_rejeita_payload_invalido(client, payload):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.post("/api/chat", json=payload, headers={"Authorization": "Bearer token-valido"})
     assert response.status_code == 400
 
@@ -139,8 +137,8 @@ def test_chat_descarta_saudacao_inicial_do_assistente(client):
     """Caso real do app: o chat semeia a conversa com uma mensagem 'assistant'
     de boas-vindas; o backend a descarta pois a API exige começar com 'user'."""
     fake_client = _fake_anthropic_client()
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
-         mock.patch("app._get_chat_anthropic_client", return_value=fake_client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=fake_client):
         response = client.post(
             "/api/chat",
             json={
@@ -185,7 +183,7 @@ def test_auth_200_malformado_e_rejeitado(client, user_json):
     malformed = mock.Mock()
     malformed.status_code = 200
     malformed.json.return_value = user_json
-    with mock.patch("utils.auth.requests.get", return_value=malformed):
+    with mock.patch("backend.utils.auth.requests.get", return_value=malformed):
         response = client.post(
             "/api/chat",
             json={"messages": [{"role": "user", "content": "Oi"}]},
@@ -197,7 +195,7 @@ def test_auth_200_malformado_e_rejeitado(client, user_json):
 # --- 6. Limites de payload (anti-abuso de custo) ---
 
 def test_chat_rejeita_questionnaire_data_gigante(client):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.post(
             "/api/chat",
             json={
@@ -210,7 +208,7 @@ def test_chat_rejeita_questionnaire_data_gigante(client):
 
 
 def test_chat_rejeita_adjustments_gigantes(client):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.post(
             "/api/chat",
             json={
@@ -224,7 +222,7 @@ def test_chat_rejeita_adjustments_gigantes(client):
 
 def test_corpo_acima_do_limite_retorna_413(client):
     big_body = "x" * (300 * 1024)  # 300 KB > MAX_CONTENT_LENGTH
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.post(
             "/api/chat",
             data=big_body,
@@ -237,10 +235,10 @@ def test_corpo_acima_do_limite_retorna_413(client):
 # --- 7. Rate limit por usuário ---
 
 def test_rate_limit_retorna_429_apos_estourar(client):
-    import app as app_module
+    import backend.app as app_module
 
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
-         mock.patch("app._get_chat_anthropic_client", return_value=_fake_anthropic_client()), \
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=_fake_anthropic_client()), \
          mock.patch.object(app_module, "CHAT_RATE_LIMIT", 3), \
          mock.patch.object(app_module, "CHAT_RATE_WINDOW_SECONDS", 60):
         last = None
@@ -257,8 +255,8 @@ def test_rate_limit_retorna_429_apos_estourar(client):
 
 def test_system_prompt_nao_contem_adjustments(client):
     fake_client = _fake_anthropic_client()
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
-         mock.patch("app._get_chat_anthropic_client", return_value=fake_client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=fake_client):
         response = client.post(
             "/api/chat",
             json={
@@ -279,7 +277,7 @@ def test_system_prompt_nao_contem_adjustments(client):
 # --- 9. generate-plan usa o ID do token, nunca o do payload ---
 
 def test_generate_plan_usa_id_do_token_nao_do_payload(client):
-    import app as app_module
+    import backend.app as app_module
 
     capturado = {}
 
@@ -299,7 +297,7 @@ def test_generate_plan_usa_id_do_token_nao_do_payload(client):
                 },
             }
 
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response("3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b")), \
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response("3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b")), \
          mock.patch.object(app_module, "treinador", FakeTreinador()), \
          mock.patch.object(app_module, "persistir_plano", return_value="db-plan-1"):
         response = client.post(
@@ -313,11 +311,11 @@ def test_generate_plan_usa_id_do_token_nao_do_payload(client):
 
 # --- 10. Logs do wrapper não despejam dados pessoais ---
 
-def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog):
+def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog, monkeypatch):
     import logging
 
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
-    from wrappers.treinador_especialista import TreinadorEspecialista
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
     treinador = TreinadorEspecialista()
     with caplog.at_level(logging.ERROR):
@@ -328,10 +326,10 @@ def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog):
 
 # --- 11. Modelo padrão ativo ---
 
-def test_modelo_padrao_esta_ativo():
-    from utils.config import get_model_name
+def test_modelo_padrao_esta_ativo(monkeypatch):
+    from backend.utils.config import get_model_name
 
-    os.environ.pop("CLAUDE_MODEL_NAME", None)
+    monkeypatch.delenv("CLAUDE_MODEL_NAME", raising=False)
     modelo = get_model_name()
     assert modelo != "claude-3-5-sonnet-20240620"  # aposentado em 2025-10-28
     assert "sonnet-4" in modelo or "haiku-4" in modelo or "opus-4" in modelo
@@ -347,18 +345,18 @@ def test_modelo_padrao_esta_ativo():
     ("/api/generate-plan", None),
 ])
 def test_json_valido_nao_objeto_retorna_400(client, endpoint, payload):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.post(endpoint, json=payload, headers={"Authorization": "Bearer token-valido"})
     assert response.status_code == 400
 
 
 # --- 13. Erro de validação do schema NÃO despeja o valor inválido (dado pessoal) ---
 
-def test_log_de_validacao_nao_contem_valor_invalido(caplog):
+def test_log_de_validacao_nao_contem_valor_invalido(caplog, monkeypatch):
     import logging
 
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
-    from wrappers.treinador_especialista import TreinadorEspecialista
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
     treinador = TreinadorEspecialista()
     # Plano TOTALMENTE válido exceto usuario.nivel — garante que o ÚNICO erro
@@ -412,20 +410,20 @@ def test_log_de_validacao_nao_contem_valor_invalido(caplog):
 
 # --- 14. Cliente Anthropic do backend com timeout explícito (alinha com o app) ---
 
-def test_cliente_anthropic_do_wrapper_tem_timeout_configurado():
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
-    os.environ["ANTHROPIC_TIMEOUT_SECONDS"] = "150"
+def test_cliente_anthropic_do_wrapper_tem_timeout_configurado(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    monkeypatch.setenv("ANTHROPIC_TIMEOUT_SECONDS", "150")
     with mock.patch("anthropic.Anthropic") as mock_anthropic:
-        from wrappers.treinador_especialista import TreinadorEspecialista
+        from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
         TreinadorEspecialista()
     _, kwargs = mock_anthropic.call_args
     assert kwargs.get("timeout") == 150.0
 
 
-def test_cliente_anthropic_do_chat_tem_timeout_configurado():
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
-    import app as app_module
+def test_cliente_anthropic_do_chat_tem_timeout_configurado(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    import backend.app as app_module
 
     app_module._chat_anthropic_client = None  # força recriação
     with mock.patch("anthropic.Anthropic") as mock_anthropic:

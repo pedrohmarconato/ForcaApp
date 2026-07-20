@@ -16,11 +16,10 @@ import pytest
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(BACKEND_DIR)
-for path in (BACKEND_DIR, REPO_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from services.plan_mapper import mapear_plano_ia  # noqa: E402
+from backend.services.plan_mapper import mapear_plano_ia  # noqa: E402
 
 USER_ID = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
 START = datetime.date(2026, 7, 20)  # segunda-feira
@@ -298,7 +297,7 @@ def test_series_absurdas_sao_limitadas():
 
 def test_teto_global_de_series(monkeypatch):
     """Achado #6: teto global além do clamp por exercício."""
-    import services.plan_mapper as pm
+    import backend.services.plan_mapper as pm
 
     monkeypatch.setattr(pm, "MAX_TOTAL_SETS", 10)  # o plano de exemplo tem 17
     with pytest.raises(ValueError):

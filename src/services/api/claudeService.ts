@@ -3,7 +3,7 @@
 // backend (POST /api/chat), onde a chave da Anthropic fica protegida.
 // Nenhuma chave de API de IA é embutida no aplicativo.
 
-import apiClient, { ENDPOINTS } from './apiClient';
+import apiClient, { classifyApiError, ENDPOINTS } from './apiClient';
 import { logger } from '../../utils/logger';
 
 // Formato de mensagem usado pelos componentes de chat
@@ -69,24 +69,50 @@ export const callClaudeApi = async (
 
     return reply.trim();
   } catch (error: any) {
-    logger.error('[ClaudeService] Erro ao chamar o backend de chat:', error?.message || error);
+    // Transporte/HTTP recuperável já foi logado UMA vez pelo interceptor do
+    // apiClient. Aqui só registramos erro INESPERADO (bug local ou resposta
+    // malformada do backend) — falha operacional não abre LogBox vermelho.
+    if (classifyApiError(error).kind === 'unexpected') {
+      logger.error('[ClaudeService] Erro inesperado no chat:', error?.message || error);
+    }
     const apiMessage = error?.response?.data?.error;
     throw new Error(apiMessage || 'Falha na comunicação com o assistente.');
   }
 };
 
 /**
- * Verifica se o backend (que hospeda o proxy do Claude) está acessível.
- * @returns true se o health check respondeu com sucesso.
+ * Verifica se o backend está PRONTO para servir o chat/IA.
+ * Usa o endpoint de readiness (/api/ready), que confirma configuração LOCAL
+ * mínima (chave Anthropic presente + URL/chave do Supabase utilizáveis) —
+ * não apenas liveness do processo Flask.
+ *
+ * Um 200 aqui significa "configuração local carregada". Ele NÃO valida a
+ * credencial junto à Anthropic (o probe não faz chamada externa nem gera
+ * custo); uma chave presente porém inválida só aparece na primeira chamada
+ * real de chat, que a UI já trata com fallback.
+ *
+ * A falha aqui é um resultado ESPERADO e tratado pela UI (fallback amigável).
+ * O ÚNICO log de indisponibilidade é o warn do interceptor do apiClient —
+ * este serviço não soma warn/error próprio (política de log único).
+ *
+ * @returns true se o backend respondeu pronto; false caso contrário.
  */
 export const testClaudeApiConnection = async (): Promise<boolean> => {
-  logger.log('[ClaudeService] Testando conexão com o backend...');
+  logger.log('[ClaudeService] Testando prontidão do backend...');
   try {
-    await apiClient.get(ENDPOINTS.HEALTH);
-    logger.log('[ClaudeService] Backend acessível.');
+    await apiClient.get(ENDPOINTS.READY);
+    logger.log('[ClaudeService] Backend pronto.');
     return true;
   } catch (error: any) {
-    logger.error('[ClaudeService] Falha ao alcançar o backend:', error?.message || error);
+    // Detalhe em nível log (não warn): o interceptor já emitiu o único warn.
+    const status = error?.response?.status;
+    if (status === 503) {
+      logger.log('[ClaudeService] Backend vivo, mas não configurado (readiness 503).');
+    } else if (status) {
+      logger.log(`[ClaudeService] Backend respondeu HTTP ${status}.`);
+    } else {
+      logger.log('[ClaudeService] Backend inacessível (rede/timeout).');
+    }
     return false;
   }
 };

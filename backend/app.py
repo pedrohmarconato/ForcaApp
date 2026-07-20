@@ -1,28 +1,30 @@
 # backend/app.py
 import os
 import sys
+from urllib.parse import urlparse
 
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS  # Para permitir requisições do frontend (React Native)
 
-# Adiciona o diretório deste arquivo ao sys.path para permitir importações de 'backend.*'
+# Garante que a raiz do repositório (parent de backend/) esteja no sys.path,
+# permitindo `python3 backend/app.py` além de `python3 -m backend.app` (raiz)
+# e do gunicorn `backend.app:app` (Dockerfile).
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 PARENT_ROOT = os.path.dirname(PROJECT_ROOT)
-for path in (PROJECT_ROOT, PARENT_ROOT):
-    if path not in sys.path:
-        sys.path.append(path)
+if PARENT_ROOT not in sys.path:
+    sys.path.insert(0, PARENT_ROOT)
 
 try:
-    from wrappers.treinador_especialista import TreinadorEspecialista
-    from utils.logger import WrapperLogger
-    from utils.auth import token_required
-    from utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
-    from services.plan_mapper import mapear_plano_ia
-    from services.plan_repository import PlanPersistenceError, persistir_plano
+    from backend.wrappers.treinador_especialista import TreinadorEspecialista
+    from backend.utils.logger import WrapperLogger
+    from backend.utils.auth import token_required
+    from backend.utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
+    from backend.services.plan_mapper import mapear_plano_ia
+    from backend.services.plan_repository import PlanPersistenceError, persistir_plano
 except ImportError as e:
     print(f"ERRO FATAL: Falha ao importar módulos necessários: {e}")
     print("Verifique a estrutura do projeto e se o PYTHONPATH está configurado corretamente.")
-    print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"PARENT_ROOT: {PARENT_ROOT}")
     print(f"sys.path: {sys.path}")
     exit(1)
 
@@ -220,6 +222,38 @@ def _validate_context_fields(data):
     return (questionnaire_data, sanitized_adjustments), None
 
 
+def _is_usable_http_url(url: str) -> bool:
+    """Valida LOCALMENTE (sem chamada externa) que a URL é utilizável pelo
+    backend/utils/auth.py: esquema http(s), hostname presente e nenhum
+    whitespace (auth.py não faz strip — espaço nas bordas quebraria a chamada).
+
+    Fecha o achado do review: SUPABASE_URL="http://" passava na checagem de
+    string não vazia, /api/ready devolvia 200 e o /api/chat seguinte 503.
+    """
+    if not url or any(caractere.isspace() for caractere in url):
+        return False
+    try:
+        parsed = urlparse(url)
+        # .hostname é lazy e também pode levantar ValueError (ex.: IPv6 malformada)
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
+def _backend_is_ready() -> bool:
+    """Readiness: configuração mínima + inicialização local, SEM chamada externa.
+
+    Considera pronto quando: TreinadorEspecialista foi instanciado (chave
+    Anthropic presente) E o Supabase do backend está configurado com uma URL
+    http(s) utilizável. Não chama a Anthropic nem o Supabase — evita custo e
+    latência em cada probe. Por consequência, "pronto" significa "configuração
+    local carregada", não "credencial validada junto ao provedor".
+    """
+    supabase_url = os.environ.get("SUPABASE_URL") or ""
+    supabase_key = (os.environ.get("SUPABASE_ANON_KEY") or "").strip()
+    return treinador is not None and _is_usable_http_url(supabase_url) and bool(supabase_key)
+
+
 @app.route('/api/chat', methods=['POST'])
 @token_required
 def handle_chat():
@@ -387,13 +421,27 @@ def handle_generate_plan():
         return jsonify({"error": "Ocorreu um erro inesperado no servidor."}), 500
 
 
-# Rota de health check simples.
-# Exposta em ambos os caminhos: o app chama via apiClient, cuja baseURL
-# termina em /api (GET /api/health); monitores externos usam /health.
+# --- Health check (liveness) ---
+# Indica apenas que o processo Flask está vivo. Não verifica configuração
+# nem dependências externas: um 200 aqui não significa que a IA está
+# utilizável. Use /api/ready (abaixo) para isso.
 @app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "ok"}), 200
+
+
+# --- Readiness ---
+# Indica se o backend está CONFIGURADO para servir as rotas de IA/chat:
+# chave Anthropic presente (TreinadorEspecialista instanciado) E Supabase
+# do backend configurado. Não realiza chamada externa nem consome API paga.
+# Retorna 200 quando pronto e 503 quando não configurado, sempre com uma
+# mensagem genérica que NÃO revela nomes/valores de segredos.
+@app.route('/api/ready', methods=['GET'])
+def readiness_check():
+    if _backend_is_ready():
+        return jsonify({"status": "ready"}), 200
+    return jsonify({"status": "not_ready"}), 503
 
 
 if __name__ == '__main__':
