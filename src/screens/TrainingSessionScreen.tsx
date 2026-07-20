@@ -1,21 +1,30 @@
+// src/screens/TrainingSessionScreen.tsx
+// Tela 05 do fluxo — "Plano": a sessão corrente (em andamento ou a próxima
+// pendente) com seus exercícios e alvos por série.
+//
+// Apresentação na Direção 02: resumo do ciclo em card de destaque, lista de
+// exercícios com a mesma geometria do detalhe, e uma única ação neon fixa no
+// rodapé. A busca de dados é a mesma da Fase 3.
+
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+
 import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
 import type { TrainingStackParamList } from '../navigation/MainNavigator';
 import {
   getTodaySession,
   getSessionDetail,
-  formatExerciseTarget,
   SessionDetail,
   PlannedExercise,
 } from '../services/trainingRepository';
+import { Screen, Card, ScreenTitle } from '../components/ui/Surface';
+import Button from '../components/ui/Button';
+import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
+import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
 
-// Fase 3: a tela mostra a sessão real (em andamento ou a próxima pendente)
-// com exercícios e alvos por série. O registro interativo (iniciar série,
-// reps/carga, timer) chega na Fase 4.
 const TrainingSessionScreen = () => {
   const navigation = useNavigation<StackNavigationProp<TrainingStackParamList, 'TrainingOverview'>>();
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -51,129 +60,160 @@ const TrainingSessionScreen = () => {
     fetchCurrentTraining();
   }, [fetchCurrentTraining]);
 
-  const renderExerciseItem = ({ item }: { item: PlannedExercise }) => {
-    // Só mostra o que existe de fato — descanso ausente não vira instrução inventada
-    const meta = [
-      item.target_rm_percent != null ? `${item.target_rm_percent}% RM` : null,
-      item.rest_seconds != null ? `descanso ${item.rest_seconds}s` : null,
-    ].filter(Boolean);
-    return (
-      <View style={styles.exerciseItem}>
-        <Text style={styles.exerciseName}>{item.name}</Text>
-        <Text style={styles.exerciseDetails}>{formatExerciseTarget(item)}</Text>
-        {meta.length > 0 ? <Text style={styles.exerciseMeta}>{meta.join(' · ')}</Text> : null}
-      </View>
-    );
-  };
-
   if (loading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.noTrainingText}>Carregando treino...</Text>
-      </View>
+      <Screen>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.accent.main} />
+        </View>
+      </Screen>
     );
   }
 
   if (loadError) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.noTrainingText}>
-          Não foi possível carregar seu treino. Verifique a conexão e tente novamente.
-        </Text>
-      </View>
+      <Screen>
+        <ScreenTitle kicker="Plano" title="Seu plano." />
+        <Notice
+          tone="danger"
+          title="Falha ao carregar"
+          description="Não foi possível carregar seu treino. Verifique a conexão e tente novamente."
+          action={
+            <Button
+              label="Tentar novamente"
+              variant="outline"
+              compact
+              onPress={fetchCurrentTraining}
+            />
+          }
+        />
+      </Screen>
     );
   }
 
   if (!session) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.noTrainingText}>
-          Nenhum treino pendente. Gere seu plano para começar.
-        </Text>
-      </View>
+      <Screen>
+        <ScreenTitle kicker="Plano" title="Seu plano." />
+        <EmptyState
+          icon="calendar"
+          title="Nenhum treino pendente. Gere seu plano para começar."
+          description="Assim que seu plano for gerado, a sessão da vez aparece aqui."
+        />
+      </Screen>
     );
   }
 
+  const emAndamento = session.status === 'in_progress';
+  const dataFormatada = session.scheduled_date
+    ? new Date(`${session.scheduled_date}T12:00:00`).toLocaleDateString('pt-BR')
+    : null;
+
+  const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
+    <PlannedExerciseRow exercise={item} index={index} />
+  );
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{session.title}</Text>
-      <Text style={styles.subtitle}>
-        Semana {session.week_number}
-        {session.scheduled_date
-          ? ` · ${new Date(`${session.scheduled_date}T12:00:00`).toLocaleDateString('pt-BR')}`
-          : ''}
-        {session.estimated_minutes ? ` · ~${session.estimated_minutes} min` : ''}
-      </Text>
+    <Screen>
+      <ScreenTitle kicker="Plano" title="Seu plano." style={styles.title} />
+
+      <Card elevated style={styles.summary}>
+        <View style={styles.summaryTop}>
+          <View style={styles.summaryCopy}>
+            <Text style={styles.summaryLabel}>Sessão atual</Text>
+            <Text style={styles.summaryTitle}>{session.title}</Text>
+          </View>
+          <Chip label={`Semana ${session.week_number}`} tone={emAndamento ? 'accent' : 'neutral'} />
+        </View>
+
+        <View style={styles.summaryMeta}>
+          {dataFormatada ? <Text style={styles.summaryMetaItem}>{dataFormatada}</Text> : null}
+          {session.estimated_minutes ? (
+            <Text style={styles.summaryMetaItem}>~{session.estimated_minutes} min</Text>
+          ) : null}
+          <Text style={styles.summaryMetaItem}>
+            {session.planned_exercises.length}{' '}
+            {session.planned_exercises.length === 1 ? 'exercício' : 'exercícios'}
+          </Text>
+        </View>
+      </Card>
+
+      <Text style={styles.listTitle}>Exercícios</Text>
+
       <FlatList
         style={styles.list}
         data={session.planned_exercises}
         renderItem={renderExerciseItem}
         keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
       />
-      <TouchableOpacity
-        style={styles.startButton}
-        onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
-      >
-        <Text style={styles.startButtonText}>
-          {session.status === 'in_progress' ? 'Retomar treino' : 'Iniciar treino'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+
+      <View style={styles.footer}>
+        <Button
+          label={emAndamento ? 'Retomar treino' : 'Iniciar treino'}
+          icon="arrow-right"
+          onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
+        />
+      </View>
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.surface.canvas,
-    padding: 16,
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  title: { marginBottom: theme.spacing.lg },
+
+  summary: { marginBottom: theme.spacing.xl },
+  summaryTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacing.md,
   },
-  title: {
+  summaryCopy: { flex: 1, minWidth: 0 },
+  summaryLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
+  summaryTitle: {
+    marginTop: theme.spacing.xxs,
     color: theme.colors.text.primary,
-    fontSize: 22,
-    fontWeight: 'bold',
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.lg,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.tight,
   },
-  subtitle: {
+  summaryMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.lg,
+    marginTop: theme.spacing.lg,
+  },
+  summaryMetaItem: {
     color: theme.colors.text.secondary,
-    marginBottom: 16,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
   },
-  list: {
-    flex: 1,
-  },
-  startButton: {
-    backgroundColor: theme.colors.accent.main,
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  startButtonText: {
-    color: theme.colors.accent.on,
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  exerciseItem: {
-    backgroundColor: theme.colors.surface.card,
-    padding: 16,
-    marginBottom: 8,
-    borderRadius: 8,
-  },
-  exerciseName: {
+
+  listTitle: {
+    marginBottom: theme.spacing.md,
     color: theme.colors.text.primary,
-    fontSize: 18,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
   },
-  exerciseDetails: {
-    color: theme.colors.text.secondary,
-  },
-  exerciseMeta: {
-    color: theme.colors.text.secondary,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  noTrainingText: {
-    color: theme.colors.text.secondary,
-    textAlign: 'center',
-    marginTop: 32,
+  list: { flex: 1 },
+  listContent: { paddingBottom: theme.spacing.lg },
+
+  footer: {
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border.subtle,
   },
 });
 
