@@ -2,29 +2,21 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View,
-    TouchableOpacity,
     FlatList,
     StyleSheet,
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
-    Button,
     Modal,
     Alert,
     Pressable,
-    Image,
     Text,
+    TextInput,
     ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import {
-    useTheme as usePaperTheme,
-    TextInput as PaperTextInput,
-    HelperText,
-} from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabaseSecureStorage as secureStorage } from '../services/auth/secureStorage';
 import { Feather } from '@expo/vector-icons';
@@ -34,26 +26,14 @@ import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeSe
 import { requestTrainingPlanGeneration } from '../services/api/trainingPlanService';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
+import theme from '../theme/theme';
+import Button from '../components/ui/Button';
+import { EmptyState, Notice } from '../components/ui/Feedback';
 
 // --- Tipos ---
 type Content = { role: 'user' | 'model' | 'system'; parts: { text: string }[] };
 type ChatScreenRouteParams = { formData?: any };
 type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackParamList, 'PostQuestionnaireChat'>;
-
-// --- Constantes de Estilo ---
-const NEON_YELLOW = '#EBFF00';
-const DARK_GRADIENT_START = '#0A0A0A';
-const DARK_GRADIENT_END = '#1A1A1A';
-const CARD_BG = 'rgba(0, 0, 0, 0.4)';
-const BORDER_COLOR = 'rgba(255, 255, 255, 0.1)';
-const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
-const PLACEHOLDER_COLOR = 'rgba(255, 255, 255, 0.4)';
-const TEXT_COLOR = '#FFFF';
-const TEXT_SECONDARY_COLOR = 'rgba(255, 255, 255, 0.6)';
-const TEXT_TERTIARY_COLOR = 'rgba(255, 255, 255, 0.4)';
-const BUTTON_TEXT_DARK = '#0A0A0A';
-const ERROR_COLOR = '#FF4D4D';
-const SUCCESS_COLOR = '#4CAF50';
 
 // --- Constantes Funcionais ---
 const MAX_INTERACTIONS = 3;
@@ -62,7 +42,6 @@ const STORAGE_KEY_QUESTIONNAIRE_PREFIX = '@questionnaire_data_';
 const STORAGE_KEY_CHAT_COMPLETED_PREFIX = '@chat_completed_';
 
 const PostQuestionnaireChat = () => {
-    const paperTheme = usePaperTheme();
     const route = useRoute<RouteProp<{ params: ChatScreenRouteParams }, 'params'>>();
     const navigation = useNavigation<PostQuestionnaireChatNavigationProp>();
     const { user, updateProfile } = useAuth();
@@ -84,31 +63,12 @@ const PostQuestionnaireChat = () => {
     const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
     const [summaryContent, setSummaryContent] = useState('');
     const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-    const [isSendButtonPressed, setIsSendButtonPressed] = useState(false);
-    const [isEndButtonPressed, setIsEndButtonPressed] = useState(false);
 
     // --- DERIVAÇÃO DE CHAVES ---
     const userId = user?.id;
     const STORAGE_KEY_CHAT = useMemo(() => userId ? `${STORAGE_KEY_CHAT_PREFIX}${userId}` : null, [userId]);
     const STORAGE_KEY_QUESTIONNAIRE = useMemo(() => userId ? `${STORAGE_KEY_QUESTIONNAIRE_PREFIX}${userId}` : null, [userId]);
     const STORAGE_KEY_CHAT_COMPLETED = useMemo(() => userId ? `${STORAGE_KEY_CHAT_COMPLETED_PREFIX}${userId}` : null, [userId]);
-
-    // --- Tema para Inputs ---
-    const inputTheme = useMemo(() => ({
-        // ... (definição do tema inalterada) ...
-        ...paperTheme,
-        colors: {
-            ...paperTheme.colors,
-            primary: NEON_YELLOW,
-            text: TEXT_COLOR,
-            placeholder: PLACEHOLDER_COLOR,
-            background: INPUT_BG,
-            outline: BORDER_COLOR,
-            onSurfaceVariant: PLACEHOLDER_COLOR,
-            error: ERROR_COLOR,
-        },
-        roundness: 12,
-    }), [paperTheme]);
 
     // --- FUNÇÕES ---
 
@@ -499,334 +459,409 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             console.error(`[renderMessage ${index}] Erro ao processar texto da mensagem: `, e, JSON.stringify(item));
         }
 
-        const bubbleStyle = isUser ? styles.userBubble : (isSystem ? styles.systemBubble : styles.aiBubble);
-        const textStyle = isUser ? styles.userMessageText : (isSystem ? styles.systemMessageText : styles.aiMessageText);
+        const bubbleStyle = isUser ? styles.bolhaUsuario : (isSystem ? styles.bolhaSistema : styles.bolhaIa);
+        const textStyle = isUser ? styles.textoUsuario : (isSystem ? styles.textoSistema : styles.textoIa);
         const key = `msg-${item.role}-${index}-${messageText.slice(0, 15)}-${Math.random()}`;
 
         return (
-            <View key={key} style={[styles.messageBubbleBase, bubbleStyle]}>
+            <View key={key} style={[styles.bolhaBase, bubbleStyle]}>
                 <Text style={textStyle}>{messageText}</Text>
             </View>
         );
     }, []);
 
     // --- ESTILOS ---
+    // Direção 02: uma única superfície de conversa, sem card flutuante nem
+    // círculos decorativos. O neon fica na bolha do usuário e no enviar.
     const styles = useMemo(() => StyleSheet.create({
-        // ... (definições de estilo inalteradas) ...
-        fullScreenGradient: { flex: 1 },
-        keyboardAvoiding: { flex: 1 },
-        mainContainer: {
+        screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
+        flex: { flex: 1 },
+        centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
+
+        conversa: {
             flex: 1,
-            justifyContent: 'center',
-            alignItems: 'center',
-            paddingVertical: Platform.OS === 'ios' ? 10 : 20,
-            paddingHorizontal: 10,
-        },
-        card: {
-            width: '100%',
-            maxWidth: 500,
-            flex: 1,
-            borderRadius: 16,
-            overflow: 'hidden',
+            margin: theme.spacing.lg,
+            padding: theme.spacing.lg,
             borderWidth: 1,
-            borderColor: BORDER_COLOR,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.3,
-            shadowRadius: 20,
-            elevation: 10,
-            display: 'flex',
-            flexDirection: 'column'
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.xxl,
+            backgroundColor: theme.colors.surface.card,
         },
-        cardBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: CARD_BG },
-        contentContainer: {
-            flex: 1,
-            padding: 20,
-            position: 'relative',
-            zIndex: 1,
-            display: 'flex',
-            flexDirection: 'column'
+        cabecalho: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingBottom: theme.spacing.md,
+            borderBottomWidth: 1,
+            borderBottomColor: theme.colors.border.subtle,
         },
-        headerContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: BORDER_COLOR },
-        headerTitle: { fontSize: 18, fontWeight: 'bold', color: TEXT_COLOR, textShadowColor: 'rgba(255, 255, 255, 0.5)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
-        interactionsLeft: { fontSize: 14, color: TEXT_SECONDARY_COLOR },
-        listContainer: {
-            flex: 1,
-            marginBottom: 12
+        cabecalhoTitulo: {
+            color: theme.colors.text.primary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.lg,
+            fontWeight: theme.typography.fontWeights.semiBold,
         },
-        messageListContentContainer: { paddingBottom: 8 },
-        messageBubbleBase: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 18, marginVertical: 5, maxWidth: '85%' },
-        userBubble: { backgroundColor: NEON_YELLOW, alignSelf: 'flex-end', marginLeft: 40 },
-        aiBubble: { backgroundColor: INPUT_BG, alignSelf: 'flex-start', marginRight: 40, borderWidth: 1, borderColor: BORDER_COLOR },
-        systemBubble: { backgroundColor: 'transparent', alignSelf: 'center', paddingVertical: 5, marginVertical: 8 },
-        userMessageText: { color: BUTTON_TEXT_DARK, fontSize: 15 },
-        aiMessageText: { color: TEXT_SECONDARY_COLOR, fontSize: 15 },
-        systemMessageText: { color: TEXT_TERTIARY_COLOR, fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
-        inputAreaContainer: {
-            paddingTop: 10,
+        cabecalhoMeta: {
+            color: theme.colors.text.quiet,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.sm,
+        },
+
+        lista: { flex: 1, marginVertical: theme.spacing.md },
+        listaConteudo: { paddingBottom: theme.spacing.sm },
+        vazio: { alignItems: 'center', padding: theme.spacing.xl },
+
+        bolhaBase: {
+            maxWidth: '86%',
+            marginVertical: theme.spacing.xxs,
+            paddingVertical: theme.spacing.sm,
+            paddingHorizontal: theme.spacing.md,
+            borderRadius: theme.borderRadius.xl,
+        },
+        bolhaUsuario: { alignSelf: 'flex-end', backgroundColor: theme.colors.accent.main },
+        bolhaIa: {
+            alignSelf: 'flex-start',
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            backgroundColor: theme.colors.surface.elevated,
+        },
+        bolhaSistema: { alignSelf: 'center', backgroundColor: theme.colors.transparent },
+        textoUsuario: {
+            color: theme.colors.accent.on,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+        },
+        textoIa: {
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+        },
+        textoSistema: {
+            color: theme.colors.text.quiet,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.sm,
+            textAlign: 'center',
+        },
+
+        escolhaInicial: {
+            marginVertical: 'auto',
+            padding: theme.spacing.lg,
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.lg,
+            backgroundColor: theme.colors.surface.elevated,
+        },
+        escolhaTexto: {
+            marginBottom: theme.spacing.lg,
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+            textAlign: 'center',
+        },
+        escolhaAcoes: { flexDirection: 'row', gap: theme.spacing.sm },
+        escolhaBotao: { flex: 1 },
+
+        entrada: {
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            gap: theme.spacing.sm,
+            paddingTop: theme.spacing.md,
             borderTopWidth: 1,
-            borderTopColor: BORDER_COLOR,
+            borderTopColor: theme.colors.border.subtle,
         },
-        statusMessageContainer: { paddingTop: 10, borderTopWidth: 1, borderTopColor: BORDER_COLOR, marginBottom: 10 },
-        inputRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 8 },
-        input: { flex: 1, marginRight: 8, maxHeight: 100 },
-        inputActionsContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-        actionButtonBase: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 4 },
-        actionButtonIdle: { backgroundColor: NEON_YELLOW, elevation: 3, shadowColor: NEON_YELLOW, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 5 },
-        actionButtonPressed: { backgroundColor: '#D4E600', elevation: 6, shadowOpacity: 0.6, shadowRadius: 8 },
-        actionButtonDisabled: { backgroundColor: 'rgba(235, 255, 0, 0.4)', elevation: 0, shadowOpacity: 0 },
-        loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
-        loadingText: { color: TEXT_COLOR, marginTop: 15, fontSize: 16 },
-        errorContainer: { backgroundColor: `${ERROR_COLOR}20`, padding: 10, borderRadius: 8, marginHorizontal: 0, marginBottom: 10, marginTop: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-        errorText: { color: ERROR_COLOR, flex: 1, marginRight: 10, fontSize: 14 },
-        errorIconTouchable: { padding: 5 },
-        initialChoiceContainer: { padding: 16, marginVertical: 15, backgroundColor: INPUT_BG, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: BORDER_COLOR },
-        initialChoiceText: { fontSize: 15, color: TEXT_SECONDARY_COLOR, textAlign: 'center', marginBottom: 15, lineHeight: 21 },
-        initialChoiceButtons: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' },
-        modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
-        modalContent: { width: '90%', maxHeight: '80%', backgroundColor: DARK_GRADIENT_END, borderRadius: 10, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, borderWidth: 1, borderColor: BORDER_COLOR },
-        modalTitle: { fontSize: 18, fontWeight: 'bold', color: TEXT_COLOR, marginBottom: 15, textAlign: 'center' },
-        modalScrollView: { maxHeight: '65%', marginBottom: 15 },
-        modalSummaryText: { fontSize: 14, color: TEXT_SECONDARY_COLOR, lineHeight: 20 },
-        modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-        modalButtonContainer: { alignItems: 'center', marginTop: 10 },
-        decorativeCircle: { position: 'absolute', width: 500, height: 500, borderRadius: 250, opacity: 0.08 },
-        circleTopLeft: { top: -250, left: -250, backgroundColor: TEXT_COLOR },
-        circleBottomRight: { bottom: -250, right: -250, backgroundColor: NEON_YELLOW },
-        footerText: { color: TEXT_TERTIARY_COLOR, fontSize: 12, textAlign: 'center', marginTop: 'auto', paddingTop: 10 },
+        campo: {
+            flex: 1,
+            maxHeight: 96,
+            minHeight: theme.hitTarget.compact,
+            paddingHorizontal: theme.spacing.md,
+            paddingVertical: theme.spacing.sm,
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.md,
+            backgroundColor: theme.colors.surface.elevated,
+            color: theme.colors.text.primary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+        },
+        acaoRedonda: {
+            width: 42,
+            height: 42,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: theme.borderRadius.pill,
+            backgroundColor: theme.colors.accent.main,
+        },
+        acaoSecundaria: {
+            borderWidth: 1,
+            borderColor: theme.colors.border.strong,
+            backgroundColor: theme.colors.transparent,
+        },
+        acaoInativa: { opacity: 0.45 },
+
+        rodape: {
+            marginTop: theme.spacing.md,
+            color: theme.colors.text.quiet,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.micro,
+            textAlign: 'center',
+        },
+        estado: { alignItems: 'center', paddingTop: theme.spacing.md },
+        aviso: { marginTop: theme.spacing.md },
+
+        modalFundo: {
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: theme.spacing.xl,
+            backgroundColor: theme.colors.overlay,
+        },
+        modalCartao: {
+            width: '100%',
+            maxHeight: '80%',
+            padding: theme.spacing.xl,
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.xxl,
+            backgroundColor: theme.colors.surface.card,
+        },
+        modalTitulo: {
+            marginBottom: theme.spacing.lg,
+            color: theme.colors.text.primary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.lg,
+            fontWeight: theme.typography.fontWeights.semiBold,
+        },
+        modalRolagem: { maxHeight: '62%', marginBottom: theme.spacing.lg },
+        modalResumo: {
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+        },
+        modalAcoes: { gap: theme.spacing.sm },
+        modalCarregando: { alignItems: 'center', paddingVertical: theme.spacing.lg },
+        modalCarregandoTexto: {
+            marginTop: theme.spacing.md,
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+        },
+        esperandoTexto: {
+            marginTop: theme.spacing.md,
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+            textAlign: 'center',
+        },
     }), []);
 
     // --- RENDERIZAÇÃO ---
 
-    // Tela de Loading Inicial
+    // Tela de espera da inicialização
     if (isInitializing) {
-        // ... (renderização do loading inalterada) ...
         return (
-            <LinearGradient colors={[DARK_GRADIENT_START, DARK_GRADIENT_END]} style={styles.fullScreenGradient}>
-                <View style={styles.loadingOverlay}>
-                    <ActivityIndicator size="large" color={NEON_YELLOW} />
-                    <Text style={styles.loadingText}>Inicializando Chat...</Text>
+            <SafeAreaView style={styles.screen}>
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color={theme.colors.accent.main} />
+                    <Text style={styles.esperandoTexto}>Preparando seus ajustes finais...</Text>
                 </View>
-            </LinearGradient>
-        );
-    }
-
-    // Tela de Erro Crítico
-    if (!isInitializing && !isQuestionnaireReady) {
-        // ... (renderização do erro inalterada) ...
-        return (
-            <LinearGradient colors={[DARK_GRADIENT_START, DARK_GRADIENT_END]} style={styles.fullScreenGradient}>
-                <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                    <View style={{ alignItems: 'center', padding: 20 }}>
-                        <Feather name="alert-triangle" size={40} color={ERROR_COLOR} />
-                        <Text style={[styles.loadingText, { color: ERROR_COLOR, marginTop: 15, textAlign: 'center' }]}>
-                            {chatError || "Erro crítico: Não foi possível carregar os dados necessários."}
-                        </Text>
-                        <Button title="Voltar" onPress={() => navigation.goBack()} color={NEON_YELLOW} />
-                    </View>
-                </SafeAreaView>
-            </LinearGradient>
-        );
-    }
-
-    // Renderização Principal do Chat
-    return (
-        <LinearGradient colors={[DARK_GRADIENT_START, DARK_GRADIENT_END]} style={styles.fullScreenGradient}>
-            {/* ... (elementos decorativos) ... */}
-            <View style={[styles.decorativeCircle, styles.circleTopLeft]} />
-            <View style={[styles.decorativeCircle, styles.circleBottomRight]} />
-
-            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.keyboardAvoiding}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
-                >
-                    <View style={styles.mainContainer}>
-                        <View style={styles.card}>
-                            {/* ... (fundo do card) ... */}
-                            <View style={styles.cardBackground} />
-                            <View style={styles.contentContainer}>
-
-                                {/* Cabeçalho */}
-                                {/* ... (cabeçalho inalterado) ... */}
-                                <View style={styles.headerContainer}>
-                                    <Text style={styles.headerTitle}>Ajustes Finais</Text>
-                                    {!isChatEnded && isApiAvailable && MAX_INTERACTIONS > 0 && (
-                                        <Text style={styles.interactionsLeft}>
-                                            {Math.max(0, MAX_INTERACTIONS - interactionsCount)} Restantes
-                                        </Text>
-                                    )}
-                                </View>
-
-                                {/* Lista de Mensagens */}
-                                {/* ... (lista inalterada) ... */}
-                                <View style={styles.listContainer}>
-                                    <FlatList
-                                        ref={flatListRef}
-                                        data={messages}
-                                        renderItem={renderMessage}
-                                        contentContainerStyle={styles.messageListContentContainer}
-                                        ListEmptyComponent={
-                                            !showInitialChoice && !isInitializing ? (
-                                                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                                                    <Text style={styles.systemMessageText}>
-                                                        {isApiAvailable === false ? "Assistente indisponível." : "Aguardando interação..."}
-                                                    </Text>
-                                                </View>
-                                            ) : null
-                                        }
-                                    />
-                                </View>
-
-                                {/* Área de Escolha Inicial */}
-                                {/* ... (escolha inicial inalterada) ... */}
-                                {showInitialChoice && (
-                                    <View style={styles.initialChoiceContainer}>
-                                        <Text style={styles.initialChoiceText}>
-                                            Seu questionário foi recebido! Deseja fazer alguma pergunta ou ajuste antes de gerarmos seu treino?
-                                        </Text>
-                                        <View style={styles.initialChoiceButtons}>
-                                            <Button title="Sim, ajustar" onPress={handleUserWantsToChat} color={NEON_YELLOW} disabled={!isApiAvailable || isGeneratingPlan} />
-                                            <Button title="Não, gerar" onPress={handleUserDeclinesChat} color={NEON_YELLOW} disabled={isGeneratingPlan || isLoadingAi} />
-                                        </View>
-                                        {!isApiAvailable && chatError && (<Text style={[styles.errorText, { marginTop: 15, paddingRight: 0, color: ERROR_COLOR, textAlign: 'center' }]}>{chatError}</Text>)}
-                                        {isGeneratingPlan && <ActivityIndicator style={{ marginTop: 15 }} color={NEON_YELLOW} />}
-                                    </View>
-                                )}
-
-
-                                {/* Erro Não Fatal */}
-                                {/* ... (erro não fatal inalterado) ... */}
-                                {chatError && !showInitialChoice && (
-                                    <View style={styles.errorContainer}>
-                                        <Text style={styles.errorText}>{chatError}</Text>
-                                        <TouchableOpacity onPress={() => setChatError(null)} style={styles.errorIconTouchable}>
-                                            <Feather name="x" size={18} color={ERROR_COLOR} />
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
-
-                                {/* Área de Input */}
-                                {/* ... (área de input inalterada) ... */}
-                                {!showInitialChoice && (
-                                    <View style={styles.inputAreaContainer}>
-                                        <View style={styles.inputRow}>
-                                            <PaperTextInput
-                                                style={styles.input}
-                                                value={inputText}
-                                                onChangeText={setInputText}
-                                                placeholder={!isApiAvailable ? "Assistente indisponível." : isChatEnded ? "Chat finalizado." : isGeneratingPlan ? "Gerando plano..." : "Digite sua pergunta ou ajuste..."}
-                                                placeholderTextColor={PLACEHOLDER_COLOR}
-                                                editable={!isLoadingAi && isApiAvailable === true && !isChatEnded && !isGeneratingPlan}
-                                                multiline
-                                                maxLength={500}
-                                                mode="outlined"
-                                                theme={inputTheme}
-                                                selectionColor={NEON_YELLOW}
-                                                textColor={TEXT_COLOR}
-                                                outlineColor={BORDER_COLOR}
-                                                activeOutlineColor={NEON_YELLOW}
-                                            />
-                                            <View style={styles.inputActionsContainer}>
-                                                <Pressable
-                                                    style={({ pressed }) => [
-                                                        styles.actionButtonBase,
-                                                        isEndButtonPressed || pressed ? styles.actionButtonPressed : styles.actionButtonIdle,
-                                                        (isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan) && styles.actionButtonDisabled
-                                                    ]}
-                                                    onPress={handleEndChatPress}
-                                                    onPressIn={() => setIsEndButtonPressed(true)}
-                                                    onPressOut={() => setIsEndButtonPressed(false)}
-                                                    disabled={isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan}
-                                                >
-                                                    <Feather name="check" size={22} color={BUTTON_TEXT_DARK} />
-                                                </Pressable>
-                                                <Pressable
-                                                    style={({ pressed }) => [
-                                                        styles.actionButtonBase,
-                                                        isSendButtonPressed || pressed ? styles.actionButtonPressed : styles.actionButtonIdle,
-                                                        (isLoadingAi || !inputText.trim() || !isApiAvailable || isChatEnded || isGeneratingPlan) && styles.actionButtonDisabled
-                                                    ]}
-                                                    onPress={handleSendMessage}
-                                                    onPressIn={() => setIsSendButtonPressed(true)}
-                                                    onPressOut={() => setIsSendButtonPressed(false)}
-                                                    disabled={isLoadingAi || !inputText.trim() || !isApiAvailable || isChatEnded || isGeneratingPlan}
-                                                >
-                                                    {isLoadingAi ? (
-                                                        <ActivityIndicator size="small" color={BUTTON_TEXT_DARK} />
-                                                    ) : (
-                                                        <Feather name="send" size={20} color={BUTTON_TEXT_DARK} />
-                                                    )}
-                                                </Pressable>
-                                            </View>
-                                        </View>
-                                    </View>
-                                )}
-
-
-                                {/* Mensagem Final / Loading Geração */}
-                                {/* ... (mensagem final/loading inalterado) ... */}
-                                {(isChatEnded || isGeneratingPlan) && !showInitialChoice && (
-                                    <View style={[styles.statusMessageContainer, { paddingTop: 15, alignItems: 'center' }]}>
-                                        {isGeneratingPlan ? (
-                                            <>
-                                                <Text style={styles.systemMessageText}>Solicitando geração do plano...</Text>
-                                                <ActivityIndicator style={{ marginTop: 10 }} color={NEON_YELLOW} />
-                                            </>
-                                        ) : (
-                                            <Text style={styles.systemMessageText}>
-                                                {messages[messages.length - 1]?.parts[0]?.text.includes('Limite de interações atingido')
-                                                    ? messages[messages.length - 1]?.parts[0]?.text
-                                                    : "Chat encerrado. Clique em ✓ para gerar o treino."}
-                                            </Text>
-                                        )}
-                                    </View>
-                                )}
-
-
-
-                                {/* Footer */}
-                                {/* ... (footer inalterado) ... */}
-                                <Text style={styles.footerText}>Forca App IA Coach</Text>
-
-                            </View>
-                        </View>
-                    </View>
-                </KeyboardAvoidingView>
             </SafeAreaView>
+        );
+    }
 
-            {/* Modal de Resumo */}
-            {/* ... (modal inalterado) ... */}
+    // Erro crítico: sem os dados do questionário não há o que ajustar
+    if (!isInitializing && !isQuestionnaireReady) {
+        return (
+            <SafeAreaView style={styles.screen}>
+                <View style={styles.centered}>
+                    <EmptyState
+                        icon="alert-triangle"
+                        title="Não foi possível carregar seus dados"
+                        description={chatError || 'Erro crítico: não foi possível carregar os dados necessários.'}
+                        action={<Button label="Voltar" variant="outline" onPress={() => navigation.goBack()} />}
+                    />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    const entradaBloqueada = isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan;
+
+    return (
+        <SafeAreaView style={styles.screen} edges={['bottom']}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.flex}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+            >
+                <View style={styles.conversa}>
+                    <View style={styles.cabecalho}>
+                        <Text style={styles.cabecalhoTitulo} accessibilityRole="header">Ajustes finais</Text>
+                        {!isChatEnded && isApiAvailable && MAX_INTERACTIONS > 0 && (
+                            <Text style={styles.cabecalhoMeta}>
+                                {Math.max(0, MAX_INTERACTIONS - interactionsCount)} restantes
+                            </Text>
+                        )}
+                    </View>
+
+                    <View style={styles.lista}>
+                        <FlatList
+                            ref={flatListRef}
+                            data={messages}
+                            renderItem={renderMessage}
+                            contentContainerStyle={styles.listaConteudo}
+                            showsVerticalScrollIndicator={false}
+                            ListEmptyComponent={
+                                !showInitialChoice && !isInitializing ? (
+                                    <View style={styles.vazio}>
+                                        <Text style={styles.textoSistema}>
+                                            {isApiAvailable === false ? 'Assistente indisponível.' : 'Aguardando interação...'}
+                                        </Text>
+                                    </View>
+                                ) : null
+                            }
+                        />
+                    </View>
+
+                    {showInitialChoice && (
+                        <View style={styles.escolhaInicial}>
+                            <Text style={styles.escolhaTexto}>
+                                Seu perfil está pronto. Quer incluir alguma preferência antes de montarmos a primeira semana?
+                            </Text>
+                            <View style={styles.escolhaAcoes}>
+                                <Button
+                                    label="Quero ajustar"
+                                    variant="outline"
+                                    compact
+                                    onPress={handleUserWantsToChat}
+                                    disabled={!isApiAvailable || isGeneratingPlan}
+                                    style={styles.escolhaBotao}
+                                />
+                                <Button
+                                    label="Montar plano"
+                                    compact
+                                    onPress={handleUserDeclinesChat}
+                                    loading={isGeneratingPlan}
+                                    disabled={isGeneratingPlan || isLoadingAi}
+                                    style={styles.escolhaBotao}
+                                />
+                            </View>
+                            {!isApiAvailable && chatError ? (
+                                <Notice tone="danger" title={chatError} style={styles.aviso} />
+                            ) : null}
+                        </View>
+                    )}
+
+                    {chatError && !showInitialChoice && (
+                        <Notice
+                            tone="danger"
+                            title={chatError}
+                            style={styles.aviso}
+                            action={
+                                <Button label="Dispensar" variant="ghost" compact onPress={() => setChatError(null)} />
+                            }
+                        />
+                    )}
+
+                    {!showInitialChoice && (
+                        <View style={styles.entrada}>
+                            <TextInput
+                                style={styles.campo}
+                                value={inputText}
+                                onChangeText={setInputText}
+                                accessibilityLabel="Mensagem para o assistente"
+                                placeholder={!isApiAvailable ? 'Assistente indisponível.' : isChatEnded ? 'Chat finalizado.' : isGeneratingPlan ? 'Gerando plano...' : 'Digite sua pergunta ou ajuste...'}
+                                placeholderTextColor={theme.colors.text.quiet}
+                                selectionColor={theme.colors.accent.main}
+                                editable={!entradaBloqueada}
+                                multiline
+                                maxLength={500}
+                            />
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Finalizar ajustes"
+                                onPress={handleEndChatPress}
+                                disabled={entradaBloqueada}
+                                style={({ pressed }) => [
+                                    styles.acaoRedonda,
+                                    styles.acaoSecundaria,
+                                    (entradaBloqueada || pressed) && styles.acaoInativa,
+                                ]}
+                            >
+                                <Feather name="check" size={18} color={theme.colors.text.primary} />
+                            </Pressable>
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Enviar mensagem"
+                                onPress={handleSendMessage}
+                                disabled={entradaBloqueada || !inputText.trim()}
+                                style={({ pressed }) => [
+                                    styles.acaoRedonda,
+                                    (entradaBloqueada || !inputText.trim() || pressed) && styles.acaoInativa,
+                                ]}
+                            >
+                                {isLoadingAi ? (
+                                    <ActivityIndicator size="small" color={theme.colors.accent.on} />
+                                ) : (
+                                    <Feather name="send" size={18} color={theme.colors.accent.on} />
+                                )}
+                            </Pressable>
+                        </View>
+                    )}
+
+                    {(isChatEnded || isGeneratingPlan) && !showInitialChoice && (
+                        <View style={styles.estado}>
+                            {isGeneratingPlan ? (
+                                <>
+                                    <Text style={styles.textoSistema}>Solicitando geração do plano...</Text>
+                                    <ActivityIndicator style={{ marginTop: theme.spacing.sm }} color={theme.colors.accent.main} />
+                                </>
+                            ) : (
+                                <Text style={styles.textoSistema}>
+                                    {messages[messages.length - 1]?.parts[0]?.text.includes('Limite de interações atingido')
+                                        ? messages[messages.length - 1]?.parts[0]?.text
+                                        : 'Chat encerrado. Toque em ✓ para gerar o treino.'}
+                                </Text>
+                            )}
+                        </View>
+                    )}
+
+                    <Text style={styles.rodape}>Assistente Força · respostas objetivas e contextuais</Text>
+                </View>
+            </KeyboardAvoidingView>
+
             <Modal
                 animationType="fade"
                 transparent={true}
                 visible={isSummaryModalVisible}
                 onRequestClose={() => { if (!isGeneratingPlan) setIsSummaryModalVisible(false); }}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Confirmar e Gerar Treino?</Text>
-                        <ScrollView style={styles.modalScrollView}>
-                            <Text style={styles.modalSummaryText}>{summaryContent}</Text>
+                <View style={styles.modalFundo}>
+                    <View style={styles.modalCartao}>
+                        <Text style={styles.modalTitulo} accessibilityRole="header">Confirmar e gerar treino?</Text>
+                        <ScrollView style={styles.modalRolagem} showsVerticalScrollIndicator={false}>
+                            <Text style={styles.modalResumo}>{summaryContent}</Text>
                         </ScrollView>
                         {isGeneratingPlan ? (
-                            <View style={styles.modalButtonContainer}>
-                                <ActivityIndicator size="large" color={NEON_YELLOW} />
-                                <Text style={[styles.loadingText, { fontSize: 14, color: TEXT_COLOR }]}>Gerando Plano...</Text>
+                            <View style={styles.modalCarregando}>
+                                <ActivityIndicator size="large" color={theme.colors.accent.main} />
+                                <Text style={styles.modalCarregandoTexto}>Gerando plano...</Text>
                             </View>
                         ) : (
-                            <View style={styles.modalActions}>
-                                <Button title="Voltar ao Chat" onPress={handleCancelEndChat} color={TEXT_SECONDARY_COLOR} />
-                                <Button title="Confirmar e Gerar" onPress={handleConfirmEndChat} color={NEON_YELLOW} />
+                            <View style={styles.modalAcoes}>
+                                <Button label="Confirmar e gerar" onPress={handleConfirmEndChat} />
+                                <Button label="Voltar ao chat" variant="ghost" onPress={handleCancelEndChat} />
                             </View>
                         )}
                     </View>
                 </View>
             </Modal>
-        </LinearGradient>
+        </SafeAreaView>
     );
+
 };
 
 export default PostQuestionnaireChat;
