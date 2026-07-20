@@ -32,7 +32,7 @@ import { EmptyState, Notice } from '../components/ui/Feedback';
 
 // --- Tipos ---
 type Content = { role: 'user' | 'model' | 'system'; parts: { text: string }[] };
-type ChatScreenRouteParams = { formData?: any };
+type ChatScreenRouteParams = { formData?: any; skipChat?: boolean };
 type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackParamList, 'PostQuestionnaireChat'>;
 
 // --- Constantes Funcionais ---
@@ -63,6 +63,23 @@ const PostQuestionnaireChat = () => {
     const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
     const [summaryContent, setSummaryContent] = useState('');
     const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+    // Guarda o disparo do declínio por skipChat para evitar duplicação em
+    // re-renders do init. completeOnboardingAndGeneratePlan já se protege com
+    // isGeneratingPlan, mas o disparo do declínio precisa da própria guarda.
+    const skipChatDispatchedRef = useRef(false);
+    // Refs de leitura para completeOnboardingAndGeneratePlan: o init chama a
+    // geração logo após set* antes do re-render propagar. Sem os refs, o
+    // callback capturaria o valor anterior (null) e cairia no early return.
+    // isGeneratingPlan também vai para ref: setIsGeneratingPlan(true) dentro
+    // do callback recriaria o useCallback por isGeneratingPlan estar nas deps,
+    // disparando o useEffect de init de novo com isInitializing ainda true
+    // (finally não rodou enquanto a promise está pendente) — re-entrada com
+    // boas-vindas fantasmas no modo skipChat.
+    const questionnaireDataRef = useRef<any>(null);
+    const adjustmentsRef = useRef<string[]>([]);
+    const isGeneratingPlanRef = useRef(false);
+    // Guarda contra dupla execução do init (independente dos hooks deps).
+    const initRanRef = useRef(false);
 
     // --- DERIVAÇÃO DE CHAVES ---
     const userId = user?.id;
@@ -94,29 +111,28 @@ const PostQuestionnaireChat = () => {
 
 // Corrected version (inserted)
 const completeOnboardingAndGeneratePlan = useCallback(async () => {
-  if (isGeneratingPlan || !userId || !questionnaireData) {
+  const currentQuestionnaireData = questionnaireDataRef.current;
+  if (isGeneratingPlanRef.current || !userId || !currentQuestionnaireData) {
     console.log(`[Chat ${userId}] Dados insuficientes ou geração já em andamento.`);
     return;
   }
 
   console.log(`[Chat ${userId}] Iniciando geração do plano...`);
+  isGeneratingPlanRef.current = true;
   setIsGeneratingPlan(true);
   setChatError(null);
 
   try {
-    // Obtém uma cópia fresca dos ajustes do estado
-    const currentAdjustments = [...adjustments]; 
+    const currentAdjustments = [...adjustmentsRef.current]; 
     
     const result = await requestTrainingPlanGeneration(
       userId,
-      questionnaireData,
+      currentQuestionnaireData,
       currentAdjustments
     );
 
     if (result.success) {
       console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.planId ?? '(offline, sem plano no banco)'}`);
-      // current_plan_id é FK uuid: só grava quando existe plano REAL no banco.
-      // No modo offline (sem planId) o onboarding conclui sem apontar plano.
       const profileUpdate: { onboarding_completed: boolean; current_plan_id?: string } = {
         onboarding_completed: true,
       };
@@ -124,10 +140,6 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         profileUpdate.current_plan_id = result.planId;
       }
       await updateProfile(profileUpdate);
-      
-      // Sem navegação manual: updateProfile marcou onboarding_completed=true e o
-      // RootNavigator troca OnboardingNavigator → MainNavigator ao reavaliar o
-      // profile (AuthContext). A antiga rota 'App' não existia neste stack.
     } else {
       throw new Error(result.message || "Falha ao gerar o plano de treino.");
     }
@@ -135,9 +147,10 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     console.error(`[Chat ${userId}] Erro ao gerar plano:`, error);
     setChatError(`Erro ao gerar plano: ${error.message || 'Tente novamente.'}`);
   } finally {
+    isGeneratingPlanRef.current = false;
     setIsGeneratingPlan(false);
   }
-}, [userId, updateProfile, navigation, isGeneratingPlan, questionnaireData, adjustments]);
+}, [userId, updateProfile, navigation]);
 // End of corrected version
 
 
@@ -292,7 +305,8 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     // Efeito de Carga Inicial e Verificação da API
     useEffect(() => {
         const initializeChat = async () => {
-            // ... (lógica interna da função inalterada) ...
+            if (initRanRef.current) return;
+            initRanRef.current = true;
             console.log(`[Chat ${userId}] Iniciando inicialização... (isInitializing: ${isInitializing})`);
             setChatError(null);
             let loadedQuestionnaireData = null;
@@ -323,6 +337,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                     if (storedData) {
                         loadedQuestionnaireData = JSON.parse(storedData);
                         setQuestionnaireData(loadedQuestionnaireData);
+                        // Atualiza o ref imediatamente para que
+                        // completeOnboardingAndGeneratePlan (chamado mais
+                        // abaixo no mesmo init) leia o valor fresco, antes do
+                        // re-render propagar o estado.
+                        questionnaireDataRef.current = loadedQuestionnaireData;
                         setIsQuestionnaireReady(true);
                         console.log(`[Chat ${userId}] Dados do questionário carregados.`);
                     } else {
@@ -379,9 +398,35 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                 setInteractionsCount(initialInteractionCount);
                 setIsChatEnded(initialIsChatEnded);
                 setAdjustments(initialAdjustments);
+                // Sincroniza o ref imediatamente para a geração ler o valor
+                // fresco caso seja chamada no mesmo ciclo do init.
+                adjustmentsRef.current = initialAdjustments;
 
                 if (!loadedState && !initialIsChatEnded) {
-                    if (apiOk) {
+                    // Feature A: skipChat vem do botão "Gerar treino direto" do
+                    // QuestionnaireScreen. Só vale para chat NOVO — se há chat
+                    // salvo em andamento, o usuário já tinha escolhido conversar
+                    // e skipChat é ignorado.
+                    const pularChat = route.params?.skipChat === true && !skipChatDispatchedRef.current;
+                    if (pularChat) {
+                        skipChatDispatchedRef.current = true;
+                        setShowInitialChoice(false);
+                        console.log(`[Chat ${userId}] skipChat recebido — gerando plano direto.`);
+                        const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, vamos gerar seu treino com base nas respostas." }] };
+                        const skipMessages = [systemMessage];
+                        setMessages(skipMessages);
+                        if (STORAGE_KEY_CHAT) {
+                            await saveChatState(STORAGE_KEY_CHAT, skipMessages, 0, true, []);
+                        }
+                        if (STORAGE_KEY_CHAT_COMPLETED) {
+                            await secureStorage.setItem(STORAGE_KEY_CHAT_COMPLETED, 'true');
+                        }
+                        // Libera isInitializing ANTES do await da geração: a tela
+                        // precisa sair do spinner "Preparando..." e mostrar o
+                        // indicador de progresso da geração no chat.
+                        setIsInitializing(false);
+                        await completeOnboardingAndGeneratePlan();
+                    } else if (apiOk) {
                         const welcomeMsg: Content = { role: 'model', parts: [{ text: getAICoachWelcomeText(user?.user_metadata?.full_name) }] };
                         setMessages([welcomeMsg]);
                         setShowInitialChoice(true);
@@ -444,6 +489,13 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             return () => clearTimeout(timerId);
         }
     }, [messages]);
+
+    // Sincroniza refs com estado: completeOnboardingAndGeneratePlan lê dos
+    // refs (estáveis) para não precisar de estado nas deps do useCallback, o
+    // que causaria re-entrada do init. Os refs precisam refletir o estado
+    // atual para a geração usar os valores corretos fora do init.
+    useEffect(() => { questionnaireDataRef.current = questionnaireData; }, [questionnaireData]);
+    useEffect(() => { adjustmentsRef.current = adjustments; }, [adjustments]);
 
 
     // --- Renderização de Mensagens ---
@@ -691,7 +743,12 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         );
     }
 
-    const entradaBloqueada = isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan;
+    // Feature B: o ✓ "Finalizar ajustes" deixa de depender de isApiAvailable
+    // e de isChatEnded — finalizar/gerar não usa o chat, e é exatamente a
+    // saída de quem está preso com a IA indisponível. O input de texto e o
+    // botão de enviar continuam bloqueados quando a IA não responde.
+    const inputBloqueado = isLoadingAi || !isApiAvailable || isChatEnded || isGeneratingPlan;
+    const finalizarBloqueado = isLoadingAi || isGeneratingPlan;
 
     return (
         <SafeAreaView style={styles.screen} edges={['bottom']}>
@@ -764,7 +821,44 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                             title={chatError}
                             style={styles.aviso}
                             action={
-                                <Button label="Dispensar" variant="ghost" compact onPress={() => setChatError(null)} />
+                                chatError.startsWith('Erro ao gerar plano') ? (
+                                    // Feature A4/B: em falha de geração, retry
+                                    // além do "Dispensar" — sem isso, o modo
+                                    // direto que falha vira beco sem saída.
+                                    <Button
+                                        label="Tentar novamente"
+                                        compact
+                                        onPress={completeOnboardingAndGeneratePlan}
+                                        loading={isGeneratingPlan}
+                                        disabled={isGeneratingPlan}
+                                    />
+                                ) : (
+                                    <Button label="Dispensar" variant="ghost" compact onPress={() => setChatError(null)} />
+                                )
+                            }
+                        />
+                    )}
+
+                    {/* Feature B2: IA indisponível em chat em andamento. Sem este
+                        CTA, quem retomou um chat com a IA fora do ar ficava sem
+                        nenhuma saída (input morto, ✓ já desbloqueado mas não
+                        óbvio). handleUserDeclinesChat preserva os adjustments
+                        acumulados — eles entram na geração. */}
+                    {isApiAvailable === false && !showInitialChoice && !isChatEnded && !isGeneratingPlan && (
+                        <Notice
+                            tone="warning"
+                            title="Assistente indisponível no momento."
+                            description="Você ainda pode finalizar seu treino com os ajustes já feitos."
+                            style={styles.aviso}
+                            action={
+                                <Button
+                                    label="Gerar treino sem ajustes"
+                                    variant="outline"
+                                    compact
+                                    onPress={handleUserDeclinesChat}
+                                    loading={isGeneratingPlan}
+                                    disabled={isGeneratingPlan}
+                                />
                             }
                         />
                     )}
@@ -779,7 +873,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                                 placeholder={!isApiAvailable ? 'Assistente indisponível.' : isChatEnded ? 'Chat finalizado.' : isGeneratingPlan ? 'Gerando plano...' : 'Digite sua pergunta ou ajuste...'}
                                 placeholderTextColor={theme.colors.text.quiet}
                                 selectionColor={theme.colors.accent.main}
-                                editable={!entradaBloqueada}
+                                editable={!inputBloqueado}
                                 multiline
                                 maxLength={500}
                             />
@@ -787,11 +881,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                                 accessibilityRole="button"
                                 accessibilityLabel="Finalizar ajustes"
                                 onPress={handleEndChatPress}
-                                disabled={entradaBloqueada}
+                                disabled={finalizarBloqueado}
                                 style={({ pressed }) => [
                                     styles.acaoRedonda,
                                     styles.acaoSecundaria,
-                                    (entradaBloqueada || pressed) && styles.acaoInativa,
+                                    (finalizarBloqueado || pressed) && styles.acaoInativa,
                                 ]}
                             >
                                 <Feather name="check" size={18} color={theme.colors.text.primary} />
@@ -800,10 +894,10 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                                 accessibilityRole="button"
                                 accessibilityLabel="Enviar mensagem"
                                 onPress={handleSendMessage}
-                                disabled={entradaBloqueada || !inputText.trim()}
+                                disabled={inputBloqueado || !inputText.trim()}
                                 style={({ pressed }) => [
                                     styles.acaoRedonda,
-                                    (entradaBloqueada || !inputText.trim() || pressed) && styles.acaoInativa,
+                                    (inputBloqueado || !inputText.trim() || pressed) && styles.acaoInativa,
                                 ]}
                             >
                                 {isLoadingAi ? (

@@ -11,6 +11,7 @@ export type OnboardingStackParamList = {
   Questionnaire: undefined;
   PostQuestionnaireChat: { 
     formData?: any // Ou tipo mais específico para seu formulário
+    skipChat?: boolean // Feature A: gerar o treino direto sem passar pelo chat
   };
   // Adicione outras telas aqui
 };

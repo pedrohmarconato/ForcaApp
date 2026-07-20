@@ -29,7 +29,10 @@ class TreinadorEspecialista:
     usando a API Claude e dados do usuário.
     """
     MODEL_NAME = get_model_name()
-    MAX_TOKENS = 16384
+    # Opus 4.8 com effort high + adaptive thinking consome budget substancial
+    # pensando; 65536 previne truncamento (plano JSON + thinking caibam folgados).
+    # A API cobra apenas os tokens efetivamente gerados.
+    MAX_TOKENS = 65536
     PLANO_VERSAO = "1.0" # Versão do schema/plano
 
     def __init__(self):

@@ -273,3 +273,75 @@ describe('QuestionnaireScreen — correções do review adversarial do PR #13', 
     expect(utils.queryByTestId('veu-salvando')).toBeNull();
   });
 });
+
+describe('QuestionnaireScreen — opção de gerar o treino direto', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  /** Preenche todos os blocos com valores válidos. */
+  const preencherTudo = (utils: ReturnType<typeof render>) => {
+    const { getByLabelText, getAllByLabelText } = utils;
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Masculino'));
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('45-60 min'));
+    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
+    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
+    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
+  };
+
+  it('o botão "Gerar treino direto" começa desabilitado', async () => {
+    const { getByLabelText } = await renderQuestionario();
+    expect(getByLabelText('Gerar treino direto').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('o botão "Gerar treino direto" habilita junto com o formulário válido', async () => {
+    const utils = await renderQuestionario();
+    preencherTudo(utils);
+    expect(utils.getByLabelText('Gerar treino direto').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+    expect(utils.getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('tocar em "Gerar treino direto" navega com skipChat: true', async () => {
+    const utils = await renderQuestionario();
+    preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Gerar treino direto'));
+
+    await waitFor(() => expect(mockSaveQuestionnaire).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      'PostQuestionnaireChat',
+      expect.objectContaining({ skipChat: true, formData: expect.any(Object) }),
+    );
+  });
+
+  it('tocar em "Conversar com IA" continua navegando sem skipChat', async () => {
+    const utils = await renderQuestionario();
+    preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    expect(mockNavigate).toHaveBeenCalledWith(
+      'PostQuestionnaireChat',
+      expect.objectContaining({ formData: expect.any(Object) }),
+    );
+    // skipChat não deve estar presente (ou ser undefined) no caminho de conversa
+    const chamada = mockNavigate.mock.calls[0];
+    expect(chamada[1]).not.toHaveProperty('skipChat', true);
+  });
+});
