@@ -18,13 +18,12 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(BACKEND_DIR)
-for path in (BACKEND_DIR, REPO_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-import app as app_module  # noqa: E402
-from app import app  # noqa: E402
-from services.plan_repository import PlanPersistenceError  # noqa: E402
+import backend.app as app_module  # noqa: E402
+from backend.app import app  # noqa: E402
+from backend.services.plan_repository import PlanPersistenceError  # noqa: E402
 
 USER_ID = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
 
@@ -82,7 +81,7 @@ def _post_generate(client):
 
 
 def test_sucesso_devolve_plan_id_do_banco(client):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
          mock.patch.object(app_module, "treinador", FakeTreinador(_plano_valido())), \
          mock.patch.object(app_module, "persistir_plano", return_value="db-plan-42") as persistir:
         response = _post_generate(client)
@@ -99,7 +98,7 @@ def test_sucesso_devolve_plan_id_do_banco(client):
 
 
 def test_falha_na_gravacao_retorna_502_sem_sucesso_otimista(client):
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
          mock.patch.object(app_module, "treinador", FakeTreinador(_plano_valido())), \
          mock.patch.object(
              app_module, "persistir_plano",
@@ -115,7 +114,7 @@ def test_falha_na_gravacao_retorna_502_sem_sucesso_otimista(client):
 
 def test_plano_da_ia_sem_sessoes_retorna_502(client):
     plano_vazio = {"treinamento_id": "x", "plano_principal": {"nome": "Vazio", "ciclos": []}}
-    with mock.patch("utils.auth.requests.get", return_value=_fake_user_response()), \
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
          mock.patch.object(app_module, "treinador", FakeTreinador(plano_vazio)), \
          mock.patch.object(app_module, "persistir_plano") as persistir:
         response = _post_generate(client)

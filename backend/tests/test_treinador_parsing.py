@@ -16,11 +16,10 @@ os.environ.setdefault("SUPABASE_ANON_KEY", "anon-key-teste")
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(BACKEND_DIR)
-for path in (BACKEND_DIR, REPO_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from wrappers.treinador_especialista import TreinadorEspecialista  # noqa: E402
+from backend.wrappers.treinador_especialista import TreinadorEspecialista  # noqa: E402
 
 OBJ_ANINHADO = {
     "plano_principal": {

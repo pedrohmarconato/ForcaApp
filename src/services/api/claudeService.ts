@@ -76,17 +76,35 @@ export const callClaudeApi = async (
 };
 
 /**
- * Verifica se o backend (que hospeda o proxy do Claude) está acessível.
- * @returns true se o health check respondeu com sucesso.
+ * Verifica se o backend está PRONTO para servir o chat/IA.
+ * Usa o endpoint de readiness (/api/ready), que confirma configuração mínima
+ * (chave Anthropic + Supabase) — não apenas liveness do processo Flask.
+ * Um 200 aqui significa "a IA está utilizável"; 503 ou falha de rede
+ * significa "indisponível".
+ *
+ * A falha aqui é um resultado ESPERADO e tratado pela UI (fallback amigável),
+ * por isso usamos logger.warn (não console.error) para não abrir o LogBox
+ * vermelho como se fosse exceção não tratada.
+ *
+ * @returns true se o backend respondeu pronto; false caso contrário.
  */
 export const testClaudeApiConnection = async (): Promise<boolean> => {
-  logger.log('[ClaudeService] Testando conexão com o backend...');
+  logger.log('[ClaudeService] Testando prontidão do backend...');
   try {
-    await apiClient.get(ENDPOINTS.HEALTH);
-    logger.log('[ClaudeService] Backend acessível.');
+    await apiClient.get(ENDPOINTS.READY);
+    logger.log('[ClaudeService] Backend pronto.');
     return true;
   } catch (error: any) {
-    logger.error('[ClaudeService] Falha ao alcançar o backend:', error?.message || error);
+    // Indisponibilidade esperada (rede, 503, timeout): warn, não error.
+    // O interceptor já registrou uma única linha; aqui apenas sinalizamos.
+    const status = error?.response?.status;
+    if (status === 503) {
+      logger.warn('[ClaudeService] Backend vivo, mas não configurado (readiness 503).');
+    } else if (status) {
+      logger.warn(`[ClaudeService] Backend respondeu HTTP ${status}.`);
+    } else {
+      logger.warn('[ClaudeService] Backend inacessível (rede/timeout).');
+    }
     return false;
   }
 };

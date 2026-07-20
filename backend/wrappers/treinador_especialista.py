@@ -15,17 +15,12 @@ except ImportError:
     exit(1)
 
 # --- Componentes Internos ---
-try:
-    from backend.utils.logger import WrapperLogger
-    from backend.utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
-except ImportError:
-    print("ERRO: Não foi possível importar utils. Verifique a estrutura de pastas e os arquivos __init__.py.")
-    try:
-        from ..utils.logger import WrapperLogger
-        from ..utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
-    except ImportError:
-        print("Falha na importação relativa também.")
-        exit(1)
+# Namespace único backend.*: o app.py roda via `python3 backend/app.py`,
+# `python3 -m backend.app` ou gunicorn `backend.app:app`. Em todos os casos,
+# o diretório pai de backend/ está no sys.path (configurado em app.py ou
+# pelo próprio `python -m`), então backend.utils.* resolve sem fallback.
+from backend.utils.logger import WrapperLogger
+from backend.utils.config import get_api_key, get_model_name, get_anthropic_timeout_seconds
 
 
 class TreinadorEspecialista:

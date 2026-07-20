@@ -17,6 +17,7 @@ jest.mock('../src/services/api/apiClient', () => ({
     TRAINING: { GENERATE_PLAN: '/generate-plan' },
     CHAT: '/chat',
     HEALTH: '/health',
+    READY: '/ready',
   },
 }));
 
@@ -93,10 +94,14 @@ describe('claudeService (proxy via backend)', () => {
     expect(mockedPost).not.toHaveBeenCalled();
   });
 
-  it('testClaudeApiConnection consulta o /health do backend', async () => {
-    mockedGet.mockResolvedValueOnce({ data: { status: 'ok' } });
+  it('testClaudeApiConnection consulta o readiness (/ready) do backend', async () => {
+    mockedGet.mockResolvedValueOnce({ data: { status: 'ready' } });
     await expect(testClaudeApiConnection()).resolves.toBe(true);
-    expect(mockedGet).toHaveBeenCalledWith(ENDPOINTS.HEALTH);
+    expect(mockedGet).toHaveBeenCalledWith(ENDPOINTS.READY);
+
+    // 503 (não configurado) e erro de rede devem retornar false sem lançar
+    mockedGet.mockRejectedValueOnce({ response: { status: 503 } });
+    await expect(testClaudeApiConnection()).resolves.toBe(false);
 
     mockedGet.mockRejectedValueOnce(new Error('offline'));
     await expect(testClaudeApiConnection()).resolves.toBe(false);

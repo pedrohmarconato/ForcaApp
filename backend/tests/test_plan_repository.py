@@ -16,11 +16,10 @@ os.environ["SUPABASE_ANON_KEY"] = "anon-key-teste"
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(BACKEND_DIR)
-for path in (BACKEND_DIR, REPO_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from services.plan_repository import PlanPersistenceError, persistir_plano  # noqa: E402
+from backend.services.plan_repository import PlanPersistenceError, persistir_plano  # noqa: E402
 
 TOKEN = "jwt-do-usuario"
 
@@ -43,9 +42,9 @@ def _response(status=200, body="plan-1"):
 
 def test_uma_rpc_recebe_arvore_completa_e_jwt_do_usuario():
     with mock.patch(
-        "services.plan_repository.requests.post", return_value=_response()
-    ) as post, mock.patch("services.plan_repository.requests.patch") as patch, mock.patch(
-        "services.plan_repository.requests.delete"
+        "backend.services.plan_repository.requests.post", return_value=_response()
+    ) as post, mock.patch("backend.services.plan_repository.requests.patch") as patch, mock.patch(
+        "backend.services.plan_repository.requests.delete"
     ) as delete:
         plan_id = persistir_plano(_mapeado(), access_token=TOKEN)
 
@@ -68,7 +67,7 @@ def test_uma_rpc_recebe_arvore_completa_e_jwt_do_usuario():
 def test_payload_grande_continua_em_uma_unica_transacao_http():
     mapped = _mapeado(num_sets=450)
     with mock.patch(
-        "services.plan_repository.requests.post", return_value=_response()
+        "backend.services.plan_repository.requests.post", return_value=_response()
     ) as post:
         persistir_plano(mapped, access_token=TOKEN)
 
@@ -78,8 +77,8 @@ def test_payload_grande_continua_em_uma_unica_transacao_http():
 
 def test_erro_sql_da_rpc_propaga_sem_tentar_limpeza_compensatoria():
     with mock.patch(
-        "services.plan_repository.requests.post", return_value=_response(status=409)
-    ), mock.patch("services.plan_repository.requests.delete") as delete:
+        "backend.services.plan_repository.requests.post", return_value=_response(status=409)
+    ), mock.patch("backend.services.plan_repository.requests.delete") as delete:
         with pytest.raises(PlanPersistenceError, match="atômica"):
             persistir_plano(_mapeado(), access_token=TOKEN)
 
@@ -88,9 +87,9 @@ def test_erro_sql_da_rpc_propaga_sem_tentar_limpeza_compensatoria():
 
 def test_timeout_e_reportado_sem_afirmar_sucesso_ou_remocao():
     with mock.patch(
-        "services.plan_repository.requests.post",
+        "backend.services.plan_repository.requests.post",
         side_effect=requests_lib.Timeout("estourou"),
-    ), mock.patch("services.plan_repository.requests.delete") as delete:
+    ), mock.patch("backend.services.plan_repository.requests.delete") as delete:
         with pytest.raises(PlanPersistenceError) as exc:
             persistir_plano(_mapeado(), access_token=TOKEN)
 
@@ -101,7 +100,7 @@ def test_timeout_e_reportado_sem_afirmar_sucesso_ou_remocao():
 
 def test_resposta_sem_o_mesmo_plan_id_nao_vira_sucesso_otimista():
     with mock.patch(
-        "services.plan_repository.requests.post",
+        "backend.services.plan_repository.requests.post",
         return_value=_response(body="outro-plan"),
     ):
         with pytest.raises(PlanPersistenceError, match="diferente"):
@@ -109,7 +108,7 @@ def test_resposta_sem_o_mesmo_plan_id_nao_vira_sucesso_otimista():
 
 
 def test_mapeamento_incompleto_falha_antes_da_rede():
-    with mock.patch("services.plan_repository.requests.post") as post:
+    with mock.patch("backend.services.plan_repository.requests.post") as post:
         with pytest.raises(PlanPersistenceError, match="incompleto"):
             persistir_plano({"plan": {"id": "plan-1"}}, access_token=TOKEN)
     post.assert_not_called()
