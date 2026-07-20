@@ -84,7 +84,7 @@ def test_readiness_nao_pronto_quando_supabase_ausente(client, monkeypatch):
 
 
 def test_readiness_pronto_quando_configurado(client, monkeypatch):
-    """Treinador presente + Supabase configurado → 200 ready."""
+    """Treinador presente + Supabase configurado → 200 ready (JSON exato)."""
     fake_treinador = mock.Mock()
     monkeypatch.setenv("SUPABASE_URL", "https://teste.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
@@ -92,7 +92,50 @@ def test_readiness_pronto_quando_configurado(client, monkeypatch):
         assert _backend_is_ready() is True
         response = client.get("/api/ready")
     assert response.status_code == 200
-    assert response.get_json()["status"] == "ready"
+    # Asserção EXATA: nada além do status pode aparecer na resposta.
+    assert response.get_json() == {"status": "ready"}
+
+
+def test_readiness_nao_pronto_retorna_json_exato(client):
+    """503 também não pode carregar nada além do status."""
+    with mock.patch("backend.app.treinador", None):
+        response = client.get("/api/ready")
+    assert response.status_code == 503
+    assert response.get_json() == {"status": "not_ready"}
+
+
+# --- Readiness exige SUPABASE_URL utilizável, não apenas não vazia ---
+# Achado do review: SUPABASE_URL="http://" passava na checagem de string não
+# vazia, o /api/ready devolvia 200 e o /api/chat seguinte devolvia 503
+# ("Serviço de autenticação indisponível"). A validação é local (esquema +
+# hostname), sem chamada externa.
+
+@pytest.mark.parametrize("url_invalida", [
+    "http://",                       # sem hostname (caso reproduzido no review)
+    "https://",                      # idem, esquema https
+    "http:///caminho",               # hostname vazio com path
+    "nao-e-uma-url",                 # sem esquema
+    "ftp://teste.supabase.co",       # esquema não-HTTP
+    "https://teste .supabase.co",    # whitespace interno
+    " https://teste.supabase.co",    # whitespace nas bordas (auth.py não faz strip)
+])
+def test_readiness_rejeita_url_supabase_inutilizavel(client, monkeypatch, url_invalida):
+    fake_treinador = mock.Mock()
+    monkeypatch.setenv("SUPABASE_URL", url_invalida)
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    with mock.patch("backend.app.treinador", fake_treinador):
+        assert _backend_is_ready() is False
+        response = client.get("/api/ready")
+    assert response.status_code == 503
+
+
+def test_readiness_aceita_url_com_userinfo(client, monkeypatch):
+    """URL com userinfo é anômala, mas utilizável pelo requests — aceita."""
+    fake_treinador = mock.Mock()
+    monkeypatch.setenv("SUPABASE_URL", "https://user:pass@teste.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    with mock.patch("backend.app.treinador", fake_treinador):
+        assert _backend_is_ready() is True
 
 
 # --- Readiness não vaza segredos nem stack trace ---
@@ -111,13 +154,24 @@ def test_readiness_nao_revela_detalhes_de_config(client, monkeypatch):
     assert "SUPABASE_ANON_KEY" not in body
 
 
-def test_readiness_nao_faz_chamada_anthropic(client, monkeypatch):
-    """Readiness NÃO pode chamar a Anthropic (custo/latência)."""
+def test_readiness_nao_faz_chamada_externa(client, monkeypatch):
+    """Readiness NÃO pode chamar a Anthropic nem QUALQUER rede (custo/latência).
+
+    Além de patch em anthropic.Anthropic (instanciação tardia), bloqueia
+    requests.Session.request — caminho comum de qualquer requests.get/post,
+    inclusive de clientes já instanciados. Não prova ausência de TODO I/O
+    (ex.: httpx de um client Anthropic pré-existente), mas cobre os dois
+    vetores usados pelo backend hoje (requests no auth, anthropic no wrapper).
+    """
     fake_treinador = mock.Mock()
     monkeypatch.setenv("SUPABASE_URL", "https://teste.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
     with mock.patch("backend.app.treinador", fake_treinador), \
-         mock.patch("anthropic.Anthropic") as mock_anthropic:
+         mock.patch("anthropic.Anthropic") as mock_anthropic, \
+         mock.patch(
+             "requests.Session.request",
+             side_effect=AssertionError("readiness fez chamada de rede via requests"),
+         ):
         response = client.get("/api/ready")
     assert response.status_code == 200
     mock_anthropic.assert_not_called()

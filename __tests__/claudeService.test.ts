@@ -6,20 +6,38 @@
 import { callClaudeApi, testClaudeApiConnection } from '../src/services/api/claudeService';
 import apiClient, { ENDPOINTS } from '../src/services/api/apiClient';
 
-// Mock do apiClient (o módulo real faria chamadas HTTP e importaria supabase)
-jest.mock('../src/services/api/apiClient', () => ({
-  __esModule: true,
-  default: {
-    post: jest.fn(),
-    get: jest.fn(),
-  },
-  ENDPOINTS: {
-    TRAINING: { GENERATE_PLAN: '/generate-plan' },
-    CHAT: '/chat',
-    HEALTH: '/health',
-    READY: '/ready',
+// O requireActual do apiClient (abaixo) importa o supabaseClient — que exige
+// o módulo nativo do AsyncStorage. Mock raso resolve.
+jest.mock('../src/config/supabaseClient', () => ({
+  supabase: {
+    auth: {
+      getSession: jest.fn(async () => ({ data: { session: null } })),
+      refreshSession: jest.fn(async () => ({ data: { session: null } })),
+      signOut: jest.fn(async () => ({})),
+    },
   },
 }));
+
+// Mock do apiClient (o módulo real faria chamadas HTTP e importaria supabase).
+// classifyApiError usa a implementação REAL — o claudeService decide o nível
+// de log a partir dela e o contrato precisa ser o mesmo do módulo verdadeiro.
+jest.mock('../src/services/api/apiClient', () => {
+  const { classifyApiError } = jest.requireActual('../src/services/api/apiClient');
+  return {
+    __esModule: true,
+    default: {
+      post: jest.fn(),
+      get: jest.fn(),
+    },
+    classifyApiError,
+    ENDPOINTS: {
+      TRAINING: { GENERATE_PLAN: '/generate-plan' },
+      CHAT: '/chat',
+      HEALTH: '/health',
+      READY: '/ready',
+    },
+  };
+});
 
 const mockedPost = apiClient.post as jest.Mock;
 const mockedGet = apiClient.get as jest.Mock;

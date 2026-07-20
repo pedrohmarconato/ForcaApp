@@ -69,3 +69,50 @@ def test_get_api_key_nao_loga_valor(caplog, monkeypatch):
 def test_get_anthropic_timeout_seconds_invalido_falla_graceful(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_TIMEOUT_SECONDS", "nao-e-numero")
     assert config_module.get_anthropic_timeout_seconds() == 150.0
+
+
+def test_config_nao_configura_logging_global_no_import():
+    """Achado do review: logging.basicConfig() no import de config.py
+    reconfigurava o logging global de qualquer processo que importasse o
+    backend (logs duplicados no smoke test). Configurar logging é papel do
+    entrypoint, não de um módulo de configuração."""
+    src = inspect.getsource(config_module)
+    assert "logging.basicConfig(" not in src
+
+
+def test_dotenv_respeita_skip_e_override(tmp_path):
+    """Achado do review: o load_dotenv de import injetava o .env REAL do
+    repositório dentro do processo de teste. Agora:
+      - FORCA_SKIP_DOTENV=1 → nenhum .env é carregado (modo dos testes,
+        ligado pelo conftest antes de qualquer import de backend.*);
+      - FORCA_DOTENV_PATH → caminho alternativo, usado aqui com um .env
+        SINTÉTICO para provar o comportamento sem tocar no .env real."""
+    import importlib
+
+    sintetico = tmp_path / ".env"
+    sintetico.write_text("FORCA_SENTINELA_DOTENV=carregada\n")
+
+    chaves = ("FORCA_SKIP_DOTENV", "FORCA_DOTENV_PATH", "FORCA_SENTINELA_DOTENV")
+    salvas = {k: os.environ.get(k) for k in chaves}
+    try:
+        os.environ["FORCA_DOTENV_PATH"] = str(sintetico)
+        os.environ.pop("FORCA_SENTINELA_DOTENV", None)
+
+        # Com o skip ligado, nem o .env sintético entra no ambiente.
+        os.environ["FORCA_SKIP_DOTENV"] = "1"
+        importlib.reload(config_module)
+        assert "FORCA_SENTINELA_DOTENV" not in os.environ
+
+        # Sem o skip, o arquivo apontado é carregado.
+        os.environ["FORCA_SKIP_DOTENV"] = "0"
+        importlib.reload(config_module)
+        assert os.environ.get("FORCA_SENTINELA_DOTENV") == "carregada"
+    finally:
+        for chave, valor in salvas.items():
+            if valor is None:
+                os.environ.pop(chave, None)
+            else:
+                os.environ[chave] = valor
+        os.environ.pop("FORCA_SENTINELA_DOTENV", None)
+        # Restaura o estado de módulo (DOTENV_PATH etc.) para os demais testes.
+        importlib.reload(config_module)

@@ -311,10 +311,10 @@ def test_generate_plan_usa_id_do_token_nao_do_payload(client):
 
 # --- 10. Logs do wrapper não despejam dados pessoais ---
 
-def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog):
+def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog, monkeypatch):
     import logging
 
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
     from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
     treinador = TreinadorEspecialista()
@@ -326,10 +326,10 @@ def test_log_de_erro_do_wrapper_nao_contem_dados_pessoais(caplog):
 
 # --- 11. Modelo padrão ativo ---
 
-def test_modelo_padrao_esta_ativo():
+def test_modelo_padrao_esta_ativo(monkeypatch):
     from backend.utils.config import get_model_name
 
-    os.environ.pop("CLAUDE_MODEL_NAME", None)
+    monkeypatch.delenv("CLAUDE_MODEL_NAME", raising=False)
     modelo = get_model_name()
     assert modelo != "claude-3-5-sonnet-20240620"  # aposentado em 2025-10-28
     assert "sonnet-4" in modelo or "haiku-4" in modelo or "opus-4" in modelo
@@ -352,10 +352,10 @@ def test_json_valido_nao_objeto_retorna_400(client, endpoint, payload):
 
 # --- 13. Erro de validação do schema NÃO despeja o valor inválido (dado pessoal) ---
 
-def test_log_de_validacao_nao_contem_valor_invalido(caplog):
+def test_log_de_validacao_nao_contem_valor_invalido(caplog, monkeypatch):
     import logging
 
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
     from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
     treinador = TreinadorEspecialista()
@@ -410,9 +410,9 @@ def test_log_de_validacao_nao_contem_valor_invalido(caplog):
 
 # --- 14. Cliente Anthropic do backend com timeout explícito (alinha com o app) ---
 
-def test_cliente_anthropic_do_wrapper_tem_timeout_configurado():
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
-    os.environ["ANTHROPIC_TIMEOUT_SECONDS"] = "150"
+def test_cliente_anthropic_do_wrapper_tem_timeout_configurado(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    monkeypatch.setenv("ANTHROPIC_TIMEOUT_SECONDS", "150")
     with mock.patch("anthropic.Anthropic") as mock_anthropic:
         from backend.wrappers.treinador_especialista import TreinadorEspecialista
 
@@ -421,8 +421,8 @@ def test_cliente_anthropic_do_wrapper_tem_timeout_configurado():
     assert kwargs.get("timeout") == 150.0
 
 
-def test_cliente_anthropic_do_chat_tem_timeout_configurado():
-    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+def test_cliente_anthropic_do_chat_tem_timeout_configurado(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
     import backend.app as app_module
 
     app_module._chat_anthropic_client = None  # força recriação

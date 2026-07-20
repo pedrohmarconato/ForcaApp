@@ -43,26 +43,34 @@ export type ClassifiedApiError =
   | { kind: 'timeout'; message: string }
   | { kind: 'unauthorized'; status: 401 }
   | { kind: 'http_error'; status: number }
+  | { kind: 'canceled' }
   | { kind: 'unexpected'; message: string };
 
 export const classifyApiError = (error: unknown): ClassifiedApiError => {
-  if (!(error && typeof error === 'object')) {
-    return { kind: 'unexpected', message: String(error) };
+  // Só um AxiosError real pode ser transporte/HTTP. Um new Error local (bug
+  // de programação) NÃO é falha de rede e não pode ser silenciado como tal.
+  if (axios.isAxiosError(error)) {
+    if (error.response) {
+      const status = error.response.status;
+      if (status === 401) return { kind: 'unauthorized', status: 401 };
+      return { kind: 'http_error', status };
+    }
+    const code = error.code;
+    const message = error.message || '';
+    if (code === 'ERR_CANCELED') {
+      return { kind: 'canceled' };
+    }
+    // Sem response HTTP → transporte ou timeout. ETIMEDOUT e "timed out"
+    // são timeouts do SO/adapter que não contêm a palavra "timeout".
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || /timeout|timed out/i.test(message)) {
+      return { kind: 'timeout', message: 'timeout' };
+    }
+    return { kind: 'network', message: message || 'network error' };
   }
-  const axiosError = error as AxiosError;
-  const code = (axiosError as { code?: string }).code;
-  const message = axiosError.message || '';
-
-  if (axiosError.response) {
-    const status = axiosError.response.status;
-    if (status === 401) return { kind: 'unauthorized', status: 401 };
-    return { kind: 'http_error', status };
+  if (error instanceof Error) {
+    return { kind: 'unexpected', message: error.message };
   }
-  // Sem response HTTP → erro de transporte ou timeout.
-  if (code === 'ECONNABORTED' || /timeout/i.test(message)) {
-    return { kind: 'timeout', message: 'timeout' };
-  }
-  return { kind: 'network', message: message || 'network error' };
+  return { kind: 'unexpected', message: String(error) };
 };
 
 /**
@@ -94,25 +102,30 @@ export const handleResponseError = async (
   logger.warn('[ApiClient] 401 recebido. Tentando um único refresh de sessão...');
   originalRequest._retry = true;
 
+  // O try/catch cobre APENAS o refresh. A repetição da requisição fica FORA:
+  // uma queda de rede/timeout/5xx no retry não é falha de refresh e não pode
+  // derrubar a sessão; um novo 401 no retry é tratado pelo interceptor da
+  // própria instância (branch _retry acima), que já faz o único signOut.
+  let newToken: string | undefined;
   try {
     const { data } = await supabase.auth.refreshSession();
-    const newToken = data.session?.access_token;
-
-    if (!newToken) {
-      logger.warn('[ApiClient] Refresh não retornou token. Encerrando sessão.');
-      await supabase.auth.signOut();
-      return Promise.reject(error);
-    }
-
-    if (originalRequest.headers) {
-      originalRequest.headers.Authorization = `Bearer ${newToken}`;
-    }
-    return await instance(originalRequest);
+    newToken = data.session?.access_token;
   } catch (refreshError) {
     logger.warn('[ApiClient] Falha no refresh de sessão. Encerrando sessão.');
     await supabase.auth.signOut();
     return Promise.reject(refreshError);
   }
+
+  if (!newToken) {
+    logger.warn('[ApiClient] Refresh não retornou token. Encerrando sessão.');
+    await supabase.auth.signOut();
+    return Promise.reject(error);
+  }
+
+  if (originalRequest.headers) {
+    originalRequest.headers.Authorization = `Bearer ${newToken}`;
+  }
+  return instance(originalRequest);
 };
 
 /**
@@ -145,14 +158,17 @@ apiClient.interceptors.request.use(async (config) => {
 });
 
 // Interceptor de Resposta: log classificado + recuperação de 401.
-// Erros de rede/timeout são logger.warn (não abrem LogBox vermelho); apenas
-// HTTP 5xx inesperados (com response) seguem como error, pois indicam falha
-// real do servidor. Falhas de probe esperadas (health/ready) nunca são error.
+// Este interceptor é o ÚNICO responsável por logar indisponibilidade —
+// serviços e telas tratam o erro na UI sem somar warns/errors próprios.
+// Falhas operacionais recuperáveis (rede, timeout, 4xx/5xx que a UI trata)
+// são logger.warn; logger.error fica reservado a erro inesperado (bug local).
 apiClient.interceptors.response.use((response) => response, (error: AxiosError) => {
-  const url = (error.config as { url?: string } | undefined)?.url;
+  const rawUrl = (error.config as { url?: string } | undefined)?.url;
+  // Nunca logar a query string: uma URL como /reset?token=... vazaria o token.
+  const url = rawUrl?.split('?')[0];
   const classified = classifyApiError(error);
 
-  if (classified.kind !== 'unauthorized') {
+  if (classified.kind !== 'unauthorized' && classified.kind !== 'canceled') {
     if (isExpectedProbeFailure(url)) {
       // Probe esperado: indisponibilidade já tratada pela UI. Log único em warn.
       if (classified.kind === 'network' || classified.kind === 'timeout') {
@@ -169,7 +185,7 @@ apiClient.interceptors.response.use((response) => response, (error: AxiosError) 
     } else if (classified.kind === 'timeout') {
       logger.warn('[ApiClient] Tempo limite da requisição excedido.');
     } else if (classified.kind === 'http_error') {
-      logger.error(`[ApiClient] Erro HTTP ${classified.status} em ${url ?? 'URL desconhecida'}.`);
+      logger.warn(`[ApiClient] Erro HTTP ${classified.status} em ${url ?? 'URL desconhecida'}.`);
     } else {
       logger.error('[ApiClient] Erro inesperado:', classified.message);
     }

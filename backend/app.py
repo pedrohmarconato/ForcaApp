@@ -1,6 +1,7 @@
 # backend/app.py
 import os
 import sys
+from urllib.parse import urlparse
 
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS  # Para permitir requisições do frontend (React Native)
@@ -221,16 +222,36 @@ def _validate_context_fields(data):
     return (questionnaire_data, sanitized_adjustments), None
 
 
+def _is_usable_http_url(url: str) -> bool:
+    """Valida LOCALMENTE (sem chamada externa) que a URL é utilizável pelo
+    backend/utils/auth.py: esquema http(s), hostname presente e nenhum
+    whitespace (auth.py não faz strip — espaço nas bordas quebraria a chamada).
+
+    Fecha o achado do review: SUPABASE_URL="http://" passava na checagem de
+    string não vazia, /api/ready devolvia 200 e o /api/chat seguinte 503.
+    """
+    if not url or any(caractere.isspace() for caractere in url):
+        return False
+    try:
+        parsed = urlparse(url)
+        # .hostname é lazy e também pode levantar ValueError (ex.: IPv6 malformada)
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
 def _backend_is_ready() -> bool:
     """Readiness: configuração mínima + inicialização local, SEM chamada externa.
 
     Considera pronto quando: TreinadorEspecialista foi instanciado (chave
-    Anthropic presente) E Supabase do backend está configurado. Não chama a
-    Anthropic nem o Supabase — evita custo e latência em cada probe.
+    Anthropic presente) E o Supabase do backend está configurado com uma URL
+    http(s) utilizável. Não chama a Anthropic nem o Supabase — evita custo e
+    latência em cada probe. Por consequência, "pronto" significa "configuração
+    local carregada", não "credencial validada junto ao provedor".
     """
-    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_url = os.environ.get("SUPABASE_URL") or ""
     supabase_key = (os.environ.get("SUPABASE_ANON_KEY") or "").strip()
-    return treinador is not None and bool(supabase_url) and bool(supabase_key)
+    return treinador is not None and _is_usable_http_url(supabase_url) and bool(supabase_key)
 
 
 @app.route('/api/chat', methods=['POST'])

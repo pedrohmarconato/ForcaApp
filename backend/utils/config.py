@@ -16,14 +16,22 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+# Configurar logging global (basicConfig) é papel do ENTRYPOINT, nunca de um
+# módulo de configuração importável — o basicConfig que vivia aqui duplicava
+# handlers em qualquer processo que importasse o backend.
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 # Raiz do repositório: sobe dois níveis a partir de backend/utils/config.py.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-DOTENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+# FORCA_DOTENV_PATH: caminho alternativo usado pelos testes para provar o
+# carregamento com um .env SINTÉTICO, sem tocar no .env real.
+DOTENV_PATH = os.environ.get("FORCA_DOTENV_PATH") or os.path.join(PROJECT_ROOT, ".env")
 
-if os.path.exists(DOTENV_PATH):
+if os.environ.get("FORCA_SKIP_DOTENV") == "1":
+    # Modo dos testes (ligado no conftest): o .env real do repositório NÃO é
+    # injetado no processo — a suíte permanece hermética.
+    logger.debug("FORCA_SKIP_DOTENV=1: .env não carregado.")
+elif os.path.exists(DOTENV_PATH):
     loaded = load_dotenv(dotenv_path=DOTENV_PATH)
     if loaded:
         logger.info("Variáveis de ambiente carregadas do .env da raiz do projeto.")

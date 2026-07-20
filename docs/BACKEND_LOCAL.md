@@ -38,7 +38,7 @@ npm run backend:dev        # equivalente a: python3 -m backend.app
 # 4) Em OUTRO terminal, valide liveness e readiness
 curl -i http://127.0.0.1:5001/health        # processo vivo -> 200 {"status":"ok"}
 curl -i http://127.0.0.1:5001/api/health     # mesma coisa, via /api
-curl -i http://127.0.0.1:5001/api/ready      # pronto p/ IA? 200 ready | 503 not_ready
+curl -i http://127.0.0.1:5001/api/ready      # config local ok? 200 ready | 503 not_ready
 
 # 5) Inicie o Metro SEMPRE com --clear depois de mexer no .env
 npx expo start --clear
@@ -81,10 +81,14 @@ npx expo start --clear
 
 - **Liveness (`/health`, `/api/health`)**: indica apenas que o processo
   Flask está vivo e respondendo. Não checa configuração nem dependências.
-- **Readiness (`/api/ready`)**: indica se o backend está configurado para
-  servir as rotas de IA/chat (chave Anthropic + Supabase do backend). O
-  app usa este endpoint em `testClaudeApiConnection()` para decidir se
-  mostra o fallback "Assistente IA indisponível".
+- **Readiness (`/api/ready`)**: indica se a CONFIGURAÇÃO LOCAL do backend
+  foi carregada para servir as rotas de IA/chat: chave Anthropic presente e
+  `SUPABASE_URL`/`SUPABASE_ANON_KEY` com URL http(s) utilizável (esquema +
+  hostname validados localmente). O probe NÃO faz chamada externa — uma
+  chave presente porém inválida só aparece na primeira chamada real, que a
+  UI trata com fallback. O app usa este endpoint em
+  `testClaudeApiConnection()` para decidir se mostra o fallback
+  "Assistente IA indisponível".
 
 ## O que NÃO fazer
 
