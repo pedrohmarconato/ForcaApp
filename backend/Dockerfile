@@ -16,4 +16,7 @@ EXPOSE 5001
 
 # 1 worker com threads: o rate limit é em memória (por processo) —
 # mais workers multiplicariam o limite efetivo (ver backend/app.py).
-CMD ["gunicorn", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--bind", "0.0.0.0:5001", "backend.app:app"]
+# --timeout 180: acima do timeout do cliente Anthropic (chat 120s / plano 150s) e
+# abaixo do proxy_read_timeout do nginx (200s). Sem isso, o default de 30s do
+# gunicorn mataria respostas do Opus 4.8 (effort high, adaptive thinking).
+CMD ["gunicorn", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--timeout", "180", "--bind", "0.0.0.0:5001", "backend.app:app"]
