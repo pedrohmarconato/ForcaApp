@@ -12,12 +12,28 @@
 // exigiria uma meta semanal que o app não persiste.
 
 import React from 'react';
-import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, waitFor, fireEvent, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 
+// Callbacks registrados via useFocusEffect, para simular a tela ganhando foco
+// de novo (ex.: voltar de uma sessão concluída via popToTop — achado #6).
+let mockFocusCallbacks: Array<() => void | (() => void)> = [];
+const dispararFocus = () => mockFocusCallbacks.forEach((cb) => cb());
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => {
+      mockFocusCallbacks.push(cb);
+      const limpeza = cb();
+      return () => {
+        mockFocusCallbacks = mockFocusCallbacks.filter((registrado) => registrado !== cb);
+        if (typeof limpeza === 'function') limpeza();
+      };
+    }, [cb]);
+  },
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -62,6 +78,14 @@ let mockFalhaBanco: Error | null = null;
 let mockConcluidas: any[] = [];
 let mockFalhaHistorico: Error | null = null;
 
+// Modo manual: cada chamada ao histórico vira uma promessa pendente que o
+// teste resolve/rejeita quando quiser (para provar gate de loading e races).
+let mockHistoricoManual = false;
+let historicoPendentes: Array<{
+  resolve: (v: any[]) => void;
+  reject: (e: Error) => void;
+}> = [];
+
 jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(async () => {
     if (mockFalhaBanco) throw mockFalhaBanco;
@@ -73,11 +97,18 @@ jest.mock('../src/services/trainingRepository', () => ({
   }),
 }));
 
+const mockGetCompletedSessions = jest.fn((): Promise<any[]> => {
+  if (mockHistoricoManual) {
+    return new Promise((resolve, reject) => {
+      historicoPendentes.push({ resolve, reject });
+    });
+  }
+  if (mockFalhaHistorico) return Promise.reject(mockFalhaHistorico);
+  return Promise.resolve(mockConcluidas);
+});
+
 jest.mock('../src/services/sessionExecutionRepository', () => ({
-  getCompletedSessions: jest.fn(async () => {
-    if (mockFalhaHistorico) throw mockFalhaHistorico;
-    return mockConcluidas;
-  }),
+  getCompletedSessions: (...args: unknown[]) => mockGetCompletedSessions(...(args as [])),
 }));
 
 import HomeScreen from '../src/screens/HomeScreen';
@@ -102,6 +133,8 @@ describe('Fase 3 — Home lê o plano persistido', () => {
     mockNavigate.mockClear();
     mockFalhaBanco = null;
     mockFalhaHistorico = null;
+    mockHistoricoManual = false;
+    historicoPendentes = [];
     mockConcluidas = [];
     mockRespostaHoje = { ...sessaoBase, scheduled_date: hojeLocalISO() };
     mockRespostaProximos = [
@@ -166,6 +199,8 @@ describe('Home — "Sua semana" só mostra dado real', () => {
     mockNavigate.mockClear();
     mockFalhaBanco = null;
     mockFalhaHistorico = null;
+    mockHistoricoManual = false;
+    historicoPendentes = [];
     mockConcluidas = [];
     mockRespostaHoje = { ...sessaoBase, scheduled_date: hojeLocalISO() };
     mockRespostaProximos = [];
@@ -217,5 +252,92 @@ describe('Home — "Sua semana" só mostra dado real', () => {
 
     await waitFor(() => expect(getByText('Push A')).toBeTruthy());
     expect(getByText('Não foi possível carregar sua semana')).toBeTruthy();
+  });
+});
+
+describe('Home — correções do review adversarial do PR #13', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockGetCompletedSessions.mockClear();
+    mockFalhaBanco = null;
+    mockFalhaHistorico = null;
+    mockHistoricoManual = false;
+    historicoPendentes = [];
+    mockConcluidas = [];
+    mockRespostaHoje = { ...sessaoBase, scheduled_date: hojeLocalISO() };
+    mockRespostaProximos = [];
+  });
+
+  it('histórico ainda pendente NÃO vira "nenhum treino" (achado #8)', async () => {
+    mockHistoricoManual = true;
+
+    const { getByText, queryByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('Push A')).toBeTruthy());
+    // A consulta do histórico ainda não respondeu: "não sei" ≠ "nenhum"
+    expect(queryByText('Nenhum treino concluído nesta semana')).toBeNull();
+
+    historicoPendentes[0].resolve([]);
+    await waitFor(() =>
+      expect(getByText('Nenhum treino concluído nesta semana')).toBeTruthy(),
+    );
+  });
+
+  it('o card inteiro do treino em destaque navega ao toque (achado #11)', async () => {
+    const { getByTestId } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByTestId('card-treino-destaque')).toBeTruthy());
+    fireEvent.press(getByTestId('card-treino-destaque'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('WorkoutDetail', { sessionId: 'sess-hoje' });
+  });
+
+  it('erro no histórico oferece retry que recarrega a semana (achado #8)', async () => {
+    mockFalhaHistorico = new Error('rede caiu');
+
+    const { getByText, getByTestId } = render(<HomeScreen />);
+    await waitFor(() => expect(getByText('Não foi possível carregar sua semana')).toBeTruthy());
+
+    mockFalhaHistorico = null;
+    mockConcluidas = [concluidaHoje('Lower body A', 45)];
+    fireEvent.press(getByText('Tentar novamente'));
+
+    await waitFor(() => expect(getByTestId('card-semana')).toBeTruthy());
+  });
+
+  it('resposta atrasada de uma carga antiga não apaga a mais nova (achado #9)', async () => {
+    mockHistoricoManual = true;
+
+    const { getByTestId, queryByText } = render(<HomeScreen />);
+    await waitFor(() => expect(historicoPendentes).toHaveLength(1));
+
+    // Nova carga (ex.: tela ganhou foco) dispara uma segunda consulta
+    act(() => dispararFocus());
+    await waitFor(() => expect(historicoPendentes).toHaveLength(2));
+
+    // A consulta NOVA responde primeiro, com dado real
+    historicoPendentes[1].resolve([concluidaHoje('Upper body A', 50)]);
+    await waitFor(() => expect(getByTestId('card-semana')).toBeTruthy());
+
+    // A consulta ANTIGA falha depois — não pode sobrescrever o resultado novo
+    historicoPendentes[0].reject(new Error('timeout da carga antiga'));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getByTestId('card-semana')).toBeTruthy();
+    expect(queryByText('Não foi possível carregar sua semana')).toBeNull();
+  });
+
+  it('ganhar foco de novo recarrega plano e histórico (achado #6)', async () => {
+    const { getByText, getByTestId, queryByTestId } = render(<HomeScreen />);
+    await waitFor(() => expect(getByText('Nenhum treino concluído nesta semana')).toBeTruthy());
+    expect(queryByTestId('card-semana')).toBeNull();
+
+    // Usuário conclui a sessão e volta via popToTop: a Home não remonta,
+    // mas ganha foco — e precisa reler o histórico
+    mockConcluidas = [concluidaHoje('Lower body A', 45)];
+    act(() => dispararFocus());
+
+    await waitFor(() => expect(getByTestId('card-semana')).toBeTruthy());
+    expect(getByText('1')).toBeTruthy();
   });
 });

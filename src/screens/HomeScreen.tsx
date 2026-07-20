@@ -10,13 +10,14 @@
 // placeholder. Não existe meta semanal persistida no app, então a semana é
 // apresentada como contagem e dias marcados, sem percentual de adesão.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
 
 import { useAuth } from '../contexts/AuthContext';
+import { useDiaLocal } from '../hooks/useDiaLocal';
 import {
   getTodaySession,
   getUpcomingSessions,
@@ -47,14 +48,6 @@ type HomeStackParamList = {
 const formatarData = (isoDate: string | null): string =>
   isoDate ? new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR') : '';
 
-// Data local (não UTC) no formato YYYY-MM-DD, para comparar com scheduled_date
-const hojeISO = (): string => {
-  const agora = new Date();
-  const mes = String(agora.getMonth() + 1).padStart(2, '0');
-  const dia = String(agora.getDate()).padStart(2, '0');
-  return `${agora.getFullYear()}-${mes}-${dia}`;
-};
-
 const saudacao = (hora: number): string => {
   if (hora < 12) return 'Bom dia';
   if (hora < 18) return 'Boa tarde';
@@ -66,65 +59,100 @@ const HomeScreen = () => {
   const { user, profile } = useAuth();
   const [todaySession, setTodaySession] = useState<PlannedSession | null>(null);
   const [upcoming, setUpcoming] = useState<PlannedSession[]>([]);
-  const [completed, setCompleted] = useState<CompletedSessionSummary[]>([]);
+  // `null` = "ainda não sei": o estado vazio da semana só aparece depois de o
+  // banco confirmar que o histórico está mesmo vazio.
+  const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "nenhum treino": estados distintos (achado #9 do review)
   const [loadError, setLoadError] = useState(false);
   // O histórico falha de forma independente: o plano continua utilizável.
   const [historyError, setHistoryError] = useState(false);
+  // Cada carga tem uma geração; resposta de geração antiga é descartada para
+  // um retry não ser sobrescrito por uma resposta atrasada.
+  const geracaoPlanoRef = useRef(0);
+  const geracaoHistoricoRef = useRef(0);
 
   const userName = profile?.full_name || 'Atleta';
   const primeiroNome = userName.split(' ')[0];
 
-  const fetchData = useCallback(async () => {
+  const carregarPlano = useCallback(async () => {
     if (!user) return;
+    const geracao = ++geracaoPlanoRef.current;
     setLoading(true);
     setLoadError(false);
-    setHistoryError(false);
     try {
       const [hoje, proximos] = await Promise.all([
         getTodaySession(user.id),
         getUpcomingSessions(user.id, 5),
       ]);
+      if (geracao !== geracaoPlanoRef.current) return;
       setTodaySession(hoje);
       // A lista não repete o treino que já está no card de hoje
       setUpcoming(proximos.filter((sessao) => sessao.id !== hoje?.id));
     } catch (error) {
       console.error('Erro ao buscar treinos:', error);
+      if (geracao !== geracaoPlanoRef.current) return;
       setTodaySession(null);
       setUpcoming([]);
       setLoadError(true);
     } finally {
-      setLoading(false);
-    }
-
-    // O histórico alimenta "Sua semana" e "Última sessão". Uma falha aqui não
-    // pode derrubar o card do treino de hoje.
-    try {
-      setCompleted(await getCompletedSessions(user.id));
-    } catch (error) {
-      console.error('Erro ao buscar histórico:', error);
-      setCompleted([]);
-      setHistoryError(true);
+      if (geracao === geracaoPlanoRef.current) setLoading(false);
     }
     // Depende do ID (estável), não da identidade do objeto user: evita
     // relançar o efeito a cada render se o contexto recriar o objeto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  // O histórico alimenta "Sua semana" e "Última sessão". Uma falha aqui não
+  // pode derrubar o card do treino de hoje.
+  const carregarHistorico = useCallback(async () => {
+    if (!user) return;
+    const geracao = ++geracaoHistoricoRef.current;
+    setHistoryError(false);
+    try {
+      const historico = await getCompletedSessions(user.id);
+      if (geracao !== geracaoHistoricoRef.current) return;
+      setCompleted(historico);
+    } catch (error) {
+      console.error('Erro ao buscar histórico:', error);
+      if (geracao !== geracaoHistoricoRef.current) return;
+      setCompleted(null);
+      setHistoryError(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Em paralelo: o histórico não espera o plano nem é derrubado por ele.
+  const fetchData = useCallback(() => {
+    carregarPlano();
+    carregarHistorico();
+  }, [carregarPlano, carregarHistorico]);
+
+  // Foco, não montagem: concluir um treino e voltar via popToTop não remonta
+  // esta tela — sem isso, contagem e "Última sessão" ficariam obsoletas.
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [fetchData]),
+  );
 
   const abrirDetalhe = (sessionId: string) => {
     navigation.navigate('WorkoutDetail', { sessionId });
   };
 
-  // Semana corrente derivada do histórico real (ver src/utils/weekSummary.ts)
-  const semana = useMemo(() => resumirSemana(completed, new Date()), [completed]);
-  const ultima = completed[0] ?? null;
+  // Dia local vivo: vira à meia-noite e ao voltar ao primeiro plano, para a
+  // semana não continuar na anterior depois do domingo.
+  const hoje = useDiaLocal();
 
-  const ehHoje = todaySession?.scheduled_date === hojeISO();
+  // Semana corrente derivada do histórico real (ver src/utils/weekSummary.ts);
+  // `null` enquanto o histórico ainda não respondeu.
+  const semana = useMemo(
+    () => (completed ? resumirSemana(completed, new Date(`${hoje}T12:00:00`)) : null),
+    [completed, hoje],
+  );
+  const ultima = completed?.[0] ?? null;
+
+  const ehHoje = todaySession?.scheduled_date === hoje;
   const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
 
   const descricaoSessao = (sessao: PlannedSession): string =>
@@ -152,10 +180,17 @@ const HomeScreen = () => {
             tone="danger"
             title="Não foi possível carregar"
             description="Verifique a conexão e tente novamente."
-            action={<Button label="Tentar novamente" variant="outline" compact onPress={fetchData} />}
+            action={
+              <Button label="Tentar novamente" variant="outline" compact onPress={carregarPlano} />
+            }
           />
         ) : todaySession ? (
-          <Card elevated testID="card-treino-destaque">
+          <Card
+            elevated
+            testID="card-treino-destaque"
+            onPress={() => abrirDetalhe(todaySession.id)}
+            accessibilityLabel={`Abrir o treino ${todaySession.title}`}
+          >
             <View style={styles.heroTop}>
               <Text style={styles.kicker}>{ehHoje ? 'Treino de hoje' : 'Próximo treino'}</Text>
               <Text style={styles.heroMeta}>Semana {todaySession.week_number}</Text>
@@ -206,7 +241,20 @@ const HomeScreen = () => {
             tone="danger"
             title="Não foi possível carregar sua semana"
             description="Seus treinos concluídos aparecem aqui quando a conexão voltar."
+            action={
+              <Button
+                label="Tentar novamente"
+                variant="outline"
+                compact
+                onPress={carregarHistorico}
+              />
+            }
           />
+        ) : !semana ? (
+          // Histórico ainda pendente: "não sei" não é "nenhum treino"
+          <Card>
+            <ActivityIndicator color={theme.colors.accent.main} />
+          </Card>
         ) : semana.concluidas === 0 ? (
           <Card>
             <EmptyState

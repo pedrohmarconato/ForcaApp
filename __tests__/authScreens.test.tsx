@@ -77,6 +77,15 @@ describe('SignUpScreen', () => {
 describe('ForgotPasswordScreen', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  it('NÃO afirma "enviamos" antes de qualquer envio (achado #11)', () => {
+    const { queryByText } = render(<ForgotPasswordScreen navigation={navigation} />);
+
+    // A tela acabou de abrir: nenhum e-mail foi enviado ainda
+    expect(queryByText(/Enviamos o link/)).toBeNull();
+    expect(queryByText('Link enviado')).toBeNull();
+    expect(mockResetPassword).not.toHaveBeenCalled();
+  });
+
   it('confirma o envio sem revelar se o e-mail existe', async () => {
     const { getByLabelText, findByText } = render(
       <ForgotPasswordScreen navigation={navigation} />,

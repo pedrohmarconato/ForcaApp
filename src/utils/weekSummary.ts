@@ -66,12 +66,8 @@ export const resumirSemana = (
   return { concluidas, diasComTreino };
 };
 
-/**
- * Duração de uma sessão em minutos inteiros.
- * Devolve `null` quando falta o término ou quando os carimbos são incoerentes —
- * a tela mostra "—" em vez de um número derivado de dado quebrado.
- */
-export const duracaoEmMinutos = (sessao: SessaoConcluida): number | null => {
+/** Duração exata em milissegundos; `null` para dado ausente ou incoerente. */
+const duracaoEmMs = (sessao: SessaoConcluida): number | null => {
   if (!sessao.finishedAt) return null;
 
   const inicio = new Date(sessao.startedAt).getTime();
@@ -79,12 +75,38 @@ export const duracaoEmMinutos = (sessao: SessaoConcluida): number | null => {
   if (Number.isNaN(inicio) || Number.isNaN(fim)) return null;
   if (fim < inicio) return null;
 
-  return Math.round((fim - inicio) / 60000);
+  return fim - inicio;
 };
 
-/** Soma das durações conhecidas, em minutos. Sessões sem término são ignoradas. */
-export const minutosTotais = (sessoes: readonly SessaoConcluida[]): number =>
-  sessoes.reduce((total, sessao) => total + (duracaoEmMinutos(sessao) ?? 0), 0);
+/**
+ * Duração de uma sessão em minutos inteiros.
+ * Devolve `null` quando falta o término ou quando os carimbos são incoerentes —
+ * a tela mostra "—" em vez de um número derivado de dado quebrado.
+ */
+export const duracaoEmMinutos = (sessao: SessaoConcluida): number | null => {
+  const ms = duracaoEmMs(sessao);
+  return ms === null ? null : Math.round(ms / 60000);
+};
+
+/**
+ * Total das durações conhecidas, em minutos. A soma é feita sobre os carimbos
+ * exatos e arredondada UMA vez no fim — somar minutos já arredondados por
+ * sessão acumularia o erro de arredondamento. Sem nenhuma duração conhecida,
+ * devolve `null`: ausência de amostra não é zero.
+ */
+export const minutosTotais = (sessoes: readonly SessaoConcluida[]): number | null => {
+  let totalMs = 0;
+  let amostras = 0;
+
+  for (const sessao of sessoes) {
+    const ms = duracaoEmMs(sessao);
+    if (ms === null) continue;
+    totalMs += ms;
+    amostras += 1;
+  }
+
+  return amostras === 0 ? null : Math.round(totalMs / 60000);
+};
 
 /** "48 min" · "1h 20min" · "2h". Devolve `null` quando não há duração. */
 export const formatarDuracao = (minutos: number | null): string | null => {

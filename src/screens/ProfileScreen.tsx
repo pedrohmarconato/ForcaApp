@@ -6,12 +6,13 @@
 // travestido de resultado. Nenhuma linha de preferência é exibida sem tela
 // correspondente — controle morto é pior que ausência.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
 import { useAuth } from '../contexts/AuthContext';
+import { useDiaLocal } from '../hooks/useDiaLocal';
 import theme from '../theme/theme';
 import type { ProfileStackParamList } from '../navigation/MainNavigator';
 import {
@@ -38,14 +39,21 @@ const ProfileScreen = () => {
 
   const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [statsError, setStatsError] = useState(false);
+  // Cada carga tem uma geração; resposta de geração antiga é descartada para
+  // um retry não ser sobrescrito por uma falha atrasada.
+  const geracaoRef = useRef(0);
 
   const buscarHistorico = useCallback(async () => {
     if (!user) return;
+    const geracao = ++geracaoRef.current;
     setStatsError(false);
     try {
-      setCompleted(await getCompletedSessions(user.id));
+      const historico = await getCompletedSessions(user.id);
+      if (geracao !== geracaoRef.current) return;
+      setCompleted(historico);
     } catch (err) {
       console.error('Erro ao buscar histórico do perfil:', err);
+      if (geracao !== geracaoRef.current) return;
       // Falha ≠ zero: mantém `completed` nulo para as métricas exibirem "—".
       setCompleted(null);
       setStatsError(true);
@@ -53,11 +61,18 @@ const ProfileScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  useEffect(() => {
-    buscarHistorico();
-  }, [buscarHistorico]);
+  // Foco, não montagem: voltar de uma sessão recém-concluída via popToTop não
+  // remonta esta tela — sem isso, as métricas ficariam obsoletas.
+  useFocusEffect(
+    useCallback(() => {
+      buscarHistorico();
+    }, [buscarHistorico]),
+  );
 
   const nome = profile?.full_name || user?.email || 'Atleta';
+  // Dia local vivo: vira à meia-noite e ao voltar ao primeiro plano, para
+  // "Nesta semana" não continuar na semana velha depois do domingo.
+  const hoje = useDiaLocal();
 
   // `null` significa "sem amostra confiável" e chega ao Metric como "—".
   const metricas = useMemo(() => {
@@ -66,9 +81,9 @@ const ProfileScreen = () => {
     return {
       sessoes: completed.length,
       tempo: formatarDuracao(minutosTotais(completed)),
-      semana: resumirSemana(completed, new Date()).concluidas,
+      semana: resumirSemana(completed, new Date(`${hoje}T12:00:00`)).concluidas,
     };
-  }, [completed]);
+  }, [completed, hoje]);
 
   return (
     <Screen scroll>

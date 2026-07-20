@@ -16,6 +16,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Text,
@@ -225,8 +226,10 @@ const QuestionnaireScreen = () => {
   // --- Handlers ---
   const toggleTrainingDay = (dayValue: string) => { setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] })); };
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
-  const isFormValid = () => {
-    const selectedDaysCount = getSelectedDays().length;
+  // Um bloco só conta como respondido quando passa na MESMA validação que
+  // habilita o envio — barra em 100% e botão desabilitado ao mesmo tempo é
+  // contradição (a data 99/99/2000 "tinha formato" mas nunca seria aceita).
+  const blocosRespondidos = (): boolean[] => {
     const diaNum = parseInt(diaNascimento, 10);
     const mesNum = parseInt(mesNascimento, 10);
     const anoNum = parseInt(anoNascimento, 10);
@@ -234,44 +237,35 @@ const QuestionnaireScreen = () => {
     /^\d{1,2}$/.test(mesNascimento) && mesNum > 0 && mesNum <= 12 &&
     /^\d{4}$/.test(anoNascimento) && anoNum > 1900 && anoNum <= new Date().getFullYear();
 
-    return (
-    !!nome &&
-    isDateValid &&
-    !!genero &&
-    !!peso && /^\d+(\.\d+)?$/.test(peso) && parseFloat(peso) > 0 &&
-    !!altura && /^\d+$/.test(altura) && parseInt(altura, 10) > 0 &&
-    !!experienciaTreino &&
-    !!objetivo &&
-    temLesoes !== null &&
-    (!temLesoes || (temLesoes && (lesoes.trim() !== '' || descricaoLesao.trim() !== ''))) &&
-    selectedDaysCount > 0 &&
-    includeCardio !== null &&
-    includeStretching !== null &&
-    averageTrainingTime !== null
-    );
-  };
-
-  // Progresso real do preenchimento: cada bloco obrigatório respondido conta um
-  // passo. Não é estimativa — é a contagem dos campos que a validação exige.
-  const completude = useMemo(() => {
-    const blocos = [
+    return [
       !!nome,
-      /^\d{1,2}$/.test(diaNascimento) && /^\d{1,2}$/.test(mesNascimento) && /^\d{4}$/.test(anoNascimento),
+      isDateValid,
       !!genero,
-      !!peso && !!altura,
+      !!peso && /^\d+(\.\d+)?$/.test(peso) && parseFloat(peso) > 0 &&
+        !!altura && /^\d+$/.test(altura) && parseInt(altura, 10) > 0,
       !!experienciaTreino,
       !!objetivo,
       getSelectedDays().length > 0,
       averageTrainingTime !== null,
       includeCardio !== null,
       includeStretching !== null,
-      temLesoes !== null,
+      temLesoes !== null &&
+        (!temLesoes || lesoes.trim() !== '' || descricaoLesao.trim() !== ''),
     ];
+  };
+
+  const isFormValid = () => blocosRespondidos().every(Boolean);
+
+  // Progresso real do preenchimento: cada bloco obrigatório validado conta um
+  // passo. Não é estimativa — é a contagem dos campos que a validação exige.
+  const completude = useMemo(() => {
+    const blocos = blocosRespondidos();
     return { respondidos: blocos.filter(Boolean).length, total: blocos.length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     nome, diaNascimento, mesNascimento, anoNascimento, genero, peso, altura,
     experienciaTreino, objetivo, trainingDays, averageTrainingTime,
-    includeCardio, includeStretching, temLesoes,
+    includeCardio, includeStretching, temLesoes, lesoes, descricaoLesao,
   ]);
 
   // --- handleSubmit ---
@@ -286,6 +280,9 @@ const QuestionnaireScreen = () => {
     return;
     }
 
+    // O véu bloqueia toques, mas um campo focado continuaria recebendo o
+    // teclado: derruba o foco para congelar o formulário por inteiro.
+    Keyboard.dismiss();
     setError(null); setIsLoading(true); // Ativa o loading geral para a submissão
 
     // Prepara os dados para API e Storage
@@ -573,6 +570,20 @@ const QuestionnaireScreen = () => {
           <Text style={styles.signature}>Desenvolvido no Brasil</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Véu de salvamento: o payload é capturado no toque em "Conversar com
+          IA" — sem bloquear o formulário, uma edição feita durante o await
+          apareceria na tela mas nunca chegaria ao banco. */}
+      {isLoading ? (
+        <View
+          style={styles.savingVeil}
+          testID="veu-salvando"
+          accessibilityLabel="Salvando suas respostas"
+        >
+          <ActivityIndicator size="large" color={theme.colors.accent.main} />
+          <Text style={styles.waitingText}>Salvando suas respostas...</Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 };
@@ -581,6 +592,12 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  savingVeil: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(10, 10, 10, 0.88)', // preto da marca com véu
+  },
   waitingText: {
     marginTop: theme.spacing.md,
     color: theme.colors.text.secondary,

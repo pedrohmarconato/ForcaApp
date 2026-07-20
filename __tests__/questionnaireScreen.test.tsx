@@ -198,3 +198,78 @@ describe('QuestionnaireScreen — submissão', () => {
     });
   });
 });
+
+describe('QuestionnaireScreen — correções do review adversarial do PR #13', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  /** Preenche todos os blocos com valores válidos. */
+  const preencherTudo = (utils: ReturnType<typeof render>) => {
+    const { getByLabelText, getAllByLabelText } = utils;
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Masculino'));
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('45-60 min'));
+    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
+    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
+    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
+  };
+
+  it('data absurda NÃO conta no progresso: 100% implica formulário válido (achado #5)', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, getByText, queryByText } = utils;
+
+    preencherTudo(utils);
+    expect(getByText('11 de 11')).toBeTruthy();
+
+    // 99/99/2000 tem o formato certo, mas não é uma data — a validação
+    // rejeita, e o progresso não pode dizer 100%
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '99');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '99');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '2000');
+
+    expect(queryByText('11 de 11')).toBeNull();
+    expect(getByText('10 de 11')).toBeTruthy();
+    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('peso não numérico também não conta como bloco respondido (achado #5)', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, getByText } = utils;
+
+    preencherTudo(utils);
+    fireEvent.changeText(getByLabelText('Peso em quilos'), 'oitenta');
+
+    expect(getByText('10 de 11')).toBeTruthy();
+  });
+
+  it('enquanto salva, o formulário fica bloqueado por um véu de progresso (achado #1)', async () => {
+    let resolverSave!: (valor: unknown) => void;
+    mockSaveQuestionnaire.mockImplementationOnce(
+      () => new Promise((resolve) => { resolverSave = resolve; }) as any,
+    );
+
+    const utils = await renderQuestionario();
+    preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    // O véu precisa estar de pé enquanto a promessa da API não responde:
+    // é ele que impede edição tardia de divergir do payload já capturado
+    await utils.findByTestId('veu-salvando');
+    await waitFor(() => expect(mockSaveQuestionnaire).toHaveBeenCalledTimes(1));
+
+    resolverSave({ success: true });
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
+    expect(utils.queryByTestId('veu-salvando')).toBeNull();
+  });
+});

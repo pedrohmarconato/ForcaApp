@@ -53,7 +53,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
   return (
     <AuthLayout
       headline="Redefinir senha."
-      support="Enviamos o link de redefinição para o seu e-mail."
+      support="Informe o e-mail cadastrado para receber o link de redefinição."
       footer={
         <Pressable
           onPress={() => !loading && navigation.navigate('Login')}

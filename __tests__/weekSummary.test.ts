@@ -129,8 +129,29 @@ describe('minutosTotais', () => {
     expect(total).toBe(90);
   });
 
-  it('devolve zero para amostra vazia', () => {
-    expect(minutosTotais([])).toBe(0);
+  it('devolve null para amostra vazia — sem dado não é zero (achado #3)', () => {
+    expect(minutosTotais([])).toBeNull();
+  });
+
+  it('devolve null quando nenhuma sessão tem duração conhecida', () => {
+    expect(
+      minutosTotais([
+        { startedAt: new Date().toISOString(), finishedAt: null },
+        { startedAt: 'x', finishedAt: 'y' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('arredonda o total UMA vez, não sessão a sessão (achado #4)', () => {
+    // Duas sessões de 30min31s: o total real é 61min02s.
+    // Arredondar cada uma (31 + 31 = 62) inflaria o total em 1 minuto.
+    const sessaoDe = (inicioMin: number) => {
+      const inicio = new Date(2026, 6, 13, 7, inicioMin, 0);
+      const fim = new Date(inicio.getTime() + 30 * 60000 + 31000);
+      return { startedAt: inicio.toISOString(), finishedAt: fim.toISOString() };
+    };
+
+    expect(minutosTotais([sessaoDe(0), sessaoDe(40)])).toBe(61);
   });
 });
 

@@ -5,13 +5,29 @@
 // virar "0 sessões". Sem amostra confiável, a tela mostra "—".
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 const mockSignOut = jest.fn(async () => ({}));
 
+// Callbacks registrados via useFocusEffect, para simular a tela ganhando foco
+// de novo (ex.: voltar de uma sessão concluída via popToTop — achado #6).
+let mockFocusCallbacks: Array<() => void | (() => void)> = [];
+const dispararFocus = () => mockFocusCallbacks.forEach((cb) => cb());
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => {
+      mockFocusCallbacks.push(cb);
+      const limpeza = cb();
+      return () => {
+        mockFocusCallbacks = mockFocusCallbacks.filter((registrado) => registrado !== cb);
+        if (typeof limpeza === 'function') limpeza();
+      };
+    }, [cb]);
+  },
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -119,6 +135,23 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
     // Sessões = 0 e Nesta semana = 0 são fatos; só o tempo total fica sem dado
     await waitFor(() => expect(getAllByText('0')).toHaveLength(2));
     expect(queryByText('Não foi possível carregar seus números')).toBeNull();
+    // Tempo total sem amostra é "—", nunca "0 min" (achado #3)
+    expect(queryByText('0 min')).toBeNull();
+    expect(getAllByText(NO_DATA)).toHaveLength(1);
+  });
+
+  it('ganhar foco de novo recarrega o histórico (achado #6)', async () => {
+    mockConcluidas = [concluida('log-1', 45)];
+
+    const { getByText, getAllByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('45 min')).toBeTruthy());
+
+    // Usuário conclui outro treino em outra tela e volta via popToTop
+    mockConcluidas = [concluida('log-1', 45), concluida('log-2', 45)];
+    act(() => dispararFocus());
+
+    await waitFor(() => expect(getAllByText('2')).toHaveLength(2));
+    expect(getByText('1h 30min')).toBeTruthy();
   });
 
   it('com execuções reais, soma sessões e tempo total', async () => {
