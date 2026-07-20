@@ -2,9 +2,15 @@
 import apiClient, { ENDPOINTS } from './apiClient';
 import { logger } from '../../utils/logger';
 
-const GENERATE_PLAN_TIMEOUT_MS = 180000;
+// Geração de plano via LLM pode levar minutos — timeout dedicado, maior que
+// o padrão do apiClient. Cadeia ponta a ponta (achado #3 do review do PR #19):
+// auth ≤10s + Anthropic ≤150s + persistência ≤20s = ≤180s < ESTE timeout
+// (190s) < nginx proxy_read_timeout (200s). 180s exatos não davam margem — o
+// app abortava (ECONNABORTED) uma geração que ia concluir. (Trabalho futuro:
+// job assíncrono idempotente para eliminar a requisição síncrona longa.)
+const GENERATE_PLAN_TIMEOUT_MS = 190000;
 const POLL_INTERVAL_MS = 5000;
-const POLL_MAX_ATTEMPTS = 60; // 5 min max
+const POLL_MAX_ATTEMPTS = 60;
 
 export type Diretrizes = {
   preferencias: string[];

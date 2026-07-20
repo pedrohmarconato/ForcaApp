@@ -22,6 +22,7 @@ try:
         get_api_key, get_model_name, get_chat_model_name,
         get_plan_model_name, get_anthropic_timeout_seconds,
     )
+    from backend.utils.anthropic_retry import criar_mensagem_com_deadline
     from backend.services.plan_mapper import mapear_plano_ia
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
@@ -61,6 +62,14 @@ FORCA_USE_MOLDE_ARCHITECTURE = os.environ.get("FORCA_USE_MOLDE_ARCHITECTURE", "f
 
 _rate_buckets = {}
 _rate_lock = threading.Lock()
+
+# Trava de geração em andamento por usuário (achado #4 do review do PR #19):
+# a retomada do app podia disparar uma 2ª geração enquanto a 1ª ainda rodava
+# neste processo — duas chamadas Opus cobradas para um único plano. Em memória
+# é suficiente: o deploy usa 1 worker (mesma limitação documentada do rate
+# limiter acima) e a persistência já é serializada pela RPC da migration 0006.
+_plan_inflight = set()
+_plan_inflight_lock = threading.Lock()
 
 
 def _rate_limit_hit(bucket_name, key, limit, window_seconds):
@@ -122,6 +131,11 @@ ALLOWED_CHAT_ROLES = {"user", "assistant"}
 MAX_QUESTIONNAIRE_JSON_BYTES = 32 * 1024  # 32 KB serializado
 MAX_ADJUSTMENTS_ITEMS = 10
 MAX_ADJUSTMENT_LENGTH = 1000
+# O consumidor real do chat é o app, com timeout de 30s (apiClient). O backend
+# esperar 120s só acumulava threads pagando respostas que ninguém veria
+# (achado #2 do review do PR #19): o orçamento fica ABAIXO dos 30s do app.
+CHAT_ANTHROPIC_TIMEOUT_SECONDS = 25.0
+
 # Janela de saída do chat: Haiku 4.5 é barato (~$0.004/1K output), então
 # usamos uma janela confortável. Só custa o que for efetivamente gerado.
 CHAT_MAX_TOKENS = 4096
@@ -136,14 +150,13 @@ def _get_chat_anthropic_client():
         api_key = get_api_key("ANTHROPIC")
         if not api_key:
             raise RuntimeError("Chave da API Anthropic não configurada no backend (ANTHROPIC_API_KEY).")
-        # Cap do timeout do chat: acima do Sonnet para acomodar Opus 4.8 (effort
-        # high, adaptive thinking), porém abaixo do gunicorn (180s) e do nginx
-        # (200s) para não cobrar resposta que o usuário não verá.
-        # max_retries=0: o default do SDK (2) re-tenta timeouts — 120s x 3 =
-        # 360s de thread presa, além do corte de 200s do nginx. Falhar rápido.
+        # Timeout ABAIXO dos 30s do app (achado #2 do review): esperar mais do
+        # que o consumidor real espera só prende thread e cobra resposta que
+        # ninguém verá. max_retries=0: o retry fica no helper de deadline
+        # (backend/utils/anthropic_retry.py), que nunca re-tenta timeout.
         _chat_anthropic_client = anthropic.Anthropic(
             api_key=api_key,
-            timeout=min(get_anthropic_timeout_seconds(), 120.0),
+            timeout=min(get_anthropic_timeout_seconds(), CHAT_ANTHROPIC_TIMEOUT_SECONDS),
             max_retries=0,
         )
     return _chat_anthropic_client
@@ -309,7 +322,11 @@ def handle_chat():
 
     try:
         client = _get_chat_anthropic_client()
-        response = client.messages.create(
+        # Retry seletivo com deadline absoluto (achado #1 do review): re-tenta
+        # 1x apenas falhas transitórias rápidas (429/5xx/529); timeout nunca.
+        response = criar_mensagem_com_deadline(
+            client,
+            min(get_anthropic_timeout_seconds(), CHAT_ANTHROPIC_TIMEOUT_SECONDS),
             model=get_chat_model_name(),
             max_tokens=CHAT_MAX_TOKENS,
             system=system_prompt,
@@ -427,6 +444,17 @@ def handle_generate_plan():
         app_logger.error(f"Erro ao mapear dados do frontend para o wrapper: {e}", exc_info=True)
         return jsonify({"error": "Erro interno ao processar dados do usuário."}), 500
 
+    # --- Trava anti-geração-dupla por usuário (achado #4 do review) ---
+    # A retomada do app pode chegar aqui enquanto a geração anterior ainda
+    # roda numa outra thread deste worker. Sem a trava: duas chamadas Opus
+    # cobradas para o mesmo plano.
+    with _plan_inflight_lock:
+        if user_id in _plan_inflight:
+            app_logger.warning(f"Geração já em andamento para usuário {user_id}; nova solicitação rejeitada (409).")
+            return jsonify({"error": "Geração de plano já em andamento. Aguarde a conclusão e tente novamente."}), 409
+        _plan_inflight.add(user_id)
+
+    # --- Chamar o Wrapper para Gerar o Plano ---
     try:
         app_logger.info(f"Solicitando geração de plano para usuário {user_id}...")
         plano_gerado = treinador.gerar_plano(dados_usuario_para_wrapper)
@@ -461,6 +489,11 @@ def handle_generate_plan():
     except Exception as e:
         app_logger.error(f"Erro inesperado no endpoint /api/generate-plan para {user_id}: {e}", exc_info=True)
         return jsonify({"error": "Ocorreu um erro inesperado no servidor."}), 500
+    finally:
+        # Solta a trava em TODO caminho (sucesso, 502, 500): trava presa
+        # bloquearia o usuário até o restart do worker.
+        with _plan_inflight_lock:
+            _plan_inflight.discard(user_id)
 
 
 @app.route('/api/generate-plan/<job_id>', methods=['GET'])

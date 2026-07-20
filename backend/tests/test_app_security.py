@@ -448,3 +448,87 @@ def test_chat_usa_max_tokens_compativel_com_thinking(client):
         )
     _, kwargs = fake_client.messages.create.call_args
     assert kwargs["max_tokens"] >= 4096
+
+
+# --- Cliente do chat não re-tenta (review Opus 4.8, 20/07/2026) ---
+
+def test_cliente_anthropic_do_chat_nao_retenta():
+    """Sem max_retries=0 o SDK re-tenta timeouts 2x: 120s x 3 = 360s de
+    thread presa no chat, além do corte de 200s do nginx."""
+    import backend.app as app_module
+
+    original_cliente = app_module._chat_anthropic_client
+    original_key = os.environ.get("ANTHROPIC_API_KEY")
+    app_module._chat_anthropic_client = None
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    try:
+        cliente = app_module._get_chat_anthropic_client()
+        assert cliente.max_retries == 0
+    finally:
+        app_module._chat_anthropic_client = original_cliente
+        if original_key is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = original_key
+
+
+# --- Trava anti-geração-dupla (achado #4 do review externo do PR #19) ---
+
+def _post_generate(client):
+    return client.post(
+        "/api/generate-plan",
+        json={"questionnaireData": {"idade": 30}},
+        headers={"Authorization": "Bearer token-valido"},
+    )
+
+
+def test_generate_plan_com_geracao_em_andamento_retorna_409(client):
+    """Retomada do app com a 1ª geração ainda viva no worker não pode
+    disparar uma 2ª chamada Opus cobrada."""
+    import backend.app as app_module
+
+    user_id = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
+    with app_module._plan_inflight_lock:
+        app_module._plan_inflight.add(user_id)
+    try:
+        with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response(user_id)), \
+             mock.patch.object(app_module, "treinador", mock.Mock()) as fake_treinador:
+            response = _post_generate(client)
+        assert response.status_code == 409
+        fake_treinador.gerar_plano.assert_not_called()
+        assert "andamento" in response.get_json()["error"]
+    finally:
+        with app_module._plan_inflight_lock:
+            app_module._plan_inflight.discard(user_id)
+
+
+def test_trava_de_geracao_e_liberada_mesmo_em_erro(client):
+    """Trava presa após falha bloquearia o usuário até o restart do worker."""
+    import backend.app as app_module
+
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch.object(app_module, "treinador") as fake_treinador:
+        fake_treinador.gerar_plano.side_effect = RuntimeError("falha simulada")
+        response = _post_generate(client)
+    assert response.status_code == 502
+    assert len(app_module._plan_inflight) == 0
+
+
+def test_cliente_do_chat_tem_timeout_abaixo_do_app():
+    """Achado #2: o app desiste em 30s; o backend esperar 120s só prendia
+    thread pagando resposta que ninguém veria."""
+    import backend.app as app_module
+
+    original_cliente = app_module._chat_anthropic_client
+    original_key = os.environ.get("ANTHROPIC_API_KEY")
+    app_module._chat_anthropic_client = None
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-para-teste"
+    try:
+        cliente = app_module._get_chat_anthropic_client()
+        assert float(cliente.timeout) <= 25.0
+    finally:
+        app_module._chat_anthropic_client = original_cliente
+        if original_key is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = original_key

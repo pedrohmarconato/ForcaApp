@@ -84,3 +84,21 @@ describe('trainingPlanService', () => {
     }
   });
 });
+
+  // --- Achados #3 e #4 do review externo do PR #19 ---
+
+  it('usa timeout com margem real na cadeia (190s: > 180s de backend, < 200s do nginx)', async () => {
+    mockedPost.mockResolvedValueOnce({ data: { plan_id: 'abc' } });
+    await requestTrainingPlanGeneration('user-1', DADOS_SAUDE, []);
+    const options = mockedPost.mock.calls[0][2];
+    expect(options.timeout).toBe(190000);
+  });
+
+  it('409 (geração em andamento) propaga a mensagem amigável do backend', async () => {
+    mockedPost.mockRejectedValueOnce({
+      response: { status: 409, data: { error: 'Geração de plano já em andamento. Aguarde a conclusão e tente novamente.' } },
+    });
+    await expect(requestTrainingPlanGeneration('user-1', DADOS_SAUDE, [])).rejects.toThrow(
+      /já em andamento/,
+    );
+  });

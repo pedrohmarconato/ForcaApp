@@ -24,6 +24,12 @@ jest.mock('react-native-safe-area-context', () => {
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 
+// A tela agora consulta o plano ativo na retomada (achado #4 do review do
+// PR #19); mock evita importar o cliente Supabase real no teste.
+jest.mock('../src/services/trainingRepository', () => ({
+  getActivePlanId: jest.fn(async () => null),
+}));
+
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: {

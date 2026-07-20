@@ -24,6 +24,7 @@ import { Feather } from '@expo/vector-icons';
 // Serviços e Contextos
 import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeService';
 import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress } from '../services/api/trainingPlanService';
+import { getActivePlanId } from '../services/trainingRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import theme from '../theme/theme';
@@ -387,6 +388,21 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                                 console.log(`[Chat ${userId}] Chat salvo ilegível na retomada.`);
                             }
                         }
+                    }
+                    // Achado #4 do review: se uma geração anterior JÁ salvou um
+                    // plano ativo (o app morreu entre a gravação do plano e a
+                    // do perfil), adotamos esse plano em vez de pagar outra
+                    // geração no Opus. Falha na leitura (offline)? Segue para a
+                    // geração normal — comportamento anterior preservado.
+                    try {
+                        const planoExistente = await getActivePlanId(userId);
+                        if (planoExistente) {
+                            console.log(`[Chat ${userId}] Plano ativo encontrado na retomada — adotando sem nova geração.`);
+                            await updateProfile({ onboarding_completed: true, current_plan_id: planoExistente });
+                            return;
+                        }
+                    } catch {
+                        console.log(`[Chat ${userId}] Não foi possível verificar plano existente; seguindo para geração.`);
                     }
                     setIsInitializing(false);
                     await completeOnboardingAndGeneratePlan();
