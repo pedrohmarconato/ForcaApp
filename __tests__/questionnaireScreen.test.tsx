@@ -27,6 +27,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 jest.mock('../src/services/auth/secureStorage', () => ({
   getItem: jest.fn(async () => null),
   setItem: jest.fn(async () => undefined),
+  removeItem: jest.fn(async () => undefined),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -166,6 +167,43 @@ describe('QuestionnaireScreen — submissão', () => {
         expect.objectContaining({ formData: expect.objectContaining({ nome: 'Pedro Marconato' }) }),
       ),
     );
+  });
+
+  it('uma submissão nova apaga o chat persistido da rodada anterior antes de navegar', async () => {
+    // Modo de falha real: geração falhou depois de o chat ser encerrado →
+    // isChatEnded=true fica salvo → refazer o questionário abria o chat morto
+    // ("Chat finalizado"). A submissão precisa resetar as duas chaves ANTES
+    // da navegação, para a tela de chat inicializar uma conversa nova.
+    const { getByLabelText, getAllByLabelText } = await renderQuestionario();
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Masculino'));
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('45-60 min'));
+    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
+    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
+    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
+
+    fireEvent.press(getByLabelText('Conversar com IA'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+
+    const secureStorageMock = jest.requireMock('../src/services/auth/secureStorage');
+    expect(secureStorageMock.removeItem).toHaveBeenCalledWith('@chat_messages_user-123');
+    expect(secureStorageMock.removeItem).toHaveBeenCalledWith('@chat_state_user-123');
+
+    // O reset tem que acontecer ANTES da navegação — depois dela a tela de
+    // chat já pode ter lido o estado morto.
+    const ordensRemove = (secureStorageMock.removeItem as jest.Mock).mock.invocationCallOrder;
+    const ordemNavigate = mockNavigate.mock.invocationCallOrder[0];
+    expect(Math.max(...ordensRemove)).toBeLessThan(ordemNavigate);
   });
 
   it('exige detalhe da lesão quando o usuário declara ter restrição', async () => {

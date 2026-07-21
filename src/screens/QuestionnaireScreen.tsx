@@ -30,6 +30,7 @@ import { getItem as secureGetItem, setItem as secureSetItem } from '../services/
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
+import { resetPostQuestionnaireChatState } from '../services/postQuestionnaireChatStorage';
 import theme from '../theme/theme';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
@@ -323,7 +324,12 @@ const QuestionnaireScreen = () => {
       }
     }
 
-    // 3. Navegar para a tela de Chat
+    // 3. Rodada nova de questionário: a conversa da rodada anterior (inclusive
+    // um "encerrado" persistido por geração que falhou) não vale mais. Sem o
+    // reset, a tela de chat carrega o estado morto e abre como "Chat finalizado".
+    await resetPostQuestionnaireChatState(userId);
+
+    // 4. Navegar para a tela de Chat
     console.log('[QuestionnaireScreen] Navegando para PostQuestionnaireChat...');
     if (pularChat) {
       navigation.navigate('PostQuestionnaireChat', { formData: formDataForStorage, skipChat: true });
