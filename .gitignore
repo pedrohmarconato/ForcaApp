@@ -171,3 +171,4 @@ supabase/.temp/
 
 # estado local do Expo (devices, cache web) — não versionar
 .expo/
+.vercel
