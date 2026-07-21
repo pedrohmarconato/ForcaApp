@@ -25,6 +25,7 @@ import { Feather } from '@expo/vector-icons';
 import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeService';
 import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress } from '../services/api/trainingPlanService';
 import { getActivePlanId } from '../services/trainingRepository';
+import { STORAGE_KEY_CHAT_PREFIX, STORAGE_KEY_CHAT_STATE_PREFIX } from '../services/postQuestionnaireChatStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import theme from '../theme/theme';
@@ -38,12 +39,7 @@ type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackPa
 
 // --- Constantes Funcionais ---
 const MAX_INTERACTIONS = 6;
-const STORAGE_KEY_CHAT_PREFIX = '@chat_messages_';
 const STORAGE_KEY_QUESTIONNAIRE_PREFIX = '@questionnaire_data_';
-// Substitui @chat_completed_: agora é máquina de estados, não booleano.
-// "in_progress" | "awaiting_generation" | "completed"
-// NUNCA bloqueia reentrada na conversa com base em estado armazenado (R1).
-const STORAGE_KEY_CHAT_STATE_PREFIX = '@chat_state_';
 
 const PostQuestionnaireChat = () => {
     const route = useRoute<RouteProp<{ params: ChatScreenRouteParams }, 'params'>>();
