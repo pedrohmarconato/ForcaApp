@@ -297,7 +297,10 @@ def test_fluxo_completo_modo_novo(client, monkeypatch):
 
     job = jm.criar_job(user_id=user_id)
 
-    with mock.patch("backend.utils.anthropic_retry.criar_mensagem_com_deadline", return_value=fake_response_obj), \
+    # autospec=True é obrigatório aqui: sem ele o MagicMock aceita qualquer kwarg
+    # e um call site com assinatura errada passa no teste e quebra em produção.
+    with mock.patch("backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+                    autospec=True, return_value=fake_response_obj), \
          mock.patch("backend.app.persistir_plano", return_value="db-plan-2"):
         with app.app_context():
             _executar_geracao_molde(
