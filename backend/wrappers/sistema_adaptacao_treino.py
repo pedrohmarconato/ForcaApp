@@ -15,7 +15,9 @@ except ImportError:
     print("ERRO: Dependência 'jsonschema' não encontrada. Execute: pip install jsonschema")
     class MockJsonschema:
         def validate(self, *args, **kwargs): pass
-        class exceptions: class ValidationError(Exception): pass
+        class exceptions:
+            class ValidationError(Exception):
+                pass
     jsonschema = MockJsonschema()
     print("AVISO: Usando mock para 'jsonschema'.")
 
