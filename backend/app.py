@@ -701,13 +701,14 @@ SCHEMA DO MOLDE:
     try:
         response = criar_mensagem_com_deadline(
             client,
-            deadline_seconds=240.0,
+            240.0,
             model=get_plan_model_name(),
             max_tokens=32768,
             messages=[{"role": "user", "content": prompt_molde}],
             thinking={"type": "adaptive"},
         )
     except Exception:
+        app_logger.exception(f"Job {job.job_id}: falha na chamada do molde para usuário {user_id}.")
         job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
         return
 
@@ -719,6 +720,10 @@ SCHEMA DO MOLDE:
                 break
 
     if not resposta_texto:
+        app_logger.error(
+            f"Job {job.job_id}: molde sem bloco de texto "
+            f"(stop_reason={getattr(response, 'stop_reason', None)})."
+        )
         job.set_error("molde_empty", "Modelo não retornou texto (possível budget de thinking excedido).")
         return
 
@@ -732,12 +737,17 @@ SCHEMA DO MOLDE:
             pass
 
     if not isinstance(molde, dict):
+        app_logger.error(
+            f"Job {job.job_id}: falha ao extrair JSON do molde "
+            f"({len(resposta_texto)} chars na resposta)."
+        )
         job.set_error("molde_parse", "Falha ao extrair JSON do molde.")
         return
 
     try:
         _jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
     except _jsonschema.exceptions.ValidationError as e:
+        app_logger.error(f"Job {job.job_id}: molde reprovado no schema — {e.message}")
         job.set_error("molde_validation", f"Molde inválido: {e.message}")
         return
 
@@ -753,6 +763,7 @@ SCHEMA DO MOLDE:
         }
         plano_gerado = expandir_plano(molde, dados_usuario)
     except Exception:
+        app_logger.exception(f"Job {job.job_id}: falha ao expandir o molde para usuário {user_id}.")
         job.set_error("expander_error", "Erro interno ao expandir o plano. Tente novamente.")
         return
 
@@ -766,6 +777,7 @@ SCHEMA DO MOLDE:
 
         db_plan_id = persistir_plano(mapeado, access_token=access_token)
     except (ValueError, PlanPersistenceError):
+        app_logger.exception(f"Job {job.job_id}: falha ao persistir o plano do usuário {user_id}.")
         job.set_error("persist_error", "Erro ao salvar o plano. Tente novamente.")
         return
 
