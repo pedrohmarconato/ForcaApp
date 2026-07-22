@@ -4,11 +4,14 @@
 # Produção multi-worker: trocar por fila externa (Redis/PostgreSQL).
 
 import datetime
+import logging
 import os
 import threading
 import uuid
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class JobStatus(str, Enum):
@@ -18,6 +21,9 @@ class JobStatus(str, Enum):
     SALVANDO = "salvando"
     SALVO = "salvo"
     ERRO = "erro"
+
+
+_TERMINAIS = (JobStatus.SALVO, JobStatus.ERRO)
 
 
 class PlanJob:
@@ -46,13 +52,26 @@ class PlanJob:
             self.status = status
             self.progress = {"step": step, "detail": detail}
 
+    def marcar_salvo(self, plan_id: str) -> None:
+        # Status e plan_id mudam juntos, sob o lock: um poll concorrente nunca
+        # pode ver "salvo" com plan_id ausente.
+        with self._lock:
+            self.status = JobStatus.SALVO
+            self.plan_id = plan_id
+            self.progress = {
+                "step": "salvo",
+                "detail": "Plano salvo com sucesso.",
+                "plan_id": plan_id,
+            }
+
     def set_error(self, code: str, message: str) -> None:
         with self._lock:
             self.status = JobStatus.ERRO
             self.error = {"code": code, "message": message}
 
 
-# Armazenamento em memória (MVP). Limpa jobs com >1h.
+# Armazenamento em memória (MVP). Terminais expiram no TTL (1h default);
+# não-terminais ganham 2×TTL — ver comentário em _limpar_jobs_expirados.
 _jobs: Dict[str, PlanJob] = {}
 _jobs_lock = threading.Lock()
 
@@ -60,29 +79,38 @@ _JOB_TTL_SECONDS = int(os.environ.get("JOB_TTL_SECONDS", "3600"))
 
 
 def _limpar_jobs_expirados() -> None:
+    # Job em estado não-terminal ganha 2×TTL: apagá-lo no TTL normal liberava
+    # o dedup com a thread antiga ainda viva (duas gerações concorrentes).
+    # Além de 2×TTL nenhuma geração real está viva — é zumbi de thread morta,
+    # e mantê-lo bloquearia o usuário até o restart do processo.
     agora = datetime.datetime.now(datetime.timezone.utc)
     with _jobs_lock:
-        expirados = [
-            jid for jid, job in _jobs.items()
-            if (agora - job.created_at).total_seconds() > _JOB_TTL_SECONDS
-        ]
+        expirados = []
+        for jid, job in _jobs.items():
+            idade = (agora - job.created_at).total_seconds()
+            limite = _JOB_TTL_SECONDS if job.status in _TERMINAIS else 2 * _JOB_TTL_SECONDS
+            if idade > limite:
+                expirados.append(jid)
         for jid in expirados:
             del _jobs[jid]
 
 
-def criar_job(user_id: str) -> PlanJob:
+def criar_job(user_id: str) -> Tuple[PlanJob, bool]:
+    """Devolve (job, created). created=False significa job já em andamento
+    para este usuário — o chamador NÃO deve disparar o pipeline de novo.
+
+    Dedup e inserção acontecem sob a MESMA aquisição do lock: exatamente um
+    chamador concorrente recebe created=True.
+    """
     _limpar_jobs_expirados()
     with _jobs_lock:
-        # Trava anti-geração-dupla: se já existe job em andamento para este
-        # usuário, devolve o job existente em vez de criar outro (achado #4).
         for job in _jobs.values():
-            if job.user_id == user_id and job.status not in (JobStatus.SALVO, JobStatus.ERRO):
-                return job
-    job_id = str(uuid.uuid4())
-    job = PlanJob(job_id=job_id, user_id=user_id)
-    with _jobs_lock:
+            if job.user_id == user_id and job.status not in _TERMINAIS:
+                return job, False
+        job_id = str(uuid.uuid4())
+        job = PlanJob(job_id=job_id, user_id=user_id)
         _jobs[job_id] = job
-    return job
+        return job, True
 
 
 def obter_job(job_id: str) -> Optional[PlanJob]:
@@ -98,6 +126,7 @@ def executar_job(job: PlanJob, func: Callable[[PlanJob], None]) -> None:
         try:
             func(job)
         except Exception:
+            logger.exception(f"Job {job.job_id}: exceção não tratada no pipeline.")
             if job.status != JobStatus.ERRO:
                 job.set_error("internal_error", "Erro interno no servidor. Tente novamente.")
 
