@@ -11,8 +11,47 @@
 // - Chaves físicas são hex do UTF-8 da chave lógica: injetivo (sem colisões)
 //   e sempre válido para o SecureStore ([a-zA-Z0-9._-]).
 
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// --- Caminho WEB (PWA) ---
+//
+// O expo-secure-store NÃO tem implementação para web: chamar getItemAsync no
+// navegador estoura `getValueWithKeyAsync is not a function` e derruba a
+// inicialização da sessão. Na web usamos localStorage — o mesmo storage que o
+// supabase-js adota por padrão ali.
+//
+// LIMITAÇÃO ACEITA CONSCIENTEMENTE: localStorage não tem o isolamento do
+// Keychain/Keystore (é legível por qualquer script na origem, logo por XSS).
+// Isso é uma característica da plataforma web, não uma regressão do nativo —
+// no iOS/Android o caminho seguro abaixo continua valendo. Nada de chunking
+// aqui: localStorage não tem o limite de ~2048 bytes do SecureStore.
+const isWeb = Platform.OS === 'web';
+
+const webStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return globalThis.localStorage?.getItem(key) ?? null;
+    } catch {
+      return null; // modo privado/storage bloqueado: trata como ausência
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      globalThis.localStorage?.setItem(key, value);
+    } catch {
+      // cota estourada ou storage bloqueado — não derruba o app
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      globalThis.localStorage?.removeItem(key);
+    } catch {
+      // idem
+    }
+  },
+};
 
 const CHUNK_BYTES = 1800; // margem abaixo do limite de ~2048 bytes por valor
 
@@ -139,6 +178,10 @@ const deleteLegacyKeys = async (logicalKey: string): Promise<void> => {
 // --- API pública (mesma interface de antes) ---
 
 export const setItem = async (key: string, value: string): Promise<void> => {
+  if (isWeb) {
+    webStorage.setItem(key, value);
+    return;
+  }
   const physical = toPhysicalKey(key);
   return withKeyLock(physical, async () => {
     const oldManifest = parseManifest(await SecureStore.getItemAsync(manifestKey(physical)));
@@ -175,6 +218,7 @@ export const setItem = async (key: string, value: string): Promise<void> => {
 };
 
 export const getItem = async (key: string): Promise<string | null> => {
+  if (isWeb) return webStorage.getItem(key);
   const physical = toPhysicalKey(key);
   return withKeyLock(physical, async () => {
     const manifest = parseManifest(await SecureStore.getItemAsync(manifestKey(physical)));
@@ -191,6 +235,10 @@ export const getItem = async (key: string): Promise<string | null> => {
 };
 
 export const removeItem = async (key: string): Promise<void> => {
+  if (isWeb) {
+    webStorage.removeItem(key);
+    return;
+  }
   const physical = toPhysicalKey(key);
   return withKeyLock(physical, async () => {
     const manifest = parseManifest(await SecureStore.getItemAsync(manifestKey(physical)));
@@ -225,6 +273,11 @@ export const supabaseSecureStorage = {
  * @param supabaseUrl URL do projeto Supabase (de onde se extrai o ref do projeto).
  */
 export const migrateLegacySupabaseSession = async (supabaseUrl: string): Promise<void> => {
+  // Migração é um conceito NATIVO (AsyncStorage → SecureStore). No web não
+  // existe sessão legada: o AsyncStorage também é window.localStorage sem
+  // prefixo, então a "cópia legada" seria a própria sessão viva do
+  // supabase-js — e o removeItem final a apagaria a cada boot do PWA.
+  if (isWeb) return;
   try {
     const ref = new URL(supabaseUrl).hostname.split('.')[0];
     if (!ref) return;
