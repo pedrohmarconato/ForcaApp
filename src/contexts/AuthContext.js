@@ -8,12 +8,11 @@ const AuthContext = createContext(undefined);
 
 // --- Classificação de erros de autenticação (PostgREST/GoTrue) ---
 
-// Desvio de relógio TRANSITÓRIO: logo após um TOKEN_REFRESHED, o `iat` do
-// token recém-emitido pelo GoTrue pode parecer "no futuro" para o PostgREST
-// (PGRST303 "JWT issued at future"). O token é válido e o quadro se resolve
-// sozinho em segundos — NUNCA é motivo para logout.
-export const isClockSkewError = (error) =>
-    error?.code === 'PGRST303' || /issued at future/i.test(error?.message ?? '');
+// isClockSkewError vive em services/auth/authErrors (módulo leve, sem
+// dependências) para o sessionProbe e os testes unitários usarem a MESMA
+// política de skew. Re-exportada aqui para manter o ponto de import histórico.
+import { isClockSkewError } from '../services/auth/authErrors';
+export { isClockSkewError };
 
 // Sinais de token realmente inválido/expirado — aqui sim o logout é a
 // resposta certa. Skew fica explicitamente de fora.

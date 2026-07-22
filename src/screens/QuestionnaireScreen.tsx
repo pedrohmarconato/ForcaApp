@@ -27,6 +27,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getItem as secureGetItem, setItem as secureSetItem } from '../services/auth/secureStorage';
+import { probeSessionValidity } from '../services/auth/sessionProbe';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
@@ -48,14 +49,18 @@ type TimeOption = { label: string; value: number };
 const GENDER_OPTIONS: Option[] = [ { label: 'Masculino', value: 'male' }, { label: 'Feminino', value: 'female' }, { label: 'Outro', value: 'other' }, { label: 'Prefiro não dizer', value: 'not_specified'} ];
 const EXPERIENCE_LEVELS: Option[] = [ { label: 'Iniciante (Nunca treinei ou < 6 meses)', value: 'beginner' }, { label: 'Intermediário (6 meses - 2 anos)', value: 'intermediate' }, { label: 'Avançado (> 2 anos)', value: 'advanced' } ];
 const GOALS: Option[] = [ { label: 'Perda de Peso', value: 'weight_loss' }, { label: 'Ganho de Massa Muscular', value: 'muscle_gain' }, { label: 'Melhorar Condicionamento Físico', value: 'fitness_improvement' }, { label: 'Saúde e Bem-estar', value: 'health_wellness' } ];
+// Ordem seg→dom, igual à leitura natural da fileira S T Q Q S S D e à virada
+// de semana do app (useDiaLocal: a semana começa na segunda). label, value e
+// full precisam apontar para o MESMO dia — já houve deslocamento aqui (o 1º
+// "S" gravava domingo) e o plano inteiro saía agendado no dia errado.
 const DAYS_OF_WEEK: DayOption[] = [
-  { label: 'S', value: 'sun', full: 'Domingo' },
-  { label: 'T', value: 'mon', full: 'Segunda-feira' },
-  { label: 'Q', value: 'tue', full: 'Terça-feira' },
+  { label: 'S', value: 'mon', full: 'Segunda-feira' },
+  { label: 'T', value: 'tue', full: 'Terça-feira' },
   { label: 'Q', value: 'wed', full: 'Quarta-feira' },
-  { label: 'S', value: 'thu', full: 'Quinta-feira' },
+  { label: 'Q', value: 'thu', full: 'Quinta-feira' },
   { label: 'S', value: 'fri', full: 'Sexta-feira' },
-  { label: 'D', value: 'sat', full: 'Sábado' },
+  { label: 'S', value: 'sat', full: 'Sábado' },
+  { label: 'D', value: 'sun', full: 'Domingo' },
 ];
 const TIME_OPTIONS: TimeOption[] = [ { label: '30-45 min', value: 45 }, { label: '45-60 min', value: 60 }, { label: '60-90 min', value: 90 }, { label: '+90 min', value: 120 } ];
 
@@ -134,24 +139,24 @@ const QuestionnaireScreen = () => {
   }, [signOut, navigation]);
 
   // --- Verificação de sessão válida ---
+  // Só um 401/403 real do servidor desloga. Probe inconclusivo (rede fora,
+  // config ausente, 5xx, clock skew) mantém a sessão — política do AuthContext.
   useEffect(() => {
     const checkValidSession = async () => {
     if (session && error) { // Se temos sessão mas ocorreu um erro (pode ser de token)
     console.log("[QuestionnaireScreen] Verificando validade da sessão devido a erro anterior...");
-    try {
-    const testEndpoint = `${API_BASE_URL}/profiles?select=id&limit=1`;
-    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-    if (!anonKey || !authToken) throw new Error("Dados de autenticação incompletos para teste.");
-    const response = await fetch(testEndpoint, { headers: { 'apikey': anonKey, 'Authorization': `Bearer ${authToken}` } });
-    if (!response.ok) {
-    console.error("[QuestionnaireScreen] Sessão inválida detectada em teste de requisição.");
+    const result = await probeSessionValidity({
+    baseUrl: API_BASE_URL,
+    anonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+    authToken,
+    });
+    if (result === 'invalid') {
+    console.error("[QuestionnaireScreen] Sessão inválida confirmada pelo servidor.");
     handleSessionExpiration(); // Chama a função de logout
+    } else if (result === 'indeterminate') {
+    console.warn("[QuestionnaireScreen] Probe de sessão inconclusivo (rede/config) — mantendo a sessão.");
     } else {
-     console.log("[QuestionnaireScreen] Sessão ainda válida após teste.");
-    }
-    } catch (err) {
-    console.error("[QuestionnaireScreen] Erro ao testar validade da sessão:", err);
-    handleSessionExpiration(); // Chama a função de logout em caso de erro no teste
+    console.log("[QuestionnaireScreen] Sessão ainda válida após teste.");
     }
     }
     };
