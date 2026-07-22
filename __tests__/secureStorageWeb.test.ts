@@ -34,13 +34,18 @@ jest.mock('react-native', () => ({
 }));
 
 // Com Platform.OS='web', o AsyncStorage.native tenta resolver o módulo nativo
-// e quebra no import. Só a migração de sessão legada o usa.
+// e quebra no import. Só a migração de sessão legada o usa. Referências mock*
+// para os testes poderem simular o comportamento REAL do AsyncStorage web
+// (que é window.localStorage sem prefixo).
+const mockAsyncGetItem = jest.fn(async (_k: string): Promise<string | null> => null);
+const mockAsyncSetItem = jest.fn(async (_k: string, _v: string): Promise<void> => undefined);
+const mockAsyncRemoveItem = jest.fn(async (_k: string): Promise<void> => undefined);
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {
-    getItem: jest.fn().mockResolvedValue(null),
-    setItem: jest.fn().mockResolvedValue(undefined),
-    removeItem: jest.fn().mockResolvedValue(undefined),
+    getItem: (k: string) => mockAsyncGetItem(k),
+    setItem: (k: string, v: string) => mockAsyncSetItem(k, v),
+    removeItem: (k: string) => mockAsyncRemoveItem(k),
   },
 }));
 
@@ -107,6 +112,23 @@ describe('secureStorage na web (PWA)', () => {
     await storage.setItem('sessao-grande', grande);
 
     expect(await storage.getItem('sessao-grande')).toBe(grande);
+  });
+
+  it('boot no web NÃO apaga a sessão viva do localStorage (migração legada é só nativa)', async () => {
+    // Modo de falha real (review do PR #24): no web o AsyncStorage TAMBÉM é
+    // window.localStorage sem prefixo — a "cópia legada" que a migração
+    // enxergava era a PRÓPRIA sessão viva do supabase-js, e o removeItem
+    // final a apagava a cada boot: logout a cada reload do PWA.
+    const chave = 'sb-zanqygwsgxkyjiuhrzju-auth-token';
+    const sessaoViva = '{"access_token":"sessao-viva"}';
+    globalThis.localStorage.setItem(chave, sessaoViva);
+    mockAsyncGetItem.mockImplementation(async (k) => globalThis.localStorage.getItem(k));
+    mockAsyncRemoveItem.mockImplementation(async (k) => void globalThis.localStorage.removeItem(k));
+
+    await storage.migrateLegacySupabaseSession('https://zanqygwsgxkyjiuhrzju.supabase.co');
+
+    expect(globalThis.localStorage.getItem(chave)).toBe(sessaoViva);
+    expect(await storage.getItem(chave)).toBe(sessaoViva);
   });
 
   it('sobrevive a localStorage indisponível (modo privado) sem lançar', async () => {

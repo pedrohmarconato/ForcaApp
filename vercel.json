@@ -3,7 +3,7 @@
   "git": {
     "deploymentEnabled": false
   },
-  "buildCommand": "npx expo export -p web",
+  "buildCommand": "npx expo export -p web && node scripts/verify-web-bundle.mjs",
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
@@ -23,7 +23,7 @@
       ]
     },
     {
-      "source": "/index.html",
+      "source": "/manifest.json",
       "headers": [
         {
           "key": "Cache-Control",
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "source": "/manifest.json",
+      "source": "/((?!_expo|icons|assets|manifest\\.json|favicon\\.ico).*)",
       "headers": [
         {
           "key": "Cache-Control",

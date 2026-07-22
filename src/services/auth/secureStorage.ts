@@ -273,6 +273,11 @@ export const supabaseSecureStorage = {
  * @param supabaseUrl URL do projeto Supabase (de onde se extrai o ref do projeto).
  */
 export const migrateLegacySupabaseSession = async (supabaseUrl: string): Promise<void> => {
+  // Migração é um conceito NATIVO (AsyncStorage → SecureStore). No web não
+  // existe sessão legada: o AsyncStorage também é window.localStorage sem
+  // prefixo, então a "cópia legada" seria a própria sessão viva do
+  // supabase-js — e o removeItem final a apagaria a cada boot do PWA.
+  if (isWeb) return;
   try {
     const ref = new URL(supabaseUrl).hostname.split('.')[0];
     if (!ref) return;
