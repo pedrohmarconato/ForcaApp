@@ -2,7 +2,8 @@
 
 Este documento descreve como iniciar o backend Flask localmente e validar
 liveness vs readiness. Para contexto de deploy/DNS/nginx, ver
-`docs/DEPLOY_PROGRESS.md`.
+`docs/DEPLOY_VPS.md` (os detalhes de infraestrutura da VPS — IPs, ids,
+chaves — ficam em anotação privada fora do repositório, que é público).
 
 ## Pré-requisitos
 
