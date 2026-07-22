@@ -3,11 +3,12 @@
 Instruções de referência rápida para qualquer agente/IA (Claude, opencode, etc.) trabalhando neste repo.
 Leia antes de operar o banco ou o app. Detalhes completos em `docs/AMBIENTE_SUPABASE.md`.
 
-## Ambiente Supabase — DECISÃO DO DONO (18/07/2026)
+## Ambiente Supabase — ATUALIZADO EM 22/07/2026 (homologação criada)
 
-- **O projeto Supabase do ForcaApp é UM só:** `forcaapp-hml`, ref **`zanqygwsgxkyjiuhrzju`**, org `ltmhaqdcvidzsbfkxmii`, conta `pedrohmarconato@gmail.com`.
-- Apesar do sufixo `-hml` no nome, este é **o projeto de trabalho** do Forca. Trate como ambiente ativo.
-- **NÃO existe produção separada.** Esqueça qualquer referência a "produção do Força com tabelas legadas `fato_registrotreino`/`dim_humor`" — essas tabelas **não existem** em projeto algum acessível (verificado em todos os schemas). O comentário em `supabase/migrations/0001_modelo_treino.sql` e o `docs/Supabase Snippet ...csv` aludem a um schema DW antigo que **não é** este projeto.
+- **PRODUÇÃO** (dados reais): `forcaapp-hml`, ref **`zanqygwsgxkyjiuhrzju`**, org `ltmhaqdcvidzsbfkxmii`, conta `pedrohmarconato@gmail.com`. Apesar do sufixo `-hml` no nome (herança histórica da decisão de 18/07), **este é o projeto vivo** — trate como produção.
+- **HOMOLOGAÇÃO** (dados descartáveis): `forcaapp-staging`, ref **`mjdjtiujhwklchalquhc`**, mesma org/conta. Migrations vão **primeiro aqui** (via branch `staging`), só depois à produção. Topologia completa, fluxo e guardrails em `docs/AMBIENTE_HML.md`.
+- ⚠️ `supabase link` troca o projeto-alvo do diretório — **confirme o ref antes de qualquer `db push`**.
+- **NÃO existe outro projeto de produção.** Esqueça qualquer referência a "produção do Força com tabelas legadas `fato_registrotreino`/`dim_humor`" — essas tabelas **não existem** em projeto algum acessível (verificado em todos os schemas). O comentário em `supabase/migrations/0001_modelo_treino.sql` e o `docs/Supabase Snippet ...csv` aludem a um schema DW antigo que **não é** este projeto.
 - **Projetos CarreraCampos** (`fgiqdjrzqhhlhvcnmcmj` / CarreraCamposAC e `scuyzplgxkaeiaswrdhm` / carreracampos-hml) são um **app jurídico diferente, outra conta**. Não toque neles ao trabalhar no Forca.
 
 ## Autenticação (nunca cole secrets no chat/commits)
