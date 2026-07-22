@@ -643,6 +643,17 @@ def handle_consolidate_chat():
     return jsonify({"diretrizes": diretrizes}), 200
 
 
+def _thinking_config_para_modelo(model_name):
+    """Adaptive thinking só nos modelos que o suportam (Opus 4.8+/Fable).
+    Haiku/Sonnet rejeitam a request inteira com 400 "adaptive thinking is not
+    supported on this model" — foi o que derrubou o 1º smoke do HML, que roda
+    o plano em Haiku por custo."""
+    base = (model_name or "").lower()
+    if "opus" in base or "fable" in base:
+        return {"type": "adaptive"}
+    return None
+
+
 def _executar_geracao_molde(
     job: PlanJob,
     questionnaire_data: dict,
@@ -710,15 +721,17 @@ INSTRUÇÕES:
 SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""
 
+    kwargs_molde = {
+        "model": get_plan_model_name(),
+        "max_tokens": 32768,
+        "messages": [{"role": "user", "content": prompt_molde}],
+    }
+    thinking_config = _thinking_config_para_modelo(kwargs_molde["model"])
+    if thinking_config:
+        kwargs_molde["thinking"] = thinking_config
+
     try:
-        response = criar_mensagem_com_deadline(
-            client,
-            240.0,
-            model=get_plan_model_name(),
-            max_tokens=32768,
-            messages=[{"role": "user", "content": prompt_molde}],
-            thinking={"type": "adaptive"},
-        )
+        response = criar_mensagem_com_deadline(client, 240.0, **kwargs_molde)
     except Exception:
         app_logger.exception(f"Job {job.job_id}: falha na chamada do molde para usuário {user_id}.")
         job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
