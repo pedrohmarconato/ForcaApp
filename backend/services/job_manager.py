@@ -70,7 +70,8 @@ class PlanJob:
             self.error = {"code": code, "message": message}
 
 
-# Armazenamento em memória (MVP). Limpa jobs com >1h.
+# Armazenamento em memória (MVP). Terminais expiram no TTL (1h default);
+# não-terminais ganham 2×TTL — ver comentário em _limpar_jobs_expirados.
 _jobs: Dict[str, PlanJob] = {}
 _jobs_lock = threading.Lock()
 
