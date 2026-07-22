@@ -36,8 +36,8 @@ describe('probeSessionValidity', () => {
     await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('invalid');
   });
 
-  it('403 → sessão inválida (desloga)', async () => {
-    const fetchImpl = jest.fn(async () => jsonResponse(403));
+  it('403 com corpo PostgREST → sessão inválida (desloga)', async () => {
+    const fetchImpl = jest.fn(async () => jsonResponse(403, { code: 'PGRST302', message: 'Anonymous access is disabled' }));
     await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('invalid');
   });
 
@@ -48,7 +48,9 @@ describe('probeSessionValidity', () => {
     await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('indeterminate');
   });
 
-  it('401 com corpo não-JSON → inválida (o parse falho não mascara o 401)', async () => {
+  it('401 com corpo não-JSON (middlebox: proxy/portal cativo com HTML) → inconclusivo', async () => {
+    // Um 401 sem corpo PostgREST não é o Supabase falando — deslogar aqui
+    // reintroduziria o logout fantasma em rede corporativa/hotel.
     const fetchImpl = jest.fn(async () => ({
       ok: false,
       status: 401,
@@ -56,7 +58,17 @@ describe('probeSessionValidity', () => {
         throw new SyntaxError('not json');
       },
     }) as unknown as Response);
-    await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('invalid');
+    await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('indeterminate');
+  });
+
+  it('401 JSON sem code PGRST* → inconclusivo (não é resposta do PostgREST)', async () => {
+    const fetchImpl = jest.fn(async () => jsonResponse(401, { message: 'Access denied by gateway' }));
+    await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('indeterminate');
+  });
+
+  it('403 com SQLSTATE de RLS (42501) → inconclusivo: token válido sem permissão não é sessão expirada', async () => {
+    const fetchImpl = jest.fn(async () => jsonResponse(403, { code: '42501', message: 'permission denied' }));
+    await expect(probeSessionValidity({ ...OPTS_BASE, fetchImpl })).resolves.toBe('indeterminate');
   });
 
   it('5xx do servidor → inconclusivo, não desloga', async () => {

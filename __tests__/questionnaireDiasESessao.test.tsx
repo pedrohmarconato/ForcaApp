@@ -162,6 +162,11 @@ describe('QuestionnaireScreen — probe de sessão não pune falta de rede', () 
     await submeterComApiFalhando();
     await waitFor(() => expect(mockProbeSessionValidity).toHaveBeenCalled());
 
+    // Fiação real: a tela precisa entregar o token da sessão ao probe —
+    // um authToken undefined viraria 'indeterminate' silencioso para sempre.
+    expect(mockProbeSessionValidity).toHaveBeenCalledWith(
+      expect.objectContaining({ authToken: 'token-abc' }),
+    );
     expect(mockSignOut).not.toHaveBeenCalled();
     expect(Alert.alert).not.toHaveBeenCalledWith('Sessão Expirada', expect.anything(), expect.anything());
   });
