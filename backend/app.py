@@ -400,7 +400,19 @@ def handle_generate_plan():
         except jsonschema.exceptions.ValidationError as e:
             return jsonify({"error": f"Diretrizes inválidas: {e.message}"}), 400
 
-        job = criar_job(user_id=str(user_id))
+        job, created = criar_job(user_id=str(user_id))
+        if not created:
+            # Job vivo deste usuário: devolve o job existente SEM disparar o
+            # pipeline de novo — o reenvio do app durante uma geração em
+            # andamento executava o pipeline duas vezes no mesmo job (duas
+            # chamadas Opus cobradas e duas persistências).
+            app_logger.info(f"Job em andamento reutilizado: {job.job_id} para usuário {user_id}.")
+            return jsonify({
+                "status": job.to_dict()["status"],
+                "job_id": job.job_id,
+                "message": "Geração já em andamento. Acompanhe o progresso.",
+            }), 202
+
         app_logger.info(f"Job de geração criado: {job.job_id} para usuário {user_id}.")
 
         access_token = g.access_token
@@ -781,9 +793,7 @@ SCHEMA DO MOLDE:
         job.set_error("persist_error", "Erro ao salvar o plano. Tente novamente.")
         return
 
-    job.transition(JobStatus.SALVO, "salvo", "Plano salvo com sucesso.")
-    job.plan_id = db_plan_id
-    job.progress["plan_id"] = db_plan_id
+    job.marcar_salvo(db_plan_id)
     app_logger.info(f"Job {job.job_id}: plano {db_plan_id} gerado e salvo para usuário {user_id}.")
 
 

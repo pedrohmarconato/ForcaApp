@@ -227,7 +227,7 @@ def test_poll_job_inexistente_retorna_404(client):
 def test_poll_job_de_outro_usuario_retorna_403(client):
     import backend.services.job_manager as jm
 
-    job = jm.criar_job(user_id="outro-usuario")
+    job, _ = jm.criar_job(user_id="outro-usuario")
 
     with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
         response = client.get(
@@ -241,7 +241,7 @@ def test_poll_job_proprio_retorna_status(client):
     import backend.services.job_manager as jm
 
     user_id = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
-    job = jm.criar_job(user_id=user_id)
+    job, _ = jm.criar_job(user_id=user_id)
 
     with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response(user_id)):
         response = client.get(
@@ -295,7 +295,7 @@ def test_fluxo_completo_modo_novo(client, monkeypatch):
 
     from backend.app import _executar_geracao_molde
 
-    job = jm.criar_job(user_id=user_id)
+    job, _ = jm.criar_job(user_id=user_id)
 
     # autospec=True é obrigatório aqui: sem ele o MagicMock aceita qualquer kwarg
     # e um call site com assinatura errada passa no teste e quebra em produção.

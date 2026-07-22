@@ -140,7 +140,7 @@ def test_pipeline_do_molde_nao_quebra_na_chamada_do_helper(monkeypatch):
         stop_reason="end_turn",
     )
 
-    job = jm.criar_job(user_id="user-contrato")
+    job, _ = jm.criar_job(user_id="user-contrato")
 
     with mock.patch(
         "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
