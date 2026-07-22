@@ -27,5 +27,11 @@ class WrapperLogger:
     def error(self, message, exc_info=False):
         self.logger.error(message, exc_info=exc_info)
 
+    def exception(self, message):
+        # Mesmo contrato do logging.Logger.exception: error + traceback ativo.
+        # Os handlers de erro do job dependem deste método — sem ele, o próprio
+        # tratamento de erro crashava com AttributeError (achado do 1º smoke HML).
+        self.logger.exception(message)
+
     def debug(self, message):
         self.logger.debug(message)
