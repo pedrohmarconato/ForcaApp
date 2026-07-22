@@ -39,6 +39,20 @@ if (bundles.length === 0) {
   process.exit(1);
 }
 
+// A CSP do vercel.json usa script-src 'self' SEM 'unsafe-eval'. O loader de
+// split-bundle do Metro usa eval() — hoje é código morto porque o export gera
+// UM único bundle. Se aparecer code-splitting, a CSP precisa ser revisada
+// junto; este guard força essa conversa em vez de quebrar em produção.
+const principais = bundles.filter((f) => f.includes(join('_expo', 'static', 'js')));
+if (principais.length > 1) {
+  console.error(
+    'verify-web-bundle: mais de um bundle JS em _expo/static/js — code-splitting ' +
+      "ativo exige revisar a CSP (script-src sem 'unsafe-eval'): " +
+      principais.join(', '),
+  );
+  process.exit(1);
+}
+
 let temProducao = false;
 const comLan = [];
 for (const arquivo of bundles) {

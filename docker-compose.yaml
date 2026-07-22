@@ -11,7 +11,11 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     ports:
-      - "5001:5001"
+      # Default seguro: só loopback. Na VPS a chain DOCKER-USER está vazia e
+      # porta publicada pelo Docker FURA o UFW — 0.0.0.0 aqui já expôs o
+      # gunicorn à internet quando o override de produção faltou. Para testar
+      # no device físico em dev: FORCA_BIND_HOST=0.0.0.0 docker compose up
+      - "${FORCA_BIND_HOST:-127.0.0.1}:5001:5001"
     environment:
       # Obrigatórias (sem default): auth e IA falham sem elas
       SUPABASE_URL: ${SUPABASE_URL:?defina SUPABASE_URL no ambiente do projeto}

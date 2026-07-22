@@ -2,14 +2,13 @@
 # no diretório de deploy (/docker/forcaapp). O Compose aplica overrides
 # automaticamente, sem precisar de -f.
 #
-# POR QUE ISTO EXISTE (trava de segurança, não preferência):
-# a chain DOCKER-USER desta VPS está vazia, então portas publicadas pelo
-# Docker FURAM o UFW — um `ports: "5001:5001"` deixa o backend acessível
-# na internet mesmo com o firewall fechado. Por isso o bind é somente em
-# loopback; a exposição pública passa por nginx + TLS
-# (proxy_pass http://127.0.0.1:5001).
-#
-# Sem este arquivo, o docker-compose.yaml versionado publica 5001 em 0.0.0.0.
+# Desde o hardening de 22/07/2026, o docker-compose.yaml versionado JÁ faz
+# bind em loopback por padrão (FORCA_BIND_HOST default 127.0.0.1). Este
+# override permanece como cinto-e-suspensórios na VPS: mesmo que alguém
+# exporte FORCA_BIND_HOST=0.0.0.0 no ambiente do projeto, o !override
+# abaixo prende o bind em loopback. Contexto: a chain DOCKER-USER desta
+# VPS está vazia, então porta publicada pelo Docker FURA o UFW; a
+# exposição pública passa por nginx + TLS (proxy_pass http://127.0.0.1:5001).
 services:
   backend:
     ports: !override
