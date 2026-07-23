@@ -1,4 +1,5 @@
 import React from 'react';
+import { stackCardStyle } from './navigationStyles';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
@@ -44,7 +45,7 @@ const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
 function HomeStackNavigator() {
   return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle }}>
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <HomeStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
@@ -54,7 +55,7 @@ function HomeStackNavigator() {
 
 function TrainingStackNavigator() {
   return (
-    <TrainingStack.Navigator screenOptions={{ headerShown: false }}>
+    <TrainingStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle }}>
       <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
     </TrainingStack.Navigator>
@@ -63,7 +64,7 @@ function TrainingStackNavigator() {
 
 function ProfileStackNavigator() {
   return (
-    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProfileStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle }}>
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
       <ProfileStack.Screen name="SessionHistory" component={SessionHistoryScreen} />
       <ProfileStack.Screen name="SessionHistoryDetail" component={SessionHistoryDetailScreen} />
