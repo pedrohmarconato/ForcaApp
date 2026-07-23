@@ -244,9 +244,30 @@ export const recommendByRules = (params: {
   }
   const direction: 'increase' | 'decrease' = outcome === 'over' ? 'increase' : 'decrease';
   const cands = loadCandidates(currentLoadKg, direction, incrementKg, cfg);
-  // Nenhum passo do incremento cai dentro de [piso, teto] (incremento grosso demais) → manter.
+  // Nenhum passo alinhado cai dentro de [piso, teto]. Em carga leve com incremento
+  // grosso (ex.: 15kg + 2.5kg = 16.7% > teto 12%) NENHUMA candidata cabe — e o
+  // motor travava a progressão para sempre. Como o desvio já justifica mexer
+  // (passou do piso acima), oferecemos o MENOR passo possível (1 incremento),
+  // ainda que estoure o teto: é sugestão, o aluno confirma, e "manter" continua
+  // disponível. Sem esse degrau mínimo, cargas leves nunca progridem.
   if (cands.length === 0) {
-    return build(keep('Nenhum ajuste alinhado ao incremento cabe dentro dos limites — mantenha.'));
+    const step = Number.isFinite(incrementKg) && incrementKg > 0 ? incrementKg : 2.5;
+    const sign = direction === 'increase' ? 1 : -1;
+    const toKg = round2(currentLoadKg + sign * step);
+    if (toKg <= 0) {
+      return build(keep('Sem passo de carga possível abaixo do zero — mantenha.'));
+    }
+    const pctReal = Math.abs(toKg - currentLoadKg) / currentLoadKg;
+    const rec = loadAdjustment(
+      direction,
+      currentLoadKg,
+      toKg,
+      pctReal,
+      direction === 'increase'
+        ? `Você passou do alvo${rirBoost > 0 ? ` com fôlego sobrando (RIR ${rir})` : ''}: o menor ajuste de carga aqui é ${round2(step)} kg.`
+        : `Ficou abaixo do alvo: o menor ajuste de carga aqui é ${round2(step)} kg.`,
+    );
+    return build(rec);
   }
   // Recomendada: a candidata cuja mudança REAL fica mais perto do alvo desejado.
   const pick = cands.reduce((best, c) =>

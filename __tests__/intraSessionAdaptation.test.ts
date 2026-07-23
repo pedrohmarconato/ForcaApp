@@ -223,10 +223,18 @@ describe('recommendByRules — teto de mudança', () => {
   });
 });
 
-// ---- achado HIGH do review: arredondamento NÃO pode violar o teto ----
-describe('recommendByRules — teto respeitado após arredondar (achado do review)', () => {
-  it('incremento grosso que só produziria +20% → recomenda MANTER, não estoura o teto', () => {
-    // 100kg, incremento 20: o único passo (120kg) é +20% > teto 12% → nenhuma candidata válida.
+// ---- teto respeitado ENTRE candidatas; degrau mínimo quando nada cabe ----
+// Contrato atualizado (22/07/2026, reclamação real do dono "não muda a carga"):
+// o achado antigo do review garantia que o motor nunca escolhe um salto que
+// estoure o teto QUANDO existem passos menores — isso continua valendo (2ª
+// asserção). O que mudou: se o MENOR incremento do exercício já estoura o teto
+// (não há passo menor possível), o motor OFERECE esse único passo em vez de
+// travar a progressão para sempre — é sugestão, o aluno confirma, "manter"
+// segue disponível.
+describe('recommendByRules — teto entre candidatas + degrau mínimo', () => {
+  it('incremento que só produziria +20% (único passo) → OFERECE o degrau mínimo', () => {
+    // 100kg, incremento 20: o único passo (120kg) é +20% > teto — mas é o menor
+    // possível para o exercício, então o motor oferece (aluno decide).
     const over = recommendByRules({
       evaluated: evaluateSet({ actualReps: 12, targetRepsMin: 6, targetRepsMax: 8 }),
       currentLoadKg: 100,
@@ -234,7 +242,8 @@ describe('recommendByRules — teto respeitado após arredondar (achado do revie
       ctx: NORMAL,
       actualRir: 3,
     });
-    expect(over.recommended.kind).toBe('keep'); // antes: recomendava +20% (bug)
+    expect(over.recommended.kind).toBe('load');
+    if (over.recommended.kind === 'load') expect(over.recommended.toKg).toBe(120);
 
     const under = recommendByRules({
       evaluated: evaluateSet({ actualReps: 1, targetRepsMin: 6, targetRepsMax: 8 }),
@@ -242,10 +251,11 @@ describe('recommendByRules — teto respeitado após arredondar (achado do revie
       incrementKg: 20,
       ctx: NORMAL,
     });
-    expect(under.recommended.kind).toBe('keep');
+    expect(under.recommended.kind).toBe('load');
+    if (under.recommended.kind === 'load') expect(under.recommended.toKg).toBe(80);
   });
 
-  it('propriedade: nenhuma OPÇÃO de carga estoura o teto nem fica abaixo do piso', () => {
+  it('propriedade: entre 2+ candidatas, nenhuma OPÇÃO estoura o teto nem fica abaixo do piso', () => {
     for (const [reps, min, max, load, inc] of [
       [2, 12, 15, 100, 2.5],
       [1, 6, 8, 50, 2.5],

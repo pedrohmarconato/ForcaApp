@@ -178,3 +178,49 @@ describe('transparência do "manter" automático (store)', () => {
     expect(useActiveSessionStore.getState().lastAutoDecision).toBeNull();
   });
 });
+
+describe('degrau mínimo em carga leve (incremento grosso vs teto)', () => {
+  // Cenário REAL do dono no HML: 15 kg, incremento 2.5 → 1 passo = 16.7% > teto
+  // 12%. Sem o degrau mínimo, a progressão travava e a carga nunca subia.
+  it('superávit com fôlego: oferece 1 incremento mesmo estourando o teto', () => {
+    const rec = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 13, targetRepsMin: 6, targetRepsMax: 10 }),
+      currentLoadKg: 15,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 3,
+    });
+    expect(rec.recommended.kind).toBe('load');
+    if (rec.recommended.kind === 'load') {
+      expect(rec.recommended.direction).toBe('increase');
+      expect(rec.recommended.toKg).toBe(17.5); // 15 + 1 incremento
+      expect(rec.recommended.reason.toLowerCase()).toContain('menor ajuste');
+    }
+  });
+
+  it('déficit em carga leve: oferece reduzir 1 incremento', () => {
+    const rec = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 3, targetRepsMin: 6, targetRepsMax: 10 }),
+      currentLoadKg: 15,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: null,
+    });
+    expect(rec.recommended.kind).toBe('load');
+    if (rec.recommended.kind === 'load') {
+      expect(rec.recommended.direction).toBe('decrease');
+      expect(rec.recommended.toKg).toBe(12.5);
+    }
+  });
+
+  it('não sugere passo que zeraria/negativaria a carga', () => {
+    const rec = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 2, targetRepsMin: 6, targetRepsMax: 10 }),
+      currentLoadKg: 2.5,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: null,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+  });
+});
