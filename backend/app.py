@@ -721,59 +721,93 @@ INSTRUÇÕES:
 SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""
 
-    kwargs_molde = {
-        "model": get_plan_model_name(),
-        "max_tokens": 32768,
-        "messages": [{"role": "user", "content": prompt_molde}],
-    }
-    thinking_config = _thinking_config_para_modelo(kwargs_molde["model"])
-    if thinking_config:
-        kwargs_molde["thinking"] = thinking_config
+    from backend.services.molde_normalizer import extrair_molde_do_texto, normalizar_molde
 
-    try:
-        response = criar_mensagem_com_deadline(client, 240.0, **kwargs_molde)
-    except Exception:
-        app_logger.exception(f"Job {job.job_id}: falha na chamada do molde para usuário {user_id}.")
-        job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
-        return
+    modelo_do_molde = get_plan_model_name()
+    thinking_config = _thinking_config_para_modelo(modelo_do_molde)
 
-    resposta_texto = None
-    if getattr(response, "content", None):
-        for block in response.content:
-            if getattr(block, "type", None) == "text" and getattr(block, "text", None):
-                resposta_texto = block.text
-                break
-
-    if not resposta_texto:
-        app_logger.error(
-            f"Job {job.job_id}: molde sem bloco de texto "
-            f"(stop_reason={getattr(response, 'stop_reason', None)})."
-        )
-        job.set_error("molde_empty", "Modelo não retornou texto (possível budget de thinking excedido).")
-        return
-
-    import re as _re
+    # Até 1 retry DIRIGIDO: se o JSON reprovar no parse ou no schema, re-chama o
+    # modelo uma única vez com o erro na conversa para ele corrigir o próprio
+    # molde. Antes disso, normalizar_molde() remove no-ops (delta com valor 0)
+    # que modelos menores geram — o caso comum resolve sem geração extra.
+    MAX_TENTATIVAS_MOLDE = 2
+    mensagens = [{"role": "user", "content": prompt_molde}]
     molde = None
-    match = _re.search(r"\{.*\}", resposta_texto, _re.DOTALL)
-    if match:
+    falha = None  # (codigo, mensagem_usuario, detalhe_para_o_modelo)
+
+    for tentativa in range(1, MAX_TENTATIVAS_MOLDE + 1):
+        if tentativa > 1:
+            job.transition(JobStatus.GERANDO_MOLDE, "gerando_molde", "Ajustando a estratégia de treino...")
+
+        kwargs_molde = {
+            "model": modelo_do_molde,
+            "max_tokens": 32768,
+            "messages": mensagens,
+        }
+        if thinking_config:
+            kwargs_molde["thinking"] = thinking_config
+
         try:
-            molde = _json.loads(match.group(0))
-        except _json.JSONDecodeError:
-            pass
+            response = criar_mensagem_com_deadline(client, 240.0, **kwargs_molde)
+        except Exception:
+            app_logger.exception(f"Job {job.job_id}: falha na chamada do molde para usuário {user_id}.")
+            job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
+            return
 
-    if not isinstance(molde, dict):
-        app_logger.error(
-            f"Job {job.job_id}: falha ao extrair JSON do molde "
-            f"({len(resposta_texto)} chars na resposta)."
+        resposta_texto = None
+        if getattr(response, "content", None):
+            for block in response.content:
+                if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+                    resposta_texto = block.text
+                    break
+
+        if not resposta_texto:
+            app_logger.error(
+                f"Job {job.job_id}: molde sem bloco de texto "
+                f"(stop_reason={getattr(response, 'stop_reason', None)})."
+            )
+            job.set_error("molde_empty", "Modelo não retornou texto (possível budget de thinking excedido).")
+            return
+
+        candidato = extrair_molde_do_texto(resposta_texto)
+        if candidato is None:
+            falha = (
+                "molde_parse",
+                "Falha ao extrair JSON do molde.",
+                "A resposta não continha um objeto JSON parseável.",
+            )
+        else:
+            candidato = normalizar_molde(candidato)
+            try:
+                _jsonschema.validate(instance=candidato, schema=MOLDE_SCHEMA)
+                molde = candidato
+                break
+            except _jsonschema.exceptions.ValidationError as e:
+                falha = ("molde_validation", f"Molde inválido: {e.message}", e.message)
+
+        app_logger.warning(
+            f"Job {job.job_id}: tentativa {tentativa}/{MAX_TENTATIVAS_MOLDE} do molde "
+            f"reprovou ({falha[0]}): {falha[2]}"
         )
-        job.set_error("molde_parse", "Falha ao extrair JSON do molde.")
-        return
+        if tentativa < MAX_TENTATIVAS_MOLDE:
+            mensagens = mensagens + [
+                {"role": "assistant", "content": resposta_texto},
+                {
+                    "role": "user",
+                    "content": (
+                        "O molde retornado falhou na validação do schema: "
+                        f"{falha[2]}\n"
+                        "Corrija exatamente esse problema mantendo o restante do molde e "
+                        "retorne SOMENTE o JSON completo corrigido, sem texto adicional."
+                    ),
+                },
+            ]
 
-    try:
-        _jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
-    except _jsonschema.exceptions.ValidationError as e:
-        app_logger.error(f"Job {job.job_id}: molde reprovado no schema — {e.message}")
-        job.set_error("molde_validation", f"Molde inválido: {e.message}")
+    if molde is None:
+        app_logger.error(
+            f"Job {job.job_id}: molde reprovado após {MAX_TENTATIVAS_MOLDE} tentativas — {falha[2]}"
+        )
+        job.set_error(falha[0], falha[1])
         return
 
     job.transition(JobStatus.EXPANDINDO, "expandindo", "Expandindo o plano para 12 semanas...")
