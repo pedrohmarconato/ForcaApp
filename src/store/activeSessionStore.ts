@@ -38,6 +38,7 @@ import {
   type Recommendation,
   type Adjustment,
 } from '../engine/intraSessionAdaptation';
+import { effectiveMinutesForMood, type SessionMood } from '../engine/moodAdjustment';
 import {
   replanByRules,
   applyTimeCutToDraft,
@@ -58,7 +59,7 @@ import {
   clearDraft,
 } from '../services/sessionDraftStorage';
 
-type Status = 'idle' | 'loading' | 'active' | 'finished' | 'error';
+type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
 // Adaptação pendente de decisão do aluno após concluir uma série fora do alvo (Fase 5).
 // A UI observa este campo para abrir o bottom sheet; nada é aplicado sem confirmação.
@@ -93,11 +94,21 @@ interface ActiveSessionState {
   pendingAdaptation: PendingAdaptation | null;
   pendingReplan: PendingReplan | null;
   replanBusy: boolean;
+  /** Check-in pré-treino desta sessão (herdado do servidor na retomada). */
+  sessionMood: SessionMood | null;
+  /** Minutos informados no check-in (null = tempo cheio). */
+  checkInMinutes: number | null;
+  /** Sessão nova aguardando o check-in obrigatório (draft ainda sem session_log). */
+  pendingCheckIn: { sessionId: string; draft: SessionDraft } | null;
 
   startOrResume: (args: {
     sessionId: string;
     userId: string;
     detail: SessionDetail;
+  }) => Promise<void>;
+  confirmCheckIn: (answers: {
+    mood: SessionMood;
+    availableMinutes: number | null;
   }) => Promise<void>;
   computeReplan: (detail: SessionDetail) => Promise<void>;
   requestTimeCut: (minutes: number | null) => void;
@@ -347,6 +358,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   pendingAdaptation: null,
   pendingReplan: null,
   replanBusy: false,
+  sessionMood: null,
+  checkInMinutes: null,
+  pendingCheckIn: null,
 
   startOrResume: async ({ sessionId, userId, detail }) => {
     const epoch = ++operationEpoch;
@@ -412,7 +426,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           aberta,
           local, // preserva adaptações locais ainda não confirmadas no servidor
         );
-        set({ draft: draftServidor, status: 'active' });
+        set({
+          draft: draftServidor,
+          status: 'active',
+          sessionMood: aberta.mood,
+          checkInMinutes: aberta.availableMinutes,
+        });
         try {
           await saveDraft(draftServidor);
         } catch (e) {
@@ -432,15 +451,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       // Já existe execução em aberto desta sessão? Retoma-a (não duplica session_log).
       const aberta = await getOpenSessionLog(userId, sessionId);
       if (!isCurrent()) return;
-      if (aberta) {
-        draft = applyServerSetLogs(draft, aberta);
-      } else {
-        const { sessionLogId, startedAt } = await startSessionLog(sessionId);
-        if (!isCurrent()) return;
-        draft = { ...draft, sessionLogId, startedAt };
+      if (!aberta) {
+        // Sessão NOVA: o check-in (humor + tempo) é obrigatório ANTES de criar
+        // o session_log — as respostas viajam no próprio start_session.
+        set({ status: 'awaiting_checkin', pendingCheckIn: { sessionId, draft } });
+        return;
       }
 
-      set({ draft, status: 'active' });
+      draft = applyServerSetLogs(draft, aberta);
+      set({
+        draft,
+        status: 'active',
+        sessionMood: aberta.mood,
+        checkInMinutes: aberta.availableMinutes,
+      });
       // Sessão já criada/retomada no servidor (verdade). Persistência local é secundária:
       // falhar aqui NÃO derruba o início para 'error' (mesma filosofia do completeSet).
       try {
@@ -450,6 +474,36 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       }
     } catch (e) {
       if (isCurrent()) set({ status: 'error', saveError: errMsg(e) });
+    }
+  },
+
+  confirmCheckIn: async ({ mood, availableMinutes }) => {
+    const pending = get().pendingCheckIn;
+    if (!pending || get().status !== 'awaiting_checkin') return;
+    const epoch = operationEpoch;
+    set({ status: 'loading' });
+    try {
+      const { sessionLogId, startedAt } = await startSessionLog(pending.sessionId, {
+        mood,
+        availableMinutes,
+      });
+      if (operationEpoch !== epoch) return;
+      const draft = { ...pending.draft, sessionLogId, startedAt };
+      set({
+        draft,
+        status: 'active',
+        sessionMood: mood,
+        checkInMinutes: availableMinutes,
+        pendingCheckIn: null,
+      });
+      // Mesma filosofia do startOrResume: persistência local é secundária.
+      try {
+        await saveDraft(draft);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      }
+    } catch (e) {
+      if (operationEpoch === epoch) set({ status: 'error', saveError: errMsg(e) });
     }
   },
 
@@ -471,18 +525,25 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       );
       const atual = get().draft;
       if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return;
+      const sessaoDeHoje =
+        context.sessions.find((sess) => sess.id === atual.plannedSessionId) ?? null;
+      const minutosEfetivos = effectiveMinutesForMood({
+        mood: get().sessionMood,
+        availableMinutes: get().checkInMinutes,
+        estimatedMinutes: sessaoDeHoje?.estimatedMinutes ?? null,
+      });
       const proposal = replanByRules({
         sessions: context.sessions,
         todayISO: localTodayISO(),
         currentSessionId: atual.plannedSessionId,
-        availableMinutes: null,
+        availableMinutes: minutosEfetivos,
         completedSetsBySession: context.completedSetsBySession,
       });
       // Guarda mesmo sem mudanças: o contexto serve ao "menos tempo hoje".
       set({
         pendingReplan: {
           sessionLogId: sid,
-          requestedMinutes: null,
+          requestedMinutes: get().checkInMinutes,
           redistributionDismissed: false,
           context,
           proposal,
@@ -497,11 +558,18 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const pr = get().pendingReplan;
     const draft = get().draft;
     if (!pr || !draft) return;
+    const sessaoDeHoje =
+      pr.context.sessions.find((sess) => sess.id === draft.plannedSessionId) ?? null;
+    const minutosEfetivos = effectiveMinutesForMood({
+      mood: get().sessionMood,
+      availableMinutes: minutes,
+      estimatedMinutes: sessaoDeHoje?.estimatedMinutes ?? null,
+    });
     let proposal = replanByRules({
       sessions: pr.context.sessions,
       todayISO: localTodayISO(),
       currentSessionId: draft.plannedSessionId,
-      availableMinutes: minutes,
+      availableMinutes: minutosEfetivos,
       completedSetsBySession: pr.context.completedSetsBySession,
     });
     // Redistribuição já recusada nesta visita não volta pela porta do recálculo.
@@ -1007,6 +1075,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       pendingAdaptation: null,
       pendingReplan: null,
       replanBusy: false,
+      sessionMood: null,
+      checkInMinutes: null,
+      pendingCheckIn: null,
     });
   },
 }));

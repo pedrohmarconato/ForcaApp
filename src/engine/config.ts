@@ -67,3 +67,17 @@ export const REPLAN_CONFIG: ReplanConfig = {
   minRestDaysSameGroup: 1, // não empilhar o mesmo grupo em dias consecutivos — PADRÃO A VALIDAR
   deloadTokens: ['deload', 'descarga'], // detecção por texto: o volume semanal da IA não é persistido
 };
+
+// ---------------------------------------------------------------
+// Check-in pré-treino (humor × tempo) — decisão do dono em 22/07/2026
+// ---------------------------------------------------------------
+
+export type MoodConfig = {
+  /** Fração da base de minutos que um aluno CANSADO consegue aproveitar.
+   *  Alimenta a escada de corte por tempo da Fase 6 (nunca corta primários). */
+  tiredCapacityFactor: number;
+};
+
+export const MOOD_CONFIG: MoodConfig = {
+  tiredCapacityFactor: 0.7, // PADRÃO A VALIDAR — cansado ≈ 70% da capacidade
+};

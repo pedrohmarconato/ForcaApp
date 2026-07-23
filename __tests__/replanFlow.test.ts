@@ -50,6 +50,16 @@ import {
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
+
+// Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
+// testes desta suíte confirmam com defaults neutros para seguir o fluxo antigo.
+const confirmarCheckInSePedido = async () => {
+  const st = useActiveSessionStore.getState();
+  if (st.status === 'awaiting_checkin') {
+    await st.confirmCheckIn({ mood: 'normal', availableMinutes: null });
+  }
+};
+
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 const store = () => useActiveSessionStore.getState();
 
@@ -186,6 +196,7 @@ beforeEach(() => {
 const abrir = async () => {
   const detail = makeDetail();
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail });
+    await confirmarCheckInSePedido();
   await store().computeReplan(detail);
 };
 
@@ -398,6 +409,7 @@ it('replanejamento indisponível (offline) NÃO derruba a sessão', async () => 
   mock(getWeekReplanContext).mockRejectedValue(new Error('sem rede'));
   const detail = makeDetail();
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail });
+    await confirmarCheckInSePedido();
   await store().computeReplan(detail);
   expect(store().status).toBe('active');
   expect(store().pendingReplan).toBeNull();
@@ -432,5 +444,6 @@ it('retomada reaplica um corte de tempo já CONFIRMADO (registro do servidor)', 
   });
 
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
   expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).toBe(true);
 });

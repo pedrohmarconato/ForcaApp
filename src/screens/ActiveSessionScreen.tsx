@@ -36,6 +36,7 @@ import Button from '../components/ui/Button';
 import { Notice, ProgressTrack } from '../components/ui/Feedback';
 import SetRow from '../components/session/SetRow';
 import AdaptationSheet from '../components/session/AdaptationSheet';
+import CheckInSheet from '../components/session/CheckInSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
 import type { Adjustment } from '../engine/intraSessionAdaptation';
 
@@ -58,6 +59,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const status = useActiveSessionStore((s) => s.status);
   const saveError = useActiveSessionStore((s) => s.saveError);
   const startOrResume = useActiveSessionStore((s) => s.startOrResume);
+  const confirmCheckIn = useActiveSessionStore((s) => s.confirmCheckIn);
   const finishSession = useActiveSessionStore((s) => s.finishSession);
   const clearError = useActiveSessionStore((s) => s.clearError);
   const reset = useActiveSessionStore((s) => s.reset);
@@ -201,8 +203,18 @@ const ActiveSessionScreen = ({ route }: Props) => {
   }
 
   if (!draft) {
+    // Sessão nova aguardando o check-in obrigatório: o draft só nasce depois
+    // das duas respostas — o sheet precisa renderizar NESTE early return.
     return (
       <View style={styles.centered}>
+        <CheckInSheet
+          visible={status === 'awaiting_checkin'}
+          sessionTitle={detail?.title ?? null}
+          onConfirm={async (answers) => {
+            await confirmCheckIn(answers);
+            if (detail) await computeReplan(detail);
+          }}
+        />
         <Text style={styles.muted}>Nenhuma sessão ativa.</Text>
       </View>
     );
@@ -343,6 +355,16 @@ const ActiveSessionScreen = ({ route }: Props) => {
         />
       </ScrollView>
 
+      <CheckInSheet
+        visible={status === 'awaiting_checkin'}
+        sessionTitle={detail?.title ?? null}
+        onConfirm={async (answers) => {
+          await confirmCheckIn(answers);
+          // Mesmo gatilho do fluxo normal: recalcular a semana com o check-in
+          // aplicado (best-effort — nunca impede o treino).
+          if (detail) await computeReplan(detail);
+        }}
+      />
       <AdaptationSheet
         recommendation={pendingAdaptation?.recommendation ?? null}
         exerciseName={

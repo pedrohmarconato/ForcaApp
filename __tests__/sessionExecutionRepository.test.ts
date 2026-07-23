@@ -62,6 +62,8 @@ describe('startSessionLog (RPC atômica start_session)', () => {
     });
     expect(rpcMock).toHaveBeenCalledWith('start_session', {
       p_planned_session_id: 'ps-1',
+      p_mood: null,
+      p_available_minutes: null,
     });
   });
 

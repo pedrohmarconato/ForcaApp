@@ -181,6 +181,11 @@ const renderScreen = () =>
 
 it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   const screen = renderScreen();
+  // Check-in obrigatório (22/07/2026): responder as 2 perguntas para o treino abrir.
+  await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Normal'));
+  fireEvent.press(screen.getByLabelText('Tempo cheio'));
+  fireEvent.press(screen.getByLabelText('Começar treino'));
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
   // --- Série 1 do Supino (barra): 1ª carga precisa ser informada ---
@@ -249,6 +254,11 @@ it('bloqueia edição da medição enquanto a gravação está em voo', async ()
   }>();
   mock(saveSetLog).mockReturnValueOnce(pending.promise);
   const screen = renderScreen();
+  // Check-in obrigatório (22/07/2026): responder as 2 perguntas para o treino abrir.
+  await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Normal'));
+  fireEvent.press(screen.getByLabelText('Tempo cheio'));
+  fireEvent.press(screen.getByLabelText('Começar treino'));
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
   fireEvent.press(screen.getAllByText('Iniciar série')[0]);
