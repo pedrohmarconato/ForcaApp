@@ -28,6 +28,7 @@ jest.mock('../src/services/auth/secureStorage', () => ({
   getItem: jest.fn(async () => null),
   setItem: jest.fn(async () => undefined),
   removeItem: jest.fn(async () => undefined),
+  removeLegacyPlaintextCopy: jest.fn(async () => undefined),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

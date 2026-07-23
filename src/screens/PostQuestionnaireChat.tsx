@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabaseSecureStorage as secureStorage } from '../services/auth/secureStorage';
+import { supabaseSecureStorage as secureStorage, removeLegacyPlaintextCopy } from '../services/auth/secureStorage';
 import { Feather } from '@expo/vector-icons';
 
 // Serviços e Contextos
@@ -95,8 +95,9 @@ const PostQuestionnaireChat = () => {
         try {
             const stateToSave = JSON.stringify({ messages: msgs, interactionsCount: count, isChatEnded: ended, adjustments: adjs });
             await secureStorage.setItem(key, stateToSave);
-            // Remove a cópia legada em texto puro (versões antigas usavam AsyncStorage)
-            await AsyncStorage.removeItem(key).catch(() => undefined);
+            // Remove a cópia legada em texto puro (só no nativo — no web isto
+            // apagava o estado do chat recém-gravado a cada save)
+            await removeLegacyPlaintextCopy(key);
         } catch (error) {
             console.error(`[Chat ${userId}] Erro ao salvar estado do chat no armazenamento seguro:`, error);
         }
