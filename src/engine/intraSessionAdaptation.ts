@@ -354,3 +354,57 @@ export const replayAdaptations = (draft: SessionDraft): SessionDraft => {
   }
   return out;
 };
+
+// ============================================================
+// Telemetria da decisão (lacuna 1 dos registros p/ modelagem, 23/07/2026)
+// ============================================================
+
+export type AdaptationResponse = 'accepted' | 'diverged' | 'declined' | 'auto';
+
+export type AdaptationDecision = {
+  outcome: Outcome;
+  tier: DeviationTier;
+  deviationReps: number;
+  /** O que o motor recomendou (a proposta). */
+  recommended: Adjustment;
+  /** Opções apresentadas ao aluno. */
+  options: Adjustment[];
+  /** O que o aluno escolheu (ou a decisão automática). */
+  chosen: Adjustment;
+  /** Relação escolha × proposta — o sinal de modelagem. */
+  response: AdaptationResponse;
+};
+
+/**
+ * Monta o envelope de telemetria a partir da recomendação e da escolha. PURO.
+ * `isAuto` = decisão automática de segurança (guardrail/piso), sem sheet.
+ *  - auto:     isAuto true (não houve escolha do aluno)
+ *  - accepted: escolheu exatamente a recomendada
+ *  - declined: recusou o ajuste proposto (escolheu 'manter' quando havia ajuste)
+ *  - diverged: escolheu outra opção que não a recomendada nem 'manter'
+ */
+export const buildAdaptationDecision = (
+  recommendation: Recommendation,
+  chosen: Adjustment,
+  isAuto: boolean,
+): AdaptationDecision => {
+  let response: AdaptationResponse;
+  if (isAuto) {
+    response = 'auto';
+  } else if (sameAdjustment(chosen, recommendation.recommended)) {
+    response = 'accepted';
+  } else if (chosen.kind === 'keep' && recommendation.recommended.kind !== 'keep') {
+    response = 'declined';
+  } else {
+    response = 'diverged';
+  }
+  return {
+    outcome: recommendation.outcome,
+    tier: recommendation.tier,
+    deviationReps: recommendation.deviationReps,
+    recommended: recommendation.recommended,
+    options: recommendation.options,
+    chosen,
+    response,
+  };
+};

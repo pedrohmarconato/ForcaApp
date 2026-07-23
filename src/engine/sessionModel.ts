@@ -28,6 +28,10 @@ export type DraftSet = {
   // Decisão de adaptação registrada nesta série (Fase 5). Null até o aluno decidir.
   // Tipo importado só como tipo (sem ciclo em runtime — sessionModel não importa o motor).
   adaptation: import('./intraSessionAdaptation').Adjustment | null;
+  // Momento em que o aluno ativou a série (lacuna 2: tempo real por série).
+  // Null enquanto pendente; ISO string ao ativar. Opcional: rascunhos e fixtures
+  // anteriores à 0012 não têm o campo (default null na leitura).
+  activatedAt?: string | null;
 };
 
 export type DraftExercise = {
@@ -208,6 +212,7 @@ export const buildDraftFromDetail = (
       outcome: null,
       setLogId: null,
       adaptation: null,
+      activatedAt: null,
     })),
   }));
 
@@ -264,6 +269,7 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
       actualRir: s.actualRir == null ? null : toNum(s.actualRir),
       // Rascunho de versão anterior à Fase 5 não tem o campo → default seguro.
       adaptation: s.adaptation ?? null,
+      activatedAt: s.activatedAt ?? null,
     })),
   })),
 });

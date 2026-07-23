@@ -179,7 +179,11 @@ it('resolver aplica o ajuste à próxima série, grava a escolha e limpa o pende
   const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
   expect(set1.adaptation).toEqual(rec);
   // persistiu no servidor (best-effort) e limpou o pendente
-  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith('sl-1', rec);
+  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
+    'sl-1',
+    rec,
+    expect.objectContaining({ response: 'accepted', recommended: rec }),
+  );
   expect(store().pendingAdaptation).toBeNull();
 });
 
@@ -197,7 +201,12 @@ it('recusar (manter) grava a decisão mas NÃO altera o alvo da próxima série'
 
   const set2 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 2)!;
   expect(set2.targetLoadKg).toBeNull(); // alvo original preservado (recusa respeitada)
-  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith('sl-1', keep); // recusa registrada
+  // recusa registrada + telemetria: response 'declined' e o recomendado preservado
+  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
+    'sl-1',
+    keep,
+    expect.objectContaining({ response: 'declined' }),
+  );
   expect(store().pendingAdaptation).toBeNull();
 });
 
@@ -215,6 +224,7 @@ it('MEDIUM: superávit com lesão → sem sheet, mas REGISTRA decisão automáti
   expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
     'sl-1',
     expect.objectContaining({ kind: 'keep', auto: true }),
+    expect.objectContaining({ response: 'auto' }),
   );
 });
 

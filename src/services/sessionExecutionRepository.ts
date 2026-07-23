@@ -215,6 +215,8 @@ export const saveSetLog = async (
     actualLoadKg: number | null;
     actualRir: number | null;
     outcome: Outcome;
+    /** Momento da ATIVAÇÃO da série (lacuna 2: tempo real por série). */
+    startedAt?: string | null;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -231,6 +233,7 @@ export const saveSetLog = async (
     p_actual_load_kg: params.actualLoadKg,
     p_actual_rir: params.actualRir,
     p_outcome: params.outcome,
+    p_started_at: params.startedAt ?? null,
   });
   let response: any;
   try {
@@ -270,12 +273,17 @@ export const saveSetLog = async (
 export const updateSetLogAdaptation = async (
   setLogId: string,
   adaptation: unknown,
+  decision?: unknown,
 ): Promise<void> => {
+  // `adaptation` = Adjustment escolhido (usado no replay da retomada).
+  // `decision` = envelope de telemetria (lacuna 1: proposta ↔ escolha).
+  const patch: Record<string, unknown> = { adaptation };
+  if (decision !== undefined) patch.adaptation_decision = decision;
   let response: any;
   try {
     response = await supabase
       .from('set_logs')
-      .update({ adaptation })
+      .update(patch)
       .eq('id', setLogId);
   } catch (error) {
     throw thrownRequestError(error);

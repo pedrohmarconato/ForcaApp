@@ -35,6 +35,7 @@ import {
   recommendByRules,
   applyAdjustmentToNextSet,
   replayAdaptations,
+  buildAdaptationDecision,
   type Recommendation,
   type Adjustment,
 } from '../engine/intraSessionAdaptation';
@@ -753,8 +754,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     if (!draft) return;
     // Só revela os inputs. NÃO pré-preenche a carga: a sugestão vira valor informado
     // apenas quando o aluno digita ou toca "usar sugestão" (F10: sugestão ≠ medição).
+    const agora = new Date().toISOString();
     const novo = withSet(draft, exerciseId, setOrder, (s) =>
-      s.status !== 'pending' ? s : { ...s, status: 'active' },
+      s.status !== 'pending'
+        ? s
+        : { ...s, status: 'active', activatedAt: s.activatedAt ?? agora },
     );
     set({ draft: novo });
   },
@@ -871,6 +875,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               actualLoadKg,
               actualRir: serie.actualRir,
               outcome,
+              startedAt: serie.activatedAt,
             },
             signal,
           ),
@@ -951,7 +956,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           });
           finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
           if (saved.setLogId) {
-            updateSetLogAdaptation(saved.setLogId, autoKeep).catch((e) =>
+            const decision = buildAdaptationDecision(recommendation, autoKeep, true);
+            updateSetLogAdaptation(saved.setLogId, autoKeep, decision).catch((e) =>
               console.warn('[activeSession] adaptação automática não persistida (não-fatal):', e),
             );
           }
@@ -1024,7 +1030,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // a escolha — inclusive a recusa ("manter") — fica gravada em set_logs.adaptation.
     if (pending.setLogId) {
       try {
-        await updateSetLogAdaptation(pending.setLogId, adjustment);
+        const decision = buildAdaptationDecision(pending.recommendation, adjustment, false);
+        await updateSetLogAdaptation(pending.setLogId, adjustment, decision);
       } catch (e) {
         console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
       }
