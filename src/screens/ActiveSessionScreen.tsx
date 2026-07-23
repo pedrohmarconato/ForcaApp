@@ -34,7 +34,8 @@ import {
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
 import Button from '../components/ui/Button';
 import { Notice, ProgressTrack } from '../components/ui/Feedback';
-import SetRow from '../components/session/SetRow';
+import SessionPlayer from '../components/session/SessionPlayer';
+import SessionQueue from '../components/session/SessionQueue';
 import AdaptationSheet from '../components/session/AdaptationSheet';
 import CheckInSheet from '../components/session/CheckInSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
@@ -309,43 +310,20 @@ const ActiveSessionScreen = ({ route }: Props) => {
           onDecline={declineReplan}
         />
 
-        {draft.exercises.map((ex, idxEx) => {
-          const detalheEx = detail?.planned_exercises.find(
-            (e) => e.id === ex.exerciseId,
-          );
-          const cortado = ex.cutByReplan === true;
-          // Exercício cortado por tempo: séries já feitas continuam visíveis;
-          // as pendentes saem do caminho (e do progresso — sessionModel).
-          const seriesVisiveis = cortado
-            ? ex.sets.filter((s) => s.status === 'done')
-            : ex.sets;
-          return (
-            <View key={ex.exerciseId} style={styles.exerciseBlock}>
-              <Text style={[styles.exerciseName, cortado && styles.exerciseNameCut]}>
-                {idxEx + 1}. {ex.name}
-              </Text>
-              {cortado ? (
-                <Text style={styles.cutNote}>
-                  Cortado por tempo — confirmado por você. As séries não feitas
-                  não contam hoje.
-                </Text>
-              ) : detalheEx ? (
-                <Text style={styles.exerciseMeta}>
-                  {formatExerciseTarget(detalheEx)}
-                </Text>
-              ) : null}
-              {seriesVisiveis.map((s, idxSet) => (
-                <SetRow
-                  key={s.plannedSetId}
-                  exercise={ex}
-                  set={s}
-                  suggestedLoad={suggestionFor(draft, ex, s)}
-                  isLast={idxSet === seriesVisiveis.length - 1}
-                />
-              ))}
-            </View>
-          );
-        })}
+        {/* Redesign 22/07: modo player — um card com o AGORA; o resto é fila. */}
+        <SessionPlayer
+          draft={draft}
+          suggestedLoadFor={(ex, s) => suggestionFor(draft, ex, s)}
+        />
+        <SessionQueue
+          draft={draft}
+          metaFor={(ex) => {
+            const detalheEx = detail?.planned_exercises.find(
+              (e) => e.id === ex.exerciseId,
+            );
+            return detalheEx ? formatExerciseTarget(detalheEx) : null;
+          }}
+        />
 
         <Button
           label="Concluir treino"
