@@ -265,6 +265,25 @@ export const supabaseSecureStorage = {
 };
 
 /**
+ * Apaga a cópia legada em texto puro que versões ANTIGAS do app deixaram no
+ * AsyncStorage sob a mesma chave lógica que hoje vive no armazenamento seguro.
+ *
+ * SÓ FAZ SENTIDO NO NATIVO: no web o AsyncStorage também é window.localStorage
+ * sem prefixo — a "cópia legada" É o valor que o secureStorage acabou de
+ * gravar, e removê-la apaga o dado na hora (foi o que quebrou o fluxo
+ * questionário→chat do PWA em 22/07: a tela seguinte não achava mais nada).
+ * Mesmo raciocínio do migrateLegacySupabaseSession abaixo.
+ */
+export const removeLegacyPlaintextCopy = async (key: string): Promise<void> => {
+  if (isWeb) return;
+  try {
+    await AsyncStorage.removeItem(key);
+  } catch {
+    // melhor esforço: limpeza de legado não pode quebrar o fluxo principal
+  }
+};
+
+/**
  * Migra a sessão Supabase gravada em texto puro no AsyncStorage por versões
  * ANTIGAS do app (que usavam AsyncStorage como storage do supabase-js) para o
  * SecureStore, na mesma chave lógica (formato `sb-<ref>-auth-token`), e APAGA

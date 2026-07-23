@@ -2,7 +2,7 @@
 // Chaves do estado do chat pós-questionário — compartilhadas entre a tela de
 // chat (grava/lê) e o questionário (reseta ao abrir uma rodada nova).
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { removeItem as secureRemoveItem } from './auth/secureStorage';
+import { removeItem as secureRemoveItem, removeLegacyPlaintextCopy } from './auth/secureStorage';
 
 export const STORAGE_KEY_CHAT_PREFIX = '@chat_messages_';
 // Substitui @chat_completed_: agora é máquina de estados, não booleano.
@@ -24,7 +24,8 @@ export const resetPostQuestionnaireChatState = async (userId: string): Promise<v
   ];
   for (const key of keys) {
     await secureRemoveItem(key).catch(() => undefined);
-    // Remove também a cópia legada em texto puro (versões antigas usavam AsyncStorage)
-    await AsyncStorage.removeItem(key).catch(() => undefined);
+    // Remove também a cópia legada em texto puro (nativo; no web o
+    // secureRemoveItem acima já apagou a única cópia)
+    await removeLegacyPlaintextCopy(key);
   }
 };

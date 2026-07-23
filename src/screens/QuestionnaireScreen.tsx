@@ -26,7 +26,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { getItem as secureGetItem, setItem as secureSetItem } from '../services/auth/secureStorage';
+import { getItem as secureGetItem, setItem as secureSetItem, removeLegacyPlaintextCopy } from '../services/auth/secureStorage';
 import { probeSessionValidity } from '../services/auth/sessionProbe';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
@@ -305,8 +305,9 @@ const QuestionnaireScreen = () => {
     try {
     // 1. Salvar no armazenamento seguro primeiro (para ter backup local criptografado)
     await secureSetItem(userStorageKey, JSON.stringify(formDataForStorage));
-    // Remove a cópia legada em texto puro (versões antigas usavam AsyncStorage)
-    await AsyncStorage.removeItem(userStorageKey);
+    // Remove a cópia legada em texto puro (só no nativo — no web apagaria o
+    // que acabou de ser salvo; ver removeLegacyPlaintextCopy)
+    await removeLegacyPlaintextCopy(userStorageKey);
     console.log('[QuestionnaireScreen] Dados salvos no armazenamento seguro.');
 
     // 2. Tentar salvar na API (Supabase)

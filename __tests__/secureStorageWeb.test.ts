@@ -131,6 +131,22 @@ describe('secureStorage na web (PWA)', () => {
     expect(await storage.getItem(chave)).toBe(sessaoViva);
   });
 
+  it('removeLegacyPlaintextCopy no web NÃO apaga o valor recém-gravado', async () => {
+    // Modo de falha real (fluxo questionário→chat do PWA, 22/07/2026): o
+    // submit gravava no storage seguro e em seguida "limpava a cópia legada"
+    // do AsyncStorage — que no web é o MESMO localStorage, mesma chave. O
+    // dado recém-salvo sumia e a tela do chat abria com "Dados do
+    // questionário não encontrados".
+    const chave = '@questionnaire_data_user-123';
+    mockAsyncGetItem.mockImplementation(async (k) => globalThis.localStorage.getItem(k));
+    mockAsyncRemoveItem.mockImplementation(async (k) => void globalThis.localStorage.removeItem(k));
+
+    await storage.setItem(chave, '{"nome":"Pedro"}');
+    await storage.removeLegacyPlaintextCopy(chave);
+
+    expect(await storage.getItem(chave)).toBe('{"nome":"Pedro"}');
+  });
+
   it('sobrevive a localStorage indisponível (modo privado) sem lançar', async () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
     Object.defineProperty(globalThis, 'localStorage', {
