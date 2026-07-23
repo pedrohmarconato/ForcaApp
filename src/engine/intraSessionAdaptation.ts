@@ -97,6 +97,7 @@ const loadAdjustment = (
   fromKg: number,
   toKg: number,
   pct: number,
+  reason?: string,
 ): Adjustment => ({
   kind: 'load',
   direction,
@@ -109,9 +110,10 @@ const loadAdjustment = (
   pct,
   label: `${direction === 'increase' ? 'Aumentar' : 'Reduzir'} para ${round2(toKg)} kg`,
   reason:
-    direction === 'increase'
+    reason ??
+    (direction === 'increase'
       ? 'Você superou a faixa-alvo: subir a carga mantém o estímulo.'
-      : 'Você ficou abaixo da faixa-alvo: reduzir a carga recupera a execução na faixa.',
+      : 'Você ficou abaixo da faixa-alvo: reduzir a carga recupera a execução na faixa.'),
 });
 
 const sameAdjustment = (a: Adjustment, b: Adjustment): boolean => {
@@ -226,16 +228,46 @@ export const recommendByRules = (params: {
       keep(`Você passou do alvo, mas com RIR ${rir} (perto da falha): mantenha a carga desta vez.`),
     );
   }
-  const desiredPct = Math.min(cfg.loadPctPerRep * deviationReps, cfg.maxLoadPct);
+  // IMPULSO DO FÔLEGO (calibrado pelo dono, 22/07/2026): num SUPERÁVIT com
+  // RIR >= rirBoostMinRir, cada ponto acima de (rirBoostMinRir - 1) soma 1 rep
+  // ao desvio — 1 rep acima + "aguentaria 3" pesa como desvio 3. Déficit nunca
+  // ganha boost, e o teto maxLoadPct continua segurando o passo.
+  const rirBoost =
+    outcome === 'over' && rir != null && rir >= cfg.rirBoostMinRir
+      ? rir - (cfg.rirBoostMinRir - 1)
+      : 0;
+  const effectiveDeviation = deviationReps + rirBoost;
+  const desiredPct = Math.min(cfg.loadPctPerRep * effectiveDeviation, cfg.maxLoadPct);
   // Desvio pequeno demais para valer um ajuste (alvo abaixo do piso) → manter.
   if (desiredPct < cfg.minLoadPct) {
     return build(keep('O desvio é pequeno demais para mexer na carga — mantenha.'));
   }
   const direction: 'increase' | 'decrease' = outcome === 'over' ? 'increase' : 'decrease';
   const cands = loadCandidates(currentLoadKg, direction, incrementKg, cfg);
-  // Nenhum passo do incremento cai dentro de [piso, teto] (incremento grosso demais) → manter.
+  // Nenhum passo alinhado cai dentro de [piso, teto]. Em carga leve com incremento
+  // grosso (ex.: 15kg + 2.5kg = 16.7% > teto 12%) NENHUMA candidata cabe — e o
+  // motor travava a progressão para sempre. Como o desvio já justifica mexer
+  // (passou do piso acima), oferecemos o MENOR passo possível (1 incremento),
+  // ainda que estoure o teto: é sugestão, o aluno confirma, e "manter" continua
+  // disponível. Sem esse degrau mínimo, cargas leves nunca progridem.
   if (cands.length === 0) {
-    return build(keep('Nenhum ajuste alinhado ao incremento cabe dentro dos limites — mantenha.'));
+    const step = Number.isFinite(incrementKg) && incrementKg > 0 ? incrementKg : 2.5;
+    const sign = direction === 'increase' ? 1 : -1;
+    const toKg = round2(currentLoadKg + sign * step);
+    if (toKg <= 0) {
+      return build(keep('Sem passo de carga possível abaixo do zero — mantenha.'));
+    }
+    const pctReal = Math.abs(toKg - currentLoadKg) / currentLoadKg;
+    const rec = loadAdjustment(
+      direction,
+      currentLoadKg,
+      toKg,
+      pctReal,
+      direction === 'increase'
+        ? `Você passou do alvo${rirBoost > 0 ? ` com fôlego sobrando (RIR ${rir})` : ''}: o menor ajuste de carga aqui é ${round2(step)} kg.`
+        : `Ficou abaixo do alvo: o menor ajuste de carga aqui é ${round2(step)} kg.`,
+    );
+    return build(rec);
   }
   // Recomendada: a candidata cuja mudança REAL fica mais perto do alvo desejado.
   const pick = cands.reduce((best, c) =>
@@ -243,7 +275,15 @@ export const recommendByRules = (params: {
   );
   // Alternativa: a candidata válida MENOS agressiva que a recomendada (nunca mais agressiva).
   const gentler = cands.filter((c) => c.pct < pick.pct).sort((a, b) => b.pct - a.pct)[0];
-  const rec = loadAdjustment(direction, currentLoadKg, pick.toKg, pick.pct);
+  const rec = loadAdjustment(
+    direction,
+    currentLoadKg,
+    pick.toKg,
+    pick.pct,
+    rirBoost > 0
+      ? `Você passou do alvo com fôlego sobrando (RIR ${rir}): dá para subir a carga.`
+      : undefined,
+  );
   const alt = gentler
     ? [loadAdjustment(direction, currentLoadKg, gentler.toKg, gentler.pct)]
     : [];

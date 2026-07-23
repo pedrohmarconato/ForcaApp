@@ -88,6 +88,11 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const stepLoad = useActiveSessionStore((s) => s.stepLoad);
   const setRir = useActiveSessionStore((s) => s.setRir);
   const completeSet = useActiveSessionStore((s) => s.completeSet);
+  const lastAutoDecision = useActiveSessionStore((s) => s.lastAutoDecision);
+  const autoNote =
+    lastAutoDecision && lastAutoDecision.sessionLogId === draft.sessionLogId
+      ? lastAutoDecision.reason
+      : null;
 
   const [saving, setSaving] = useState(false);
   const [rest, setRest] = useState<RestState>(null);
@@ -160,6 +165,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
             {repsAlvo(proxima.set)} reps
           </Text>
         ) : null}
+        {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
         <TouchableOpacity
           style={styles.secondaryBtn}
           accessibilityRole="button"
@@ -315,6 +321,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
           {repsAlvo(next.set)} REPS
         </Text>
         <Text style={styles.exerciseName}>{next.exercise.name}</Text>
+        {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
         <TouchableOpacity
           style={styles.completeBtn}
           accessibilityRole="button"
@@ -487,6 +494,13 @@ const styles = StyleSheet.create({
   },
   rirChipTextSelected: { color: theme.colors.text.accent },
 
+  autoNote: {
+    marginTop: theme.spacing.md,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    textAlign: 'center',
+  },
   secondaryBtn: {
     marginTop: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
