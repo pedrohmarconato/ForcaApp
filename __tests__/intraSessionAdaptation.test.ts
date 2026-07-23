@@ -126,7 +126,7 @@ describe('recommendByRules — déficit (under) reduz a carga', () => {
 });
 
 describe('recommendByRules — superávit (over) sobe a carga', () => {
-  it('superávit com RIR de sobra → +6% arredondado', () => {
+  it('superávit com RIR de sobra → fôlego IMPULSIONA (calibração do dono 22/07)', () => {
     const r = recommendByRules({
       evaluated: evaluateSet({ actualReps: 10, targetRepsMin: 6, targetRepsMax: 8 }),
       currentLoadKg: 50,
@@ -136,8 +136,10 @@ describe('recommendByRules — superávit (over) sobe a carga', () => {
     });
     const load = asLoad(r.recommended);
     expect(load.direction).toBe('increase');
-    expect(load.toKg).toBe(52.5); // 50*1.06=53 → arredonda p/ 52.5
-    expect(load.deltaKg).toBe(2.5);
+    // desvio 2 + boost(RIR 2 → +1) = 3 → deseja 9% de 50 = 4.5kg → candidata
+    // mais próxima alinhada ao incremento: 55 (10%).
+    expect(load.toKg).toBe(55);
+    expect(load.deltaKg).toBe(5);
   });
 
   it('§9 superávit com RIR baixo (à falha) NÃO sobe a carga', () => {

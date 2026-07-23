@@ -100,6 +100,9 @@ interface ActiveSessionState {
   checkInMinutes: number | null;
   /** Sessão nova aguardando o check-in obrigatório (draft ainda sem session_log). */
   pendingCheckIn: { sessionId: string; draft: SessionDraft } | null;
+  /** Última decisão AUTOMÁTICA de "manter" do motor (série fora do alvo, sem
+   *  ajuste proposto). O player mostra o porquê — o motor nunca age em silêncio. */
+  lastAutoDecision: { sessionLogId: string; exerciseName: string; reason: string } | null;
 
   startOrResume: (args: {
     sessionId: string;
@@ -361,6 +364,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   sessionMood: null,
   checkInMinutes: null,
   pendingCheckIn: null,
+  lastAutoDecision: null,
 
   startOrResume: async ({ sessionId, userId, detail }) => {
     const epoch = ++operationEpoch;
@@ -938,6 +942,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             label: recommendation.recommended.label,
             reason: recommendation.recommended.reason,
           };
+          set({
+            lastAutoDecision: {
+              sessionLogId: sid,
+              exerciseName: exercise.name,
+              reason: recommendation.recommended.reason,
+            },
+          });
           finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
           if (saved.setLogId) {
             updateSetLogAdaptation(saved.setLogId, autoKeep).catch((e) =>
@@ -1078,6 +1089,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       sessionMood: null,
       checkInMinutes: null,
       pendingCheckIn: null,
+      lastAutoDecision: null,
     });
   },
 }));
