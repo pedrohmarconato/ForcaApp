@@ -26,6 +26,16 @@ import {
 } from '../src/store/activeSessionStore';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
+
+// Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
+// testes desta suíte confirmam com defaults neutros para seguir o fluxo antigo.
+const confirmarCheckInSePedido = async () => {
+  const st = useActiveSessionStore.getState();
+  if (st.status === 'awaiting_checkin') {
+    await st.confirmCheckIn({ mood: 'normal', availableMinutes: null });
+  }
+};
+
 const fromMock = supabase.from as jest.Mock;
 const rpcMock = supabase.rpc as jest.Mock;
 const abortSignalMock = jest.fn();
@@ -144,6 +154,7 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
     userId: 'user-1',
     detail,
   });
+    await confirmarCheckInSePedido();
   expect(store().status).toBe('active');
   expect(store().draft?.sessionLogId).toBe('sl-1');
 

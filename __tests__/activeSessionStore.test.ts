@@ -65,6 +65,16 @@ import {
 import { buildDraftFromDetail } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
+
+// Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
+// testes desta suíte confirmam com defaults neutros para seguir o fluxo antigo.
+const confirmarCheckInSePedido = async () => {
+  const st = useActiveSessionStore.getState();
+  if (st.status === 'awaiting_checkin') {
+    await st.confirmCheckIn({ mood: 'normal', availableMinutes: null });
+  }
+};
+
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
 /** Promessa controlável: permite trocar de sessão ENQUANTO uma gravação/finish está no await. */
@@ -193,10 +203,14 @@ describe('início da sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().status).toBe('active');
     expect(store().draft?.sessionLogId).toBe('sl-1');
-    expect(startSessionLog).toHaveBeenCalledWith('sess-1');
+    expect(startSessionLog).toHaveBeenCalledWith('sess-1', {
+      mood: 'normal',
+      availableMinutes: null,
+    });
     expect(saveDraft).toHaveBeenCalled();
     // todas as séries começam pendentes
     const todas = store().draft!.exercises.flatMap((e) => e.sets);
@@ -210,6 +224,7 @@ describe('início da sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     expect(store().status).toBe('active');
   });
 
@@ -220,18 +235,21 @@ describe('início da sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     expect(store().status).toBe('error');
     expect(store().saveError).toMatch(/sem rede/);
   });
 });
 
 describe('concluir série', () => {
-  const start = async () =>
-    store().startOrResume({
+  const start = async () => {
+    await store().startOrResume({
       sessionId: 'sess-1',
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
+  };
 
   it('grava a série e calcula outcome on_target; próxima série passa a sugerir a carga usada', async () => {
     await start();
@@ -378,6 +396,7 @@ describe('setRir', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     store().activateSet('ex-1', 1);
     store().setRir('ex-1', 1, 11);
     expect(store().draft!.exercises[0].sets[0].actualRir).toBe(10);
@@ -422,6 +441,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().status).toBe('active');
     expect(store().draft?.sessionLogId).toBe('sl-existente');
@@ -468,6 +488,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     const s1 = store().draft!.exercises[0].sets[0];
     expect(s1.actualLoadKg).toBe(50); // não 40
@@ -500,6 +521,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     const s1 = store().draft!.exercises[0].sets[0];
     expect(s1.status).toBe('pending');
@@ -519,6 +541,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().status).toBe('finished');
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-antigo');
@@ -546,6 +569,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().status).toBe('active');
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
@@ -567,6 +591,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     // NÃO pode fingir offline: erro estruturado tem de propagar como erro.
     expect(store().status).toBe('error');
@@ -585,6 +610,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     // A decisão "finalizada" é tomada ANTES de limpar; clearDraft falhar é não-fatal
     // e não pode ressuscitar o draft (status 'active') — senão gravaríamos em log fechado.
@@ -615,6 +641,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().draft?.sessionLogId).toBe('sl-servidor');
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
@@ -652,6 +679,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(store().draft?.lastLoadByExercise['supino reto']).toBe(55);
   });
@@ -664,6 +692,7 @@ describe('concluir a sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     const ok = await store().finishSession();
 
     expect(ok).toBe(true);
@@ -679,6 +708,7 @@ describe('concluir a sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     const ok = await store().finishSession();
 
     expect(ok).toBe(false);
@@ -692,6 +722,7 @@ describe('concluir a sessão', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
 
     expect(await store().finishSession()).toBe(true);
     expect(store().status).toBe('finished');
@@ -733,6 +764,7 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
       userId: 'user-1',
       detail: detailB,
     });
+    await confirmarCheckInSePedido();
     loadA.resolve(null);
     await pA;
 
@@ -746,7 +778,8 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
       sessionId: 'sess-1',
       userId: 'user-1',
       detail: makeDetail(),
-    }); // A = sl-1
+    });
+    await confirmarCheckInSePedido(); // A = sl-1
     store().activateSet('ex-1', 1);
     store().setReps('ex-1', 1, 8);
     store().setLoad('ex-1', 1, 40);
@@ -788,7 +821,8 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
       sessionId: 'sess-1',
       userId: 'user-1',
       detail: makeDetail(),
-    }); // A = sl-1
+    });
+    await confirmarCheckInSePedido(); // A = sl-1
 
     const d = deferred<void>();
     mock(finishSessionLog).mockReturnValueOnce(d.promise);
@@ -815,6 +849,7 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     store().activateSet('ex-1', 1);
     store().setReps('ex-1', 1, 8);
     store().setLoad('ex-1', 1, 40);
@@ -863,6 +898,7 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
       userId: 'user-1',
       detail: makeDetail(),
     });
+    await confirmarCheckInSePedido();
     store().activateSet('ex-1', 1);
     store().setReps('ex-1', 1, 8);
     store().setLoad('ex-1', 1, 40);
@@ -902,6 +938,7 @@ describe('trava de reentrância (F9)', () => {
         userId: 'user-1',
         detail: makeDetail(),
       });
+    await confirmarCheckInSePedido();
       store().activateSet('ex-1', 1);
       store().setReps('ex-1', 1, 8);
       store().setLoad('ex-1', 1, 40);

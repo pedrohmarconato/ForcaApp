@@ -190,6 +190,11 @@ const renderScreen = () =>
 
 it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; aplicar reflete na tela', async () => {
   const screen = renderScreen();
+  // Check-in obrigatório (22/07/2026): responder as 2 perguntas para o treino abrir.
+  await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Normal'));
+  fireEvent.press(screen.getByLabelText('Tempo cheio'));
+  fireEvent.press(screen.getByLabelText('Começar treino'));
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
   // 1. Recalculou ao abrir: banner com a falta da segunda

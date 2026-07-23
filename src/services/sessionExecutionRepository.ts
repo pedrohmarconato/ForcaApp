@@ -31,6 +31,8 @@ export type OpenSessionLog = {
   // o corte de tempo a partir daqui (o rascunho local não é autoritativo).
   availableMinutes: number | null;
   adherenceSnapshot: unknown;
+  /** Check-in pré-treino gravado no start_session (null em sessões pré-0011). */
+  mood: 'cansado' | 'normal' | 'com_energia' | null;
 };
 
 type RequestErrorKind = 'transport' | 'server';
@@ -106,11 +108,17 @@ const throwResponseError = (error: unknown, status?: number): never => {
  */
 export const startSessionLog = async (
   plannedSessionId: string,
+  checkIn?: {
+    mood: 'cansado' | 'normal' | 'com_energia';
+    availableMinutes: number | null;
+  },
 ): Promise<{ sessionLogId: string; startedAt: string }> => {
   let response: any;
   try {
     response = await supabase.rpc('start_session', {
       p_planned_session_id: plannedSessionId,
+      p_mood: checkIn?.mood ?? null,
+      p_available_minutes: checkIn?.availableMinutes ?? null,
     });
   } catch (error) {
     throw thrownRequestError(error);
@@ -142,7 +150,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, available_minutes, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
+        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -178,6 +186,10 @@ export const getOpenSessionLog = async (
     setLogs,
     availableMinutes: toNum(row.available_minutes),
     adherenceSnapshot: row.adherence_snapshot ?? null,
+    mood:
+      row.mood === 'cansado' || row.mood === 'normal' || row.mood === 'com_energia'
+        ? row.mood
+        : null,
   };
 };
 

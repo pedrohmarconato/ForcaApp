@@ -54,6 +54,16 @@ import {
 import { applyAdjustmentToNextSet, type Adjustment } from '../src/engine/intraSessionAdaptation';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
+
+// Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
+// testes desta suíte confirmam com defaults neutros para seguir o fluxo antigo.
+const confirmarCheckInSePedido = async () => {
+  const st = useActiveSessionStore.getState();
+  if (st.status === 'awaiting_checkin') {
+    await st.confirmCheckIn({ mood: 'normal', availableMinutes: null });
+  }
+};
+
 const REDUZIR_45: Adjustment = {
   kind: 'load',
   direction: 'decrease',
@@ -130,6 +140,7 @@ const store = () => useActiveSessionStore.getState();
 
 it('série abaixo do alvo levanta pendingAdaptation; on_target não levanta', async () => {
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
 
   // dentro do alvo (9 de 8–10) → NÃO incomoda
   store().setReps('ex-1', 1, 9);
@@ -149,6 +160,7 @@ it('série abaixo do alvo levanta pendingAdaptation; on_target não levanta', as
 
 it('resolver aplica o ajuste à próxima série, grava a escolha e limpa o pendente', async () => {
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
 
   store().setReps('ex-1', 1, 5); // under → recomenda reduzir carga
   store().setLoad('ex-1', 1, 50);
@@ -173,6 +185,7 @@ it('resolver aplica o ajuste à próxima série, grava a escolha e limpa o pende
 
 it('recusar (manter) grava a decisão mas NÃO altera o alvo da próxima série', async () => {
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
 
   store().setReps('ex-1', 1, 5);
   store().setLoad('ex-1', 1, 50);
@@ -190,6 +203,7 @@ it('recusar (manter) grava a decisão mas NÃO altera o alvo da próxima série'
 
 it('MEDIUM: superávit com lesão → sem sheet, mas REGISTRA decisão automática (não fica null)', async () => {
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail(['ombro']) });
+    await confirmarCheckInSePedido();
   store().setReps('ex-1', 1, 12); // acima do alvo 8–10 (superávit)
   store().setLoad('ex-1', 1, 50);
   await store().completeSet('ex-1', 1);
@@ -216,6 +230,7 @@ it('HIGH: draft legado lesionado (sem hasInjury) reconcilia e NUNCA recomenda au
   );
 
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail(['ombro']) });
+    await confirmarCheckInSePedido();
   store().setReps('ex-1', 1, 15); // acima do alvo (superávit)
   store().setLoad('ex-1', 1, 50);
   await store().completeSet('ex-1', 1);
@@ -260,6 +275,7 @@ it('HIGH: retomada online preserva e REAPLICA a adaptation à próxima série', 
   });
 
   await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
 
   const sets = store().draft!.exercises[0].sets;
   expect(sets.find((s) => s.setOrder === 1)!.adaptation).toEqual(REDUZIR_45); // restaurada
