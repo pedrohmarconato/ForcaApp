@@ -205,7 +205,8 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.press(screen.getByTestId('replan-decline'));
   await waitFor(() => expect(screen.queryByText('Replanejar a semana?')).toBeNull());
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
-  expect(screen.getByText(/2\. Tríceps Corda/)).toBeTruthy();
+  // Redesign: número e nome vivem em Texts separados na fila compacta.
+  expect(screen.getByText('Tríceps Corda')).toBeTruthy();
 
   // 3. Menos tempo hoje: 40 min → proposta de corte do acessório (sem a
   // redistribuição recusada de volta)

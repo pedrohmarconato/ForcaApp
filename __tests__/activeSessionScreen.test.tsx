@@ -198,19 +198,21 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   fireEvent.press(screen.getByText('Concluir série'));
 
   await waitFor(() => expect(screen.getByText(/8 reps × 40 kg/)).toBeTruthy());
-  expect(screen.getByText('No alvo')).toBeTruthy();
+  // Redesign: outcome 'no alvo' não ganha selo na fila — o resultado real basta.
+  expect(screen.getByText(/8 reps × 40 kg/)).toBeTruthy();
 
-  // --- Série 2 do Supino: a sugestão 40 aparece, mas só vira valor gravado quando
-  // o aluno ACEITA (F10: sugestão ≠ medição) ---
-  fireEvent.press(screen.getAllByText('Iniciar série')[0]);
+  // --- Série 2 do Supino: pós-conclusão o player entra em DESCANSO; pular
+  // avança direto para a medição (auto-avanço do redesign). A sugestão 40
+  // aparece, mas só vira valor gravado quando o aluno ACEITA (F10) ---
+  fireEvent.press(screen.getByLabelText('Pular descanso'));
   fireEvent.changeText(screen.getByLabelText('Repetições da série 2'), '9');
   expect(screen.getByText('Usar sugestão: 40 kg')).toBeTruthy();
   fireEvent.press(screen.getByText('Usar sugestão: 40 kg'));
   fireEvent.press(screen.getByText('Concluir série'));
   await waitFor(() => expect(screen.getByText(/9 reps × 40 kg/)).toBeTruthy());
 
-  // --- Flexão (bodyweight): sem campo de kg, conclui só com reps ---
-  fireEvent.press(screen.getByText('Iniciar série'));
+  // --- Flexão (bodyweight): pular o descanso avança; sem campo de kg ---
+  fireEvent.press(screen.getByLabelText('Pular descanso'));
   expect(screen.getByText('Peso corporal')).toBeTruthy();
   expect(screen.queryByLabelText('Carga da série 1')).toBeNull(); // bodyweight não tem input de kg
   fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '15');
