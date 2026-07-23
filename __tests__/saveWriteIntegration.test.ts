@@ -173,6 +173,7 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
     p_actual_load_kg: 40,
     p_actual_rir: 2,
     p_outcome: 'on_target',
+    p_started_at: expect.anything(),
   });
   expect(abortSignalMock).toHaveBeenCalledWith(expect.anything());
 

@@ -127,6 +127,7 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       p_actual_load_kg: 40,
       p_actual_rir: 2,
       p_outcome: 'on_target',
+      p_started_at: null,
     });
     // NÃO usa mais .from(...).upsert(...): o upsert do PostgREST é justamente o bug.
     expect(fromMock).not.toHaveBeenCalled();
