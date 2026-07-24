@@ -3,12 +3,13 @@
 //   1. Como está se sentindo para treinar?  (cansado / normal / com energia)
 //   2. Quanto tempo disponível tem?         (chips 30/45/60/90, tempo cheio, ou livre)
 //
-// Sem botão de pular e sem fechar pelo fundo: o treino só começa com as duas
-// respostas. Mesma base do AdaptationSheet (Modal nativo, testável em jest).
+// Direção 03: deixou de ser sheet sobre a tela — é uma TELA DE FOCO que ocupa
+// a sessão inteira enquanto as duas respostas não existem. Sem pular e sem
+// fechar: o treino só começa com humor + tempo. Contrato de props e rótulos
+// idêntico ao do sheet (onConfirm/visible/sessionTitle preservados).
 
 import React, { useMemo, useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import theme from '../../theme/theme';
 import type { SessionMood } from '../../engine/moodAdjustment';
+import Button from '../ui/Button';
 
 type Props = {
   visible: boolean;
@@ -61,134 +63,160 @@ const CheckInSheet = ({ visible, sessionTitle, onConfirm }: Props) => {
     onConfirm({ mood, availableMinutes: availableMinutes ?? null });
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => undefined}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <Text style={styles.title} accessibilityRole="header">
-            Antes de começar
+    <View style={styles.tela} testID="checkin-foco">
+      <View style={styles.cabeca}>
+        <Text style={styles.kicker}>Antes de começar</Text>
+        {sessionTitle ? (
+          <Text style={styles.titulo} accessibilityRole="header">
+            {sessionTitle}
           </Text>
-          {sessionTitle ? <Text style={styles.subtitle}>{sessionTitle}</Text> : null}
-
-          <Text style={styles.question}>Como está se sentindo para treinar?</Text>
-          <View style={styles.row}>
-            {MOOD_OPTIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.value}
-                accessibilityRole="button"
-                accessibilityLabel={opt.label}
-                accessibilityState={{ selected: mood === opt.value }}
-                style={[styles.chip, mood === opt.value && styles.chipSelected]}
-                onPress={() => setMood(opt.value)}
-              >
-                <Text style={[styles.chipText, mood === opt.value && styles.chipTextSelected]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.question}>Quanto tempo disponível tem?</Text>
-          <View style={styles.row}>
-            {TIME_CHIPS.map((min) => (
-              <TouchableOpacity
-                key={min}
-                accessibilityRole="button"
-                accessibilityLabel={`${min} minutos`}
-                accessibilityState={{ selected: timeChoice === min }}
-                style={[styles.chip, timeChoice === min && styles.chipSelected]}
-                onPress={() => setTimeChoice(min)}
-              >
-                <Text style={[styles.chipText, timeChoice === min && styles.chipTextSelected]}>
-                  {min} min
-                </Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Tempo cheio"
-              accessibilityState={{ selected: timeChoice === 'full' }}
-              style={[styles.chip, timeChoice === 'full' && styles.chipSelected]}
-              onPress={() => setTimeChoice('full')}
-            >
-              <Text style={[styles.chipText, timeChoice === 'full' && styles.chipTextSelected]}>
-                Tempo cheio
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <TextInput
-            accessibilityLabel="Outro tempo em minutos"
-            style={[styles.input, timeChoice === 'custom' && styles.inputSelected]}
-            placeholder="Outro (min)"
-            placeholderTextColor={theme.colors.text.secondary}
-            keyboardType="number-pad"
-            value={customMinutes}
-            onFocus={() => setTimeChoice('custom')}
-            onChangeText={(v) => {
-              setTimeChoice('custom');
-              setCustomMinutes(v.replace(/[^0-9]/g, ''));
-            }}
-          />
-
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Começar treino"
-            accessibilityState={{ disabled: !canStart }}
-            disabled={!canStart}
-            style={[styles.start, !canStart && styles.startDisabled]}
-            onPress={handleConfirm}
-          >
-            <Text style={styles.startText}>Começar treino</Text>
-          </TouchableOpacity>
-        </View>
+        ) : null}
       </View>
-    </Modal>
+
+      <Text style={styles.question}>Como está se sentindo para treinar?</Text>
+      <View style={styles.seg}>
+        {MOOD_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.value}
+            accessibilityRole="button"
+            accessibilityLabel={opt.label}
+            accessibilityState={{ selected: mood === opt.value }}
+            style={[styles.segItem, mood === opt.value && styles.segItemSelected]}
+            onPress={() => setMood(opt.value)}
+          >
+            <Text style={[styles.segText, mood === opt.value && styles.segTextSelected]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.question}>Quanto tempo disponível tem?</Text>
+      <View style={styles.row}>
+        {TIME_CHIPS.map((min) => (
+          <TouchableOpacity
+            key={min}
+            accessibilityRole="button"
+            accessibilityLabel={`${min} minutos`}
+            accessibilityState={{ selected: timeChoice === min }}
+            style={[styles.chip, timeChoice === min && styles.chipSelected]}
+            onPress={() => setTimeChoice(min)}
+          >
+            <Text style={[styles.chipText, timeChoice === min && styles.chipTextSelected]}>
+              {min} min
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Tempo cheio"
+          accessibilityState={{ selected: timeChoice === 'full' }}
+          style={[styles.chip, timeChoice === 'full' && styles.chipSelected]}
+          onPress={() => setTimeChoice('full')}
+        >
+          <Text style={[styles.chipText, timeChoice === 'full' && styles.chipTextSelected]}>
+            Tempo cheio
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput
+        accessibilityLabel="Outro tempo em minutos"
+        style={[styles.input, timeChoice === 'custom' && styles.inputSelected]}
+        placeholder="Outro (min)"
+        placeholderTextColor={theme.colors.text.secondary}
+        keyboardType="number-pad"
+        value={customMinutes}
+        onFocus={() => setTimeChoice('custom')}
+        onChangeText={(v) => {
+          setTimeChoice('custom');
+          setCustomMinutes(v.replace(/[^0-9]/g, ''));
+        }}
+      />
+
+      <View style={styles.rodape}>
+        <Button label="Começar treino" onPress={handleConfirm} disabled={!canStart} />
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
+  tela: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: theme.colors.overlay,
-  },
-  sheet: {
-    backgroundColor: theme.colors.surface.card,
-    borderTopLeftRadius: theme.borderRadius.xxl,
-    borderTopRightRadius: theme.borderRadius.xxl,
+    alignSelf: 'stretch',
     padding: theme.spacing.xl,
-    paddingBottom: theme.spacing.xxl,
+    backgroundColor: theme.colors.surface.canvas,
   },
-  title: {
+  cabeca: { marginBottom: theme.spacing.xxl },
+  kicker: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
+  titulo: {
+    marginTop: theme.spacing.xxs,
     color: theme.colors.text.primary,
-    fontFamily: theme.fonts.display,
-    fontSize: theme.typography.fontSizes.lg,
-    marginBottom: theme.spacing.xs,
-  },
-  subtitle: {
-    color: theme.colors.text.secondary,
-    fontSize: theme.typography.fontSizes.base,
-    marginBottom: theme.spacing.md,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.display,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    letterSpacing: theme.typography.letterSpacing.display,
   },
   question: {
     color: theme.colors.text.primary,
     fontSize: theme.typography.fontSizes.md,
     fontWeight: theme.typography.fontWeights.semiBold,
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.sm,
+    marginTop: theme.spacing.xl,
+    marginBottom: theme.spacing.md,
   },
+
+  // Humor como segmented control: uma escolha, um gesto.
+  seg: {
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface.raised,
+  },
+  segItem: {
+    flex: 1,
+    minHeight: theme.hitTarget.compact - 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: theme.borderRadius.sm,
+  },
+  segItemSelected: {
+    backgroundColor: theme.colors.surface.elevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border.strong,
+  },
+  segText: {
+    color: theme.colors.text.secondary,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  segTextSelected: { color: theme.colors.text.primary },
+
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
   },
   chip: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
+    minHeight: theme.hitTarget.compact,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
     borderRadius: theme.borderRadius.pill,
     borderWidth: 1,
     borderColor: theme.colors.border.subtle,
-    backgroundColor: theme.colors.surface.canvas,
+    backgroundColor: theme.colors.surface.card,
   },
   chipSelected: {
     borderColor: theme.colors.accent.border,
@@ -204,9 +232,11 @@ const styles = StyleSheet.create({
   },
   input: {
     marginTop: theme.spacing.sm,
+    minHeight: theme.hitTarget.compact,
     borderWidth: 1,
     borderColor: theme.colors.border.subtle,
     borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface.card,
     color: theme.colors.text.primary,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
@@ -214,21 +244,8 @@ const styles = StyleSheet.create({
   inputSelected: {
     borderColor: theme.colors.accent.border,
   },
-  start: {
-    marginTop: theme.spacing.xl,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.accent.main,
-    paddingVertical: theme.spacing.md,
-    alignItems: 'center',
-  },
-  startDisabled: {
-    opacity: 0.4,
-  },
-  startText: {
-    color: theme.colors.accent.on,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    fontSize: theme.typography.fontSizes.md,
-  },
+
+  rodape: { marginTop: 'auto', paddingTop: theme.spacing.xl },
 });
 
 export default CheckInSheet;

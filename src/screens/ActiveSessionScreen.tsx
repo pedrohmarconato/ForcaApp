@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useKeepAwake } from 'expo-keep-awake';
 
 import theme from '../theme/theme';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
@@ -32,10 +33,12 @@ import {
   suggestionFor,
 } from '../store/activeSessionStore';
 import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
+import { montarResumoSessao, type ResumoSessao } from '../engine/sessionSummary';
 import Button from '../components/ui/Button';
 import { Notice, ProgressTrack } from '../components/ui/Feedback';
 import SessionPlayer from '../components/session/SessionPlayer';
 import SessionQueue from '../components/session/SessionQueue';
+import SessionSummary from '../components/session/SessionSummary';
 import AdaptationSheet from '../components/session/AdaptationSheet';
 import CheckInSheet from '../components/session/CheckInSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
@@ -51,9 +54,16 @@ const ActiveSessionScreen = ({ route }: Props) => {
     useNavigation<StackNavigationProp<HomeStackParamList, 'ActiveSession'>>();
   const { user } = useAuth();
 
+  // Direção 03: tela acesa durante a sessão inteira — treino não morre com o
+  // descanso na mão. No web vira wake lock; sem suporte, no-op.
+  useKeepAwake();
+
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState(false);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
+  // Fotografia do resumo no momento do Concluir: o draft pode ser limpo pelo
+  // store depois de finishSession — os números do resumo saem DESTA captura.
+  const [resumoFinal, setResumoFinal] = useState<ResumoSessao | null>(null);
   const loadGeneration = useRef(0);
 
   const draft = useActiveSessionStore((s) => s.draft);
@@ -64,6 +74,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const finishSession = useActiveSessionStore((s) => s.finishSession);
   const clearError = useActiveSessionStore((s) => s.clearError);
   const reset = useActiveSessionStore((s) => s.reset);
+  const lastAutoDecision = useActiveSessionStore((s) => s.lastAutoDecision);
   const pendingAdaptation = useActiveSessionStore((s) => s.pendingAdaptation);
   const resolveAdaptation = useActiveSessionStore((s) => s.resolveAdaptation);
   const pendingReplan = useActiveSessionStore((s) => s.pendingReplan);
@@ -116,13 +127,17 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const onConcluirTreino = useCallback(() => {
     if (!draft) return;
     const finalizar = async () => {
+      // Fotografa ANTES de finalizar: números reais do rascunho vivo.
+      const resumo = montarResumoSessao(draft);
       const ok = await finishSession();
       if (!ok) {
         Alert.alert(
           'Não foi possível concluir',
           saveError ?? 'Tente novamente.',
         );
+        return;
       }
+      setResumoFinal(resumo);
     };
     if (!isSessionComplete(draft)) {
       Alert.alert(
@@ -183,39 +198,46 @@ const ActiveSessionScreen = ({ route }: Props) => {
     );
   }
 
-  // --- Sessão concluída ---
+  // --- Sessão concluída: resumo com os números fotografados no Concluir ---
   if (status === 'finished') {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.doneTitle}>Treino concluído! 💪</Text>
-        <Text style={styles.muted}>
-          Suas séries foram registradas. Veja o resumo no seu histórico (aba
-          Perfil).
-        </Text>
-        <Button
-          label="Voltar ao início"
-          onPress={() =>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <SessionSummary
+          titulo={draft?.title ?? detail?.title ?? null}
+          resumo={resumoFinal}
+          coachNote={
+            lastAutoDecision && lastAutoDecision.sessionLogId === draft?.sessionLogId
+              ? lastAutoDecision.reason
+              : null
+          }
+          onVoltar={() =>
             navigation.canGoBack() ? navigation.popToTop() : undefined
           }
-          style={styles.stateAction}
         />
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!draft) {
     // Sessão nova aguardando o check-in obrigatório: o draft só nasce depois
-    // das duas respostas — o sheet precisa renderizar NESTE early return.
+    // das duas respostas. Direção 03: o check-in É a tela (foco), não um sheet
+    // sobre um estado vazio.
+    if (status === 'awaiting_checkin') {
+      return (
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <CheckInSheet
+            visible
+            sessionTitle={detail?.title ?? null}
+            onConfirm={async (answers) => {
+              await confirmCheckIn(answers);
+              if (detail) await computeReplan(detail);
+            }}
+          />
+        </SafeAreaView>
+      );
+    }
     return (
       <View style={styles.centered}>
-        <CheckInSheet
-          visible={status === 'awaiting_checkin'}
-          sessionTitle={detail?.title ?? null}
-          onConfirm={async (answers) => {
-            await confirmCheckIn(answers);
-            if (detail) await computeReplan(detail);
-          }}
-        />
         <Text style={styles.muted}>Nenhuma sessão ativa.</Text>
       </View>
     );
@@ -333,16 +355,6 @@ const ActiveSessionScreen = ({ route }: Props) => {
         />
       </ScrollView>
 
-      <CheckInSheet
-        visible={status === 'awaiting_checkin'}
-        sessionTitle={detail?.title ?? null}
-        onConfirm={async (answers) => {
-          await confirmCheckIn(answers);
-          // Mesmo gatilho do fluxo normal: recalcular a semana com o check-in
-          // aplicado (best-effort — nunca impede o treino).
-          if (detail) await computeReplan(detail);
-        }}
-      />
       <AdaptationSheet
         recommendation={pendingAdaptation?.recommendation ?? null}
         exerciseName={
