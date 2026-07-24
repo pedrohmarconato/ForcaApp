@@ -592,3 +592,32 @@ Pendências conscientes (não são regressão):
    (flip de onboarding_completed tranca o usuário até regenerar) — fora desta leva.
 3. Recordes ainda não aparecem no SessionSummary (só na aba Progresso) — candidato
    a follow-up curto reusando progressStats.
+
+## Direção 03 — push, PRs e homologação (24/07/2026) ✅ · runbook de produção
+
+- **PR #38** `feat/catalogo-exercicios` → `main` (catálogo + cardio; migrations 0013/0014).
+- **PR #39** `feat/direcao03-fase1-fundacoes` → `#38` (stacked; Direção 03 Fases 1–5, zero schema).
+- **HML validado de ponta a ponta** (staging em 40d98f0; PWA preview `forca-1dgwgaaff`):
+  signup descartável → questionário (payload do app) → job Haiku (etapas reais
+  gerando_molde→salvando→salvo) → plano de 12 semanas com planned_sessions →
+  **portão da revelação confirmado** (onboarding_completed=false até o "Começar";
+  PATCH do app fecha com current_plan_id). Usuário de teste:
+  pedrohmarconato+e2e-d03-1784906277572@gmail.com (dados descartáveis).
+- Bundle do preview auditado: aponta Supabase staging + forca-api-hml (verify-web-bundle).
+
+### Runbook GO-PROD (ordem importa)
+
+1. **Merge #38** em `main` (GitHub) → #39 re-alveja `main` sozinho → **merge #39**.
+2. **Migrations no prod** (forcaapp-hml / zanqygwsgxkyjiuhrzju), ANTES do backend:
+   `export SUPABASE_ACCESS_TOKEN="$(cat ~/.supabase_pat)" && supabase link --project-ref zanqygwsgxkyjiuhrzju && supabase db push`
+   (aplica 0013/0014 registradas; conferir o ref antes — AGENTS.md).
+   Depois, backfill do catálogo em planos vivos: `scripts/backfill_catalogo_exercicios.py`
+   (dry-run primeiro; `--apply` com service_role).
+3. **Backend VPS prod**: runbook `docs/DEPLOY_VPS.md` em `/docker/forcaapp`
+   (⚠️ o container prod ainda roda build antigo — este rollout já estava pendente).
+4. **PWA prod**: `npx vercel deploy --prod` (envs Production do painel; verify-web-bundle
+   trava host de LAN e exige forca-api.cadastrai.com).
+5. Smoke de prod: /api/health 200 + login real + 1 sessão aberta (sem gerar plano à toa).
+
+Sem CI de GitHub no repo — o portão de qualidade é a suíte local (496/496 + 305 + tsc 0),
+verde no HEAD dos dois PRs.
