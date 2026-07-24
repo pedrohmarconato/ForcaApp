@@ -6,6 +6,7 @@
 
 import React from 'react';
 import {
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../../theme/theme';
+import { usePressPhysics } from './pressPhysics';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // --- Screen ---------------------------------------------------------------
 
@@ -87,6 +91,8 @@ export const Card = ({
   style,
   testID,
 }: CardProps) => {
+  // Superfície grande afunda pouco (0.985) — presença, não pulo.
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ scale: 0.985 });
   const content = [styles.card, elevated && styles.cardElevated, style];
 
   if (!onPress) {
@@ -98,15 +104,17 @@ export const Card = ({
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [...content, pressed && styles.pressed]}
+      style={[...content, animatedStyle]}
     >
       {children}
-    </Pressable>
+    </AnimatedPressable>
   );
 };
 
@@ -193,15 +201,46 @@ export const ListRow = ({
   }
 
   return (
-    <Pressable
+    <PressableListRow
       testID={testID}
       onPress={onPress}
-      accessibilityRole="button"
       accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed, style]}
+      style={style}
     >
       {body}
-    </Pressable>
+    </PressableListRow>
+  );
+};
+
+// Hooks não podem ficar no ramo condicional do ListRow — vivem num componente
+// próprio, montado só quando a linha é tocável.
+const PressableListRow = ({
+  children,
+  onPress,
+  accessibilityLabel,
+  style,
+  testID,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  accessibilityLabel: string;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}) => {
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ scale: 0.985 });
+
+  return (
+    <AnimatedPressable
+      testID={testID}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.row, animatedStyle, style]}
+    >
+      {children}
+    </AnimatedPressable>
   );
 };
 
@@ -313,5 +352,4 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: theme.colors.border.subtle,
   },
-  pressed: { opacity: 0.72 },
 });

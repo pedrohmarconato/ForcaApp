@@ -540,3 +540,25 @@ importam o módulo o mockam; `storageReady` intacto; inline do babel-preset-expo
 vale para .js e .tsx) e o flag offline (`=== 'true'`, chave computada).
 
 Verificação: tsc 0 · jest 28 suítes/228 (223→228) · pytest 67.
+
+---
+
+## Direção 03 — Remodelação UX/CX "Força em movimento" (24/07/2026)
+
+**Fase 0 (protótipo) CONCLUÍDA.** Plano aprovado pelo dono em `~/.claude/plans/quero-remodelar-o-ux-snuggly-floyd.md`.
+
+- Entregável: `forca-app-mockup-v3.html` (raiz do repo) — protótipo navegável com 13 telas interativas,
+  modo "Percorrer a jornada", inspector com notas de implementação (mapa p/ Reanimated) por tela.
+  Deep-link por hash: `#hoje`, `#player-resting`, etc. Abrir via `file://` ou `python3 -m http.server`.
+- Decisões do dono: protótipo antes de código; 4 abas (Hoje·Plano·Progresso·Perfil); tom sóbrio
+  premium (sem confete/badge); onboarding incluído (stepper 1-pergunta-por-tela + construção do plano
+  transparente + revelação).
+- Verificado: render headless das 14 capturas (scratchpad da sessão) + passeio interativo no Chrome
+  (jornada completa clicada: login→anamnese→ajustes→construção→revelação→hoje→check-in "cansado"→
+  proposta do treinador→player→série→anel de descanso ±30s→resumo com count-up/recorde→progresso→plano).
+  GIF da jornada em ~/Downloads/forca-direcao03-jornada.gif. Zero erros de console.
+- Bugs corrigidos na auto-revisão: `[hidden]` vencido por display de classe (cartão do treinador vazava
+  no check-in; tabbar idem), linha-base do gráfico, alvo de reps estático no player, lixo de JS no count-up.
+- Próximo: aprovação da direção pelo dono → Fases 1–5 de implementação no app (fundações de motion →
+  onboarding → sessão/resumo → aba Progresso → Hoje/Plano/Perfil), cada uma com testes-primeiro,
+  tsc/jest/pytest verdes e capturas em docs/ui.

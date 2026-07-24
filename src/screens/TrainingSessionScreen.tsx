@@ -7,7 +7,7 @@
 // rodapé. A busca de dados é a mesma da Fase 3.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
@@ -22,7 +22,7 @@ import {
 } from '../services/trainingRepository';
 import { Screen, Card, ScreenTitle } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
-import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
+import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
 
 const TrainingSessionScreen = () => {
@@ -61,10 +61,21 @@ const TrainingSessionScreen = () => {
   }, [fetchCurrentTraining]);
 
   if (loading) {
+    // Direção 03: a estrutura da tela já aparece na carga — skeleton no lugar
+    // do spinner centralizado.
     return (
       <Screen>
-        <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent.main} />
+        <ScreenTitle kicker="Plano" title="Seu plano." style={styles.title} />
+        <View style={styles.skeletonStack}>
+          <Skeleton
+            height={116}
+            radius={theme.borderRadius.xl}
+            accessibilityLabel="Carregando sua sessão"
+            testID="skl-plano-resumo"
+          />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
         </View>
       </Screen>
     );
@@ -161,7 +172,7 @@ const TrainingSessionScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  skeletonStack: { gap: theme.spacing.sm },
   title: { marginBottom: theme.spacing.lg },
 
   summary: { marginBottom: theme.spacing.xl },

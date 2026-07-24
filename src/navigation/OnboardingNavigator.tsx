@@ -5,7 +5,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import QuestionnaireScreen from '../screens/QuestionnaireScreen';
 import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
 import theme from '../theme/theme';
-import { stackCardStyle } from './navigationStyles';
+import { stackCardStyle, stackTransition } from './navigationStyles';
 
 // Corrigido: Tipagem adequada para parâmetros de rota
 export type OnboardingStackParamList = {
@@ -41,6 +41,7 @@ const OnboardingNavigator = () => {
         },
         headerTitleAlign: 'left',
         cardStyle: stackCardStyle,
+        ...stackTransition,
       }}
     >
       <Stack.Screen

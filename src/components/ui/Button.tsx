@@ -4,13 +4,19 @@
 // Variantes:
 //  - primary  → ação principal da tela. É o único uso de preenchimento neon,
 //               por isso deve haver no máximo um por bloco (princípio 1).
+//  - tonal    → ação secundária com corpo: degrau tonal elevado, sem neon.
 //  - outline  → ação alternativa de mesmo peso semântico.
 //  - ghost    → ação terciária, sem superfície.
 //  - danger   → ação destrutiva (encerrar sessão, descartar).
+//
+// Direção 03: todo botão responde ao toque com a física de press (scale 0.97 +
+// opacidade, 120ms impulso) e as ações com corpo (primary/tonal) dão o toque
+// tátil leve. O feedback deixou de ser só queda de opacidade.
 
 import React from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -21,8 +27,9 @@ import {
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../../theme/theme';
+import { usePressPhysics } from './pressPhysics';
 
-export type ButtonVariant = 'primary' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'tonal' | 'outline' | 'ghost' | 'danger';
 
 type ButtonProps = {
   label: string;
@@ -40,10 +47,13 @@ type ButtonProps = {
 
 const CONTENT_COLOR: Record<ButtonVariant, string> = {
   primary: theme.colors.accent.on,
+  tonal: theme.colors.text.primary,
   outline: theme.colors.text.primary,
   ghost: theme.colors.text.secondary,
   danger: theme.colors.status.danger,
 };
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const Button = ({
   label,
@@ -58,22 +68,27 @@ const Button = ({
 }: ButtonProps) => {
   const isInactive = disabled || loading;
   const contentColor = CONTENT_COLOR[variant];
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({
+    haptic: variant === 'primary' || variant === 'tonal',
+    disabled: isInactive,
+  });
 
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       disabled={isInactive}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isInactive, busy: loading }}
-      style={({ pressed }) => [
+      style={[
         styles.base,
         compact ? styles.compact : styles.regular,
         styles[variant],
-        // O feedback de toque é uma queda de opacidade — sem brilho nem sombra.
-        pressed && !isInactive && styles.pressed,
         isInactive && styles.inactive,
+        animatedStyle,
         style,
       ]}
     >
@@ -85,7 +100,7 @@ const Button = ({
           {icon ? <Feather name={icon} size={16} color={contentColor} /> : null}
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 };
 
@@ -112,6 +127,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   primary: { backgroundColor: theme.colors.accent.main },
+  tonal: {
+    backgroundColor: theme.colors.surface.elevated,
+    borderColor: theme.colors.border.subtle,
+  },
   outline: {
     backgroundColor: theme.colors.transparent,
     borderColor: theme.colors.border.strong,
@@ -121,7 +140,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.status.dangerSoft,
     borderColor: theme.colors.status.dangerBorder,
   },
-  pressed: { opacity: 0.72 },
   inactive: { opacity: 0.45 },
 });
 

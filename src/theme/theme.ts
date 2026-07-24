@@ -186,12 +186,24 @@ export const zIndex = {
   toast: 40,
 } as const;
 
+// Motion "física de treino" (Direção 03): três curvas com papel fixo —
+//  impulso  → entradas e resposta ao toque (rápido, decidido);
+//  controle → transições deliberadas, barras e count-ups (como fase excêntrica);
+//  descanso → linear, exclusiva de timers.
+// Limites da direção: nada acima de 420ms, 1 animação por evento, stagger de
+// 40ms com no máximo 6 itens em cascata.
 export const animation = {
   durations: {
     short: 150,
     medium: 260,
     long: 420,
   },
+  easings: {
+    impulso: { x1: 0.2, y1: 0.8, x2: 0.3, y2: 1 },
+    controle: { x1: 0.55, y1: 0, x2: 0.15, y2: 1 },
+  },
+  press: { scale: 0.97, opacity: 0.85, inMs: 120, outMs: 150 },
+  stagger: { delayMs: 40, maxItems: 6 },
 } as const;
 
 // Altura mínima de alvo tocável — usada por botões, linhas e campos.

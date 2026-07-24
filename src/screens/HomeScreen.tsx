@@ -11,7 +11,7 @@
 // apresentada como contagem e dias marcados, sem percentual de adesão.
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
@@ -37,7 +37,7 @@ import {
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
-import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
+import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 
 // Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail)
 type HomeStackParamList = {
@@ -172,9 +172,12 @@ const HomeScreen = () => {
         <SectionHeader title={tituloDestaque} />
 
         {loading ? (
-          <Card>
-            <ActivityIndicator color={theme.colors.accent.main} />
-          </Card>
+          <Skeleton
+            height={196}
+            radius={theme.borderRadius.xl}
+            accessibilityLabel="Carregando o treino de hoje"
+            testID="skl-treino-destaque"
+          />
         ) : loadError ? (
           <Notice
             tone="danger"
@@ -252,9 +255,12 @@ const HomeScreen = () => {
           />
         ) : !semana ? (
           // Histórico ainda pendente: "não sei" não é "nenhum treino"
-          <Card>
-            <ActivityIndicator color={theme.colors.accent.main} />
-          </Card>
+          <Skeleton
+            height={104}
+            radius={theme.borderRadius.xl}
+            accessibilityLabel="Carregando sua semana"
+            testID="skl-semana"
+          />
         ) : semana.concluidas === 0 ? (
           <Card>
             <EmptyState
@@ -318,7 +324,10 @@ const HomeScreen = () => {
         <SectionHeader title="Próximos treinos" />
 
         {loading ? (
-          <ActivityIndicator color={theme.colors.accent.main} style={styles.inlineLoader} />
+          <View style={styles.skeletonRows}>
+            <Skeleton height={52} accessibilityLabel="Carregando próximos treinos" />
+            <Skeleton height={52} />
+          </View>
         ) : loadError ? (
           <Text style={styles.quietLine}>Não foi possível carregar seus treinos.</Text>
         ) : upcoming.length > 0 ? (
@@ -454,7 +463,7 @@ const styles = StyleSheet.create({
   },
   weekDayLabelDone: { color: theme.colors.text.primary },
 
-  inlineLoader: { paddingVertical: theme.spacing.lg },
+  skeletonRows: { gap: theme.spacing.sm },
   quietLine: {
     paddingVertical: theme.spacing.lg,
     color: theme.colors.text.secondary,
