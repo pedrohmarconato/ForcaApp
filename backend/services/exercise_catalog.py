@@ -368,14 +368,30 @@ def nomes_por_grupo() -> Dict[str, List[str]]:
     return agrupado
 
 
-def catalogo_para_prompt(equipamentos_disponiveis: Optional[List[str]] = None) -> str:
+# Grupos musculares que representam cardio e mobilidade/alongamento no catálogo.
+# São os únicos removíveis por opção do aluno (inclui_cardio/inclui_alongamento).
+GRUPO_CARDIO = "Cardio"
+GRUPO_MOBILIDADE = "Mobilidade"
+
+
+def catalogo_para_prompt(
+    equipamentos_disponiveis: Optional[List[str]] = None,
+    incluir_cardio: bool = True,
+    incluir_mobilidade: bool = True,
+) -> str:
     """
     Lista compacta para injetar no prompt do molde: 'Grupo: Nome | Nome | ...'.
 
     equipamentos_disponiveis filtra o catálogo quando o questionário informa o
-    que o aluno tem (peso corporal e cardio nunca são filtrados). Filtro que
-    deixaria o catálogo sem exercício com carga externa é ignorado — um rótulo
-    de equipamento que não reconhecemos não pode virar um plano só de prancha.
+    que o aluno tem (peso corporal e cardio nunca são filtrados por equipamento).
+    Filtro que deixaria o catálogo sem exercício com carga externa é ignorado —
+    um rótulo de equipamento que não reconhecemos não pode virar um plano só de
+    prancha.
+
+    incluir_cardio/incluir_mobilidade refletem as opções inclui_cardio e
+    inclui_alongamento do questionário: quem optou por não incluir cardio ou
+    alongamento não recebe esses nomes no cardápio do modelo (o grupo some do
+    prompt). Musculação e peso corporal nunca são cortados por aqui.
     """
     entradas = carregar_catalogo()
 
@@ -393,6 +409,14 @@ def catalogo_para_prompt(equipamentos_disponiveis: Optional[List[str]] = None) -
         ]
         if len(com_carga) >= 10 and len({ex.grupo_muscular for ex in filtradas}) >= 5:
             entradas = tuple(filtradas)
+
+    grupos_excluidos = set()
+    if not incluir_cardio:
+        grupos_excluidos.add(GRUPO_CARDIO)
+    if not incluir_mobilidade:
+        grupos_excluidos.add(GRUPO_MOBILIDADE)
+    if grupos_excluidos:
+        entradas = tuple(ex for ex in entradas if ex.grupo_muscular not in grupos_excluidos)
 
     agrupado: Dict[str, List[str]] = {}
     for ex in entradas:

@@ -654,6 +654,37 @@ def _thinking_config_para_modelo(model_name):
     return None
 
 
+def _catalogo_para_questionario(questionnaire_data) -> str:
+    """
+    Monta o cardápio de exercícios do prompt do molde respeitando as opções do
+    aluno: quem marcou inclui_cardio=falso ou inclui_alongamento=falso não
+    recebe esses nomes no catálogo (o modelo não os prescreve).
+
+    Coerção conservadora: só EXCLUI quando o flag é explicitamente negativo.
+    Ausente/ambíguo mantém o grupo — nunca escondemos exercício por dúvida de
+    formato (chave errada não pode virar plano sem cardio em silêncio).
+    """
+    from backend.services.exercise_catalog import catalogo_para_prompt
+
+    def _quer_incluir(valor, default=True):
+        if valor is None:
+            return default
+        if isinstance(valor, bool):
+            return valor
+        if isinstance(valor, (int, float)):
+            return valor != 0
+        # Só negativo EXPLÍCITO exclui; vazio/desconhecido mantém (dúvida inclui).
+        return str(valor).strip().lower() not in (
+            "false", "nao", "não", "no", "n", "0",
+        )
+
+    q = questionnaire_data if isinstance(questionnaire_data, dict) else {}
+    return catalogo_para_prompt(
+        incluir_cardio=_quer_incluir(q.get("inclui_cardio")),
+        incluir_mobilidade=_quer_incluir(q.get("inclui_alongamento")),
+    )
+
+
 def _executar_geracao_molde(
     job: PlanJob,
     questionnaire_data: dict,
@@ -672,7 +703,6 @@ def _executar_geracao_molde(
     import json as _json
     import jsonschema as _jsonschema
     from backend.schemas.molde_schema import MOLDE_SCHEMA
-    from backend.services.exercise_catalog import catalogo_para_prompt
     from backend.utils.anthropic_retry import criar_mensagem_com_deadline
 
     job.transition(JobStatus.GERANDO_MOLDE, "gerando_molde", "Montando a estratégia de treino...")
@@ -694,6 +724,8 @@ def _executar_geracao_molde(
         questionnaire_str = "(questionário indisponível)"
 
     diretrizes_str = _json.dumps(diretrizes, indent=2, ensure_ascii=False)
+    # Cardápio respeita inclui_cardio/inclui_alongamento do aluno.
+    catalogo_str = _catalogo_para_questionario(questionnaire_data)
 
     prompt_molde = f"""Você é um treinador de elite especializado em musculação.
 Sua tarefa é gerar um MOLDE de treino — uma estrutura enxuta que será expandida
@@ -733,7 +765,7 @@ INSTRUÇÕES:
 8. Retorne SOMENTE o JSON do molde, sem texto adicional.
 
 CATÁLOGO DE EXERCÍCIOS (grupo: nomes permitidos):
-{catalogo_para_prompt()}
+{catalogo_str}
 
 SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""

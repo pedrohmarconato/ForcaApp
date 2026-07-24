@@ -210,3 +210,63 @@ class TestCatalogoParaPrompt:
     def test_filtro_que_esvaziaria_o_catalogo_e_ignorado(self):
         texto = catalogo_para_prompt(["Equipamento Que Não Existe"])
         assert "Supino Reto com Barra" in texto
+
+    def test_cardio_e_mobilidade_presentes_por_padrao(self):
+        texto = catalogo_para_prompt()
+        assert "Cardio:" in texto
+        assert "Mobilidade:" in texto
+
+    def test_exclui_cardio_quando_aluno_nao_inclui(self):
+        texto = catalogo_para_prompt(incluir_cardio=False)
+        assert "Cardio:" not in texto
+        assert "Caminhada" not in texto and "Corrida" not in texto
+        # Musculação, peso corporal e mobilidade seguem intactos.
+        assert "Peito:" in texto and "Supino Reto com Barra" in texto
+        assert "Mobilidade:" in texto
+
+    def test_exclui_mobilidade_quando_aluno_nao_alonga(self):
+        texto = catalogo_para_prompt(incluir_mobilidade=False)
+        assert "Mobilidade:" not in texto
+        # Cardio e o resto seguem intactos.
+        assert "Cardio:" in texto and "Peito:" in texto
+
+    def test_exclui_ambos(self):
+        texto = catalogo_para_prompt(incluir_cardio=False, incluir_mobilidade=False)
+        assert "Cardio:" not in texto and "Mobilidade:" not in texto
+        assert "Peito:" in texto
+
+
+class TestCatalogoDoQuestionario:
+    """Wiring: as opções inclui_cardio/inclui_alongamento do questionário
+    (snake_case, como o app envia) filtram o cardápio do prompt do molde."""
+
+    def _f(self, q):
+        from backend.app import _catalogo_para_questionario
+        return _catalogo_para_questionario(q)
+
+    def test_flags_ausentes_incluem_tudo(self):
+        texto = self._f({})
+        assert "Cardio:" in texto and "Mobilidade:" in texto
+
+    def test_sem_cardio_remove_cardio(self):
+        texto = self._f({"inclui_cardio": False, "inclui_alongamento": True})
+        assert "Cardio:" not in texto
+        assert "Mobilidade:" in texto
+
+    def test_sem_alongamento_remove_mobilidade(self):
+        texto = self._f({"inclui_cardio": True, "inclui_alongamento": False})
+        assert "Mobilidade:" not in texto
+        assert "Cardio:" in texto
+
+    def test_string_negativa_tambem_exclui(self):
+        texto = self._f({"inclui_cardio": "não"})
+        assert "Cardio:" not in texto
+
+    def test_valor_vazio_ou_ambiguo_mantem_o_grupo(self):
+        # Dúvida de formato nunca esconde exercício (só negativo explícito exclui).
+        assert "Cardio:" in self._f({"inclui_cardio": ""})
+        assert "Cardio:" in self._f({"inclui_cardio": "talvez"})
+
+    def test_questionario_none_nao_explode(self):
+        texto = self._f(None)
+        assert "Cardio:" in texto and "Peito:" in texto
