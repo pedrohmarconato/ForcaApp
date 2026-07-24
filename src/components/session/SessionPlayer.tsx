@@ -46,6 +46,7 @@ import {
   FIELD_FLEX,
   FIELD_WIDE_FLEX,
   LOAD_INPUT_STYLE,
+  idDoExercicioNoCard,
 } from './sessionPlayerLayout';
 import { tapLight } from '../../utils/haptics';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
@@ -201,7 +202,16 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   // ausência desta marcação que fazia "mudou de exercício" passar batido.
   const entrada = useRef(new Animated.Value(1)).current;
   const exercicioAnterior = useRef<string | null>(null);
-  const exercicioAtivoId = active?.exercise.exerciseId ?? next?.exercise.exerciseId ?? null;
+  // O gatilho é o exercício que está NO CARD ANIMADO, não o do rascunho. Ao
+  // fechar um exercício o rascunho já aponta para o próximo, mas quem está na
+  // tela é o card de descanso (não animado): usar o rascunho fazia a animação
+  // correr e terminar durante o descanso, e o card novo entrava sem nada.
+  const emDescanso = !!rest && !active;
+  const exercicioAtivoId = idDoExercicioNoCard({
+    ativo: active?.exercise.exerciseId ?? null,
+    proximo: next?.exercise.exerciseId ?? null,
+    emDescanso,
+  });
   useEffect(() => {
     if (!exercicioAtivoId) return;
     const trocou =

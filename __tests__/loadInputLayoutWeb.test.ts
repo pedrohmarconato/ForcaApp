@@ -23,6 +23,7 @@ import {
   FIELD_FLEX,
   FIELD_WIDE_FLEX,
   LOAD_INPUT_STYLE,
+  idDoExercicioNoCard,
 } from '../src/components/session/sessionPlayerLayout';
 
 /** iPhone 13 — a tela mais estreita que o dono usa de fato. */
@@ -69,28 +70,93 @@ describe('campo de carga do SessionPlayer — largura no web', () => {
   });
 });
 
+describe('gatilho da animação de troca de exercício', () => {
+  // Modo de falha real (achado na revisão do PR #40, antes de chegar ao
+  // usuário): o gatilho vinha do rascunho, que já aponta para o próximo
+  // exercício assim que a última série fecha. Como quem está na tela nesse
+  // instante é o card de DESCANSO — que não anima —, os 260ms corriam atrás
+  // dele e o card do exercício novo entrava sem transição nenhuma.
+
+  it('segura o gatilho enquanto o descanso está na tela', () => {
+    expect(
+      idDoExercicioNoCard({ ativo: null, proximo: 'flexao', emDescanso: true }),
+    ).toBeNull();
+  });
+
+  it('assume o próximo exercício assim que o card animado volta', () => {
+    expect(
+      idDoExercicioNoCard({ ativo: null, proximo: 'flexao', emDescanso: false }),
+    ).toBe('flexao');
+  });
+
+  it('a série ativa manda quando existe', () => {
+    expect(
+      idDoExercicioNoCard({ ativo: 'supino', proximo: 'flexao', emDescanso: false }),
+    ).toBe('supino');
+  });
+
+  it('sem exercício em jogo não há gatilho', () => {
+    expect(
+      idDoExercicioNoCard({ ativo: null, proximo: null, emDescanso: false }),
+    ).toBeNull();
+  });
+
+  it('a sequência real de uma troca com descanso anima UMA vez, no card certo', () => {
+    // supino ativo → conclui (descanso, próximo = flexão) → descanso acaba.
+    const passos = [
+      { ativo: 'supino', proximo: null, emDescanso: false },
+      { ativo: null, proximo: 'flexao', emDescanso: true },
+      { ativo: 'flexao', proximo: null, emDescanso: false },
+    ].map(idDoExercicioNoCard);
+
+    expect(passos).toEqual(['supino', null, 'flexao']);
+    // O null no meio é o que impede o gatilho de virar durante o descanso: a
+    // troca só é percebida no passo 3, com o card animado na tela.
+    const trocas = passos.filter((id, i) => id !== null && i > 0 && passos[i - 1] !== id);
+    expect(trocas).toEqual(['flexao']);
+  });
+});
+
 describe('regra geral: TextInput com flex precisa de minWidth 0', () => {
   // O RNW não reseta min-width em TextInput; qualquer input que dispute espaço
-  // numa row repete o bug. A varredura impede que um componente novo o
-  // reintroduza em silêncio.
+  // numa row repete o bug. A varredura parte do USO — todo estilo aplicado a um
+  // <TextInput> — em vez do nome da chave: a primeira versão deste teste só
+  // olhava chaves com "Input" no nome e deixou passar `dateCell`, `yearCell`
+  // (data de nascimento) e `campo` (chat), que tinham exatamente o mesmo
+  // defeito.
   const DIRS = [
     join(__dirname, '..', 'src', 'components', 'session'),
+    join(__dirname, '..', 'src', 'components', 'ui'),
     join(__dirname, '..', 'src', 'screens'),
   ];
 
-  it('nenhum estilo de input com flex esquece o minWidth', () => {
+  /** Nomes de estilo (styles.X) aplicados a algum <TextInput> do arquivo. */
+  const estilosDeInput = (conteudo: string): Set<string> => {
+    const nomes = new Set<string>();
+    const blocos = conteudo.match(/<TextInput[\s\S]*?\/>/g) ?? [];
+    for (const bloco of blocos) {
+      const refs = bloco.match(/styles\.(\w+)/g) ?? [];
+      for (const ref of refs) nomes.add(ref.replace('styles.', ''));
+    }
+    return nomes;
+  };
+
+  it('nenhum estilo aplicado a TextInput com flex esquece o minWidth', () => {
     const infratores: string[] = [];
+    let arquivosVarridos = 0;
+    let estilosConferidos = 0;
 
     for (const dir of DIRS) {
       for (const arquivo of readdirSync(dir).filter((f) => /\.tsx$/.test(f))) {
         const conteudo = readFileSync(join(dir, arquivo), 'utf8');
-        if (!conteudo.includes('TextInput')) continue;
+        if (!conteudo.includes('<TextInput')) continue;
+        arquivosVarridos += 1;
 
-        // Estilos cujo nome denuncia um input e que declaram flex numérico.
-        const regex = /(\w*[Ii]nput\w*)\s*:\s*\{([^}]*)\}/g;
-        let m: RegExpExecArray | null;
-        while ((m = regex.exec(conteudo)) !== null) {
-          const [, nome, corpo] = m;
+        for (const nome of estilosDeInput(conteudo)) {
+          const def = new RegExp(`\\b${nome}\\s*:\\s*\\{([^}]*)\\}`).exec(conteudo);
+          if (!def) continue;
+          estilosConferidos += 1;
+          const corpo = def[1];
           const temFlex = /\bflex\s*:\s*[\d.]+/.test(corpo);
           const temMinWidth = /\bminWidth\s*:\s*0\b/.test(corpo);
           const temLarguraFixa = /\bwidth\s*:\s*\d/.test(corpo);
@@ -101,6 +167,10 @@ describe('regra geral: TextInput com flex precisa de minWidth 0', () => {
       }
     }
 
+    // Guarda contra a varredura silenciosamente parar de varrer (regex que não
+    // casa mais, pasta renomeada): um teste que não olha nada passa sempre.
+    expect(arquivosVarridos).toBeGreaterThanOrEqual(3);
+    expect(estilosConferidos).toBeGreaterThanOrEqual(5);
     expect(infratores).toEqual([]);
   });
 });

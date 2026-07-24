@@ -739,6 +739,10 @@ const handleEnterApp = useCallback(async () => {
         },
         campo: {
             flex: 1,
+            // Ver dateCell no QuestionnaireScreen: TextInput em row precisa de
+            // minWidth 0 no web, senão não encolhe e empurra o botão de enviar
+            // para fora da tela.
+            minWidth: 0,
             maxHeight: 96,
             minHeight: theme.hitTarget.compact,
             paddingHorizontal: theme.spacing.md,

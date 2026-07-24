@@ -807,8 +807,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   dateRow: { flexDirection: 'row', gap: theme.spacing.md },
-  dateCell: { flex: 1 },
-  yearCell: { flex: 1.6 },
+  // minWidth 0 obrigatório: são TextInput disputando espaço numa row, e o
+  // react-native-web não reseta `min-width` em input (só em View). Sem isto o
+  // campo trava na largura intrínseca (~20 caracteres) e o AAAA sai da tela
+  // no iPhone 13 — mesmo modo de falha do campo de carga (ver
+  // components/session/sessionPlayerLayout e __tests__/loadInputLayoutWeb).
+  dateCell: { flex: 1, minWidth: 0 },
+  yearCell: { flex: 1.6, minWidth: 0 },
   miniInput: {
     minHeight: theme.hitTarget.regular,
     paddingHorizontal: theme.spacing.md,

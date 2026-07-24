@@ -115,6 +115,11 @@ const styles = StyleSheet.create({
   inputWrapError: { borderColor: theme.colors.status.danger },
   input: {
     flex: 1,
+    // minWidth 0 obrigatório: o react-native-web não reseta `min-width` em
+    // input (só em View), então sem isto o campo trava na largura intrínseca
+    // (~20 caracteres) e empurra o adornment para fora em tela estreita.
+    // Mesmo modo de falha do campo de carga — ver __tests__/loadInputLayoutWeb.
+    minWidth: 0,
     paddingVertical: theme.spacing.md,
     color: theme.colors.text.primary,
     fontFamily: theme.fonts.ui,

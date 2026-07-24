@@ -50,6 +50,16 @@ export const MOTIVO_DA_PERDA: Record<ReplanLossReason, string> = {
   replan_anterior_perdido: 'já tinha sido remanejado antes',
 };
 
+/**
+ * Séries que o corte de tempo remove da sessão de hoje. Existe porque a MESMA
+ * sessão pode aparecer nos dois planos ao mesmo tempo (levou falta na semana e
+ * o aluno declarou menos tempo hoje): sem descontar isto, o cartão de reforço
+ * anunciava "12 → 14 séries" enquanto o cartão de tempo tirava 3 da mesma
+ * sessão, e nenhum dos dois números correspondia ao treino que ia acontecer.
+ */
+const seriesCortadasPorTempo = (proposal: WeeklyReplanProposal): number =>
+  proposal.timeCut?.cutExercises.reduce((t, c) => t + c.setsCut, 0) ?? 0;
+
 export type MudancaDoReplan =
   /** Sessão perdida que será marcada como pulada. */
   | {
@@ -68,12 +78,24 @@ export type MudancaDoReplan =
       adicionadas: number;
       porGrupo: { grupo: string; sets: number }[];
     }
-  /** Corte de tempo da sessão de hoje. */
+  /**
+   * Corte de tempo da sessão de hoje.
+   *
+   * O antes → depois aqui é de SÉRIES, não de minutos, porque só as séries são
+   * calculadas: `planTimeCut` corta por escada de prioridade e nunca reestima a
+   * duração do treino resultante. Mostrar "60 → 40 min" apresentava o tempo que
+   * o aluno DISSE ter como se fosse o tempo que o treino passou a levar — um
+   * número que ninguém apurou. Os minutos continuam no cartão, mas como
+   * contexto ("você tem 40 dos 60 estimados"), que é o que se sabe.
+   */
   | {
       tipo: 'corte_de_tempo';
       chave: string;
-      minutosAntes: number;
-      minutosDepois: number;
+      minutosDisponiveis: number;
+      minutosEstimados: number;
+      /** null quando a sessão de hoje não veio no contexto. */
+      seriesAntes: number | null;
+      seriesDepois: number | null;
       mantem: string;
       cortados: { nome: string; sets: number }[];
     }
@@ -126,7 +148,11 @@ export const montarMudancas = (params: {
     }
     for (const [id, porGrupo] of porSessao) {
       const s = porId.get(id);
-      const antes = s ? seriesDaSessao(s) : 0;
+      // Se esta é justamente a sessão que o corte de tempo encolhe, o "antes"
+      // honesto já é o tamanho pós-corte.
+      const cortePorTempo =
+        proposal.timeCut?.sessionId === id ? seriesCortadasPorTempo(proposal) : 0;
+      const antes = s ? seriesDaSessao(s) - cortePorTempo : 0;
       const adicionadas = porGrupo.reduce((t, g) => t + g.sets, 0);
       mudancas.push({
         tipo: 'sessao_reforcada',
@@ -142,11 +168,15 @@ export const montarMudancas = (params: {
 
   if (proposal.timeCut) {
     const tc = proposal.timeCut;
+    const sessaoDeHoje = porId.get(tc.sessionId);
+    const antes = sessaoDeHoje ? seriesDaSessao(sessaoDeHoje) : null;
     mudancas.push({
       tipo: 'corte_de_tempo',
       chave: `tempo-${tc.sessionId}`,
-      minutosAntes: tc.estimatedMinutes,
-      minutosDepois: tc.availableMinutes,
+      minutosDisponiveis: tc.availableMinutes,
+      minutosEstimados: tc.estimatedMinutes,
+      seriesAntes: antes,
+      seriesDepois: antes == null ? null : antes - seriesCortadasPorTempo(proposal),
       mantem: tc.keptPriorities.includes('secondary')
         ? 'Mantém principais e secundários'
         : 'Mantém só os principais',

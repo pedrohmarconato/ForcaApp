@@ -82,7 +82,7 @@ const PROPOSTA: WeeklyReplanProposal = {
 };
 
 it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
-  const { getByText, queryByText } = render(
+  const { getByText, getAllByText, queryByText } = render(
     <ReplanBanner
       proposal={PROPOSTA}
       sessions={SESSIONS}
@@ -100,18 +100,26 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
   getByText('pulado');
   getByText('9 séries que não aconteceram');
 
-  // O RESULTADO, não o delta solto: 12 → 14 séries.
+  // O RESULTADO, não o delta solto: 12 → 14 séries. O "12" aparece duas vezes
+  // de propósito — é também o "antes" do cartão de tempo (a sessão de hoje
+  // tem 12 séries planejadas).
   getByText('Treino C · sex');
-  getByText('12');
+  expect(getAllByText('12')).toHaveLength(2);
   getByText('14 séries');
   getByText('+2');
   getByText('Peito +2');
 
-  // Corte de tempo em minutos antes → depois.
+  // Corte de tempo: antes → depois em SÉRIES (12 na sessão de hoje, −3), com o
+  // tempo como contexto. Dizer "60 → 40 min" seria apresentar o tempo que o
+  // aluno declarou ter como duração apurada do treino cortado — o motor nunca
+  // reestima isso.
   getByText('Hoje · menos tempo');
-  getByText('40 min');
+  getByText('9 séries');
+  getByText('−3');
+  getByText('você tem 40 dos 60 min estimados');
   getByText('Mantém principais e secundários');
   getByText('saem: Tríceps Corda (3)');
+  expect(queryByText('40 min')).toBeNull();
 
   // O que fica de fora, em português de treinador.
   getByText('1 série fica de fora');

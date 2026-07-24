@@ -3,14 +3,16 @@
 // O modo de falha que motivou isto: terminar a última série do supino e cair na
 // primeira da remada era indistinguível de "mais uma série", porque o card tem
 // sempre a mesma forma.
+//
+// Só cobre o que o app realmente chama. A primeira versão testava mais quatro
+// funções (classificarTransicao, ehUltimaSerieDoExercicio, seriesRestantes e o
+// tipo TransicaoDoTreino) que nenhuma tela usava — teste verde sobre código
+// morto dá falsa sensação de cobertura, então elas saíram junto.
 
 import {
-  classificarTransicao,
-  ehUltimaSerieDoExercicio,
   exercicioConcluido,
   exerciciosEmJogo,
   posicaoDoExercicio,
-  seriesRestantes,
 } from '../src/engine/sessionFlow';
 import type { SessionDraft, DraftExercise, DraftSet } from '../src/engine/sessionModel';
 
@@ -87,58 +89,13 @@ describe('posição no treino', () => {
 });
 
 describe('fim do exercício', () => {
-  it('a última série é a única que falta, mesmo fora de ordem', () => {
-    // Série 2 ainda ativa, 1 e 3 já registradas: concluir a 2 fecha o exercício.
-    const ex = exercicio('a', 'Supino', ['done', 'active', 'done']);
-    expect(ehUltimaSerieDoExercicio(ex, ex.sets[1])).toBe(true);
-  });
-
-  it('não anuncia fim quando ainda sobra série pendente', () => {
-    const ex = exercicio('a', 'Supino', ['done', 'active', 'pending']);
-    expect(ehUltimaSerieDoExercicio(ex, ex.sets[1])).toBe(false);
-    expect(seriesRestantes(ex)).toBe(2);
-  });
-
-  it('exercicioConcluido exige todas registradas e não vale para lista vazia', () => {
+  it('só anuncia o fim quando todas as séries estão registradas', () => {
     expect(exercicioConcluido(exercicio('a', 'X', ['done', 'done']))).toBe(true);
     expect(exercicioConcluido(exercicio('a', 'X', ['done', 'pending']))).toBe(false);
+    expect(exercicioConcluido(exercicio('a', 'X', ['done', 'active']))).toBe(false);
+  });
+
+  it('não trata exercício sem séries como concluído', () => {
     expect(exercicioConcluido(exercicio('a', 'X', []))).toBe(false);
-  });
-});
-
-describe('classificação da transição', () => {
-  const draft = rascunho([
-    exercicio('a', 'Supino', ['active', 'pending']),
-    exercicio('c', 'Remada', ['pending']),
-  ]);
-  const supino = draft.exercises[0];
-  const remada = draft.exercises[1];
-
-  it('mesma série quando não há para onde ir', () => {
-    expect(classificarTransicao(draft, { exercise: supino, set: supino.sets[0] }, null))
-      .toEqual({ tipo: 'mesma_serie' });
-  });
-
-  it('próxima série quando o exercício continua', () => {
-    const t = classificarTransicao(
-      draft,
-      { exercise: supino, set: supino.sets[0] },
-      { exercise: supino, set: supino.sets[1] },
-    );
-    expect(t.tipo).toBe('proxima_serie');
-  });
-
-  it('novo exercício traz de/para e a posição no treino', () => {
-    const t = classificarTransicao(
-      draft,
-      { exercise: supino, set: supino.sets[1] },
-      { exercise: remada, set: remada.sets[0] },
-    );
-    expect(t).toEqual({
-      tipo: 'novo_exercicio',
-      de: supino,
-      para: remada,
-      posicao: { indice: 2, total: 2 },
-    });
   });
 });

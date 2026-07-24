@@ -19,6 +19,26 @@ export const LOAD_INPUT_STYLE = { flex: 1, minWidth: 0 } as const;
 export const FIELD_FLEX = 1;
 
 /**
+ * Qual exercício está no card ANIMADO neste instante — o gatilho da transição
+ * de entrada.
+ *
+ * Durante o descanso o card na tela é o do timer, que não anima. O rascunho,
+ * porém, já aponta para o próximo exercício assim que a última série fecha. Se
+ * o gatilho viesse do rascunho, a animação de 260ms correria (e terminaria)
+ * atrás do card de descanso, e o exercício novo entraria sem transição nenhuma
+ * — exatamente o que o redesign queria resolver. Devolver `null` no descanso
+ * segura o gatilho até o card animado voltar à tela.
+ */
+export const idDoExercicioNoCard = (params: {
+  ativo: string | null;
+  proximo: string | null;
+  emDescanso: boolean;
+}): string | null => {
+  if (params.emDescanso) return null;
+  return params.ativo ?? params.proximo ?? null;
+};
+
+/**
  * Proporção do campo de carga. Era 1.8, o que deixava 60,3pt úteis — e "102,5"
  * ocupa 62pt na fonte real (Inter 600 a 24px). Carga de três dígitos com
  * decimal era cortada mesmo depois do minWidth; 2.2 resolve com folga.
