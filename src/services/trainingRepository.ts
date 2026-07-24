@@ -110,6 +110,26 @@ export const getTodaySession = async (userId: string): Promise<PlannedSession | 
   return pendente.data?.[0] ?? null;
 };
 
+/**
+ * TODAS as sessões do plano ativo (qualquer status), ordenadas por semana e
+ * ordem na semana — visão de ciclo da aba Plano (Direção 03). Planos são
+ * pequenos (semanas × treinos), uma página basta.
+ */
+export const getPlanSessions = async (userId: string): Promise<PlannedSession[]> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return [];
+
+  const { data, error } = await supabase
+    .from('planned_sessions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('plan_id', planId)
+    .order('week_number', { ascending: true })
+    .order('order_in_week', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+};
+
 /** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */
 export const getUpcomingSessions = async (
   userId: string,

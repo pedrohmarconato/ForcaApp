@@ -34,15 +34,18 @@ import {
   formatarDataCurta,
   DIAS_DA_SEMANA,
 } from '../utils/weekSummary';
+import { semanasConstantes } from '../engine/progressStats';
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
+import FModules from '../components/ui/FModules';
 
-// Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail)
+// Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail/ActiveSession)
 type HomeStackParamList = {
   HomeMain: undefined;
   WorkoutDetail: { sessionId: string };
+  ActiveSession: { sessionId: string };
 };
 
 const formatarData = (isoDate: string | null): string =>
@@ -152,6 +155,13 @@ const HomeScreen = () => {
   );
   const ultima = completed?.[0] ?? null;
 
+  // Momentum REAL: semanas consecutivas com treino, ancoradas no dia local
+  // (mesma régua da semana). Zero → o cabeçalho não exibe número nenhum.
+  const streak = useMemo(
+    () => (completed ? semanasConstantes(completed, new Date(`${hoje}T12:00:00`)) : 0),
+    [completed, hoje],
+  );
+
   const ehHoje = todaySession?.scheduled_date === hoje;
   const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
 
@@ -163,8 +173,22 @@ const HomeScreen = () => {
   return (
     <Screen scroll testID="home-screen">
       <View style={styles.header}>
-        <Text style={styles.greeting}>{saudacao(new Date().getHours())}</Text>
-        <Text style={styles.userName}>{primeiroNome}.</Text>
+        <View>
+          <Text style={styles.greeting}>{saudacao(new Date().getHours())}</Text>
+          <Text style={styles.userName}>{primeiroNome}.</Text>
+        </View>
+        {streak > 0 ? (
+          <View style={styles.momentum} testID="momentum-header">
+            <FModules
+              lit={Math.min(3, streak)}
+              size={26}
+              accessibilityLabel={`${streak} ${streak === 1 ? 'semana constante' : 'semanas constantes'}`}
+            />
+            <Text style={styles.momentumLabel}>
+              {streak} {streak === 1 ? 'semana' : 'semanas'} no plano
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* --- Treino em destaque --- */}
@@ -217,12 +241,26 @@ const HomeScreen = () => {
               ) : null}
             </View>
 
-            <Button
-              label="Ver treino"
-              icon="arrow-right"
-              compact
-              onPress={() => abrirDetalhe(todaySession.id)}
-            />
+            {/* Caminho curto (Direção 03): Começar entra DIRETO na sessão — o
+                check-in de foco recebe o aluno lá. O detalhe vira secundário. */}
+            <View style={styles.heroActions}>
+              <Button
+                label="Começar"
+                icon="arrow-right"
+                compact
+                onPress={() =>
+                  navigation.navigate('ActiveSession', { sessionId: todaySession.id })
+                }
+                style={styles.heroPrimary}
+              />
+              <Button
+                label="Detalhes"
+                variant="tonal"
+                compact
+                onPress={() => abrirDetalhe(todaySession.id)}
+                style={styles.heroSecondary}
+              />
+            </View>
           </Card>
         ) : (
           <Card>
@@ -356,7 +394,23 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  header: { marginBottom: theme.spacing.xxl },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.xxl,
+  },
+  momentum: { alignItems: 'flex-end', gap: theme.spacing.xs },
+  momentumLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
+  heroActions: { flexDirection: 'row', gap: theme.spacing.sm },
+  heroPrimary: { flex: 1.8 },
+  heroSecondary: { flex: 1 },
   greeting: {
     color: theme.colors.text.quiet,
     fontFamily: theme.fonts.ui,

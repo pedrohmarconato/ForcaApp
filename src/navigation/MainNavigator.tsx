@@ -30,6 +30,7 @@ export type HomeStackParamList = {
 
 export type TrainingStackParamList = {
   TrainingOverview: undefined;
+  WorkoutDetail: { sessionId: string };
   ActiveSession: { sessionId: string };
 };
 
@@ -63,6 +64,7 @@ function TrainingStackNavigator() {
   return (
     <TrainingStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle, ...stackTransition }}>
       <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
+      <TrainingStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
     </TrainingStack.Navigator>
   );

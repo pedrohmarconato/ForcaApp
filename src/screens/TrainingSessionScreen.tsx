@@ -16,14 +16,37 @@ import theme from '../theme/theme';
 import type { TrainingStackParamList } from '../navigation/MainNavigator';
 import {
   getTodaySession,
+  getPlanSessions,
   getSessionDetail,
   SessionDetail,
+  PlannedSession,
   PlannedExercise,
 } from '../services/trainingRepository';
-import { Screen, Card, ScreenTitle } from '../components/ui/Surface';
+import { DIAS_DA_SEMANA } from '../utils/weekSummary';
+import { Screen, Card, ScreenTitle, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
+import FModules from '../components/ui/FModules';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
+
+/** Letra do dia (SEG..DOM) a partir do scheduled_date local; null sem data. */
+const diaDaSessao = (sessao: PlannedSession): string | null => {
+  if (!sessao.scheduled_date) return null;
+  const data = new Date(`${sessao.scheduled_date}T12:00:00`);
+  if (Number.isNaN(data.getTime())) return null;
+  return DIAS_DA_SEMANA[(data.getDay() + 6) % 7];
+};
+
+const estadoDaSessao = (
+  sessao: PlannedSession,
+  sessaoDaVezId: string | null,
+): { rotulo: string; accent: boolean } => {
+  if (sessao.status === 'completed') return { rotulo: 'Concluído', accent: true };
+  if (sessao.status === 'skipped') return { rotulo: 'Pulado', accent: false };
+  if (sessao.id === sessaoDaVezId)
+    return { rotulo: sessao.status === 'in_progress' ? 'Em andamento' : 'A seguir', accent: true };
+  return { rotulo: '', accent: false };
+};
 
 const TrainingSessionScreen = () => {
   const navigation = useNavigation<StackNavigationProp<TrainingStackParamList, 'TrainingOverview'>>();
@@ -31,12 +54,23 @@ const TrainingSessionScreen = () => {
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "não há treino": estados distintos (achado #9 do review)
   const [loadError, setLoadError] = useState(false);
+  // Visão de ciclo (Direção 03): carga independente — falha aqui só esconde o
+  // contexto da semana, nunca derruba a sessão da vez.
+  const [planSessions, setPlanSessions] = useState<PlannedSession[] | null>(null);
   const { user } = useAuth();
 
   const fetchCurrentTraining = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     setLoadError(false);
+
+    getPlanSessions(user.id)
+      .then(setPlanSessions)
+      .catch((err) => {
+        console.log('Visão de ciclo indisponível:', err?.message ?? err);
+        setPlanSessions(null);
+      });
+
     try {
       const proxima = await getTodaySession(user.id);
       if (!proxima) {
@@ -120,6 +154,13 @@ const TrainingSessionScreen = () => {
     ? new Date(`${session.scheduled_date}T12:00:00`).toLocaleDateString('pt-BR')
     : null;
 
+  // Ciclo REAL: total = maior semana do plano; atual = semana da sessão da vez.
+  const totalSemanas = planSessions?.length
+    ? Math.max(...planSessions.map((s) => s.week_number))
+    : null;
+  const sessoesDaSemana =
+    planSessions?.filter((s) => s.week_number === session.week_number) ?? [];
+
   const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
     <PlannedExerciseRow exercise={item} index={index} />
   );
@@ -127,6 +168,43 @@ const TrainingSessionScreen = () => {
   return (
     <Screen>
       <ScreenTitle kicker="Plano" title="Seu plano." style={styles.title} />
+
+      {/* --- Visão do ciclo: Semana N de M + a semana corrente ------------- */}
+      {totalSemanas ? (
+        <View style={styles.cycle} testID="visao-ciclo">
+          <View style={styles.cycleTop}>
+            <Text style={styles.cycleLabel}>
+              Semana {session.week_number} de {totalSemanas}
+            </Text>
+            <FModules
+              lit={Math.ceil((session.week_number / totalSemanas) * 3)}
+              accessibilityLabel={`Semana ${session.week_number} de ${totalSemanas}`}
+            />
+          </View>
+          {sessoesDaSemana.map((s) => {
+            const estado = estadoDaSessao(s, session.id);
+            return (
+              <ListRow
+                key={s.id}
+                title={s.title}
+                subtitle={
+                  [
+                    s.estimated_minutes ? `${s.estimated_minutes} min` : null,
+                    s.muscle_groups?.length ? s.muscle_groups.join(' · ') : s.session_type,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || undefined
+                }
+                leading={<Chip label={diaDaSessao(s) ?? '—'} />}
+                trailingLabel={estado.rotulo || undefined}
+                trailingAccent={estado.accent}
+                showChevron
+                onPress={() => navigation.navigate('WorkoutDetail', { sessionId: s.id })}
+              />
+            );
+          })}
+        </View>
+      ) : null}
 
       <Card elevated style={styles.summary}>
         <View style={styles.summaryTop}>
@@ -174,6 +252,20 @@ const TrainingSessionScreen = () => {
 const styles = StyleSheet.create({
   skeletonStack: { gap: theme.spacing.sm },
   title: { marginBottom: theme.spacing.lg },
+
+  cycle: { marginBottom: theme.spacing.xl },
+  cycleTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.md,
+  },
+  cycleLabel: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
 
   summary: { marginBottom: theme.spacing.xl },
   summaryTop: {

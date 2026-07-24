@@ -117,6 +117,28 @@ export const volumePorSemana = (
   return semanas;
 };
 
+/**
+ * Semanas CONSECUTIVAS com pelo menos um treino concluído, terminando na
+ * semana atual. A semana em curso ainda zerada não quebra a sequência (ela
+ * não acabou); um buraco em semana passada quebra. Zero sem nenhum treino.
+ */
+export const semanasConstantes = (
+  sessoes: readonly SessaoConcluida[],
+  hoje: Date = new Date(),
+): number => {
+  const inicioAtual = inicioDaSemana(hoje);
+  let streak = resumirSemana(sessoes, inicioAtual).concluidas > 0 ? 1 : 0;
+
+  for (let k = 1; k <= 520; k += 1) {
+    const referencia = new Date(inicioAtual);
+    referencia.setDate(referencia.getDate() - 7 * k);
+    if (resumirSemana(sessoes, referencia).concluidas > 0) streak += 1;
+    else break;
+  }
+
+  return streak;
+};
+
 export type SemanaConstancia = {
   rotulo: string;
   diasComTreino: boolean[];

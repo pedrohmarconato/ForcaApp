@@ -17,6 +17,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import theme from '../../theme/theme';
+import FModules from '../ui/FModules';
 import type {
   Recommendation,
   Adjustment,
@@ -67,6 +68,10 @@ const AdaptationSheet = ({
             <>
               <View style={styles.handle} />
               <Text style={styles.kicker}>{exerciseName}</Text>
+              <View style={styles.coachRow}>
+                <FModules lit={1} size={16} />
+                <Text style={styles.coachKicker}>Proposta do treinador</Text>
+              </View>
               <Text style={styles.title} accessibilityRole="header">
                 {titleFor(recommendation)}
               </Text>
@@ -113,6 +118,20 @@ const AdaptationSheet = ({
 };
 
 const styles = StyleSheet.create({
+  coachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  coachKicker: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.bold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
   backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
