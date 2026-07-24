@@ -509,3 +509,52 @@ describe('linha da série concluída', () => {
     expect(doneLine(musculacao, serie)).toBe('10 reps × 40 kg · fôlego 2');
   });
 });
+
+describe('retomada de sessão com cardio', () => {
+  const store = () => useActiveSessionStore.getState();
+
+  it('reconstruir do servidor NÃO apaga tempo, distância e esforço', async () => {
+    jest.clearAllMocks();
+    useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+    mock(getLastLoadByExercise).mockResolvedValue({});
+    // Servidor tem a série de cardio já gravada; o rascunho local se perdeu.
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-c',
+      startedAt: '2026-07-24T10:00:00Z',
+      availableMinutes: null,
+      adherenceSnapshot: null,
+      mood: 'normal',
+      setLogs: [
+        {
+          id: 'log-1',
+          planned_set_id: 'st-c1',
+          actual_reps: null,
+          actual_load_kg: null,
+          actual_rir: null,
+          actual_duration_seconds: 1350,
+          actual_distance_m: 3200,
+          perceived_effort: 'moderado',
+          outcome: 'over',
+          adaptation: null,
+          completed_at: '2026-07-24T10:25:00Z',
+        },
+      ],
+    });
+
+    await store().startOrResume({
+      sessionId: 'sess-c',
+      userId: 'user-1',
+      detail: detalheComCardio(),
+    });
+
+    const serie = store().draft!.exercises[0].sets[0];
+    expect(serie.status).toBe('done');
+    expect(serie.actualDurationSeconds).toBe(1350);
+    expect(serie.actualDistanceM).toBe(3200);
+    expect(serie.perceivedEffort).toBe('moderado');
+    // E a linha do resumo volta completa, não "—".
+    expect(doneLine(store().draft!.exercises[0], serie)).toBe(
+      '22:30 · 3,2 km · 7:02 /km · moderado',
+    );
+  });
+});

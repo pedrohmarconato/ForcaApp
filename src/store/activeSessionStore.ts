@@ -339,6 +339,11 @@ const applyServerSetLogs = (
         actualReps: sl.actual_reps,
         actualLoadKg: sl.actual_load_kg,
         actualRir: sl.actual_rir,
+        // Cardio/isometria (0014): sem restaurar isto, retomar a sessão apagava
+        // a medição — a série voltava "feita" mas sem tempo, distância nem pace.
+        actualDurationSeconds: sl.actual_duration_seconds ?? null,
+        actualDistanceM: sl.actual_distance_m ?? null,
+        perceivedEffort: sl.perceived_effort ?? null,
         outcome: sl.outcome,
         // Restaura a decisão de adaptação: servidor é autoritativo; se ele ainda não a tem
         // (gravação best-effort pendente), usa a do rascunho local.
