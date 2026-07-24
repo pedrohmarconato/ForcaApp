@@ -26,7 +26,10 @@ type PlannedExerciseRowProps = {
 
 const PlannedExerciseRow = ({ exercise, index }: PlannedExerciseRowProps) => {
   const meta = [
-    exercise.target_rm_percent != null ? `${exercise.target_rm_percent}% RM` : null,
+    // "0% RM" é ruído: a IA às vezes preenche zero. Só mostra o que informa.
+    exercise.target_rm_percent != null && exercise.target_rm_percent > 0
+      ? `${exercise.target_rm_percent}% RM`
+      : null,
     exercise.rest_seconds != null ? `descanso ${exercise.rest_seconds}s` : null,
   ].filter(Boolean);
 

@@ -162,15 +162,39 @@ export const getSessionDetail = async (sessionId: string): Promise<SessionDetail
  * (achado #4 do review: nada de dado inventado para o aluno).
  */
 export const formatExerciseTarget = (exercicio: PlannedExercise): string => {
+  const primeiraSerie = exercicio.planned_sets?.[0];
+
+  // Cardio e isometria (0014) não se medem em repetição. Sem este ramo a tela
+  // imprimia "1 séries × null reps" assim que as reps viraram nulas.
+  if (exercicio.metric === 'tempo' || exercicio.metric === 'tempo_distancia') {
+    const segundos = primeiraSerie?.target_duration_seconds ?? null;
+    const metros = primeiraSerie?.target_distance_m ?? null;
+    const partes: string[] = [];
+    if (segundos != null) {
+      partes.push(
+        segundos >= 60
+          ? `${Math.round(segundos / 60)} min`
+          : `${Math.round(segundos)}s`,
+      );
+    }
+    if (metros != null) {
+      partes.push(`${(metros / 1000).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} km`);
+    }
+    const alvo = partes.length > 0 ? partes.join(' · ') : (exercicio.reps_raw?.trim() ?? '—');
+    return exercicio.sets_planned > 1
+      ? `${exercicio.sets_planned} séries × ${alvo}`
+      : alvo;
+  }
+
   const prescricaoOriginal = exercicio.reps_raw?.trim();
   if (prescricaoOriginal && !/\d/.test(prescricaoOriginal)) {
     return `${exercicio.sets_planned} séries × ${prescricaoOriginal}`;
   }
-  const primeiraSerie = exercicio.planned_sets?.[0];
-  const faixa = primeiraSerie
-    ? primeiraSerie.target_reps_min === primeiraSerie.target_reps_max
-      ? `${primeiraSerie.target_reps_min}`
-      : `${primeiraSerie.target_reps_min}-${primeiraSerie.target_reps_max}`
-    : prescricaoOriginal ?? '—';
+  const faixa =
+    primeiraSerie && primeiraSerie.target_reps_min != null
+      ? primeiraSerie.target_reps_min === primeiraSerie.target_reps_max
+        ? `${primeiraSerie.target_reps_min}`
+        : `${primeiraSerie.target_reps_min}-${primeiraSerie.target_reps_max}`
+      : prescricaoOriginal ?? '—';
   return `${exercicio.sets_planned} séries × ${faixa} reps`;
 };

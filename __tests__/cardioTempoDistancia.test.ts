@@ -6,6 +6,12 @@
 // - a retomada descartava séries de cardio (filtro exigia actual_reps)
 // - não havia onde registrar tempo, distância nem pace
 
+// formatExerciseTarget vive no repositório de leitura, que importa o cliente
+// Supabase real (e com ele o AsyncStorage nativo) — mockado como nas demais suítes.
+jest.mock('../src/config/supabaseClient', () => ({
+  supabase: { from: jest.fn(), rpc: jest.fn() },
+}));
+
 jest.mock('../src/services/sessionExecutionRepository', () => {
   class SessionExecutionRequestError extends Error {
     kind: 'transport' | 'server';
@@ -55,7 +61,10 @@ import {
   paceSecondsPerKm,
 } from '../src/engine/sessionModel';
 import { alvoDaSerie } from '../src/components/session/SessionPlayer';
-import type { SessionDetail } from '../src/services/trainingRepository';
+import {
+  formatExerciseTarget,
+  type SessionDetail,
+} from '../src/services/trainingRepository';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
@@ -381,5 +390,41 @@ describe('store: registrar um cardio de verdade', () => {
     expect(store().draft!.exercises[0].sets[0].actualDurationSeconds).toBeNull();
     store().setDuration('ex-cardio', 1, -30);
     expect(store().draft!.exercises[0].sets[0].actualDurationSeconds).toBeNull();
+  });
+});
+
+describe('resumo do exercício na lista do treino', () => {
+  it('cardio não mostra "null reps" — mostra tempo e distância', () => {
+    const [caminhada] = detalheComCardio().planned_exercises;
+    expect(formatExerciseTarget(caminhada)).toBe('25 min · 3 km');
+  });
+
+  it('isometria com várias séries mostra séries × tempo', () => {
+    const prancha = {
+      ...detalheComCardio().planned_exercises[1],
+      sets_planned: 3,
+    };
+    expect(formatExerciseTarget(prancha)).toBe('3 séries × 45s');
+  });
+
+  it('musculação continua em reps', () => {
+    const musculacao = {
+      ...detalheComCardio().planned_exercises[0],
+      metric: 'carga_reps' as const,
+      sets_planned: 3,
+      reps_raw: '8-12',
+      planned_sets: [
+        {
+          id: 'st-m',
+          exercise_id: 'ex-m',
+          set_order: 1,
+          target_reps_min: 8,
+          target_reps_max: 12,
+          target_load_kg: null,
+          target_rir: null,
+        },
+      ],
+    };
+    expect(formatExerciseTarget(musculacao)).toBe('3 séries × 8-12 reps');
   });
 });
