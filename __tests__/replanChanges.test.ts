@@ -198,13 +198,74 @@ describe('montagem das mudanças', () => {
       sessions,
     });
 
+    // Antes → depois em SÉRIES (12 planejadas na s2, menos as 3 cortadas). Os
+    // minutos ficam como contexto: `planTimeCut` corta por prioridade e NUNCA
+    // reestima a duração, então "52 → 35 min" seria um número que ninguém
+    // apurou — o disponível apresentado como resultado.
     expect(mudancas[0]).toMatchObject({
       tipo: 'corte_de_tempo',
-      minutosAntes: 52,
-      minutosDepois: 35,
+      minutosDisponiveis: 35,
+      minutosEstimados: 52,
+      seriesAntes: 12,
+      seriesDepois: 9,
       mantem: 'Mantém só os principais',
       cortados: [{ nome: 'Rosca Martelo', sets: 3 }],
     });
+  });
+
+  it('sem a sessão de hoje no contexto, o corte não inventa contagem de séries', () => {
+    const mudancas = montarMudancas({
+      proposal: proposta({
+        timeCut: {
+          kind: 'time_cut',
+          sessionId: 'desconhecida',
+          availableMinutes: 35,
+          estimatedMinutes: 52,
+          ratio: 0.67,
+          keptPriorities: ['primary'],
+          cutExercises: [
+            { exerciseId: 'e9', name: 'Rosca', priority: 'accessory', muscleGroup: 'bíceps', setsCut: 3 },
+          ],
+        },
+      }),
+      sessions,
+    });
+
+    expect(mudancas[0]).toMatchObject({ seriesAntes: null, seriesDepois: null });
+  });
+
+  it('quando a MESMA sessão leva reforço e corte de tempo, o "antes" já é o pós-corte', () => {
+    // Cenário real: faltou treino na semana E o aluno declarou menos tempo
+    // hoje, com a sessão de hoje elegível para receber volume. Sem descontar,
+    // o cartão dizia "12 → 14" enquanto o de tempo tirava 3 da mesma sessão.
+    const mudancas = montarMudancas({
+      proposal: proposta({
+        timeCut: {
+          kind: 'time_cut',
+          sessionId: 's2',
+          availableMinutes: 35,
+          estimatedMinutes: 52,
+          ratio: 0.67,
+          keptPriorities: ['primary'],
+          cutExercises: [
+            { exerciseId: 'e9', name: 'Rosca', priority: 'accessory', muscleGroup: 'bíceps', setsCut: 3 },
+          ],
+        },
+        redistribution: {
+          kind: 'missed_redistribution',
+          missedSessionIds: [],
+          additions: [
+            { targetSessionId: 's2', exerciseId: 'e1', exerciseName: 'Supino', muscleGroup: 'peito', addSets: 2 },
+          ],
+          losses: [],
+        },
+      }),
+      sessions,
+    });
+
+    const reforco = mudancas.find((m) => m.tipo === 'sessao_reforcada');
+    // 12 planejadas − 3 cortadas por tempo = 9; com as 2 adicionadas, 11.
+    expect(reforco).toMatchObject({ seriesAntes: 9, seriesDepois: 11, adicionadas: 2 });
   });
 
   it('resume a quantidade sem inventar plural', () => {

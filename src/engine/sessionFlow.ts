@@ -7,7 +7,7 @@
 // aluno só percebia lendo o nome. Estas funções são puras para que a UI possa
 // dizer "exercício 3 de 7" e "supino concluído" sem inventar estado.
 
-import type { SessionDraft, DraftExercise, DraftSet } from './sessionModel';
+import type { SessionDraft, DraftExercise } from './sessionModel';
 
 /** Exercícios que ainda contam no treino (os cortados pelo replan saem). */
 export const exerciciosEmJogo = (draft: SessionDraft): DraftExercise[] =>
@@ -27,52 +27,11 @@ export const posicaoDoExercicio = (
   return { indice: i + 1, total: emJogo.length };
 };
 
-/** Séries que ainda faltam registrar neste exercício (pendentes ou ativa). */
-export const seriesRestantes = (exercise: DraftExercise): number =>
-  exercise.sets.filter((s) => s.status !== 'done').length;
-
 /**
- * Esta é a última série a registrar do exercício? Usado para trocar o texto do
- * descanso de "série registrada" para "exercício concluído" — o aviso só é
- * honesto quando não sobra nada além dela.
+ * O exercício está inteiro registrado? É o que troca o texto do descanso de
+ * "série registrada" para "<exercício> concluído" — o aviso só é honesto
+ * quando não sobra nada a fazer nele. Avaliado sobre o rascunho JÁ atualizado
+ * por `completeSet`, então não depende da ordem em que as séries foram feitas.
  */
-export const ehUltimaSerieDoExercicio = (
-  exercise: DraftExercise,
-  set: DraftSet,
-): boolean =>
-  exercise.sets.every((s) => s.setOrder === set.setOrder || s.status === 'done');
-
-/** O exercício está inteiro registrado? */
 export const exercicioConcluido = (exercise: DraftExercise): boolean =>
   exercise.sets.length > 0 && exercise.sets.every((s) => s.status === 'done');
-
-/**
- * A transição que a UI precisa anunciar. Compara de onde o aluno veio com para
- * onde vai: mesma série, próxima série do mesmo exercício, ou exercício novo.
- */
-export type TransicaoDoTreino =
-  | { tipo: 'mesma_serie' }
-  | { tipo: 'proxima_serie'; exercicio: DraftExercise }
-  | {
-      tipo: 'novo_exercicio';
-      de: DraftExercise;
-      para: DraftExercise;
-      posicao: { indice: number; total: number } | null;
-    };
-
-export const classificarTransicao = (
-  draft: SessionDraft,
-  atual: { exercise: DraftExercise; set: DraftSet } | null,
-  proxima: { exercise: DraftExercise; set: DraftSet } | null,
-): TransicaoDoTreino => {
-  if (!atual || !proxima) return { tipo: 'mesma_serie' };
-  if (atual.exercise.exerciseId === proxima.exercise.exerciseId) {
-    return { tipo: 'proxima_serie', exercicio: proxima.exercise };
-  }
-  return {
-    tipo: 'novo_exercicio',
-    de: atual.exercise,
-    para: proxima.exercise,
-    posicao: posicaoDoExercicio(draft, proxima.exercise.exerciseId),
-  };
-};

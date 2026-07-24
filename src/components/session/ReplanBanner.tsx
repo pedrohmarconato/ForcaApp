@@ -104,16 +104,28 @@ const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
           </View>
           <View style={styles.corpo}>
             <Text style={styles.cartaoTitulo}>Hoje · menos tempo</Text>
-            <View style={styles.transicao}>
-              <Text style={styles.antes}>{mudanca.minutosAntes}</Text>
-              <Feather
-                name="arrow-right"
-                size={13}
-                color={theme.colors.text.quiet}
-                style={styles.seta}
-              />
-              <Text style={styles.depois}>{mudanca.minutosDepois} min</Text>
-            </View>
+            {/* Antes → depois em SÉRIES: é o que o motor calcula. O tempo entra
+                como contexto, porque a duração do treino cortado não é
+                reestimada por ninguém — ver engine/replanChanges. */}
+            {mudanca.seriesAntes != null && mudanca.seriesDepois != null ? (
+              <View style={styles.transicao}>
+                <Text style={styles.antes}>{mudanca.seriesAntes}</Text>
+                <Feather
+                  name="arrow-right"
+                  size={13}
+                  color={theme.colors.text.quiet}
+                  style={styles.seta}
+                />
+                <Text style={styles.depois}>{mudanca.seriesDepois} séries</Text>
+                <Text style={styles.delta}>
+                  −{mudanca.seriesAntes - mudanca.seriesDepois}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={styles.detalhe}>
+              você tem {mudanca.minutosDisponiveis} dos {mudanca.minutosEstimados} min
+              estimados
+            </Text>
             <Text style={styles.detalhe}>{mudanca.mantem}</Text>
             {mudanca.cortados.length > 0 ? (
               <Text style={styles.detalheSaida}>

@@ -217,7 +217,9 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.changeText(screen.getByTestId('replan-minutes-input'), '40');
   fireEvent.press(screen.getByTestId('replan-minutes-apply'));
   await waitFor(() => expect(screen.getByText('Hoje · menos tempo')).toBeTruthy());
-  expect(screen.getByText('40 min')).toBeTruthy();
+  // Os minutos são contexto, não resultado: o motor corta por prioridade e não
+  // reestima a duração do treino cortado.
+  expect(screen.getByText('você tem 40 dos 60 min estimados')).toBeTruthy();
   expect(screen.getByText('saem: Tríceps Corda (1)')).toBeTruthy();
   // A redistribuição recusada não volta junto com o corte de tempo.
   expect(screen.queryByText('Treino A · dom')).toBeNull();
