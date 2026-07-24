@@ -562,3 +562,33 @@ Verificação: tsc 0 · jest 28 suítes/228 (223→228) · pytest 67.
 - Próximo: aprovação da direção pelo dono → Fases 1–5 de implementação no app (fundações de motion →
   onboarding → sessão/resumo → aba Progresso → Hoje/Plano/Perfil), cada uma com testes-primeiro,
   tsc/jest/pytest verdes e capturas em docs/ui.
+
+## Direção 03 — IMPLEMENTAÇÃO das Fases 1–5 (24/07/2026) ✅
+
+Protótipo aprovado pelo dono → 6 commits na branch `feat/direcao03-fase1-fundacoes`
+(empilhada em `feat/catalogo-exercicios`, que segue 10 commits à frente de main):
+
+- **Fase 1** (8768cf9): motion tokens "física de treino", usePressPhysics em todos os
+  controles, haptics seguro por plataforma, Button tonal, Skeleton, transição de stack.
+- **Fase 2** (4c71f8d): anamnese em stepper 1-pergunta-por-tela (payload/validação/storage
+  intactos), FModules, chips de sugestão no chat, construção com etapas reais do job,
+  revelação como portão do onboarding (updateProfile só no "Começar", com retry).
+- **Fase 3** (89dbe21): check-in de foco, anel SVG de descanso ±30s, "Última carga" real,
+  keep-awake, SessionSummary com resumo honesto fotografado no Concluir.
+- **Fase 4** (8b15b40): 4ª aba Progresso (constância, volume/semana, recordes, histórico
+  migrado do Perfil), getSetLogsResumo paginado, motor puro progressStats.
+- **Fase 5** (4772902): momentum real na Home (semanasConstantes) + Começar direto na
+  sessão, visão de ciclo no Plano (getPlanSessions, Semana N de M real), cartões
+  "Proposta do treinador" no ReplanBanner/AdaptationSheet.
+- Fix pós-revisão (HEAD): voltar no stepper cancela avanço automático pendente.
+
+**Estado final: jest 496/496 · pytest 305 · tsc 0 erros · expo export web ok.**
+Testes novos: 45 (fase1 12 · fase2 7+reescritas · fase3 8 · fase4 8 · fase5 7 · ajustes).
+
+Pendências conscientes (não são regressão):
+1. Validação visual/interativa no HML (staging → deploy auto) com usuário de teste —
+   pede push da branch, decisão do dono (PR também).
+2. Perfil: "Refazer questionário"/editar preferências exigem decisão de produto
+   (flip de onboarding_completed tranca o usuário até regenerar) — fora desta leva.
+3. Recordes ainda não aparecem no SessionSummary (só na aba Progresso) — candidato
+   a follow-up curto reusando progressStats.
