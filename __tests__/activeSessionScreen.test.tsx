@@ -211,6 +211,15 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   fireEvent.press(screen.getByText('Concluir série'));
   await waitFor(() => expect(screen.getByText(/9 reps × 40 kg/)).toBeTruthy());
 
+  // Era a ÚLTIMA série do Supino: o descanso precisa anunciar o fim do
+  // exercício e o que vem depois — sem isso, trocar de exercício passa batido
+  // (relato do dono em 24/07/2026).
+  expect(screen.getByText('Supino Reto concluído')).toBeTruthy();
+  expect(screen.getByText(/A SEGUIR · EXERCÍCIO 2 DE 2/)).toBeTruthy();
+  // O nome do próximo aparece duas vezes de propósito: no anúncio do descanso
+  // (grande, com a posição no treino) e na fila logo abaixo.
+  expect(screen.getAllByText('Flexão').length).toBeGreaterThanOrEqual(2);
+
   // --- Flexão (bodyweight): pular o descanso avança; sem campo de kg ---
   fireEvent.press(screen.getByLabelText('Pular descanso'));
   expect(screen.getByText('Peso corporal')).toBeTruthy();

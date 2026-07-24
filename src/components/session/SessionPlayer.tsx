@@ -37,6 +37,16 @@ import {
   paceSecondsPerKm,
 } from '../../engine/sessionModel';
 import { ajustarDescanso } from '../../engine/sessionSummary';
+import {
+  exercicioConcluido,
+  posicaoDoExercicio,
+} from '../../engine/sessionFlow';
+import { easeImpulso } from '../../utils/motion';
+import {
+  FIELD_FLEX,
+  FIELD_WIDE_FLEX,
+  LOAD_INPUT_STYLE,
+} from './sessionPlayerLayout';
 import { tapLight } from '../../utils/haptics';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
 
@@ -111,7 +121,14 @@ export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
 
 const RIR_CHOICES = [0, 1, 2, 3, 4] as const;
 
-type RestState = { seconds: number; next: SetRef | null } | null;
+type RestState = {
+  seconds: number;
+  next: SetRef | null;
+  /** O exercício que acabou de ser registrado fechou por completo? */
+  fechouExercicio: boolean;
+  /** Nome do exercício que ficou para trás — só quando ele fechou. */
+  nomeConcluido: string | null;
+} | null;
 
 type Props = {
   draft: SessionDraft;
@@ -179,6 +196,44 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
 
+  // Entrada do card quando o TREINO vira a página do exercício. Dispara só na
+  // troca de exercício — animar a cada série viraria ruído, e era justamente a
+  // ausência desta marcação que fazia "mudou de exercício" passar batido.
+  const entrada = useRef(new Animated.Value(1)).current;
+  const exercicioAnterior = useRef<string | null>(null);
+  const exercicioAtivoId = active?.exercise.exerciseId ?? next?.exercise.exerciseId ?? null;
+  useEffect(() => {
+    if (!exercicioAtivoId) return;
+    const trocou =
+      exercicioAnterior.current !== null && exercicioAnterior.current !== exercicioAtivoId;
+    exercicioAnterior.current = exercicioAtivoId;
+    if (!trocou) return undefined;
+    entrada.setValue(0);
+    const anim = Animated.timing(entrada, {
+      toValue: 1,
+      duration: theme.animation.durations.medium,
+      easing: easeImpulso,
+      // Driver JS de propósito: o alvo é o PWA, e o react-native-web ignora o
+      // driver nativo de qualquer forma. Com `true`, o card que troca de estado
+      // no meio da transição tenta resolver um nó nativo que não existe (quebra
+      // o teste de ponta a ponta e, no app, animaria contra um nó desmontado).
+      useNativeDriver: false,
+    });
+    anim.start();
+    // O card troca de estado (medição → descanso) no meio da transição; sem
+    // parar aqui a animação segue mirando um nó já desmontado.
+    return () => anim.stop();
+  }, [exercicioAtivoId, entrada]);
+
+  const estiloDeEntrada = {
+    opacity: entrada,
+    transform: [
+      { translateY: entrada.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+    ],
+  };
+
+  const posicao = exercicioAtivoId ? posicaoDoExercicio(draft, exercicioAtivoId) : null;
+
   // Trocou de série → o texto em edição não pertence mais a ela.
   const serieAtivaId = active?.set.plannedSetId ?? null;
   useEffect(() => {
@@ -237,8 +292,18 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         tapLight();
         const draftAtual = useActiveSessionStore.getState().draft;
         const proxima = draftAtual ? findNextPendingSet(draftAtual) : null;
+        // Lê o exercício JÁ atualizado: completeSet acabou de marcar a série.
+        const depois = draftAtual?.exercises.find(
+          (e) => e.exerciseId === exercise.exerciseId,
+        );
+        const fechouExercicio = depois ? exercicioConcluido(depois) : false;
         if (proxima && exercise.restSeconds) {
-          setRest({ seconds: exercise.restSeconds, next: proxima });
+          setRest({
+            seconds: exercise.restSeconds,
+            next: proxima,
+            fechouExercicio,
+            nomeConcluido: fechouExercicio ? exercise.name : null,
+          });
         }
       }
     } finally {
@@ -251,9 +316,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     const proxima = rest.next;
     return (
       <View style={[styles.card, styles.cardRest]} accessibilityRole="timer">
-        <View style={styles.restDone}>
-          <Feather name="check" size={13} color={theme.colors.accent.main} />
-          <Text style={styles.restDoneText}>Série registrada</Text>
+        {/* Fechar o exercício é um marco — merece nome próprio, não "série
+            registrada" outra vez. */}
+        <View style={[styles.restDone, rest.fechouExercicio && styles.restDoneMarco]}>
+          <Feather
+            name={rest.fechouExercicio ? 'check-circle' : 'check'}
+            size={rest.fechouExercicio ? 15 : 13}
+            color={theme.colors.accent.main}
+          />
+          <Text
+            style={[
+              styles.restDoneText,
+              rest.fechouExercicio && styles.restDoneTextMarco,
+            ]}
+          >
+            {rest.fechouExercicio && rest.nomeConcluido
+              ? `${rest.nomeConcluido} concluído`
+              : 'Série registrada'}
+          </Text>
         </View>
         <Text style={styles.kicker}>DESCANSO</Text>
 
@@ -311,10 +391,31 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         </View>
 
         {proxima ? (
-          <Text style={styles.restNext}>
-            Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} · alvo{' '}
-            {alvoDaSerie(proxima.exercise, proxima.set)}
-          </Text>
+          rest.fechouExercicio ? (
+            // Troca de exercício: o "a seguir" vira anúncio, com o nome no
+            // tamanho do título e a posição no treino. O aluno chega no card
+            // novo já sabendo que mudou.
+            <View style={styles.proximoExercicio}>
+              <Text style={styles.proximoKicker}>
+                A SEGUIR
+                {(() => {
+                  const p = posicaoDoExercicio(draft, proxima.exercise.exerciseId);
+                  return p ? ` · EXERCÍCIO ${p.indice} DE ${p.total}` : '';
+                })()}
+              </Text>
+              <Text style={styles.proximoNome}>{proxima.exercise.name}</Text>
+              <Text style={styles.restNext}>
+                {proxima.exercise.sets.length}{' '}
+                {proxima.exercise.sets.length === 1 ? 'série' : 'séries'} · alvo{' '}
+                {alvoDaSerie(proxima.exercise, proxima.set)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.restNext}>
+              Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} · alvo{' '}
+              {alvoDaSerie(proxima.exercise, proxima.set)}
+            </Text>
+          )
         ) : null}
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
         <TouchableOpacity
@@ -353,7 +454,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     };
 
     return (
-      <View style={[styles.card, styles.cardActive]}>
+      <Animated.View style={[styles.card, styles.cardActive, estiloDeEntrada]}>
+        {posicao ? (
+          <Text style={styles.exercisePos}>
+            EXERCÍCIO {posicao.indice} DE {posicao.total}
+          </Text>
+        ) : null}
         <Text style={styles.kicker}>
           SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
         </Text>
@@ -484,7 +590,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
             <Text style={styles.completeBtnText}>Concluir série</Text>
           )}
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     );
   }
 
@@ -501,7 +607,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     const ultimaCarga = draft.lastLoadByExercise[exerciseIdentity(exercise)];
 
     return (
-      <View style={[styles.card, styles.cardActive]}>
+      <Animated.View style={[styles.card, styles.cardActive, estiloDeEntrada]}>
+        {posicao ? (
+          <Text style={styles.exercisePos}>
+            EXERCÍCIO {posicao.indice} DE {posicao.total}
+          </Text>
+        ) : null}
         <Text style={styles.kicker}>
           SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
         </Text>
@@ -642,14 +753,19 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
             <Text style={styles.completeBtnText}>Concluir série</Text>
           )}
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     );
   }
 
   // ---------------- ready ----------------
   if (next) {
     return (
-      <View style={styles.card}>
+      <Animated.View style={[styles.card, estiloDeEntrada]}>
+        {posicao ? (
+          <Text style={styles.exercisePos}>
+            EXERCÍCIO {posicao.indice} DE {posicao.total}
+          </Text>
+        ) : null}
         <Text style={styles.kicker}>
           PRÓXIMA · SÉRIE {next.set.setOrder} DE {next.exercise.sets.length} · ALVO{' '}
           {alvoDaSerie(next.exercise, next.set)}
@@ -664,7 +780,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         >
           <Text style={styles.completeBtnText}>Iniciar série</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     );
   }
 
@@ -730,6 +846,51 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.sm,
     fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  // Fim de exercício é marco: ganha pílula e cor de acento para não se
+  // confundir com o "série registrada" de sempre.
+  restDoneMarco: {
+    paddingVertical: theme.spacing.xxs,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.pill,
+    backgroundColor: theme.colors.accent.soft,
+  },
+  restDoneTextMarco: {
+    color: theme.colors.text.accent,
+    fontSize: theme.typography.fontSizes.base,
+  },
+  proximoExercicio: {
+    marginTop: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border.subtle,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  proximoKicker: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.bold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
+  proximoNome: {
+    marginTop: theme.spacing.xxs,
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.display,
+    fontSize: theme.typography.fontSizes.xl,
+    textAlign: 'center',
+  },
+  // Onde o aluno está no treino — some no ruído até precisar, e é o que
+  // ancora a sensação de progresso entre um exercício e outro.
+  exercisePos: {
+    marginBottom: theme.spacing.xxs,
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.bold,
+    letterSpacing: theme.typography.letterSpacing.wide,
   },
   ringWrap: {
     width: 188,
@@ -805,8 +966,10 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
     marginTop: theme.spacing.lg,
   },
-  field: { flex: 1 },
-  fieldWide: { flex: 1.8 },
+  field: { flex: FIELD_FLEX },
+  // 1.8 → 2.2: com 1.8 o campo ficava com 60,3pt úteis e "102,5" ocupa 62pt —
+  // carga de três dígitos com decimal era cortada mesmo depois do minWidth.
+  fieldWide: { flex: FIELD_WIDE_FLEX },
   fieldLabel: {
     marginBottom: theme.spacing.xxs,
     color: theme.colors.text.quiet,
@@ -826,7 +989,7 @@ const styles = StyleSheet.create({
     fontWeight: theme.typography.fontWeights.semiBold,
     textAlign: 'center',
   },
-  loadInput: { flex: 1 },
+  loadInput: LOAD_INPUT_STYLE,
   bodyweightTag: {
     paddingVertical: theme.spacing.md,
     color: theme.colors.text.secondary,

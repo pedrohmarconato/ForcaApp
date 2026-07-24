@@ -326,7 +326,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
         <ReplanBanner
           proposal={pendingReplan?.proposal ?? null}
-          sessionLabelById={pendingReplan?.context.sessionLabelById ?? {}}
+          sessions={pendingReplan?.context.sessions ?? []}
           busy={replanBusy}
           onConfirm={confirmReplan}
           onDecline={declineReplan}
