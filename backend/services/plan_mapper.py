@@ -291,9 +291,13 @@ def mapear_plano_ia(
                                 if isinstance(distancia_km, (int, float)) and distancia_km > 0
                                 else _parse_distancia_metros(ex.get("repeticoes"))
                             )
-                        # Sem duração legível o alvo fica indefinido; a série
-                        # ainda precisa prescrever algo (CHECK da 0014).
-                        if duracao_alvo is None and distancia_alvo is None:
+                        # A série tem de prescrever reps OU duração (CHECK
+                        # planned_sets_alvo_coerente da 0014). Distância sozinha
+                        # NÃO satisfaz o CHECK, então todo exercício por tempo
+                        # sem duração legível cai no default — mesmo quando há
+                        # distância (ex.: "Corrida 5km, ritmo livre"). Sem isso
+                        # a RPC save_training_plan aborta e a geração inteira cai.
+                        if duracao_alvo is None:
                             duracao_alvo = DEFAULT_DURACAO_CARDIO_SEGUNDOS
                     else:
                         reps_min, reps_max = _parse_reps(ex.get("repeticoes"))

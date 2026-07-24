@@ -139,6 +139,25 @@ class TestCardioNoMapper:
         })
         assert series[0]["target_duration_seconds"] == 20 * 60
 
+    def test_cardio_por_distancia_sem_duracao_legivel_mantem_coerencia(self):
+        """tempo_distancia com distância mas duração INPARSEÁVEL não pode gerar
+        série sem reps E sem duração: violaria o CHECK planned_sets_alvo_coerente
+        e faria save_training_plan abortar (23514), derrubando a geração inteira.
+        A distância se preserva; a duração cai no default para manter a série
+        coerente."""
+        _, series = _mapear({
+            "nome": "Corrida", "ordem": 1, "series": 1,
+            "repeticoes": "ritmo livre", "distancia_km": 5,
+        })
+        s = series[0]
+        assert s["target_distance_m"] == 5000
+        # A série AINDA prescreve algo (reps OU duração) — o CHECK do banco.
+        assert (
+            s["target_reps_min"] is not None
+            or s["target_duration_seconds"] is not None
+        )
+        assert s["target_duration_seconds"] == 20 * 60
+
     def test_musculacao_nao_muda(self):
         ex, series = _mapear({
             "nome": "Supino Reto com Barra", "ordem": 1, "series": 3,
