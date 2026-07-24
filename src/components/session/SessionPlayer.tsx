@@ -123,12 +123,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
       : null;
 
   const [saving, setSaving] = useState(false);
+  // Texto CRU dos campos decimais enquanto o aluno digita. Sem isto, o valor
+  // reformatado a cada tecla engole o separador: "3." vira "3" e o "2"
+  // seguinte produz "32" — era impossível digitar 3,2 km ou 42,5 kg.
+  const [textoCarga, setTextoCarga] = useState<string | null>(null);
+  const [textoDistancia, setTextoDistancia] = useState<string | null>(null);
   const [rest, setRest] = useState<RestState>(null);
   const [restRemaining, setRestRemaining] = useState(0);
   const restTick = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
+
+  // Trocou de série → o texto em edição não pertence mais a ela.
+  const serieAtivaId = active?.set.plannedSetId ?? null;
+  useEffect(() => {
+    setTextoCarga(null);
+    setTextoDistancia(null);
+  }, [serieAtivaId]);
 
   // Cronômetro do descanso. Zerar = auto-avança para a próxima série.
   useEffect(() => {
@@ -278,11 +290,13 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
                 editable={!saving}
                 keyboardType="numeric"
                 value={
-                  set.actualDistanceM != null
+                  textoDistancia ??
+                  (set.actualDistanceM != null
                     ? String(set.actualDistanceM / 1000)
-                    : ''
+                    : '')
                 }
                 onChangeText={(t) => {
+                  setTextoDistancia(t);
                   const km = parseFloatOrNull(t);
                   setDistance(
                     exercise.exerciseId,
@@ -407,7 +421,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
               <View style={styles.stepper}>
                 <TouchableOpacity
                   style={[styles.stepBtn, saving && styles.controlDisabled]}
-                  onPress={() => stepLoad(exercise.exerciseId, set.setOrder, -1)}
+                  onPress={() => {
+                    setTextoCarga(null);
+                    stepLoad(exercise.exerciseId, set.setOrder, -1);
+                  }}
                   disabled={saving}
                   accessibilityLabel={`Diminuir carga da série ${set.setOrder}`}
                 >
@@ -417,17 +434,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
                   style={[styles.bigInput, styles.loadInput]}
                   editable={!saving}
                   keyboardType="numeric"
-                  value={set.actualLoadKg != null ? String(set.actualLoadKg) : ''}
-                  onChangeText={(t) =>
-                    setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t))
+                  value={
+                    textoCarga ??
+                    (set.actualLoadKg != null ? String(set.actualLoadKg) : '')
                   }
+                  onChangeText={(t) => {
+                    setTextoCarga(t);
+                    setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t));
+                  }}
                   placeholder={suggestedLoad != null ? String(suggestedLoad) : 'kg'}
                   placeholderTextColor={theme.colors.text.quiet}
                   accessibilityLabel={`Carga da série ${set.setOrder}`}
                 />
                 <TouchableOpacity
                   style={[styles.stepBtn, saving && styles.controlDisabled]}
-                  onPress={() => stepLoad(exercise.exerciseId, set.setOrder, 1)}
+                  onPress={() => {
+                    setTextoCarga(null);
+                    stepLoad(exercise.exerciseId, set.setOrder, 1);
+                  }}
                   disabled={saving}
                   accessibilityLabel={`Aumentar carga da série ${set.setOrder}`}
                 >
@@ -442,7 +466,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         {!exercise.isBodyweight && suggestedLoad != null && set.actualLoadKg == null ? (
           <TouchableOpacity
             style={[styles.suggestBtn, saving && styles.controlDisabled]}
-            onPress={() => setLoad(exercise.exerciseId, set.setOrder, suggestedLoad)}
+            onPress={() => {
+              setTextoCarga(null);
+              setLoad(exercise.exerciseId, set.setOrder, suggestedLoad);
+            }}
             disabled={saving}
           >
             <Text style={styles.suggestText}>Usar sugestão: {suggestedLoad} kg</Text>

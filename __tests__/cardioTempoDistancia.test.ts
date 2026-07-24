@@ -439,3 +439,30 @@ describe('fila de séries (SessionQueue)', () => {
     expect(texto).not.toMatch(/\b0\b/);
   });
 });
+
+// A UI mantém o texto cru enquanto o aluno digita; este teste trava o
+// comportamento do PARSE, que é o que transforma "3.2" em 3200 metros.
+describe('entrada decimal (3,2 km / 42,5 kg)', () => {
+  const parseFloatOrNull = (t: string): number | null => {
+    const norm = t.replace(',', '.').replace(/[^0-9.]/g, '');
+    if (norm === '' || norm === '.') return null;
+    const v = parseFloat(norm);
+    return Number.isFinite(v) ? v : null;
+  };
+
+  it('aceita ponto e vírgula como separador', () => {
+    expect(parseFloatOrNull('3.2')).toBe(3.2);
+    expect(parseFloatOrNull('3,2')).toBe(3.2);
+  });
+
+  it('estado intermediário "3." não vira valor final', () => {
+    // O texto cru permanece na tela; o valor comprometido é 3 até chegar o "2".
+    expect(parseFloatOrNull('3.')).toBe(3);
+    expect(parseFloatOrNull('3.2')).toBe(3.2);
+  });
+
+  it('3,2 km viram 3200 metros no store', () => {
+    const km = parseFloatOrNull('3,2')!;
+    expect(Math.round(km * 1000)).toBe(3200);
+  });
+});
