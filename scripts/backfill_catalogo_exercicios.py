@@ -27,7 +27,17 @@ import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from backend.services.exercise_catalog import resolver_exercicio  # noqa: E402
+from backend.services.exercise_catalog import (  # noqa: E402
+    METRICA_CARGA_REPS,
+    METRICA_TEMPO,
+    METRICA_TEMPO_DISTANCIA,
+    resolver_exercicio,
+)
+from backend.services.plan_mapper import (  # noqa: E402
+    DEFAULT_DURACAO_CARDIO_SEGUNDOS,
+    _parse_distancia_metros,
+    _parse_duracao_segundos,
+)
 
 PAGINA = 500
 
@@ -49,14 +59,27 @@ def _requisicao(url, chave, metodo="GET", corpo=None, extra_headers=None):
         raise SystemExit(f"HTTP {e.code} em {metodo} {url}: {detalhe}")
 
 
+def _difere(atual, desejado):
+    """Compara valor gravado × desejado, tolerando numeric-string do PostgREST."""
+    if atual is None and desejado is None:
+        return False
+    if isinstance(desejado, (int, float)) and atual is not None:
+        try:
+            return abs(float(atual) - float(desejado)) > 1e-9
+        except (TypeError, ValueError):
+            return True
+    return atual != desejado
+
+
 def carregar_exercicios(base, chave, plan_id):
     """Traz todos os exercícios (paginado — PostgREST corta em 1000)."""
     filtro = ""
     if plan_id:
         filtro = f"&planned_sessions.plan_id=eq.{plan_id}"
     select = (
-        "select=id,name,equipment,exercise_key,name_original,muscle_group,"
-        "load_increment_kg,planned_sessions!inner(plan_id)"
+        "select=id,name,equipment,exercise_key,name_original,muscle_group,metric,target_rm_percent,"
+        "reps_raw,load_increment_kg,planned_sessions!inner(plan_id),"
+        "planned_sets(id,set_order,target_reps_min,target_duration_seconds,target_distance_m)"
     )
     linhas, offset = [], 0
     while True:
@@ -88,39 +111,95 @@ def main():
 
     atualizacoes, sem_catalogo, ja_ok = [], [], 0
     for linha in linhas:
-        if linha.get("exercise_key"):
-            ja_ok += 1
-            continue
         r = resolver_exercicio(linha.get("name"), linha.get("equipment"))
         if not r.casou:
             sem_catalogo.append(linha.get("name"))
             continue
-        patch = {
+        # Patch INCREMENTAL: só o que diverge do catálogo. Uma linha já
+        # canonizada por uma rodada anterior ainda pode estar sem `metric`
+        # (coluna nova) — pular por "já tem chave" deixaria cardio como
+        # musculação para sempre.
+        desejado = {
             "name": r.nome,
             "exercise_key": r.chave,
             "muscle_group": r.grupo_muscular,
             "equipment": r.equipamento,
+            "metric": r.metrica,
         }
-        if r.nome_original != r.nome:
-            patch["name_original"] = r.nome_original
         if not args.sem_incremento:
-            patch["load_increment_kg"] = r.incremento_kg
+            desejado["load_increment_kg"] = r.incremento_kg
+        patch = {
+            campo: valor
+            for campo, valor in desejado.items()
+            if _difere(linha.get(campo), valor)
+        }
+        # Cardio/isometria já gravados como musculação: %RM é ruído.
+        if r.metrica != METRICA_CARGA_REPS and linha.get("target_rm_percent") is not None:
+            patch["target_rm_percent"] = None
+        if r.nome_original != r.nome and not linha.get("name_original"):
+            patch["name_original"] = r.nome_original
+        if not patch:
+            ja_ok += 1
+            continue
         atualizacoes.append((linha["id"], linha.get("name"), patch))
 
+    # O patch é incremental: um campo ausente significa "já estava certo".
     distintos = {}
     for _, antigo, patch in atualizacoes:
-        distintos.setdefault((antigo, patch["name"], patch["muscle_group"]), 0)
-        distintos[(antigo, patch["name"], patch["muscle_group"])] += 1
+        chave_resumo = (
+            antigo,
+            patch.get("name", antigo),
+            ", ".join(sorted(patch.keys())),
+        )
+        distintos[chave_resumo] = distintos.get(chave_resumo, 0) + 1
 
     print(f"{ja_ok} já tinham chave · {len(atualizacoes)} a atualizar · "
           f"{len(sem_catalogo)} fora do catálogo\n")
-    for (antigo, novo, grupo), qtd in sorted(distintos.items()):
+    for (antigo, novo, campos), qtd in sorted(distintos.items()):
         marca = "  " if antigo == novo else "→ "
-        print(f"{qtd:4d}x {marca}{antigo!r} → {novo!r} [{grupo}]")
+        print(f"{qtd:4d}x {marca}{antigo!r} → {novo!r}  [campos: {campos}]")
     if sem_catalogo:
         print("\nFora do catálogo (preservados como estão):")
         for nome in sorted(set(sem_catalogo)):
             print(f"       {nome!r}")
+
+    # --- séries de cardio: "20 repetições" viram duração/distância ---
+    series_cardio = []
+    for linha in linhas:
+        r = resolver_exercicio(linha.get("name"), linha.get("equipment"))
+        if not r.casou or r.metrica == METRICA_CARGA_REPS:
+            continue
+        duracao = _parse_duracao_segundos(linha.get("reps_raw")) or DEFAULT_DURACAO_CARDIO_SEGUNDOS
+        distancia = (
+            _parse_distancia_metros(linha.get("reps_raw"))
+            if r.metrica == METRICA_TEMPO_DISTANCIA
+            else None
+        )
+        for serie in linha.get("planned_sets") or []:
+            if serie.get("target_duration_seconds") is not None:
+                continue  # já convertida
+            patch = {
+                "target_duration_seconds": duracao,
+                # Repetição não existe em cardio: sai do caminho da tela.
+                "target_reps_min": None,
+                "target_reps_max": None,
+            }
+            if distancia:
+                patch["target_distance_m"] = distancia
+            series_cardio.append((serie["id"], linha.get("name"), patch))
+
+    if series_cardio:
+        print(f"\n{len(series_cardio)} séries de cardio/isometria a converter:")
+        resumo = {}
+        for _, nome, patch in series_cardio:
+            # NÃO usar o nome `chave` aqui: `chave` é a service_role key usada
+            # nas requisições. Sombrear essa variável quebra toda a escrita.
+            agrupador = (nome, patch["target_duration_seconds"], patch.get("target_distance_m"))
+            resumo[agrupador] = resumo.get(agrupador, 0) + 1
+        for (nome, dur, dist), qtd in sorted(resumo.items()):
+            extra = f" · {dist / 1000:g} km" if dist else ""
+            tempo = f"{dur // 60} min" if dur >= 60 else f"{dur}s"
+            print(f"{qtd:4d}x   {nome!r} → {tempo}{extra} (reps → duração)")
 
     if not args.apply:
         print("\n(dry-run — nada foi escrito; use --apply)")
@@ -135,6 +214,15 @@ def main():
         )
         if i % 50 == 0 or i == len(atualizacoes):
             print(f"  {i}/{len(atualizacoes)} atualizados")
+    for i, (ident, _, patch) in enumerate(series_cardio, start=1):
+        _requisicao(
+            f"{base}/rest/v1/planned_sets?id=eq.{ident}",
+            chave, metodo="PATCH", corpo=patch,
+            extra_headers={"Prefer": "return=minimal"},
+        )
+        if i % 50 == 0 or i == len(series_cardio):
+            print(f"  {i}/{len(series_cardio)} séries de cardio convertidas")
+
     print("\nBackfill concluído.")
 
 

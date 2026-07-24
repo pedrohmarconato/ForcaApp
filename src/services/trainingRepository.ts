@@ -9,10 +9,13 @@ export type PlannedSet = {
   id: string;
   exercise_id: string;
   set_order: number;
-  target_reps_min: number;
-  target_reps_max: number;
+  // Nulos em cardio/isometria (migration 0014): lá o alvo é duração/distância.
+  target_reps_min: number | null;
+  target_reps_max: number | null;
   target_load_kg: number | null;
   target_rir: number | null;
+  target_duration_seconds?: number | null;
+  target_distance_m?: number | null;
 };
 
 export type PlannedExercise = {
@@ -24,6 +27,8 @@ export type PlannedExercise = {
   // e em nomes que a IA inventou fora do catálogo.
   exercise_key?: string | null;
   name_original?: string | null;
+  // Como o exercício é medido (migration 0014). Ausente = plano anterior a ela.
+  metric?: 'carga_reps' | 'tempo' | 'tempo_distancia' | null;
   muscle_group: string | null;
   priority: 'primary' | 'secondary' | 'accessory';
   equipment: string | null;

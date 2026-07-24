@@ -119,6 +119,10 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       actualLoadKg: 40,
       actualRir: 2,
       outcome: 'on_target',
+      actualDurationSeconds: null,
+      actualDistanceM: null,
+      paceSecondsPerKm: null,
+      perceivedEffort: null,
     });
     expect(rpcMock).toHaveBeenCalledWith('save_set_log', {
       p_session_log_id: 'sl-1',
@@ -128,6 +132,9 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       p_actual_rir: 2,
       p_outcome: 'on_target',
       p_started_at: null,
+      p_actual_duration_seconds: null,
+      p_actual_distance_m: null,
+      p_perceived_effort: null,
     });
     // NÃO usa mais .from(...).upsert(...): o upsert do PostgREST é justamente o bug.
     expect(fromMock).not.toHaveBeenCalled();
@@ -160,6 +167,10 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       actualLoadKg: null,
       actualRir: null,
       outcome: 'over',
+      actualDurationSeconds: null,
+      actualDistanceM: null,
+      paceSecondsPerKm: null,
+      perceivedEffort: null,
     });
   });
 

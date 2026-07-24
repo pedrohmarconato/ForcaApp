@@ -13,13 +13,21 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional
 
-from backend.services.exercise_catalog import resolver_exercicio
+from backend.services.exercise_catalog import (
+    METRICA_TEMPO,
+    METRICA_TEMPO_DISTANCIA,
+    resolver_exercicio,
+)
 
 # Faixa padrão INTERNA quando a IA não dá número de reps (ex.: "AMRAP").
 # É um alvo de trabalho para o motor de adaptação — a UI exibe reps_raw,
 # nunca esta faixa, quando a prescrição original não é numérica.
 DEFAULT_REPS_MIN = 8
 DEFAULT_REPS_MAX = 12
+
+# Duração de último recurso para cardio/isometria sem prescrição legível.
+# Uma série tem de prescrever algo (CHECK planned_sets_alvo_coerente).
+DEFAULT_DURACAO_CARDIO_SEGUNDOS = 20 * 60
 
 # Tetos de sanidade contra JSON malicioso/decoerente da IA (achado #6 do review):
 # sem eles, "series": 100000000 explodiria a memória do processo.
@@ -57,6 +65,44 @@ def _parse_reps(valor: Any) -> (int, int):
     if maximo < minimo:
         minimo, maximo = maximo, minimo
     return minimo, maximo
+
+
+def _parse_duracao_segundos(valor: Any) -> Optional[int]:
+    """
+    Duração prescrita para cardio/isometria: '20min' → 1200, '45s' → 45,
+    '1h' → 3600, '25-30min' → 1500 (usa o piso da faixa), 30 → 1800 (número
+    puro em campo de duração é minuto). Sem número legível → None.
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, (int, float)):
+        return int(valor * 60) if valor > 0 else None
+    texto = str(valor).strip().lower()
+    numeros = [float(n.replace(",", ".")) for n in re.findall(r"\d+(?:[.,]\d+)?", texto)]
+    if not numeros:
+        return None
+    n = numeros[0]  # faixa "25-30min": prescreve o piso
+    if "h" in texto and "min" not in texto:
+        segundos = n * 3600
+    elif re.search(r"\bs\b|seg|\ds\b", texto) and "min" not in texto:
+        segundos = n
+    else:
+        segundos = n * 60  # 'min' explícito ou número puro
+    segundos = int(round(segundos))
+    return segundos if segundos > 0 else None
+
+
+def _parse_distancia_metros(valor: Any) -> Optional[float]:
+    """'5km' → 5000; '800m' → 800; '5,5 km' → 5500. Sem unidade → None."""
+    if valor is None:
+        return None
+    texto = str(valor).strip().lower()
+    achado = re.search(r"(\d+(?:[.,]\d+)?)\s*(km|m)\b", texto)
+    if not achado:
+        return None
+    n = float(achado.group(1).replace(",", "."))
+    metros = n * 1000 if achado.group(2) == "km" else n
+    return metros if metros > 0 else None
 
 
 def _parse_descanso_segundos(valor: Any) -> Optional[int]:
@@ -221,25 +267,57 @@ def mapear_plano_ia(
                     if not isinstance(series, int) or series < 1:
                         series = 1
                     series = min(series, MAX_SERIES_POR_EXERCICIO)
-                    reps_min, reps_max = _parse_reps(ex.get("repeticoes"))
                     rm = ex.get("percentual_rm")
                     # Canonização pelo catálogo: nome de academia em PT-BR,
                     # grupo muscular e incremento de carga por exercício. Nome
                     # fora do catálogo passa intacto, com chave/grupo nulos.
                     canonico = resolver_exercicio(ex.get("nome"), ex.get("equipamento"))
+                    # Cardio/isometria não se mede em carga × repetição: a
+                    # prescrição vira duração (e distância), e %RM/reps ficam
+                    # NULOS em vez de virar lixo ("20min" → 20 repetições).
+                    eh_tempo = canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+                    if eh_tempo:
+                        reps_min = reps_max = None
+                        duracao_alvo = (
+                            _parse_duracao_segundos(ex.get("duracao_minutos"))
+                            or _parse_duracao_segundos(ex.get("repeticoes"))
+                            or _parse_duracao_segundos(ex.get("tempo"))
+                        )
+                        distancia_alvo = None
+                        if canonico.metrica == METRICA_TEMPO_DISTANCIA:
+                            distancia_km = ex.get("distancia_km")
+                            distancia_alvo = (
+                                float(distancia_km) * 1000
+                                if isinstance(distancia_km, (int, float)) and distancia_km > 0
+                                else _parse_distancia_metros(ex.get("repeticoes"))
+                            )
+                        # Sem duração legível o alvo fica indefinido; a série
+                        # ainda precisa prescrever algo (CHECK da 0014).
+                        if duracao_alvo is None and distancia_alvo is None:
+                            duracao_alvo = DEFAULT_DURACAO_CARDIO_SEGUNDOS
+                    else:
+                        reps_min, reps_max = _parse_reps(ex.get("repeticoes"))
+                        duracao_alvo = None
+                        distancia_alvo = None
                     exercises.append({
                         "id": exercise_id,
                         "session_id": session_id,
                         "exercise_order": ex.get("ordem") if isinstance(ex.get("ordem"), int) else posicao,
                         "name": canonico.nome,
                         "exercise_key": canonico.chave,
+                        "metric": canonico.metrica,
                         "name_original": canonico.nome_original if canonico.nome_original != canonico.nome else None,
                         "muscle_group": canonico.grupo_muscular,
                         "priority": _prioridade(ex),
                         "equipment": canonico.equipamento,
                         "load_increment_kg": canonico.incremento_kg,
                         "rest_seconds": _parse_descanso_segundos(ex.get("tempo_descanso")),
-                        "target_rm_percent": rm if isinstance(rm, (int, float)) else None,
+                        # %RM em cardio é ruído: a IA vinha gravando 2%, 3%, 4%…
+                        # por semana (progressão de musculação aplicada a uma
+                        # caminhada). Só exercício de carga tem %RM.
+                        "target_rm_percent": (
+                            rm if not eh_tempo and isinstance(rm, (int, float)) else None
+                        ),
                         "sets_planned": series,
                         "reps_raw": str(ex.get("repeticoes")) if ex.get("repeticoes") is not None else None,
                         "method": ex.get("metodo"),
@@ -256,6 +334,8 @@ def mapear_plano_ia(
                             "target_reps_max": reps_max,
                             "target_load_kg": None,
                             "target_rir": None,
+                            "target_duration_seconds": duracao_alvo,
+                            "target_distance_m": distancia_alvo,
                         })
                     if len(sets) > MAX_TOTAL_SETS:
                         raise ValueError(

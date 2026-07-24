@@ -11,13 +11,17 @@ import type { SessionDetail } from '../services/trainingRepository';
 import {
   buildDraftFromDetail,
   computeOutcome,
+  computeCardioOutcome,
   exerciseIdentity,
+  isTimeBased,
+  metricOf,
   suggestLoad,
   canCompleteSet,
   reconcileInjuryFlags,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
+  type PerceivedEffort,
 } from '../engine/sessionModel';
 import {
   startSessionLog,
@@ -123,6 +127,15 @@ interface ActiveSessionState {
   setLoad: (exerciseId: string, setOrder: number, load: number | null) => void;
   stepLoad: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
   setRir: (exerciseId: string, setOrder: number, rir: number | null) => void;
+  /** Cardio/isometria (0014): duração em segundos. */
+  setDuration: (exerciseId: string, setOrder: number, seconds: number | null) => void;
+  /** Cardio: distância em METROS (a UI coleta em km e converte). */
+  setDistance: (exerciseId: string, setOrder: number, meters: number | null) => void;
+  setEffort: (
+    exerciseId: string,
+    setOrder: number,
+    effort: PerceivedEffort | null,
+  ) => void;
   completeSet: (exerciseId: string, setOrder: number) => Promise<boolean>;
   resolveAdaptation: (adjustment: Adjustment) => Promise<void>;
   finishSession: () => Promise<boolean>;
@@ -821,6 +834,48 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     });
   },
 
+  setDuration: (exerciseId, setOrder, seconds) => {
+    const draft = get().draft;
+    if (!draft) return;
+    // CHECK do banco: duração é positiva ou ausente. Zero/negativo vira null.
+    const limpo =
+      seconds == null || !Number.isFinite(seconds) || seconds <= 0
+        ? null
+        : Math.round(seconds);
+    set({
+      draft: withSet(draft, exerciseId, setOrder, (s) => ({
+        ...s,
+        actualDurationSeconds: limpo,
+      })),
+    });
+  },
+
+  setDistance: (exerciseId, setOrder, meters) => {
+    const draft = get().draft;
+    if (!draft) return;
+    const limpo =
+      meters == null || !Number.isFinite(meters) || meters <= 0
+        ? null
+        : Math.round(meters);
+    set({
+      draft: withSet(draft, exerciseId, setOrder, (s) => ({
+        ...s,
+        actualDistanceM: limpo,
+      })),
+    });
+  },
+
+  setEffort: (exerciseId, setOrder, effort) => {
+    const draft = get().draft;
+    if (!draft) return;
+    set({
+      draft: withSet(draft, exerciseId, setOrder, (s) => ({
+        ...s,
+        perceivedEffort: effort,
+      })),
+    });
+  },
+
   completeSet: async (exerciseId, setOrder) => {
     const draft = get().draft;
     if (!draft || !draft.sessionLogId) {
@@ -844,24 +899,38 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Reentrância (duplo-toque / duas instâncias): uma gravação por série por vez (F2).
     if (inFlight.has(lockKey)) return false;
 
-    if (!canCompleteSet(serie, exercise.isBodyweight)) {
+    const metrica = metricOf(exercise);
+    const cardio = isTimeBased(metrica);
+
+    if (!canCompleteSet(serie, exercise.isBodyweight, metrica)) {
       set({
-        saveError: exercise.isBodyweight
-          ? 'Informe as repetições realizadas.'
-          : 'Informe repetições e carga antes de concluir a série.',
+        saveError: cardio
+          ? 'Informe o tempo da atividade antes de concluir.'
+          : exercise.isBodyweight
+            ? 'Informe as repetições realizadas.'
+            : 'Informe repetições e carga antes de concluir a série.',
       });
       return false;
     }
 
-    const actualReps = serie.actualReps as number;
-    const actualLoadKg = exercise.isBodyweight
-      ? null
-      : (serie.actualLoadKg as number);
-    const outcome = computeOutcome(
-      actualReps,
-      serie.targetRepsMin,
-      serie.targetRepsMax,
-    );
+    // Cardio/isometria: a medição é tempo (e distância). Reps e carga ficam
+    // NULAS — gravar 0 reps diria "falhei a série", que é outra coisa.
+    const actualReps = cardio ? null : (serie.actualReps as number);
+    const actualLoadKg =
+      cardio || exercise.isBodyweight ? null : (serie.actualLoadKg as number);
+    const actualDurationSeconds = cardio
+      ? (serie.actualDurationSeconds as number)
+      : null;
+    const actualDistanceM =
+      cardio && metrica === 'tempo_distancia' ? (serie.actualDistanceM ?? null) : null;
+    const perceivedEffort = cardio ? (serie.perceivedEffort ?? null) : null;
+    const outcome = cardio
+      ? computeCardioOutcome(actualDurationSeconds as number, serie.targetDurationSeconds)
+      : computeOutcome(
+          actualReps as number,
+          serie.targetRepsMin,
+          serie.targetRepsMax,
+        );
 
     inFlight.add(lockKey);
     try {
@@ -875,9 +944,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               plannedSetId: serie.plannedSetId,
               actualReps,
               actualLoadKg,
-              actualRir: serie.actualRir,
+              actualRir: cardio ? null : serie.actualRir,
               outcome,
               startedAt: serie.activatedAt,
+              actualDurationSeconds,
+              actualDistanceM,
+              perceivedEffort,
             },
             signal,
           ),
@@ -911,18 +983,25 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           actualRir: saved.actualRir,
           outcome: saved.outcome,
           setLogId: saved.setLogId,
+          actualDurationSeconds: saved.actualDurationSeconds,
+          actualDistanceM: saved.actualDistanceM,
+          perceivedEffort: saved.perceivedEffort,
         })),
         lastLoadByExercise: lastLoad,
       };
       // Fase 5: série fora do alvo → recomenda um ajuste. On-target não gera nada.
-      const evaluated = evaluateSet({
-        actualReps: saved.actualReps,
-        targetRepsMin: serie.targetRepsMin,
-        targetRepsMax: serie.targetRepsMax,
-      });
+      // O motor mexe em CARGA: não tem o que propor para uma caminhada. Cardio
+      // conclui a série e segue — progressão de cardio é do plano, não daqui.
+      const evaluated = cardio
+        ? null
+        : evaluateSet({
+            actualReps: saved.actualReps as number,
+            targetRepsMin: serie.targetRepsMin,
+            targetRepsMax: serie.targetRepsMax,
+          });
       let finalDraft = novo;
       let pending: PendingAdaptation | null = null;
-      if (evaluated.outcome !== 'on_target') {
+      if (evaluated && evaluated.outcome !== 'on_target') {
         const recommendation = recommendByRules({
           evaluated,
           currentLoadKg: saved.actualLoadKg,

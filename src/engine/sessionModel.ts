@@ -10,6 +10,12 @@ export type Outcome = 'on_target' | 'under' | 'over';
 
 export type SetStatus = 'pending' | 'active' | 'done';
 
+/** Como um exercício é medido (planned_exercises.metric, migration 0014). */
+export type ExerciseMetric = 'carga_reps' | 'tempo' | 'tempo_distancia';
+
+/** Equivalente do RIR para cardio: o quanto o esforço pesou. */
+export type PerceivedEffort = 'leve' | 'moderado' | 'forte';
+
 export type DraftSet = {
   plannedSetId: string;
   setOrder: number;
@@ -20,6 +26,13 @@ export type DraftSet = {
   actualReps: number | null;
   actualLoadKg: number | null;
   actualRir: number | null;
+  // Cardio e isometria (migration 0014). Ausentes em séries de carga × reps
+  // e em rascunhos anteriores à 0014 — o app trata undefined como null.
+  targetDurationSeconds?: number | null;
+  targetDistanceM?: number | null;
+  actualDurationSeconds?: number | null;
+  actualDistanceM?: number | null;
+  perceivedEffort?: PerceivedEffort | null;
   status: SetStatus;
   outcome: Outcome | null;
   // id do set_log no servidor; preenchido após gravar com sucesso.
@@ -41,6 +54,8 @@ export type DraftExercise = {
   // Chave canônica do catálogo (planned_exercises.exercise_key). Null em planos
   // gerados antes do catálogo — aí a identidade cai no nome normalizado.
   exerciseKey?: string | null;
+  // Ausente = plano anterior à 0014 → tratado como carga_reps.
+  metric?: ExerciseMetric | null;
   equipment: string | null;
   isBodyweight: boolean;
   // Há alguma flag de lesão? Guardrail da Fase 5: nunca sugere subir carga (F5).
@@ -181,12 +196,89 @@ export const stepLoad = (
  * histórico" barra a conclusão até o aluno informar. Bodyweight ignora a carga.
  */
 export const canCompleteSet = (
-  set: Pick<DraftSet, 'actualReps' | 'actualLoadKg'>,
+  set: Pick<
+    DraftSet,
+    'actualReps' | 'actualLoadKg' | 'actualDurationSeconds'
+  >,
   isBodyweight: boolean,
+  metric: ExerciseMetric = 'carga_reps',
 ): boolean => {
+  // Cardio/isometria: o que fecha a série é o TEMPO. Distância é opcional —
+  // exigi-la travaria quem faz bike sem hodômetro.
+  if (isTimeBased(metric)) {
+    return set.actualDurationSeconds != null && set.actualDurationSeconds > 0;
+  }
   if (set.actualReps == null || set.actualReps < 0) return false;
   if (isBodyweight) return true;
   return set.actualLoadKg != null && set.actualLoadKg > 0;
+};
+
+/** Exercício medido por tempo (cardio e isometria), não por carga × repetição. */
+export const isTimeBased = (metric: ExerciseMetric | null | undefined): boolean =>
+  metric === 'tempo' || metric === 'tempo_distancia';
+
+/** Métrica efetiva de um exercício (plano anterior à 0014 = carga × repetição). */
+export const metricOf = (
+  ex: Pick<DraftExercise, 'metric'> | { metric?: ExerciseMetric | null },
+): ExerciseMetric => ex.metric ?? 'carga_reps';
+
+/**
+ * Pace em segundos por quilômetro. Derivado — nunca digitado. Devolve null sem
+ * distância (bike sem hodômetro, prancha): pace sem distância seria invenção.
+ * Espelha a coluna GERADA set_logs.pace_seconds_per_km.
+ */
+export const paceSecondsPerKm = (
+  durationSeconds: number | null | undefined,
+  distanceM: number | null | undefined,
+): number | null => {
+  if (durationSeconds == null || durationSeconds <= 0) return null;
+  if (distanceM == null || distanceM <= 0) return null;
+  return durationSeconds / (distanceM / 1000);
+};
+
+/** Pace legível: 372 → "6:12 /km". Null vira "—", nunca um número inventado. */
+export const formatPace = (paceSecondsPerKmValue: number | null): string => {
+  if (paceSecondsPerKmValue == null || !Number.isFinite(paceSecondsPerKmValue)) {
+    return '—';
+  }
+  const total = Math.round(paceSecondsPerKmValue);
+  const min = Math.floor(total / 60);
+  const seg = total % 60;
+  return `${min}:${String(seg).padStart(2, '0')} /km`;
+};
+
+/** Duração legível: 1500 → "25:00". */
+export const formatDuration = (seconds: number | null | undefined): string => {
+  if (seconds == null || seconds < 0) return '—';
+  const min = Math.floor(seconds / 60);
+  const seg = Math.round(seconds % 60);
+  return `${min}:${String(seg).padStart(2, '0')}`;
+};
+
+/** Distância legível em km: 5000 → "5,0 km". */
+export const formatDistance = (meters: number | null | undefined): string => {
+  if (meters == null || meters <= 0) return '—';
+  return `${(meters / 1000).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} km`;
+};
+
+// Tolerância para considerar a duração "no alvo": ±10% cobre o arredondamento
+// de quem para o relógio na mão sem transformar 27min de uma meta de 25 em falha.
+const TOLERANCIA_DURACAO = 0.1;
+
+/**
+ * Outcome de uma série de cardio/isometria: compara duração realizada com a
+ * alvo. Sem alvo, qualquer execução conta como no alvo (não inventamos meta).
+ */
+export const computeCardioOutcome = (
+  actualDurationSeconds: number,
+  targetDurationSeconds: number | null | undefined,
+): Outcome => {
+  if (targetDurationSeconds == null || targetDurationSeconds <= 0) return 'on_target';
+  const piso = targetDurationSeconds * (1 - TOLERANCIA_DURACAO);
+  const teto = targetDurationSeconds * (1 + TOLERANCIA_DURACAO);
+  if (actualDurationSeconds < piso) return 'under';
+  if (actualDurationSeconds > teto) return 'over';
+  return 'on_target';
 };
 
 /**
@@ -204,6 +296,7 @@ export const buildDraftFromDetail = (
     name: ex.name,
     order: ex.exercise_order,
     exerciseKey: ex.exercise_key ?? null,
+    metric: ex.metric ?? 'carga_reps',
     equipment: ex.equipment,
     isBodyweight: isBodyweightEquipment(ex.equipment),
     hasInjury: (ex.injury_flags ?? []).length > 0,
@@ -216,13 +309,18 @@ export const buildDraftFromDetail = (
     sets: (ex.planned_sets ?? []).map((s) => ({
       plannedSetId: s.id,
       setOrder: s.set_order,
-      targetRepsMin: s.target_reps_min,
-      targetRepsMax: s.target_reps_max,
+      targetRepsMin: s.target_reps_min ?? 0,
+      targetRepsMax: s.target_reps_max ?? 0,
       targetLoadKg: toNum(s.target_load_kg),
       targetRir: s.target_rir,
+      targetDurationSeconds: toNum(s.target_duration_seconds),
+      targetDistanceM: toNum(s.target_distance_m),
       actualReps: null,
       actualLoadKg: null,
       actualRir: null,
+      actualDurationSeconds: null,
+      actualDistanceM: null,
+      perceivedEffort: null,
       status: 'pending',
       outcome: null,
       setLogId: null,
@@ -282,6 +380,14 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
       actualReps: s.actualReps == null ? null : toNum(s.actualReps),
       actualLoadKg: s.actualLoadKg == null ? null : toNum(s.actualLoadKg),
       actualRir: s.actualRir == null ? null : toNum(s.actualRir),
+      // Cardio (0014): também alimentam aritmética (pace) — coagidos na leitura.
+      targetDurationSeconds:
+        s.targetDurationSeconds == null ? null : toNum(s.targetDurationSeconds),
+      targetDistanceM: s.targetDistanceM == null ? null : toNum(s.targetDistanceM),
+      actualDurationSeconds:
+        s.actualDurationSeconds == null ? null : toNum(s.actualDurationSeconds),
+      actualDistanceM: s.actualDistanceM == null ? null : toNum(s.actualDistanceM),
+      perceivedEffort: s.perceivedEffort ?? null,
       // Rascunho de versão anterior à Fase 5 não tem o campo → default seguro.
       adaptation: s.adaptation ?? null,
       activatedAt: s.activatedAt ?? null,

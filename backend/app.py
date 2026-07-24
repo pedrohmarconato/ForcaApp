@@ -713,9 +713,12 @@ INSTRUÇÕES:
 3. Preencha o calendário de 12 posições indicando qual semana-tipo ocupa cada semana
    (ex.: ["tipo_a", "tipo_a", "tipo_b", "tipo_a", ...]).
 4. Defina regras de progressão NUMÉRICAS no vocabulário fechado:
-   - delta_rm_percentual: incrementa %RM em X pontos por semana
+   - delta_rm_percentual: incrementa %RM em X pontos por semana (só musculação)
    - delta_series: incrementa séries em X por semana
-   - deload_percentual: reduz %RM e séries por fator em uma semana específica
+   - delta_cardio_percentual: aumenta tempo/distância do cardio em X% por semana
+   - deload_percentual: reduz por fator em uma semana específica
+   Se o plano tiver cardio, inclua uma regra delta_cardio_percentual — cardio
+   NÃO progride por %RM.
 5. Use semanas_avulsas APENAS se houver uma exceção que realmente não couber nas regras.
 6. NOMES DE EXERCÍCIO: use EXATAMENTE um dos nomes do catálogo abaixo, copiado
    caractere por caractere. Nunca traduza do inglês por conta própria, nunca
@@ -723,7 +726,11 @@ INSTRUÇÕES:
    "(Deload)", "(Força)", "(Semana 3)") — isso vai em observacoes. Se o
    exercício que você quer não estiver no catálogo, escolha o mais próximo que
    estiver; só use um nome de fora se não houver nada equivalente.
-7. Retorne SOMENTE o JSON do molde, sem texto adicional.
+7. CARDIO E ISOMETRIA (caminhada, corrida, bike, remo, prancha, mobilidade):
+   prescreva `duracao_minutos` — e `distancia_km` quando fizer sentido. NÃO use
+   `repeticoes` nem `percentual_rm` nesses exercícios: eles não se medem em
+   carga × repetição. "20min" escrito em repeticoes vira 20 REPETIÇÕES.
+8. Retorne SOMENTE o JSON do molde, sem texto adicional.
 
 CATÁLOGO DE EXERCÍCIOS (grupo: nomes permitidos):
 {catalogo_para_prompt()}

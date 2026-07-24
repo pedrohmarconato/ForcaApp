@@ -52,6 +52,14 @@ _COBERTURA_MINIMA = 0.5
 _COBERTURA_MINIMA_FORMA_LONGA = 0.35
 
 
+# Como o exercício é medido. Define o que o plano prescreve, o que o app pergunta
+# e o que o motor de adaptação pode mexer.
+METRICA_CARGA_REPS = "carga_reps"
+METRICA_TEMPO = "tempo"
+METRICA_TEMPO_DISTANCIA = "tempo_distancia"
+METRICAS_VALIDAS = frozenset({METRICA_CARGA_REPS, METRICA_TEMPO, METRICA_TEMPO_DISTANCIA})
+
+
 @dataclass(frozen=True)
 class ExercicioCanonico:
     """Uma entrada do catálogo."""
@@ -61,6 +69,7 @@ class ExercicioCanonico:
     equipamento: str
     peso_corporal: bool
     incremento_kg: float
+    metrica: str
     aliases: Tuple[str, ...]
 
 
@@ -80,6 +89,8 @@ class ResultadoResolucao:
     equipamento: Optional[str]
     incremento_kg: float
     peso_corporal: bool
+    # Como o exercício é medido: carga_reps (padrão), tempo ou tempo_distancia.
+    metrica: str
     qualificador: Optional[str]
     casou: bool
 
@@ -130,6 +141,9 @@ def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
             raise ValueError(f"Catálogo inválido: chave duplicada '{chave}'.")
         chaves_vistas.add(chave)
         incremento = item.get("incremento_kg")
+        metrica = item.get("metrica", METRICA_CARGA_REPS)
+        if metrica not in METRICAS_VALIDAS:
+            raise ValueError(f"Catálogo inválido: métrica '{metrica}' em '{chave}'.")
         entradas.append(ExercicioCanonico(
             chave=chave,
             nome=item["nome"],
@@ -138,6 +152,7 @@ def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
             peso_corporal=bool(item.get("peso_corporal", False)),
             incremento_kg=float(incremento) if isinstance(incremento, (int, float)) and incremento > 0
             else _INCREMENTO_PADRAO_KG,
+            metrica=metrica,
             aliases=tuple(item.get("aliases", [])),
         ))
     if not entradas:
@@ -280,7 +295,7 @@ def resolver_exercicio(nome: Any, equipamento: Any = None) -> ResultadoResolucao
         return ResultadoResolucao(
             nome="Exercício", nome_original="", chave=None, grupo_muscular=None,
             equipamento=None, incremento_kg=_INCREMENTO_PADRAO_KG,
-            peso_corporal=False, qualificador=None, casou=False,
+            peso_corporal=False, metrica=METRICA_CARGA_REPS, qualificador=None, casou=False,
         )
 
     base, qualificador = separar_qualificador(nome_original)
@@ -326,6 +341,7 @@ def resolver_exercicio(nome: Any, equipamento: Any = None) -> ResultadoResolucao
             equipamento=str(equipamento) if equipamento else None,
             incremento_kg=_INCREMENTO_PADRAO_KG,
             peso_corporal=False,
+            metrica=METRICA_CARGA_REPS,
             qualificador=qualificador,
             casou=False,
         )
@@ -338,6 +354,7 @@ def resolver_exercicio(nome: Any, equipamento: Any = None) -> ResultadoResolucao
         equipamento=encontrado.equipamento,
         incremento_kg=encontrado.incremento_kg,
         peso_corporal=encontrado.peso_corporal,
+        metrica=encontrado.metrica,
         qualificador=qualificador,
         casou=True,
     )

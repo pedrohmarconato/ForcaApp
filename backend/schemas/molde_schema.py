@@ -68,6 +68,21 @@ MOLDE_SCHEMA = {
                                             },
                                             "ordem": {"type": "integer", "minimum": 1},
                                             "equipamento": {"type": "string"},
+                                            "duracao_minutos": {
+                                                "type": "number",
+                                                "minimum": 1,
+                                                "maximum": 180,
+                                                "description": (
+                                                    "OBRIGATÓRIO em cardio e isometria (prancha): quanto tempo "
+                                                    "dura a série. Nesses exercícios NÃO use repeticoes."
+                                                ),
+                                            },
+                                            "distancia_km": {
+                                                "type": "number",
+                                                "minimum": 0.1,
+                                                "maximum": 100,
+                                                "description": "Distância-alvo em km, quando a prescrição for por distância.",
+                                            },
                                             "series": {"type": "integer", "minimum": 1, "maximum": 10},
                                             "repeticoes": {"type": "string", "description": "Ex: '8-12', '10', 'AMRAP'."},
                                             "percentual_rm": {"type": "number", "minimum": 0, "maximum": 100},
@@ -138,6 +153,21 @@ MOLDE_SCHEMA = {
                             },
                             {
                                 "type": "object",
+                                "required": ["tipo", "semana_inicio", "semana_fim", "valor"],
+                                "description": (
+                                    "Progressão do CARDIO: aumenta duração (e distância, quando houver) "
+                                    "em X% por semana. Cardio não progride por %RM."
+                                ),
+                                "properties": {
+                                    "tipo": {"const": "delta_cardio_percentual"},
+                                    "semana_inicio": {"type": "integer", "minimum": 1},
+                                    "semana_fim": {"type": "integer", "minimum": 1},
+                                    "valor": {"type": "number", "minimum": 1.0, "maximum": 10.0},
+                                    "alvo": {"type": "string", "enum": ["duracao", "distancia", "ambos"]}
+                                }
+                            },
+                            {
+                                "type": "object",
                                 "required": ["tipo", "semana"],
                                 "properties": {
                                     "tipo": {"const": "deload_percentual"},
@@ -187,6 +217,8 @@ MOLDE_SCHEMA = {
                                                 ),
                                             },
                                             "ordem": {"type": "integer"},
+                                            "duracao_minutos": {"type": "number", "minimum": 1, "maximum": 180},
+                                            "distancia_km": {"type": "number", "minimum": 0.1, "maximum": 100},
                                             "series": {"type": "integer", "minimum": 1},
                                             "repeticoes": {"type": "string"},
                                             "percentual_rm": {"type": "number"},
