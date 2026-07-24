@@ -31,6 +31,40 @@ import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import theme from '../theme/theme';
 import Button from '../components/ui/Button';
 import { EmptyState, Notice } from '../components/ui/Feedback';
+import FModules from '../components/ui/FModules';
+
+// --- Construção do plano (Direção 03) --------------------------------------
+// As etapas visíveis mapeiam os status REAIS do job de geração — o aluno vê o
+// que está sendo decidido, não um spinner. 'created' ainda é análise; o molde
+// é a estrutura das semanas; a expansão escolhe exercícios do catálogo.
+const ETAPAS_CONSTRUCAO = [
+  { rotulo: 'Analisando suas respostas', estagios: ['consolidando', 'created'] },
+  { rotulo: 'Estruturando as semanas', estagios: ['gerando_molde'] },
+  { rotulo: 'Escolhendo exercícios do catálogo', estagios: ['expandindo'] },
+  { rotulo: 'Calibrando e salvando', estagios: ['salvando'] },
+] as const;
+
+const indiceDaEtapa = (estagio: string | null): number => {
+  if (!estagio) return 0;
+  if (estagio === 'salvo') return ETAPAS_CONSTRUCAO.length;
+  const ix = ETAPAS_CONSTRUCAO.findIndex((e) => (e.estagios as readonly string[]).includes(estagio));
+  return ix === -1 ? 0 : ix;
+};
+
+// Sugestões prontas: 1 toque cobre os ajustes mais comuns sem digitar.
+const SUGESTOES_AJUSTE = [
+  'Tenho uma limitação no ombro',
+  'Prefiro treinos mais curtos',
+  'Quero priorizar costas',
+] as const;
+
+// Rótulos humanos para a revelação — mesmos values do questionário.
+const OBJETIVO_LABELS: Record<string, string> = {
+  weight_loss: 'perda de peso',
+  muscle_gain: 'ganho de massa muscular',
+  fitness_improvement: 'condicionamento físico',
+  health_wellness: 'saúde e bem-estar',
+};
 
 // --- Tipos ---
 type Content = { role: 'user' | 'model' | 'system'; parts: { text: string }[] };
@@ -64,6 +98,12 @@ const PostQuestionnaireChat = () => {
     const [summaryContent, setSummaryContent] = useState('');
     const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
     const [jobProgressText, setJobProgressText] = useState<string | null>(null);
+    // Estágio real do job — dirige as etapas da tela de construção.
+    const [jobStage, setJobStage] = useState<string | null>(null);
+    // Plano gerado aguardando o aluno entrar: a revelação acontece ANTES de
+    // onboarding_completed virar true (que troca o navigator na hora).
+    const [readyPlanId, setReadyPlanId] = useState<string | null>(null);
+    const [isEnteringApp, setIsEnteringApp] = useState(false);
     // Guarda o disparo do declínio por skipChat para evitar duplicação em
     // re-renders do init. completeOnboardingAndGeneratePlan já se protege com
     // isGeneratingPlan, mas o disparo do declínio precisa da própria guarda.
@@ -123,6 +163,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
   isGeneratingPlanRef.current = true;
   setIsGeneratingPlan(true);
   setChatError(null);
+  setJobStage('consolidando');
   setJobProgressText('Consolidando suas preferências...');
 
   try {
@@ -149,15 +190,15 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
     const result = await waitForPlanJob(jobId, (progress: JobProgress) => {
       setJobProgressText(progress.progress?.detail || progress.status);
+      setJobStage(progress.status);
     });
 
     if (result.status === 'salvo' && result.plan_id) {
       console.log(`[Chat ${userId}] Plano gerado com sucesso, ID: ${result.plan_id}`);
-      const profileUpdate: { onboarding_completed: boolean; current_plan_id?: string } = {
-        onboarding_completed: true,
-        current_plan_id: result.plan_id,
-      };
-      await updateProfile(profileUpdate);
+      // Direção 03: o plano é APRESENTADO antes de entrar no app — a revelação
+      // renderiza aqui; onboarding_completed só vira no toque em "Começar".
+      setJobStage('salvo');
+      setReadyPlanId(result.plan_id);
     } else {
       const errMsg = result.error?.message || 'Erro desconhecido na geração.';
       throw new Error(errMsg);
@@ -170,7 +211,24 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     setIsGeneratingPlan(false);
     setJobProgressText(null);
   }
-}, [userId, updateProfile, messages]);
+}, [userId, messages]);
+
+// Toque em "Começar" da revelação: só aqui o onboarding fecha e o
+// RootNavigator troca para o app principal. Falha vira erro com retry —
+// o plano JÁ está salvo, nada se perde.
+const handleEnterApp = useCallback(async () => {
+  if (!readyPlanId || isEnteringApp) return;
+  setIsEnteringApp(true);
+  setChatError(null);
+  try {
+    await updateProfile({ onboarding_completed: true, current_plan_id: readyPlanId });
+  } catch (error: any) {
+    console.error(`[Chat ${userId}] Erro ao concluir onboarding:`, error);
+    setChatError('Não foi possível entrar agora. Seu plano está salvo — tente de novo.');
+  } finally {
+    setIsEnteringApp(false);
+  }
+}, [readyPlanId, isEnteringApp, updateProfile, userId]);
 
 
 
@@ -249,9 +307,9 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         setIsSummaryModalVisible(false);
     }, []);
 
-    const handleSendMessage = useCallback(async () => {
-        // ... (implementação inalterada) ...
-        const textToSend = inputText.trim();
+    // textoDireto: caminho das sugestões prontas — 1 toque envia sem digitar.
+    const handleSendMessage = useCallback(async (textoDireto?: string) => {
+        const textToSend = (textoDireto ?? inputText).trim();
         if (!textToSend || isLoadingAi || isChatEnded || !isApiAvailable || isGeneratingPlan) return;
 
         const userMessage: Content = { role: 'user', parts: [{ text: textToSend }] };
@@ -395,7 +453,11 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         const planoExistente = await getActivePlanId(userId);
                         if (planoExistente) {
                             console.log(`[Chat ${userId}] Plano ativo encontrado na retomada — adotando sem nova geração.`);
-                            await updateProfile({ onboarding_completed: true, current_plan_id: planoExistente });
+                            // Mesmo destino do fluxo normal: revelação primeiro,
+                            // onboarding fecha no toque em "Começar".
+                            setJobStage('salvo');
+                            setReadyPlanId(planoExistente);
+                            setIsInitializing(false);
                             return;
                         }
                     } catch {
@@ -759,6 +821,130 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
             fontSize: theme.typography.fontSizes.base,
             textAlign: 'center',
         },
+
+        // --- Sugestões prontas ---
+        sugestoes: {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: theme.spacing.sm,
+            paddingTop: theme.spacing.md,
+        },
+        sugestaoChip: {
+            minHeight: theme.hitTarget.compact,
+            justifyContent: 'center',
+            paddingHorizontal: theme.spacing.lg,
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.pill,
+            backgroundColor: theme.colors.surface.elevated,
+        },
+        sugestaoTexto: {
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.sm,
+            fontWeight: theme.typography.fontWeights.semiBold,
+        },
+
+        // --- Construção do plano ---
+        construcao: {
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: theme.spacing.xxxl,
+        },
+        construcaoTitulo: {
+            marginTop: theme.spacing.xxl,
+            marginBottom: theme.spacing.xxxl,
+            color: theme.colors.text.primary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.display,
+            fontWeight: theme.typography.fontWeights.semiBold,
+            letterSpacing: theme.typography.letterSpacing.display,
+            textAlign: 'center',
+        },
+        construcaoEtapas: { alignSelf: 'stretch', gap: theme.spacing.lg },
+        etapa: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+        etapaPendente: { opacity: 0.35 },
+        etapaMarcador: {
+            width: 26,
+            height: 26,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1.5,
+            borderColor: theme.colors.border.strong,
+            borderRadius: theme.borderRadius.pill,
+        },
+        etapaMarcadorAtivo: {
+            borderColor: theme.colors.accent.border,
+            backgroundColor: theme.colors.accent.soft,
+        },
+        etapaTexto: {
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.md,
+        },
+        etapaTextoAtivo: { color: theme.colors.text.primary },
+        construcaoDetalhe: {
+            marginTop: theme.spacing.xxl,
+            color: theme.colors.text.quiet,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.sm,
+            textAlign: 'center',
+        },
+
+        // --- Revelação ---
+        revelacao: {
+            flex: 1,
+            justifyContent: 'center',
+            padding: theme.spacing.xxxl,
+        },
+        revelacaoKicker: {
+            marginTop: theme.spacing.xl,
+            color: theme.colors.text.accent,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.micro,
+            fontWeight: theme.typography.fontWeights.bold,
+            letterSpacing: theme.typography.letterSpacing.wide,
+            textTransform: 'uppercase',
+        },
+        revelacaoTitulo: {
+            marginTop: theme.spacing.xs,
+            color: theme.colors.text.primary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.display,
+            fontWeight: theme.typography.fontWeights.semiBold,
+            letterSpacing: theme.typography.letterSpacing.display,
+            lineHeight: theme.typography.fontSizes.display * theme.typography.lineHeights.tight,
+        },
+        revelacaoResumo: {
+            marginTop: theme.spacing.sm,
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.base,
+        },
+        revelacaoNota: {
+            flexDirection: 'row',
+            gap: theme.spacing.md,
+            alignItems: 'flex-start',
+            marginTop: theme.spacing.xxl,
+            padding: theme.spacing.lg,
+            borderWidth: 1,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.borderRadius.lg,
+            backgroundColor: theme.colors.surface.raised,
+        },
+        revelacaoNotaTexto: {
+            flex: 1,
+            color: theme.colors.text.secondary,
+            fontFamily: theme.fonts.ui,
+            fontSize: theme.typography.fontSizes.sm,
+            lineHeight: theme.typography.fontSizes.sm * theme.typography.lineHeights.normal,
+        },
+        revelacaoNotaForte: {
+            color: theme.colors.text.primary,
+            fontWeight: theme.typography.fontWeights.semiBold,
+        },
+        revelacaoCta: { marginTop: theme.spacing.xxl },
     }), []);
 
     // --- RENDERIZAÇÃO ---
@@ -786,6 +972,92 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         description={chatError || 'Erro crítico: não foi possível carregar os dados necessários.'}
                         action={<Button label="Voltar" variant="outline" onPress={() => navigation.goBack()} />}
                     />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    // --- Revelação: plano pronto aguardando o aluno entrar -----------------
+    if (readyPlanId) {
+        const objetivoLabel = OBJETIVO_LABELS[questionnaireData?.objetivo] ?? 'seu objetivo';
+        const diasPorSemana = Array.isArray(questionnaireData?.dias_treino)
+            ? questionnaireData.dias_treino.length
+            : null;
+        const tempoMedio = questionnaireData?.tempo_medio_treino_min ?? null;
+        return (
+            <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+                <View style={styles.revelacao} testID="tela-revelacao">
+                    <FModules lit={3} size={34} accessibilityLabel="Plano completo" />
+                    <Text style={styles.revelacaoKicker}>Plano pronto</Text>
+                    <Text style={styles.revelacaoTitulo} accessibilityRole="header">
+                        Seu plano de {objetivoLabel}.
+                    </Text>
+                    <Text style={styles.revelacaoResumo}>
+                        {[
+                            diasPorSemana ? `${diasPorSemana} ${diasPorSemana === 1 ? 'treino' : 'treinos'} por semana` : null,
+                            tempoMedio ? `~${tempoMedio} min por sessão` : null,
+                        ]
+                            .filter(Boolean)
+                            .join(' · ') || 'Montado a partir das suas respostas.'}
+                    </Text>
+                    <View style={styles.revelacaoNota}>
+                        <FModules lit={1} size={16} />
+                        <Text style={styles.revelacaoNotaTexto}>
+                            <Text style={styles.revelacaoNotaForte}>Nada aqui é fixo. </Text>
+                            Cada treino começa com um check-in — cansaço ou pouco tempo mudam a
+                            sessão na hora, sem quebrar o plano.
+                        </Text>
+                    </View>
+                    {chatError ? <Notice tone="danger" title={chatError} style={styles.aviso} /> : null}
+                    <Button
+                        label="Começar"
+                        icon="arrow-right"
+                        onPress={handleEnterApp}
+                        loading={isEnteringApp}
+                        style={styles.revelacaoCta}
+                    />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    // --- Construção: etapas reais do job no lugar de spinner ---------------
+    if (isGeneratingPlan) {
+        const etapaAtual = indiceDaEtapa(jobStage);
+        return (
+            <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+                <View style={styles.construcao} testID="tela-construcao">
+                    <FModules
+                        lit={Math.min(3, etapaAtual)}
+                        size={34}
+                        accessibilityLabel="Progresso da construção do plano"
+                    />
+                    <Text style={styles.construcaoTitulo} accessibilityRole="header">
+                        Construindo seu plano.
+                    </Text>
+                    <View style={styles.construcaoEtapas}>
+                        {ETAPAS_CONSTRUCAO.map((etapa, ix) => {
+                            const feita = ix < etapaAtual;
+                            const ativa = ix === etapaAtual;
+                            return (
+                                <View key={etapa.rotulo} style={[styles.etapa, !feita && !ativa && styles.etapaPendente]}>
+                                    <View style={[styles.etapaMarcador, (feita || ativa) && styles.etapaMarcadorAtivo]}>
+                                        {feita ? (
+                                            <Feather name="check" size={12} color={theme.colors.accent.on} />
+                                        ) : ativa ? (
+                                            <ActivityIndicator size="small" color={theme.colors.accent.main} />
+                                        ) : null}
+                                    </View>
+                                    <Text style={[styles.etapaTexto, (feita || ativa) && styles.etapaTextoAtivo]}>
+                                        {etapa.rotulo}
+                                    </Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                    {jobProgressText ? (
+                        <Text style={styles.construcaoDetalhe}>{jobProgressText}</Text>
+                    ) : null}
                 </View>
             </SafeAreaView>
         );
@@ -918,6 +1190,23 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                         />
                     )}
 
+                    {/* Sugestões prontas: só antes da 1ª interação — 1 toque envia. */}
+                    {!showInitialChoice && !isChatEnded && isApiAvailable && interactionsCount === 0 && !isLoadingAi ? (
+                        <View style={styles.sugestoes}>
+                            {SUGESTOES_AJUSTE.map((sugestao) => (
+                                <Pressable
+                                    key={sugestao}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Sugerir: ${sugestao}`}
+                                    onPress={() => handleSendMessage(sugestao)}
+                                    style={({ pressed }) => [styles.sugestaoChip, pressed && styles.acaoInativa]}
+                                >
+                                    <Text style={styles.sugestaoTexto}>{sugestao}</Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    ) : null}
+
                     {!showInitialChoice && (
                         <View style={styles.entrada}>
                             <TextInput
@@ -948,7 +1237,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
                             <Pressable
                                 accessibilityRole="button"
                                 accessibilityLabel="Enviar mensagem"
-                                onPress={handleSendMessage}
+                                onPress={() => handleSendMessage()}
                                 disabled={inputBloqueado || !inputText.trim()}
                                 style={({ pressed }) => [
                                     styles.acaoRedonda,

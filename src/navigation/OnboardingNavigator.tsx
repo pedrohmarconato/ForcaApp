@@ -47,7 +47,9 @@ const OnboardingNavigator = () => {
       <Stack.Screen
         name="Questionnaire"
         component={QuestionnaireScreen}
-        options={{ title: 'Questionário inicial' }}
+        // Direção 03: a tela tem barra própria de stepper (voltar · contagem ·
+        // módulos do F) — o header nativo sairia duplicado.
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="PostQuestionnaireChat"
