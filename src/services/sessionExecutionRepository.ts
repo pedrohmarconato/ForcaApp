@@ -9,14 +9,18 @@
 
 import { supabase } from '../config/supabaseClient';
 import type { Outcome } from '../engine/sessionModel';
-import { normalizeName, toNum } from '../engine/sessionModel';
+import { exerciseIdentity, toNum } from '../engine/sessionModel';
 
 export type ServerSetLog = {
   id: string;
   planned_set_id: string | null;
-  actual_reps: number;
+  // Nulo em cardio/isometria (0014): lá a medição é duração/distância.
+  actual_reps: number | null;
   actual_load_kg: number | null;
   actual_rir: number | null;
+  actual_duration_seconds?: number | null;
+  actual_distance_m?: number | null;
+  perceived_effort?: 'leve' | 'moderado' | 'forte' | null;
   outcome: Outcome | null;
   // Decisão de adaptação persistida (Fase 5). Restaurada e reaplicada na retomada.
   adaptation: import('../engine/intraSessionAdaptation').Adjustment | null;
@@ -150,7 +154,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at)',
+        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at, actual_duration_seconds, actual_distance_m, perceived_effort)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -171,11 +175,20 @@ export const getOpenSessionLog = async (
       actual_reps: toNum(s.actual_reps),
       actual_load_kg: toNum(s.actual_load_kg),
       actual_rir: toNum(s.actual_rir),
+      actual_duration_seconds: toNum(s.actual_duration_seconds),
+      actual_distance_m: toNum(s.actual_distance_m),
+      perceived_effort: s.perceived_effort ?? null,
       outcome: s.outcome,
       adaptation: s.adaptation ?? null,
       completed_at: s.completed_at,
     }))
-    .filter((s) => typeof s.id === 'string' && s.actual_reps != null)
+    // Série de cardio não tem repetição: exigir actual_reps aqui apagaria toda
+    // a execução de cardio na retomada. Vale ter reps OU duração.
+    .filter(
+      (s) =>
+        typeof s.id === 'string' &&
+        (s.actual_reps != null || s.actual_duration_seconds != null),
+    )
     .sort((a, b) =>
       String(a.completed_at).localeCompare(String(b.completed_at)),
     ) as ServerSetLog[];
@@ -211,20 +224,28 @@ export const saveSetLog = async (
   params: {
     sessionLogId: string;
     plannedSetId: string;
-    actualReps: number;
+    actualReps: number | null;
     actualLoadKg: number | null;
     actualRir: number | null;
     outcome: Outcome;
     /** Momento da ATIVAÇÃO da série (lacuna 2: tempo real por série). */
     startedAt?: string | null;
+    /** Cardio/isometria (0014): medição por tempo, distância e esforço. */
+    actualDurationSeconds?: number | null;
+    actualDistanceM?: number | null;
+    perceivedEffort?: 'leve' | 'moderado' | 'forte' | null;
   },
   signal?: AbortSignal,
 ): Promise<{
   setLogId: string;
-  actualReps: number;
+  actualReps: number | null;
   actualLoadKg: number | null;
   actualRir: number | null;
   outcome: Outcome;
+  actualDurationSeconds: number | null;
+  actualDistanceM: number | null;
+  paceSecondsPerKm: number | null;
+  perceivedEffort: 'leve' | 'moderado' | 'forte' | null;
 }> => {
   const request = supabase.rpc('save_set_log', {
     p_session_log_id: params.sessionLogId,
@@ -234,6 +255,9 @@ export const saveSetLog = async (
     p_actual_rir: params.actualRir,
     p_outcome: params.outcome,
     p_started_at: params.startedAt ?? null,
+    p_actual_duration_seconds: params.actualDurationSeconds ?? null,
+    p_actual_distance_m: params.actualDistanceM ?? null,
+    p_perceived_effort: params.perceivedEffort ?? null,
   });
   let response: any;
   try {
@@ -247,9 +271,10 @@ export const saveSetLog = async (
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.id) throw new Error('save_set_log não retornou a série gravada.');
   const actualReps = toNum(row.actual_reps);
-  const actualRir = toNum(row.actual_rir);
+  const actualDurationSeconds = toNum(row.actual_duration_seconds);
+  // Uma série válida tem repetições (musculação) OU duração (cardio/isometria).
   if (
-    actualReps == null ||
+    (actualReps == null && actualDurationSeconds == null) ||
     !['on_target', 'under', 'over'].includes(row.outcome)
   ) {
     throw new Error('save_set_log retornou uma série inválida.');
@@ -258,8 +283,13 @@ export const saveSetLog = async (
     setLogId: row.id as string,
     actualReps,
     actualLoadKg: toNum(row.actual_load_kg),
-    actualRir,
+    actualRir: toNum(row.actual_rir),
     outcome: row.outcome as Outcome,
+    actualDurationSeconds,
+    actualDistanceM: toNum(row.actual_distance_m),
+    // Coluna GERADA no banco: o pace vem calculado de lá, nunca do cliente.
+    paceSecondsPerKm: toNum(row.pace_seconds_per_km),
+    perceivedEffort: row.perceived_effort ?? null,
   };
 };
 
@@ -309,21 +339,25 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
 };
 
 /**
- * Última carga registrada por exercício (nome normalizado → kg), a partir do
- * histórico de set_logs do usuário (RLS já restringe às execuções dele).
+ * Última carga registrada por exercício (identidade → kg), a partir do histórico
+ * de set_logs do usuário (RLS já restringe às execuções dele).
  * Usada para SUGERIR a carga na próxima vez — decisão nº 4 do plano.
- * Só considera exercícios cujos nomes foram pedidos.
+ * Só considera exercícios cujas identidades foram pedidas.
+ *
+ * A identidade é a chave do catálogo quando existe. Casar por NOME fazia o
+ * histórico morrer em qualquer variação do rótulo: "Supino com Halteres" e
+ * "Supino com Halteres (Deload)" eram exercícios diferentes para a sugestão.
  */
-export const getLastLoadByExerciseName = async (
-  exerciseNames: string[],
+export const getLastLoadByExercise = async (
+  identities: string[],
 ): Promise<Record<string, number>> => {
-  if (exerciseNames.length === 0) return {};
-  const alvo = new Set(exerciseNames.map(normalizeName));
+  if (identities.length === 0) return {};
+  const alvo = new Set(identities);
 
   const { data, error } = await supabase
     .from('set_logs')
     .select(
-      'actual_load_kg, completed_at, planned_sets(planned_exercises(name))',
+      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key))',
     )
     .not('actual_load_kg', 'is', null)
     .order('completed_at', { ascending: false })
@@ -332,11 +366,14 @@ export const getLastLoadByExerciseName = async (
 
   const mapa: Record<string, number> = {};
   for (const linha of (data ?? []) as any[]) {
-    const nome: string | undefined =
-      linha?.planned_sets?.planned_exercises?.name;
+    const exercicio = linha?.planned_sets?.planned_exercises;
+    const nome: string | undefined = exercicio?.name;
     const carga = linha?.actual_load_kg;
     if (!nome || carga == null) continue;
-    const chave = normalizeName(nome);
+    const chave = exerciseIdentity({
+      exerciseKey: exercicio?.exercise_key ?? null,
+      name: nome,
+    });
     if (!alvo.has(chave)) continue;
     // Ordenado por completed_at desc → o PRIMEIRO visto é o mais recente.
     const numeric = toNum(carga);

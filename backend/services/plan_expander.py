@@ -14,6 +14,11 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from backend.schemas.molde_schema import MOLDE_SCHEMA
+from backend.services.exercise_catalog import (
+    METRICA_TEMPO,
+    METRICA_TEMPO_DISTANCIA,
+    resolver_exercicio,
+)
 
 # --- Constantes do expansor ---
 _INCREMENTO_CARGA_KG = 2.5  # incremento padrão de carga
@@ -21,6 +26,9 @@ _TETO_PERCENTUAL_RM = 95     # %RM nunca passa disso
 _PISO_SERIES = 2             # séries nunca caem abaixo disso
 _PISO_DESCANSO_SEGUNDOS = 30
 _PLANO_VERSAO = "1.0"
+# Cardio não cresce indefinidamente: teto de crescimento acumulado sobre a
+# prescrição original (regra dos ~10%/semana da corrida, com margem).
+_TETO_CARDIO_MULTIPLICADOR = 2.0
 
 
 def expandir_plano(
@@ -189,7 +197,8 @@ def _aplicar_progressao(
                 incremento = valor * semanas_decorridas
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
-                        if _atinge_grupo(ex, grupo_alvo):
+                        # Cardio não tem %RM: progride por tempo/distância.
+                        if _atinge_grupo(ex, grupo_alvo) and not _e_por_tempo(ex):
                             rm_atual = ex.get("percentual_rm")
                             if isinstance(rm_atual, (int, float)):
                                 novo_rm = min(rm_atual + incremento, _TETO_PERCENTUAL_RM)
@@ -211,6 +220,9 @@ def _aplicar_progressao(
                                 novo = max(series_atual + incremento, _PISO_SERIES)
                                 ex["series"] = min(novo, 10)  # schema max
 
+        elif tipo == "delta_cardio_percentual":
+            _aplicar_progressao_cardio(sessoes, regra, semana)
+
         elif tipo == "deload_percentual":
             semana_deload = regra.get("semana")
             if semana == semana_deload:
@@ -218,12 +230,55 @@ def _aplicar_progressao(
                 fator_series = regra.get("fator_series", 0.8)
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
+                        if _e_por_tempo(ex):
+                            # Deload de cardio = menos tempo/distância.
+                            duracao = ex.get("duracao_minutos")
+                            if isinstance(duracao, (int, float)) and duracao > 0:
+                                ex["duracao_minutos"] = round(duracao * fator_rm, 1)
+                            distancia = ex.get("distancia_km")
+                            if isinstance(distancia, (int, float)) and distancia > 0:
+                                ex["distancia_km"] = round(distancia * fator_rm, 2)
+                            continue
                         rm_atual = ex.get("percentual_rm")
                         if isinstance(rm_atual, (int, float)):
                             ex["percentual_rm"] = round(rm_atual * fator_rm)
                         series_atual = ex.get("series")
                         if isinstance(series_atual, int):
                             ex["series"] = max(int(series_atual * fator_series), _PISO_SERIES)
+
+
+def _e_por_tempo(exercicio: Dict[str, Any]) -> bool:
+    """Cardio/isometria: medido por tempo (e distância), nunca por %RM."""
+    canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
+    return canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+
+
+def _aplicar_progressao_cardio(
+    sessoes: List[Dict[str, Any]],
+    regra: Dict[str, Any],
+    semana: int,
+) -> None:
+    """Aumenta duração/distância do cardio em X% por semana, com teto."""
+    ini = regra.get("semana_inicio", 1)
+    fim = regra.get("semana_fim", 1)
+    valor = regra.get("valor", 0)
+    alvo = regra.get("alvo", "ambos")
+    if not (ini <= semana <= fim) or not valor:
+        return
+    semanas_decorridas = semana - ini + 1
+    fator = min(1 + (valor / 100.0) * semanas_decorridas, _TETO_CARDIO_MULTIPLICADOR)
+    for sessao in sessoes:
+        for ex in sessao.get("exercicios", []):
+            if not _e_por_tempo(ex):
+                continue
+            if alvo in ("duracao", "ambos"):
+                duracao = ex.get("duracao_minutos")
+                if isinstance(duracao, (int, float)) and duracao > 0:
+                    ex["duracao_minutos"] = round(duracao * fator, 1)
+            if alvo in ("distancia", "ambos"):
+                distancia = ex.get("distancia_km")
+                if isinstance(distancia, (int, float)) and distancia > 0:
+                    ex["distancia_km"] = round(distancia * fator, 2)
 
 
 def _atinge_grupo(exercicio: Dict[str, Any], grupo_alvo: str) -> bool:

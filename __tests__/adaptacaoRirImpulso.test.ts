@@ -14,7 +14,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
   saveSetLog: jest.fn(),
   finishSessionLog: jest.fn(),
   getOpenSessionLog: jest.fn(),
-  getLastLoadByExerciseName: jest.fn(),
+  getLastLoadByExercise: jest.fn(),
   updateSetLogAdaptation: jest.fn(async () => undefined),
   SessionExecutionRequestError: class extends Error {},
   isTransportSessionExecutionError: () => false,

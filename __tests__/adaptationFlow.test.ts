@@ -18,7 +18,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
-    getLastLoadByExerciseName: jest.fn(),
+    getLastLoadByExercise: jest.fn(),
     updateSetLogAdaptation: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (e: unknown) =>
@@ -41,7 +41,7 @@ import {
   startSessionLog,
   saveSetLog,
   getOpenSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
   updateSetLogAdaptation,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
@@ -120,7 +120,7 @@ beforeEach(() => {
   useActiveSessionStore.getState().reset();
   mock(loadDraft).mockResolvedValue(null);
   mock(saveDraft).mockResolvedValue(undefined);
-  mock(getLastLoadByExerciseName).mockResolvedValue({});
+  mock(getLastLoadByExercise).mockResolvedValue({});
   mock(getOpenSessionLog).mockResolvedValue(null);
   mock(startSessionLog).mockResolvedValue({ sessionLogId: 'log-1', startedAt: '2026-07-20T10:00:00Z' });
   mock(updateSetLogAdaptation).mockResolvedValue(undefined);

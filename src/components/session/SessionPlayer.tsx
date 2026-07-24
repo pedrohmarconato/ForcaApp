@@ -21,9 +21,16 @@ import {
 import theme from '../../theme/theme';
 import {
   canCompleteSet,
+  formatDistance,
+  formatDuration,
+  formatPace,
+  isTimeBased,
+  metricOf,
+  paceSecondsPerKm,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
+  type PerceivedEffort,
 } from '../../engine/sessionModel';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
 
@@ -49,6 +56,24 @@ export const repsAlvo = (set: DraftSet): string =>
   set.targetRepsMin === set.targetRepsMax
     ? `${set.targetRepsMin}`
     : `${set.targetRepsMin}–${set.targetRepsMax}`;
+
+/**
+ * Alvo da série em texto, ciente da métrica. Cardio nunca mostra "reps": o
+ * plano prescreve tempo (e distância), e é isso que o aluno lê.
+ */
+export const alvoDaSerie = (exercise: DraftExercise, set: DraftSet): string => {
+  if (!isTimeBased(metricOf(exercise))) return `${repsAlvo(set)} REPS`;
+  const partes: string[] = [];
+  if (set.targetDurationSeconds) partes.push(formatDuration(set.targetDurationSeconds));
+  if (set.targetDistanceM) partes.push(formatDistance(set.targetDistanceM));
+  return partes.length > 0 ? partes.join(' · ') : 'LIVRE';
+};
+
+const ESFORCO_CHOICES: { valor: PerceivedEffort; rotulo: string }[] = [
+  { valor: 'leve', rotulo: 'Leve' },
+  { valor: 'moderado', rotulo: 'Moderado' },
+  { valor: 'forte', rotulo: 'Forte' },
+];
 
 type SetRef = { exercise: DraftExercise; set: DraftSet };
 
@@ -87,6 +112,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const setLoad = useActiveSessionStore((s) => s.setLoad);
   const stepLoad = useActiveSessionStore((s) => s.stepLoad);
   const setRir = useActiveSessionStore((s) => s.setRir);
+  const setDuration = useActiveSessionStore((s) => s.setDuration);
+  const setDistance = useActiveSessionStore((s) => s.setDistance);
+  const setEffort = useActiveSessionStore((s) => s.setEffort);
   const completeSet = useActiveSessionStore((s) => s.completeSet);
   const lastAutoDecision = useActiveSessionStore((s) => s.lastAutoDecision);
   const autoNote =
@@ -95,12 +123,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
       : null;
 
   const [saving, setSaving] = useState(false);
+  // Texto CRU dos campos decimais enquanto o aluno digita. Sem isto, o valor
+  // reformatado a cada tecla engole o separador: "3." vira "3" e o "2"
+  // seguinte produz "32" — era impossível digitar 3,2 km ou 42,5 kg.
+  const [textoCarga, setTextoCarga] = useState<string | null>(null);
+  const [textoDistancia, setTextoDistancia] = useState<string | null>(null);
   const [rest, setRest] = useState<RestState>(null);
   const [restRemaining, setRestRemaining] = useState(0);
   const restTick = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
+
+  // Trocou de série → o texto em edição não pertence mais a ela.
+  const serieAtivaId = active?.set.plannedSetId ?? null;
+  useEffect(() => {
+    setTextoCarga(null);
+    setTextoDistancia(null);
+  }, [serieAtivaId]);
 
   // Cronômetro do descanso. Zerar = auto-avança para a próxima série.
   useEffect(() => {
@@ -162,7 +202,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         {proxima ? (
           <Text style={styles.restNext}>
             Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} · alvo{' '}
-            {repsAlvo(proxima.set)} reps
+            {alvoDaSerie(proxima.exercise, proxima.set)}
           </Text>
         ) : null}
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
@@ -178,11 +218,170 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     );
   }
 
+  // ---------------- measuring: cardio/isometria ----------------
+  if (active && isTimeBased(metricOf(active.exercise))) {
+    const { exercise, set } = active;
+    const metrica = metricOf(exercise);
+    const temDistancia = metrica === 'tempo_distancia';
+    const podeConcluir = canCompleteSet(set, exercise.isBodyweight, metrica);
+    const totalSeries = exercise.sets.length;
+    const minutos =
+      set.actualDurationSeconds != null
+        ? Math.floor(set.actualDurationSeconds / 60)
+        : null;
+    const segundos =
+      set.actualDurationSeconds != null ? set.actualDurationSeconds % 60 : null;
+    // Pace ao vivo: derivado do que já foi digitado. Sem distância, "—".
+    const pace = paceSecondsPerKm(set.actualDurationSeconds, set.actualDistanceM);
+
+    const aplicarTempo = (novoMin: number | null, novoSeg: number | null) => {
+      const m = novoMin ?? minutos ?? 0;
+      const sg = novoSeg ?? segundos ?? 0;
+      const total = m * 60 + sg;
+      setDuration(exercise.exerciseId, set.setOrder, total > 0 ? total : null);
+    };
+
+    return (
+      <View style={[styles.card, styles.cardActive]}>
+        <Text style={styles.kicker}>
+          SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
+        </Text>
+        <Text style={styles.exerciseName}>{exercise.name}</Text>
+
+        <View style={styles.inputsRow}>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Minutos</Text>
+            <TextInput
+              style={styles.bigInput}
+              editable={!saving}
+              keyboardType="number-pad"
+              value={minutos != null ? String(minutos) : ''}
+              onChangeText={(t) => aplicarTempo(parseIntOrNull(t) ?? 0, null)}
+              placeholder={
+                set.targetDurationSeconds
+                  ? String(Math.floor(set.targetDurationSeconds / 60))
+                  : 'min'
+              }
+              placeholderTextColor={theme.colors.text.quiet}
+              accessibilityLabel={`Minutos da série ${set.setOrder}`}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Segundos</Text>
+            <TextInput
+              style={styles.bigInput}
+              editable={!saving}
+              keyboardType="number-pad"
+              value={segundos ? String(segundos) : ''}
+              onChangeText={(t) => {
+                const v = parseIntOrNull(t);
+                aplicarTempo(null, v == null ? 0 : Math.min(59, v));
+              }}
+              placeholder="0"
+              placeholderTextColor={theme.colors.text.quiet}
+              accessibilityLabel={`Segundos da série ${set.setOrder}`}
+            />
+          </View>
+          {temDistancia ? (
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Distância (km)</Text>
+              <TextInput
+                style={styles.bigInput}
+                editable={!saving}
+                keyboardType="numeric"
+                value={
+                  textoDistancia ??
+                  (set.actualDistanceM != null
+                    ? String(set.actualDistanceM / 1000)
+                    : '')
+                }
+                onChangeText={(t) => {
+                  setTextoDistancia(t);
+                  const km = parseFloatOrNull(t);
+                  setDistance(
+                    exercise.exerciseId,
+                    set.setOrder,
+                    km == null ? null : Math.round(km * 1000),
+                  );
+                }}
+                placeholder={
+                  set.targetDistanceM ? String(set.targetDistanceM / 1000) : 'km'
+                }
+                placeholderTextColor={theme.colors.text.quiet}
+                accessibilityLabel={`Distância da série ${set.setOrder} em quilômetros`}
+              />
+            </View>
+          ) : null}
+        </View>
+
+        {temDistancia ? (
+          <View style={styles.paceRow}>
+            <Text style={styles.paceLabel}>Pace</Text>
+            <Text style={styles.paceValue} accessibilityLabel={`Pace ${formatPace(pace)}`}>
+              {formatPace(pace)}
+            </Text>
+          </View>
+        ) : null}
+
+        {temDistancia && pace == null ? (
+          <Text style={styles.hint}>
+            Informe a distância para calcular o pace (opcional).
+          </Text>
+        ) : null}
+
+        {/* Equivalente do RIR no cardio: como o esforço pesou. Opcional. */}
+        <Text style={styles.rirLabel}>
+          Como pegou? <Text style={styles.rirOptional}>(opcional)</Text>
+        </Text>
+        <View style={styles.rirRow}>
+          {ESFORCO_CHOICES.map(({ valor, rotulo }) => {
+            const selected = set.perceivedEffort === valor;
+            return (
+              <TouchableOpacity
+                key={valor}
+                style={[styles.effortChip, selected && styles.rirChipSelected]}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel={`Esforço ${rotulo}`}
+                accessibilityState={{ selected }}
+                onPress={() =>
+                  setEffort(
+                    exercise.exerciseId,
+                    set.setOrder,
+                    selected ? null : valor,
+                  )
+                }
+              >
+                <Text
+                  style={[styles.rirChipText, selected && styles.rirChipTextSelected]}
+                >
+                  {rotulo}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.completeBtn, (!podeConcluir || saving) && styles.controlDisabled]}
+          onPress={onConcluir}
+          disabled={!podeConcluir || saving}
+        >
+          {saving ? (
+            <ActivityIndicator color={theme.colors.accent.on} size="small" />
+          ) : (
+            <Text style={styles.completeBtnText}>Concluir série</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   // ---------------- measuring ----------------
   if (active) {
     const { exercise, set } = active;
     const suggestedLoad = suggestedLoadFor(exercise, set);
-    const podeConcluir = canCompleteSet(set, exercise.isBodyweight);
+    const podeConcluir = canCompleteSet(set, exercise.isBodyweight, metricOf(exercise));
     const precisaCarga =
       !exercise.isBodyweight && suggestedLoad == null && set.actualLoadKg == null;
     const totalSeries = exercise.sets.length;
@@ -190,7 +389,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     return (
       <View style={[styles.card, styles.cardActive]}>
         <Text style={styles.kicker}>
-          SÉRIE {set.setOrder} DE {totalSeries} · ALVO {repsAlvo(set)} REPS
+          SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
         </Text>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
 
@@ -222,7 +421,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
               <View style={styles.stepper}>
                 <TouchableOpacity
                   style={[styles.stepBtn, saving && styles.controlDisabled]}
-                  onPress={() => stepLoad(exercise.exerciseId, set.setOrder, -1)}
+                  onPress={() => {
+                    setTextoCarga(null);
+                    stepLoad(exercise.exerciseId, set.setOrder, -1);
+                  }}
                   disabled={saving}
                   accessibilityLabel={`Diminuir carga da série ${set.setOrder}`}
                 >
@@ -232,17 +434,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
                   style={[styles.bigInput, styles.loadInput]}
                   editable={!saving}
                   keyboardType="numeric"
-                  value={set.actualLoadKg != null ? String(set.actualLoadKg) : ''}
-                  onChangeText={(t) =>
-                    setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t))
+                  value={
+                    textoCarga ??
+                    (set.actualLoadKg != null ? String(set.actualLoadKg) : '')
                   }
+                  onChangeText={(t) => {
+                    setTextoCarga(t);
+                    setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t));
+                  }}
                   placeholder={suggestedLoad != null ? String(suggestedLoad) : 'kg'}
                   placeholderTextColor={theme.colors.text.quiet}
                   accessibilityLabel={`Carga da série ${set.setOrder}`}
                 />
                 <TouchableOpacity
                   style={[styles.stepBtn, saving && styles.controlDisabled]}
-                  onPress={() => stepLoad(exercise.exerciseId, set.setOrder, 1)}
+                  onPress={() => {
+                    setTextoCarga(null);
+                    stepLoad(exercise.exerciseId, set.setOrder, 1);
+                  }}
                   disabled={saving}
                   accessibilityLabel={`Aumentar carga da série ${set.setOrder}`}
                 >
@@ -257,7 +466,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         {!exercise.isBodyweight && suggestedLoad != null && set.actualLoadKg == null ? (
           <TouchableOpacity
             style={[styles.suggestBtn, saving && styles.controlDisabled]}
-            onPress={() => setLoad(exercise.exerciseId, set.setOrder, suggestedLoad)}
+            onPress={() => {
+              setTextoCarga(null);
+              setLoad(exercise.exerciseId, set.setOrder, suggestedLoad);
+            }}
             disabled={saving}
           >
             <Text style={styles.suggestText}>Usar sugestão: {suggestedLoad} kg</Text>
@@ -318,7 +530,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
       <View style={styles.card}>
         <Text style={styles.kicker}>
           PRÓXIMA · SÉRIE {next.set.setOrder} DE {next.exercise.sets.length} · ALVO{' '}
-          {repsAlvo(next.set)} REPS
+          {alvoDaSerie(next.exercise, next.set)}
         </Text>
         <Text style={styles.exerciseName}>{next.exercise.name}</Text>
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
@@ -354,6 +566,35 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface.card,
   },
   cardActive: { borderColor: theme.colors.border.focus },
+  paceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginTop: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border.subtle,
+  },
+  paceLabel: {
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: theme.colors.text.quiet,
+  },
+  paceValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+  },
+  effortChip: {
+    flex: 1,
+    paddingVertical: theme.spacing.sm,
+    marginRight: theme.spacing.xs,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.md,
+  },
   cardRest: { alignItems: 'center' },
 
   kicker: {

@@ -654,6 +654,37 @@ def _thinking_config_para_modelo(model_name):
     return None
 
 
+def _catalogo_para_questionario(questionnaire_data) -> str:
+    """
+    Monta o cardápio de exercícios do prompt do molde respeitando as opções do
+    aluno: quem marcou inclui_cardio=falso ou inclui_alongamento=falso não
+    recebe esses nomes no catálogo (o modelo não os prescreve).
+
+    Coerção conservadora: só EXCLUI quando o flag é explicitamente negativo.
+    Ausente/ambíguo mantém o grupo — nunca escondemos exercício por dúvida de
+    formato (chave errada não pode virar plano sem cardio em silêncio).
+    """
+    from backend.services.exercise_catalog import catalogo_para_prompt
+
+    def _quer_incluir(valor, default=True):
+        if valor is None:
+            return default
+        if isinstance(valor, bool):
+            return valor
+        if isinstance(valor, (int, float)):
+            return valor != 0
+        # Só negativo EXPLÍCITO exclui; vazio/desconhecido mantém (dúvida inclui).
+        return str(valor).strip().lower() not in (
+            "false", "nao", "não", "no", "n", "0",
+        )
+
+    q = questionnaire_data if isinstance(questionnaire_data, dict) else {}
+    return catalogo_para_prompt(
+        incluir_cardio=_quer_incluir(q.get("inclui_cardio")),
+        incluir_mobilidade=_quer_incluir(q.get("inclui_alongamento")),
+    )
+
+
 def _executar_geracao_molde(
     job: PlanJob,
     questionnaire_data: dict,
@@ -693,6 +724,8 @@ def _executar_geracao_molde(
         questionnaire_str = "(questionário indisponível)"
 
     diretrizes_str = _json.dumps(diretrizes, indent=2, ensure_ascii=False)
+    # Cardápio respeita inclui_cardio/inclui_alongamento do aluno.
+    catalogo_str = _catalogo_para_questionario(questionnaire_data)
 
     prompt_molde = f"""Você é um treinador de elite especializado em musculação.
 Sua tarefa é gerar um MOLDE de treino — uma estrutura enxuta que será expandida
@@ -712,11 +745,27 @@ INSTRUÇÕES:
 3. Preencha o calendário de 12 posições indicando qual semana-tipo ocupa cada semana
    (ex.: ["tipo_a", "tipo_a", "tipo_b", "tipo_a", ...]).
 4. Defina regras de progressão NUMÉRICAS no vocabulário fechado:
-   - delta_rm_percentual: incrementa %RM em X pontos por semana
+   - delta_rm_percentual: incrementa %RM em X pontos por semana (só musculação)
    - delta_series: incrementa séries em X por semana
-   - deload_percentual: reduz %RM e séries por fator em uma semana específica
+   - delta_cardio_percentual: aumenta tempo/distância do cardio em X% por semana
+   - deload_percentual: reduz por fator em uma semana específica
+   Se o plano tiver cardio, inclua uma regra delta_cardio_percentual — cardio
+   NÃO progride por %RM.
 5. Use semanas_avulsas APENAS se houver uma exceção que realmente não couber nas regras.
-6. Retorne SOMENTE o JSON do molde, sem texto adicional.
+6. NOMES DE EXERCÍCIO: use EXATAMENTE um dos nomes do catálogo abaixo, copiado
+   caractere por caractere. Nunca traduza do inglês por conta própria, nunca
+   invente variação e NUNCA escreva o estado da semana no nome (nada de
+   "(Deload)", "(Força)", "(Semana 3)") — isso vai em observacoes. Se o
+   exercício que você quer não estiver no catálogo, escolha o mais próximo que
+   estiver; só use um nome de fora se não houver nada equivalente.
+7. CARDIO E ISOMETRIA (caminhada, corrida, bike, remo, prancha, mobilidade):
+   prescreva `duracao_minutos` — e `distancia_km` quando fizer sentido. NÃO use
+   `repeticoes` nem `percentual_rm` nesses exercícios: eles não se medem em
+   carga × repetição. "20min" escrito em repeticoes vira 20 REPETIÇÕES.
+8. Retorne SOMENTE o JSON do molde, sem texto adicional.
+
+CATÁLOGO DE EXERCÍCIOS (grupo: nomes permitidos):
+{catalogo_str}
 
 SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""
