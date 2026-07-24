@@ -24,6 +24,9 @@ jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(async () => {
     throw new Error('relation planned_sessions does not exist');
   }),
+  getPlanSessions: jest.fn(async () => {
+    throw new Error('relation planned_sessions does not exist');
+  }),
   getSessionDetail: jest.fn(async () => {
     throw new Error('relation planned_sessions does not exist');
   }),

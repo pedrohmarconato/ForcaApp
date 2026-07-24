@@ -540,3 +540,84 @@ importam o módulo o mockam; `storageReady` intacto; inline do babel-preset-expo
 vale para .js e .tsx) e o flag offline (`=== 'true'`, chave computada).
 
 Verificação: tsc 0 · jest 28 suítes/228 (223→228) · pytest 67.
+
+---
+
+## Direção 03 — Remodelação UX/CX "Força em movimento" (24/07/2026)
+
+**Fase 0 (protótipo) CONCLUÍDA.** Plano aprovado pelo dono em `~/.claude/plans/quero-remodelar-o-ux-snuggly-floyd.md`.
+
+- Entregável: `forca-app-mockup-v3.html` (raiz do repo) — protótipo navegável com 13 telas interativas,
+  modo "Percorrer a jornada", inspector com notas de implementação (mapa p/ Reanimated) por tela.
+  Deep-link por hash: `#hoje`, `#player-resting`, etc. Abrir via `file://` ou `python3 -m http.server`.
+- Decisões do dono: protótipo antes de código; 4 abas (Hoje·Plano·Progresso·Perfil); tom sóbrio
+  premium (sem confete/badge); onboarding incluído (stepper 1-pergunta-por-tela + construção do plano
+  transparente + revelação).
+- Verificado: render headless das 14 capturas (scratchpad da sessão) + passeio interativo no Chrome
+  (jornada completa clicada: login→anamnese→ajustes→construção→revelação→hoje→check-in "cansado"→
+  proposta do treinador→player→série→anel de descanso ±30s→resumo com count-up/recorde→progresso→plano).
+  GIF da jornada em ~/Downloads/forca-direcao03-jornada.gif. Zero erros de console.
+- Bugs corrigidos na auto-revisão: `[hidden]` vencido por display de classe (cartão do treinador vazava
+  no check-in; tabbar idem), linha-base do gráfico, alvo de reps estático no player, lixo de JS no count-up.
+- Próximo: aprovação da direção pelo dono → Fases 1–5 de implementação no app (fundações de motion →
+  onboarding → sessão/resumo → aba Progresso → Hoje/Plano/Perfil), cada uma com testes-primeiro,
+  tsc/jest/pytest verdes e capturas em docs/ui.
+
+## Direção 03 — IMPLEMENTAÇÃO das Fases 1–5 (24/07/2026) ✅
+
+Protótipo aprovado pelo dono → 6 commits na branch `feat/direcao03-fase1-fundacoes`
+(empilhada em `feat/catalogo-exercicios`, que segue 10 commits à frente de main):
+
+- **Fase 1** (8768cf9): motion tokens "física de treino", usePressPhysics em todos os
+  controles, haptics seguro por plataforma, Button tonal, Skeleton, transição de stack.
+- **Fase 2** (4c71f8d): anamnese em stepper 1-pergunta-por-tela (payload/validação/storage
+  intactos), FModules, chips de sugestão no chat, construção com etapas reais do job,
+  revelação como portão do onboarding (updateProfile só no "Começar", com retry).
+- **Fase 3** (89dbe21): check-in de foco, anel SVG de descanso ±30s, "Última carga" real,
+  keep-awake, SessionSummary com resumo honesto fotografado no Concluir.
+- **Fase 4** (8b15b40): 4ª aba Progresso (constância, volume/semana, recordes, histórico
+  migrado do Perfil), getSetLogsResumo paginado, motor puro progressStats.
+- **Fase 5** (4772902): momentum real na Home (semanasConstantes) + Começar direto na
+  sessão, visão de ciclo no Plano (getPlanSessions, Semana N de M real), cartões
+  "Proposta do treinador" no ReplanBanner/AdaptationSheet.
+- Fix pós-revisão (HEAD): voltar no stepper cancela avanço automático pendente.
+
+**Estado final: jest 496/496 · pytest 305 · tsc 0 erros · expo export web ok.**
+Testes novos: 45 (fase1 12 · fase2 7+reescritas · fase3 8 · fase4 8 · fase5 7 · ajustes).
+
+Pendências conscientes (não são regressão):
+1. Validação visual/interativa no HML (staging → deploy auto) com usuário de teste —
+   pede push da branch, decisão do dono (PR também).
+2. Perfil: "Refazer questionário"/editar preferências exigem decisão de produto
+   (flip de onboarding_completed tranca o usuário até regenerar) — fora desta leva.
+3. Recordes ainda não aparecem no SessionSummary (só na aba Progresso) — candidato
+   a follow-up curto reusando progressStats.
+
+## Direção 03 — push, PRs e homologação (24/07/2026) ✅ · runbook de produção
+
+- **PR #38** `feat/catalogo-exercicios` → `main` (catálogo + cardio; migrations 0013/0014).
+- **PR #39** `feat/direcao03-fase1-fundacoes` → `#38` (stacked; Direção 03 Fases 1–5, zero schema).
+- **HML validado de ponta a ponta** (staging em 40d98f0; PWA preview `forca-1dgwgaaff`):
+  signup descartável → questionário (payload do app) → job Haiku (etapas reais
+  gerando_molde→salvando→salvo) → plano de 12 semanas com planned_sessions →
+  **portão da revelação confirmado** (onboarding_completed=false até o "Começar";
+  PATCH do app fecha com current_plan_id). Usuário de teste:
+  pedrohmarconato+e2e-d03-1784906277572@gmail.com (dados descartáveis).
+- Bundle do preview auditado: aponta Supabase staging + forca-api-hml (verify-web-bundle).
+
+### Runbook GO-PROD (ordem importa)
+
+1. **Merge #38** em `main` (GitHub) → #39 re-alveja `main` sozinho → **merge #39**.
+2. **Migrations no prod** (forcaapp-hml / zanqygwsgxkyjiuhrzju), ANTES do backend:
+   `export SUPABASE_ACCESS_TOKEN="$(cat ~/.supabase_pat)" && supabase link --project-ref zanqygwsgxkyjiuhrzju && supabase db push`
+   (aplica 0013/0014 registradas; conferir o ref antes — AGENTS.md).
+   Depois, backfill do catálogo em planos vivos: `scripts/backfill_catalogo_exercicios.py`
+   (dry-run primeiro; `--apply` com service_role).
+3. **Backend VPS prod**: runbook `docs/DEPLOY_VPS.md` em `/docker/forcaapp`
+   (⚠️ o container prod ainda roda build antigo — este rollout já estava pendente).
+4. **PWA prod**: `npx vercel deploy --prod` (envs Production do painel; verify-web-bundle
+   trava host de LAN e exige forca-api.cadastrai.com).
+5. Smoke de prod: /api/health 200 + login real + 1 sessão aberta (sem gerar plano à toa).
+
+Sem CI de GitHub no repo — o portão de qualidade é a suíte local (496/496 + 305 + tsc 0),
+verde no HEAD dos dois PRs.

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -16,6 +17,9 @@ import {
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../../theme/theme';
+import { usePressPhysics } from './pressPhysics';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // --- Opção de lista -------------------------------------------------------
 
@@ -36,33 +40,34 @@ export const OptionButton = ({
   centered = false,
   style,
   testID,
-}: OptionButtonProps) => (
-  <Pressable
-    testID={testID}
-    onPress={onPress}
-    accessibilityRole="radio"
-    accessibilityState={{ selected, checked: selected }}
-    accessibilityLabel={label}
-    style={({ pressed }) => [
-      styles.option,
-      selected && styles.optionSelected,
-      pressed && styles.pressed,
-      style,
-    ]}
-  >
-    {/* Barra lateral: sinaliza a seleção sem preencher a superfície. */}
-    {selected ? <View style={styles.optionMarker} /> : null}
-    <Text
-      style={[
-        styles.optionLabel,
-        selected && styles.optionLabelSelected,
-        centered && styles.optionLabelCentered,
-      ]}
+}: OptionButtonProps) => {
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ haptic: true });
+
+  return (
+    <AnimatedPressable
+      testID={testID}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="radio"
+      accessibilityState={{ selected, checked: selected }}
+      accessibilityLabel={label}
+      style={[styles.option, selected && styles.optionSelected, animatedStyle, style]}
     >
-      {label}
-    </Text>
-  </Pressable>
-);
+      {/* Barra lateral: sinaliza a seleção sem preencher a superfície. */}
+      {selected ? <View style={styles.optionMarker} /> : null}
+      <Text
+        style={[
+          styles.optionLabel,
+          selected && styles.optionLabelSelected,
+          centered && styles.optionLabelCentered,
+        ]}
+      >
+        {label}
+      </Text>
+    </AnimatedPressable>
+  );
+};
 
 // --- Dia da semana --------------------------------------------------------
 
@@ -82,18 +87,25 @@ export const DayToggle = ({
   selected,
   onPress,
   testID,
-}: DayToggleProps) => (
-  <Pressable
-    testID={testID}
-    onPress={onPress}
-    accessibilityRole="checkbox"
-    accessibilityState={{ checked: selected }}
-    accessibilityLabel={accessibilityLabel}
-    style={({ pressed }) => [styles.day, selected && styles.daySelected, pressed && styles.pressed]}
-  >
-    <Text style={[styles.dayLabel, selected && styles.dayLabelSelected]}>{label}</Text>
-  </Pressable>
-);
+}: DayToggleProps) => {
+  // Controle pequeno afunda um pouco mais — mesma regra do protótipo (0.94).
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ scale: 0.94, haptic: true });
+
+  return (
+    <AnimatedPressable
+      testID={testID}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.day, selected && styles.daySelected, animatedStyle]}
+    >
+      <Text style={[styles.dayLabel, selected && styles.dayLabelSelected]}>{label}</Text>
+    </AnimatedPressable>
+  );
+};
 
 // --- Caixa de marcação ----------------------------------------------------
 
@@ -275,6 +287,4 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: theme.colors.accent.main,
   },
-
-  pressed: { opacity: 0.72 },
 });

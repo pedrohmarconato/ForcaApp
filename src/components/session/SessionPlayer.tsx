@@ -11,6 +11,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   View,
   Text,
   TextInput,
@@ -18,21 +19,32 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
+import { Feather } from '@expo/vector-icons';
 import theme from '../../theme/theme';
 import {
   canCompleteSet,
+  exerciseIdentity,
   formatDistance,
   formatDuration,
   formatPace,
   isTimeBased,
   metricOf,
-  paceSecondsPerKm,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
   type PerceivedEffort,
+  paceSecondsPerKm,
 } from '../../engine/sessionModel';
+import { ajustarDescanso } from '../../engine/sessionSummary';
+import { tapLight } from '../../utils/haptics';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
+
+// Anel do descanso: círculo de r=80 num viewBox de 176 — o traço neon drena
+// conforme o tempo passa (descanso se esgota, não se acumula).
+const RING_R = 80;
+const RING_C = 2 * Math.PI * RING_R;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const parseIntOrNull = (t: string): number | null => {
   const only = t.replace(/[^0-9]/g, '');
@@ -130,7 +142,39 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const [textoDistancia, setTextoDistancia] = useState<string | null>(null);
   const [rest, setRest] = useState<RestState>(null);
   const [restRemaining, setRestRemaining] = useState(0);
+  // Total corrente do descanso (cresce com +30s) — denominador do anel.
+  const [restTotal, setRestTotal] = useState(0);
   const restTick = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Anel: drena continuamente — a cada segundo anima até a fração seguinte.
+  const ringAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!rest || restTotal <= 0) return;
+    Animated.timing(ringAnim, {
+      toValue: Math.max(0, restRemaining - 1) / restTotal,
+      duration: 1000,
+      easing: (t) => t, // descanso: linear, sem aceleração
+      useNativeDriver: false, // strokeDashoffset é prop de SVG (JS driver)
+    }).start();
+  }, [rest, restRemaining, restTotal, ringAnim]);
+
+  // Pulso discreto do relógio nos 5 segundos finais.
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const emReta = !!rest && restRemaining <= 5 && restRemaining > 0;
+  useEffect(() => {
+    if (!emReta) {
+      pulseAnim.setValue(1);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.06, duration: 420, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [emReta, pulseAnim]);
 
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
@@ -146,13 +190,22 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   useEffect(() => {
     if (!rest) return undefined;
     setRestRemaining(rest.seconds);
+    setRestTotal(rest.seconds);
+    ringAnim.setValue(1);
     restTick.current = setInterval(() => {
       setRestRemaining((r) => (r <= 1 ? 0 : r - 1));
     }, 1000);
     return () => {
       if (restTick.current) clearInterval(restTick.current);
     };
-  }, [rest]);
+  }, [rest, ringAnim]);
+
+  // ±30s: o restante muda na hora; o total acompanha para o anel não estourar.
+  const ajustarRest = (delta: number) => {
+    const { remaining, total } = ajustarDescanso(restRemaining, restTotal, delta);
+    setRestRemaining(remaining);
+    setRestTotal(total);
+  };
 
   const endRest = (autoStart: boolean) => {
     if (restTick.current) clearInterval(restTick.current);
@@ -181,6 +234,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     try {
       const ok = await completeSet(exercise.exerciseId, set.setOrder);
       if (ok) {
+        tapLight();
         const draftAtual = useActiveSessionStore.getState().draft;
         const proxima = draftAtual ? findNextPendingSet(draftAtual) : null;
         if (proxima && exercise.restSeconds) {
@@ -197,8 +251,65 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     const proxima = rest.next;
     return (
       <View style={[styles.card, styles.cardRest]} accessibilityRole="timer">
+        <View style={styles.restDone}>
+          <Feather name="check" size={13} color={theme.colors.accent.main} />
+          <Text style={styles.restDoneText}>Série registrada</Text>
+        </View>
         <Text style={styles.kicker}>DESCANSO</Text>
-        <Text style={styles.restClock}>{formatarTempo(restRemaining)}</Text>
+
+        {/* Anel: o traço neon drena com o tempo — descanso se esgota. */}
+        <View style={styles.ringWrap}>
+          <Svg width={188} height={188} viewBox="0 0 176 176" style={styles.ringSvg}>
+            <Circle
+              cx="88"
+              cy="88"
+              r={RING_R}
+              stroke={theme.colors.veil.soft}
+              strokeWidth={7}
+              fill="none"
+            />
+            <AnimatedCircle
+              cx="88"
+              cy="88"
+              r={RING_R}
+              stroke={theme.colors.accent.main}
+              strokeWidth={7}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={`${RING_C}`}
+              strokeDashoffset={ringAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [RING_C, 0],
+              })}
+            />
+          </Svg>
+          <Animated.Text
+            style={[styles.restClock, { transform: [{ scale: pulseAnim }] }]}
+            accessibilityLabel={`Descanso: ${formatarTempo(restRemaining)}`}
+          >
+            {formatarTempo(restRemaining)}
+          </Animated.Text>
+        </View>
+
+        <View style={styles.restAdjust}>
+          <TouchableOpacity
+            style={styles.adjustChip}
+            accessibilityRole="button"
+            accessibilityLabel="Diminuir descanso em 30 segundos"
+            onPress={() => ajustarRest(-30)}
+          >
+            <Text style={styles.adjustChipText}>−30s</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.adjustChip}
+            accessibilityRole="button"
+            accessibilityLabel="Aumentar descanso em 30 segundos"
+            onPress={() => ajustarRest(30)}
+          >
+            <Text style={styles.adjustChipText}>+30s</Text>
+          </TouchableOpacity>
+        </View>
+
         {proxima ? (
           <Text style={styles.restNext}>
             Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} · alvo{' '}
@@ -386,12 +497,23 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
       !exercise.isBodyweight && suggestedLoad == null && set.actualLoadKg == null;
     const totalSeries = exercise.sets.length;
 
+    // Última carga REAL deste exercício (histórico semeado + sessão corrente).
+    const ultimaCarga = draft.lastLoadByExercise[exerciseIdentity(exercise)];
+
     return (
       <View style={[styles.card, styles.cardActive]}>
         <Text style={styles.kicker}>
           SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
         </Text>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
+        {!exercise.isBodyweight && ultimaCarga != null ? (
+          <View style={styles.lastLine}>
+            <Feather name="rotate-ccw" size={12} color={theme.colors.text.quiet} />
+            <Text style={styles.lastLineText}>
+              Última carga: {String(ultimaCarga).replace('.', ',')} kg
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.inputsRow}>
           <View style={styles.field}>
@@ -597,6 +719,58 @@ const styles = StyleSheet.create({
   },
   cardRest: { alignItems: 'center' },
 
+  restDone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginBottom: theme.spacing.md,
+  },
+  restDoneText: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  ringWrap: {
+    width: 188,
+    height: 188,
+    marginTop: theme.spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringSvg: { position: 'absolute', transform: [{ rotate: '-90deg' }] },
+  restAdjust: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.lg,
+  },
+  adjustChip: {
+    minHeight: theme.hitTarget.compact,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.pill,
+    backgroundColor: theme.colors.surface.elevated,
+  },
+  adjustChipText: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  lastLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xs,
+  },
+  lastLineText: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+  },
+
   kicker: {
     color: theme.colors.text.quiet,
     fontFamily: theme.fonts.ui,
@@ -612,11 +786,10 @@ const styles = StyleSheet.create({
   },
 
   restClock: {
-    marginTop: theme.spacing.md,
-    color: theme.colors.text.accent,
+    color: theme.colors.text.primary,
     fontFamily: theme.fonts.display,
-    fontSize: 64,
-    lineHeight: 68,
+    fontSize: 44,
+    lineHeight: 50,
   },
   restNext: {
     marginTop: theme.spacing.sm,

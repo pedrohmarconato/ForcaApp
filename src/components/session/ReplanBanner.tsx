@@ -8,6 +8,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../theme/theme';
+import FModules from '../ui/FModules';
 import type {
   WeeklyReplanProposal,
   ReplanLoss,
@@ -39,6 +40,11 @@ const ReplanBanner = ({ proposal, sessionLabelById, busy, onConfirm, onDecline }
 
   return (
     <View style={styles.card} accessibilityLabel="Proposta de replanejamento da semana">
+      {/* Direção 03: proposta do motor vira "momento do treinador" assinado. */}
+      <View style={styles.coachRow}>
+        <FModules lit={1} size={16} />
+        <Text style={styles.coachKicker}>Proposta do treinador</Text>
+      </View>
       <Text style={styles.title} accessibilityRole="header">
         Replanejar a semana?
       </Text>
@@ -114,6 +120,20 @@ const ReplanBanner = ({ proposal, sessionLabelById, busy, onConfirm, onDecline }
 };
 
 const styles = StyleSheet.create({
+  coachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  coachKicker: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.micro,
+    fontWeight: theme.typography.fontWeights.bold,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
   card: {
     marginBottom: theme.spacing.lg,
     padding: theme.spacing.lg,

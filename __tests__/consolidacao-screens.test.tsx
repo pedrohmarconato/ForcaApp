@@ -121,10 +121,11 @@ describe('Fase 2 — ProfileScreen consome AuthContext (não Redux)', () => {
 
 describe('Fase 3 — TrainingSessionScreen lê a sessão real (planned_sessions)', () => {
   it('busca a sessão do usuário via cliente único e exibe título e exercício', async () => {
-    const { getByText } = render(<TrainingSessionScreen />);
+    const { getAllByText, getByText } = render(<TrainingSessionScreen />);
 
     await waitFor(() => {
-      expect(getByText('Treino de Força A')).toBeTruthy();
+      // Direção 03: o título aparece na visão da semana E no card da sessão.
+      expect(getAllByText('Treino de Força A').length).toBeGreaterThanOrEqual(1);
       expect(getByText('Agachamento Livre')).toBeTruthy();
       expect(getByText('4 séries × 8 reps')).toBeTruthy();
     });

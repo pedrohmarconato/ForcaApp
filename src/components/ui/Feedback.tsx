@@ -5,8 +5,17 @@
 // amostra, `Metric` renderiza o travessão "—" e o bloco explica o porquê. Um
 // estado vazio bem desenhado é preferível a um placeholder plausível.
 
-import React from 'react';
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import {
+  Animated,
+  Easing,
+  StyleSheet,
+  Text,
+  View,
+  type DimensionValue,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../../theme/theme';
@@ -28,6 +37,65 @@ export const Chip = ({ label, tone = 'neutral', style }: ChipProps) => (
     <Text style={[styles.chipLabel, styles[`chipLabel_${tone}`]]}>{label}</Text>
   </View>
 );
+
+// --- Skeleton ---------------------------------------------------------------
+// Direção 03: carregando = superfície tonal que respira, nunca spinner. O
+// pulso é lento (1.2s) e sutil — sinaliza vida sem pedir atenção.
+
+type SkeletonProps = {
+  height: number;
+  width?: DimensionValue;
+  radius?: number;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+};
+
+export const Skeleton = ({
+  height,
+  width = '100%',
+  radius = theme.borderRadius.lg,
+  accessibilityLabel = 'Carregando',
+  style,
+  testID,
+}: SkeletonProps) => {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      testID={testID}
+      accessibilityRole="progressbar"
+      accessibilityLabel={accessibilityLabel}
+      style={[
+        styles.skeleton,
+        { height, width, borderRadius: radius },
+        { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.55] }) },
+        style,
+      ]}
+    />
+  );
+};
 
 // --- Métrica --------------------------------------------------------------
 
@@ -144,6 +212,9 @@ export const Notice = ({ tone = 'info', title, description, action, style, testI
 );
 
 const styles = StyleSheet.create({
+  skeleton: {
+    backgroundColor: theme.colors.surface.card,
+  },
   chip: {
     alignSelf: 'flex-start',
     paddingHorizontal: theme.spacing.sm,

@@ -5,7 +5,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import QuestionnaireScreen from '../screens/QuestionnaireScreen';
 import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
 import theme from '../theme/theme';
-import { stackCardStyle } from './navigationStyles';
+import { stackCardStyle, stackTransition } from './navigationStyles';
 
 // Corrigido: Tipagem adequada para parâmetros de rota
 export type OnboardingStackParamList = {
@@ -41,12 +41,15 @@ const OnboardingNavigator = () => {
         },
         headerTitleAlign: 'left',
         cardStyle: stackCardStyle,
+        ...stackTransition,
       }}
     >
       <Stack.Screen
         name="Questionnaire"
         component={QuestionnaireScreen}
-        options={{ title: 'Questionário inicial' }}
+        // Direção 03: a tela tem barra própria de stepper (voltar · contagem ·
+        // módulos do F) — o header nativo sairia duplicado.
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="PostQuestionnaireChat"

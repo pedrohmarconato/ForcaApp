@@ -1,8 +1,10 @@
 // __tests__/questionnaireScreen.test.tsx
-// Tela 02 após a remodelagem. Cobre o que a apresentação nova precisa manter:
-//  - o botão de avançar só habilita com o formulário realmente válido;
-//  - o contador de progresso reflete respostas REAIS, não uma estimativa;
-//  - a submissão monta o mesmo payload de antes.
+// Tela 02 na Direção 03 (stepper conversacional). Cobre o que a apresentação
+// nova precisa manter:
+//  - cada passo só avança com o bloco realmente válido (mesmas regras de antes);
+//  - escolha única avança sozinha; voltar preserva respostas;
+//  - retomada: com rascunho salvo, abre no primeiro passo pendente;
+//  - a submissão monta o MESMO payload de antes e reseta o chat antes de navegar.
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -46,7 +48,7 @@ import QuestionnaireScreen from '../src/screens/QuestionnaireScreen';
 
 /**
  * Renderiza a tela e espera o fim do carregamento do storage seguro — só
- * depois dele o formulário aparece no lugar do indicador de progresso.
+ * depois dele o stepper aparece, na pergunta 1 (nome).
  */
 const renderQuestionario = async () => {
   const utils = render(<QuestionnaireScreen />);
@@ -54,60 +56,171 @@ const renderQuestionario = async () => {
   return utils;
 };
 
-describe('QuestionnaireScreen — progresso e validação', () => {
+type Utils = Awaited<ReturnType<typeof renderQuestionario>>;
+
+/** Caminha pelos 11 passos com valores válidos, parando no passo final (lesões). */
+const preencherTudo = async (utils: Utils) => {
+  const { getByLabelText, findByLabelText } = utils;
+  // 1 — nome (Continuar)
+  fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+  fireEvent.press(getByLabelText('Continuar'));
+  // 2 — nascimento (Continuar)
+  fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+  fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+  fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+  fireEvent.press(getByLabelText('Continuar'));
+  // 3 — gênero (avanço automático)
+  fireEvent.press(getByLabelText('Masculino'));
+  await findByLabelText('Peso em quilos');
+  // 4 — corpo (Continuar)
+  fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+  fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+  fireEvent.press(getByLabelText('Continuar'));
+  // 5 — experiência (auto)
+  fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+  await findByLabelText('Ganho de Massa Muscular');
+  // 6 — objetivo (auto)
+  fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+  await findByLabelText('Terça-feira');
+  // 7 — dias (Continuar)
+  fireEvent.press(getByLabelText('Terça-feira'));
+  fireEvent.press(getByLabelText('Continuar'));
+  // 8 — tempo (auto)
+  fireEvent.press(getByLabelText('45-60 min'));
+  // 9 — cardio (auto) — um único par Sim/Não por passo
+  await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
+  fireEvent.press(getByLabelText('Sim'));
+  // 10 — alongamento (auto)
+  await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
+  fireEvent.press(getByLabelText('Sim'));
+  // 11 — lesões (passo final, sem avanço automático)
+  await waitFor(() => expect(utils.getByText('Alguma lesão ou restrição?')).toBeTruthy());
+  fireEvent.press(getByLabelText('Não'));
+};
+
+describe('QuestionnaireScreen — stepper e validação por passo', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('começa com o botão de avançar desabilitado', async () => {
-    const { getByLabelText } = await renderQuestionario();
-
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
-  });
-
-  it('o contador de progresso conta apenas blocos realmente respondidos', async () => {
-    const { getByText, getByLabelText } = await renderQuestionario();
-
-    // Nada respondido ainda
-    expect(getByText('0 de 11')).toBeTruthy();
-
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    expect(getByText('1 de 11')).toBeTruthy();
-
-    fireEvent.press(getByLabelText('Masculino'));
-    expect(getByText('2 de 11')).toBeTruthy();
-
-    // Data incompleta NÃO conta como bloco respondido
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '15');
-    expect(getByText('2 de 11')).toBeTruthy();
-
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '03');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    expect(getByText('3 de 11')).toBeTruthy();
-  });
-
-  it('desmarcar todos os dias volta a desabilitar o avanço', async () => {
+  it('abre na pergunta 1 com o Continuar desabilitado até o nome existir', async () => {
     const { getByLabelText, getByText } = await renderQuestionario();
 
-    fireEvent.press(getByLabelText('Terça-feira'));
-    expect(getByText('1 de 11')).toBeTruthy();
+    expect(getByText('Pergunta 1 de 11')).toBeTruthy();
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: true });
 
-    fireEvent.press(getByLabelText('Terça-feira'));
-    expect(getByText('0 de 11')).toBeTruthy();
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: false });
   });
 
-  it('rejeita peso e altura não numéricos mantendo o avanço bloqueado', async () => {
-    const { getByLabelText } = await renderQuestionario();
+  it('escolha única avança sozinha para o próximo passo', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+
+    // Tocar no gênero leva ao passo do corpo sem botão nenhum
+    fireEvent.press(getByLabelText('Masculino'));
+    expect(await findByLabelText('Peso em quilos')).toBeTruthy();
+    expect(utils.getByText('Pergunta 4 de 11')).toBeTruthy();
+  });
+
+  it('data absurda (99/99/2000) mantém o Continuar travado — mesma validação de antes', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '99');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '99');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '2000');
+
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('peso e altura não numéricos mantêm o passo do corpo travado', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
 
     fireEvent.changeText(getByLabelText('Peso em quilos'), 'oitenta');
     fireEvent.changeText(getByLabelText('Altura em centímetros'), 'alto');
 
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('desmarcar todos os dias volta a travar o Continuar do passo', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    await findByLabelText('Ganho de Massa Muscular');
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    await findByLabelText('Terça-feira');
+
+    fireEvent.press(getByLabelText('Terça-feira'));
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: false });
+
+    fireEvent.press(getByLabelText('Terça-feira'));
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('voltar uma pergunta preserva a resposta digitada', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    expect(utils.getByText('Pergunta 2 de 11')).toBeTruthy();
+
+    fireEvent.press(getByLabelText('Voltar uma pergunta'));
+    expect(utils.getByText('Pergunta 1 de 11')).toBeTruthy();
+    expect(getByLabelText('Nome completo').props.value).toBe('Pedro Marconato');
+  });
+});
+
+describe('QuestionnaireScreen — retomada do rascunho', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('com rascunho parcial salvo, abre no primeiro passo pendente', async () => {
+    const secureStorageMock = jest.requireMock('../src/services/auth/secureStorage');
+    (secureStorageMock.getItem as jest.Mock).mockResolvedValueOnce(
+      JSON.stringify({
+        nome: 'Pedro Marconato',
+        data_nascimento: '1990-03-05',
+        genero: 'male',
+        // peso/altura em diante ainda sem resposta
+      }),
+    );
+
+    const utils = render(<QuestionnaireScreen />);
+
+    // Nome, data e gênero já respondidos → retomada direto no passo do corpo.
+    expect(await utils.findByLabelText('Peso em quilos')).toBeTruthy();
+    expect(utils.getByText('Pergunta 4 de 11')).toBeTruthy();
   });
 });
 
@@ -115,28 +228,10 @@ describe('QuestionnaireScreen — submissão', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('envia o payload esperado e navega para os ajustes finais', async () => {
-    const { getByLabelText, getAllByLabelText } = await renderQuestionario();
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
 
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    fireEvent.press(getByLabelText('Masculino'));
-    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
-    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
-    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
-    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
-    fireEvent.press(getByLabelText('Terça-feira'));
-    fireEvent.press(getByLabelText('45-60 min'));
-
-    // Três pares Sim/Não, na ordem: cardio, alongamento, lesões
-    const sims = getAllByLabelText('Sim');
-    const naos = getAllByLabelText('Não');
-    fireEvent.press(sims[0]); // cardio
-    fireEvent.press(sims[1]); // alongamento
-    fireEvent.press(naos[2]); // sem lesões
-
-    const avancar = getByLabelText('Conversar com IA');
+    const avancar = utils.getByLabelText('Conversar com IA');
     expect(avancar.props.accessibilityState).toMatchObject({ disabled: false });
 
     fireEvent.press(avancar);
@@ -175,24 +270,10 @@ describe('QuestionnaireScreen — submissão', () => {
     // isChatEnded=true fica salvo → refazer o questionário abria o chat morto
     // ("Chat finalizado"). A submissão precisa resetar as duas chaves ANTES
     // da navegação, para a tela de chat inicializar uma conversa nova.
-    const { getByLabelText, getAllByLabelText } = await renderQuestionario();
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
 
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    fireEvent.press(getByLabelText('Masculino'));
-    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
-    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
-    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
-    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
-    fireEvent.press(getByLabelText('Terça-feira'));
-    fireEvent.press(getByLabelText('45-60 min'));
-    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
-    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
-    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
-
-    fireEvent.press(getByLabelText('Conversar com IA'));
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
 
@@ -208,86 +289,20 @@ describe('QuestionnaireScreen — submissão', () => {
   });
 
   it('exige detalhe da lesão quando o usuário declara ter restrição', async () => {
-    const { getByLabelText, getAllByLabelText } = await renderQuestionario();
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
 
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    fireEvent.press(getByLabelText('Masculino'));
-    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
-    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
-    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
-    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
-    fireEvent.press(getByLabelText('Terça-feira'));
-    fireEvent.press(getByLabelText('45-60 min'));
-    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
-    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
-    fireEvent.press(getAllByLabelText('Sim')[2]); // TEM lesões
-
-    // Com lesão declarada e sem detalhe, o avanço continua bloqueado
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
+    // Troca o "Não" por "Sim" no passo final: sem detalhe, o envio trava
+    fireEvent.press(utils.getByLabelText('Sim'));
+    expect(utils.getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
       disabled: true,
     });
 
-    fireEvent.changeText(getByLabelText('Quais lesões ou restrições'), 'Dor no joelho');
+    fireEvent.changeText(utils.getByLabelText('Quais lesões ou restrições'), 'Dor no joelho');
 
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
+    expect(utils.getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
       disabled: false,
     });
-  });
-});
-
-describe('QuestionnaireScreen — correções do review adversarial do PR #13', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  /** Preenche todos os blocos com valores válidos. */
-  const preencherTudo = (utils: ReturnType<typeof render>) => {
-    const { getByLabelText, getAllByLabelText } = utils;
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    fireEvent.press(getByLabelText('Masculino'));
-    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
-    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
-    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
-    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
-    fireEvent.press(getByLabelText('Terça-feira'));
-    fireEvent.press(getByLabelText('45-60 min'));
-    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
-    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
-    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
-  };
-
-  it('data absurda NÃO conta no progresso: 100% implica formulário válido (achado #5)', async () => {
-    const utils = await renderQuestionario();
-    const { getByLabelText, getByText, queryByText } = utils;
-
-    preencherTudo(utils);
-    expect(getByText('11 de 11')).toBeTruthy();
-
-    // 99/99/2000 tem o formato certo, mas não é uma data — a validação
-    // rejeita, e o progresso não pode dizer 100%
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '99');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '99');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '2000');
-
-    expect(queryByText('11 de 11')).toBeNull();
-    expect(getByText('10 de 11')).toBeTruthy();
-    expect(getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
-  });
-
-  it('peso não numérico também não conta como bloco respondido (achado #5)', async () => {
-    const utils = await renderQuestionario();
-    const { getByLabelText, getByText } = utils;
-
-    preencherTudo(utils);
-    fireEvent.changeText(getByLabelText('Peso em quilos'), 'oitenta');
-
-    expect(getByText('10 de 11')).toBeTruthy();
   });
 
   it('enquanto salva, o formulário fica bloqueado por um véu de progresso (achado #1)', async () => {
@@ -297,7 +312,7 @@ describe('QuestionnaireScreen — correções do review adversarial do PR #13', 
     );
 
     const utils = await renderQuestionario();
-    preencherTudo(utils);
+    await preencherTudo(utils);
 
     fireEvent.press(utils.getByLabelText('Conversar com IA'));
 
@@ -316,46 +331,24 @@ describe('QuestionnaireScreen — correções do review adversarial do PR #13', 
 describe('QuestionnaireScreen — opção de gerar o treino direto', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  /** Preenche todos os blocos com valores válidos. */
-  const preencherTudo = (utils: ReturnType<typeof render>) => {
-    const { getByLabelText, getAllByLabelText } = utils;
-    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
-    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
-    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
-    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
-    fireEvent.press(getByLabelText('Masculino'));
-    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
-    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
-    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
-    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
-    fireEvent.press(getByLabelText('Terça-feira'));
-    fireEvent.press(getByLabelText('45-60 min'));
-    fireEvent.press(getAllByLabelText('Sim')[0]); // cardio
-    fireEvent.press(getAllByLabelText('Sim')[1]); // alongamento
-    fireEvent.press(getAllByLabelText('Não')[2]); // sem lesões
-  };
+  it('os dois botões finais começam travados até o passo de lesões ser respondido', async () => {
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
 
-  it('o botão "Gerar treino direto" começa desabilitado', async () => {
-    const { getByLabelText } = await renderQuestionario();
-    expect(getByLabelText('Gerar treino direto').props.accessibilityState).toMatchObject({
+    // preencherTudo respondeu "Não" — destrava. Voltar ao estado sem resposta
+    // não é possível sem desmarcar; valida-se o caminho travado via lesão sem detalhe.
+    fireEvent.press(utils.getByLabelText('Sim'));
+    expect(utils.getByLabelText('Gerar treino direto').props.accessibilityState).toMatchObject({
       disabled: true,
     });
-  });
-
-  it('o botão "Gerar treino direto" habilita junto com o formulário válido', async () => {
-    const utils = await renderQuestionario();
-    preencherTudo(utils);
-    expect(utils.getByLabelText('Gerar treino direto').props.accessibilityState).toMatchObject({
-      disabled: false,
-    });
     expect(utils.getByLabelText('Conversar com IA').props.accessibilityState).toMatchObject({
-      disabled: false,
+      disabled: true,
     });
   });
 
   it('tocar em "Gerar treino direto" navega com skipChat: true', async () => {
     const utils = await renderQuestionario();
-    preencherTudo(utils);
+    await preencherTudo(utils);
 
     fireEvent.press(utils.getByLabelText('Gerar treino direto'));
 
@@ -370,7 +363,7 @@ describe('QuestionnaireScreen — opção de gerar o treino direto', () => {
 
   it('tocar em "Conversar com IA" continua navegando sem skipChat', async () => {
     const utils = await renderQuestionario();
-    preencherTudo(utils);
+    await preencherTudo(utils);
 
     fireEvent.press(utils.getByLabelText('Conversar com IA'));
 

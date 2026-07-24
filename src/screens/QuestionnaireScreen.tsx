@@ -1,14 +1,17 @@
 // src/screens/QuestionnaireScreen.tsx
-// Tela 02 do fluxo — perfil inicial, na identidade "Força sem ruído".
+// Tela 02 do fluxo — anamnese, na Direção 03 ("Força em movimento").
 //
-// Onboarding progressivo: o formulário é longo, então a leitura é sustentada
-// por seções curtas, rótulos discretos e uma barra de etapa fixa no topo. O
-// neon aparece só no progresso e no botão de avançar.
+// Apresentação nova: stepper conversacional — UMA pergunta por tela, avanço
+// automático nas escolhas únicas (280ms depois do toque), Continuar explícito
+// nos passos de texto/multi-seleção, progresso pelos módulos do F. Retomada
+// inteligente: com rascunho salvo, a tela abre no primeiro passo sem resposta.
 //
-// A lógica (validação, storage seguro, expiração de sessão e submissão) é a
-// mesma de antes — este arquivo mudou de apresentação, não de comportamento.
+// A lógica (validação por bloco, storage seguro, expiração de sessão, UPSERT
+// via questionnaireService e reset do chat da rodada anterior) é a MESMA de
+// antes — este arquivo mudou de apresentação, não de comportamento. Os passos
+// mapeiam 1:1 os blocos de `blocosRespondidos()`.
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -16,15 +19,18 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   Text,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Feather } from '@expo/vector-icons';
 
 import { getItem as secureGetItem, setItem as secureSetItem, removeLegacyPlaintextCopy } from '../services/auth/secureStorage';
 import { probeSessionValidity } from '../services/auth/sessionProbe';
@@ -33,10 +39,12 @@ import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
 import { resetPostQuestionnaireChatState } from '../services/postQuestionnaireChatStorage';
 import theme from '../theme/theme';
+import { easeImpulso } from '../utils/motion';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
 import { OptionButton, DayToggle } from '../components/ui/Controls';
-import { Notice, ProgressTrack } from '../components/ui/Feedback';
+import { Notice } from '../components/ui/Feedback';
+import FModules from '../components/ui/FModules';
 
 // Tipagem da navegação no fluxo de onboarding
 type QuestionnaireNavigationProp = StackNavigationProp<OnboardingStackParamList, 'Questionnaire'>;
@@ -67,6 +75,10 @@ const TIME_OPTIONS: TimeOption[] = [ { label: '30-45 min', value: 45 }, { label:
 const STORAGE_KEY_BASE = '@questionnaire_data';
 const API_BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1` : '';
 if (!API_BASE_URL) { console.error("CRITICAL ERROR: Supabase URL is not configured!"); }
+
+// Delay do avanço automático: o aluno vê a seleção marcada antes da troca.
+const AUTO_ADVANCE_MS = 280;
+const TOTAL_STEPS = 11;
 
 // A gravação do questionário (upsert no PostgREST) vive em
 // services/api/questionnaireService.ts — testável e com o UPSERT que faz a
@@ -102,6 +114,12 @@ const QuestionnaireScreen = () => {
   const [includeCardio, setIncludeCardio] = useState<boolean | null>(null);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
+
+  // --- Estado do stepper ---
+  const [step, setStep] = useState(0);
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumedRef = useRef(false);
+  const stepAnim = useRef(new Animated.Value(1)).current;
 
   // Chave de armazenamento local baseada no userId
   const userStorageKey = useMemo(() => userId ? `${STORAGE_KEY_BASE}_${userId}` : null, [userId]);
@@ -173,21 +191,15 @@ const QuestionnaireScreen = () => {
       // 4. Já tentamos carregar os dados anteriormente (dataLoadedFromStorage é true)
       if (loadingSession || !userId || !userStorageKey || dataLoadedFromStorage) {
         if (!loadingSession && !userId && !dataLoadedFromStorage) {
-          // Se a sessão carregou, não há usuário e ainda não tentamos carregar
           console.log("[QuestionnaireScreen] Sessão carregada, sem usuário. Marcando carregamento do storage como concluído (sem dados).");
-          setIsLoadingStorage(false); // Finaliza o loading específico do storage
-          setDataLoadedFromStorage(true); // Marca que a tentativa (neste caso, não carregar) ocorreu
-        } else if (dataLoadedFromStorage) {
-           // Se já tentamos carregar antes, não faz nada.
-        } else {
-           // Se ainda está carregando a sessão ou esperando userId
-           console.log("[QuestionnaireScreen] Aguardando fim do loading da sessão ou disponibilidade do userId para carregar dados do storage...");
+          setIsLoadingStorage(false);
+          setDataLoadedFromStorage(true);
         }
-        return; // Sai da função se alguma das condições acima for verdadeira
+        return;
       }
 
       console.log(`[QuestionnaireScreen] Iniciando carregamento de dados do AsyncStorage com a chave: ${userStorageKey}`);
-      setIsLoadingStorage(true); // Garante que o loading do storage está ativo
+      setIsLoadingStorage(true);
       try {
         const savedData = await secureGetItem(userStorageKey);
         if (savedData) {
@@ -212,10 +224,10 @@ const QuestionnaireScreen = () => {
         }
       } catch (error) {
         console.error('[QuestionnaireScreen] Erro ao carregar dados salvos do AsyncStorage:', error);
-        setError("Erro ao carregar dados salvos localmente."); // Define um erro específico
+        setError("Erro ao carregar dados salvos localmente.");
       } finally {
-        setIsLoadingStorage(false); // Finaliza o loading específico do storage
-        setDataLoadedFromStorage(true); // Marca que a tentativa de carregamento (com sucesso ou falha) ocorreu
+        setIsLoadingStorage(false);
+        setDataLoadedFromStorage(true);
         console.log('[QuestionnaireScreen] Carregamento de dados do AsyncStorage finalizado.');
       }
     };
@@ -233,8 +245,8 @@ const QuestionnaireScreen = () => {
   const toggleTrainingDay = (dayValue: string) => { setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] })); };
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
   // Um bloco só conta como respondido quando passa na MESMA validação que
-  // habilita o envio — barra em 100% e botão desabilitado ao mesmo tempo é
-  // contradição (a data 99/99/2000 "tinha formato" mas nunca seria aceita).
+  // habilita o envio — os gates dos passos usam exatamente estas regras (a
+  // data 99/99/2000 "tinha formato" mas nunca seria aceita).
   const blocosRespondidos = (): boolean[] => {
     const diaNum = parseInt(diaNascimento, 10);
     const mesNum = parseInt(mesNascimento, 10);
@@ -262,17 +274,48 @@ const QuestionnaireScreen = () => {
 
   const isFormValid = () => blocosRespondidos().every(Boolean);
 
-  // Progresso real do preenchimento: cada bloco obrigatório validado conta um
-  // passo. Não é estimativa — é a contagem dos campos que a validação exige.
-  const completude = useMemo(() => {
+  // --- Stepper: retomada, avanço e animação -------------------------------
+  // Com rascunho salvo, abre no primeiro passo ainda sem resposta válida.
+  useEffect(() => {
+    if (isLoadingStorage || !dataLoadedFromStorage || resumedRef.current) return;
+    resumedRef.current = true;
     const blocos = blocosRespondidos();
-    return { respondidos: blocos.filter(Boolean).length, total: blocos.length };
+    const primeiroPendente = blocos.findIndex((b) => !b);
+    setStep(primeiroPendente === -1 ? TOTAL_STEPS - 1 : primeiroPendente);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    nome, diaNascimento, mesNascimento, anoNascimento, genero, peso, altura,
-    experienciaTreino, objetivo, trainingDays, averageTrainingTime,
-    includeCardio, includeStretching, temLesoes, lesoes, descricaoLesao,
-  ]);
+  }, [isLoadingStorage, dataLoadedFromStorage]);
+
+  // Cada troca de passo entra com o rise da direção (fade + 10px, impulso).
+  useEffect(() => {
+    stepAnim.setValue(0);
+    Animated.timing(stepAnim, {
+      toValue: 1,
+      duration: theme.animation.durations.medium,
+      easing: easeImpulso,
+      useNativeDriver: true,
+    }).start();
+  }, [step, stepAnim]);
+
+  useEffect(() => () => {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+  }, []);
+
+  const irPara = (destino: number) => {
+    // Navegação manual cancela um avanço automático pendente — sem isso, tocar
+    // numa opção e voltar dentro da janela de 280ms pulava uma pergunta.
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    Keyboard.dismiss();
+    setStep(Math.max(0, Math.min(TOTAL_STEPS - 1, destino)));
+  };
+
+  // Escolha única marca e avança sozinha — o toque já é a resposta.
+  const selecionarEAvancar = (aplicar: () => void) => {
+    aplicar();
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = setTimeout(() => {
+      setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
+    }, AUTO_ADVANCE_MS);
+  };
 
   // --- handleSubmit ---
   // pularChat=true vem do botão "Gerar treino direto": a persistência é a
@@ -348,10 +391,8 @@ const QuestionnaireScreen = () => {
       let errorMessage = submissionError?.message || 'Erro inesperado ao salvar os dados.';
 
       if (errorMessage.includes('Sessão expirada')) {
-        // Já tratado pelo handleSessionExpiration se o erro veio da API
         setError('Sua sessão expirou. Por favor, faça login novamente.');
       } else {
-        // Erros gerais (problema no AsyncStorage, outros erros da API não tratados especificamente)
         setError(`Erro ao salvar: ${errorMessage}`);
         Alert.alert('Erro ao Salvar', `Não foi possível salvar seus dados. Detalhes: ${errorMessage}`);
       }
@@ -365,134 +406,112 @@ const QuestionnaireScreen = () => {
     options: Array<Option | TimeOption>,
     selectedValue: string | number | null,
     onSelect: (value: string | number) => void,
-    title: string,
   ) => (
-    <View style={styles.field}>
-      <Text style={styles.label}>{title}</Text>
-      <View style={styles.stack}>
-        {options.map((option) => (
-          <OptionButton
-            key={option.value.toString()}
-            label={option.label}
-            selected={selectedValue === option.value}
-            onPress={() => onSelect(option.value)}
-          />
-        ))}
-      </View>
+    <View style={styles.stack}>
+      {options.map((option) => (
+        <OptionButton
+          key={option.value.toString()}
+          label={option.label}
+          selected={selectedValue === option.value}
+          onPress={() => selecionarEAvancar(() => onSelect(option.value))}
+        />
+      ))}
     </View>
   );
 
   const renderYesNo = (
     value: boolean | null,
     onSelect: (value: boolean) => void,
-    title: string,
   ) => (
-    <View style={styles.field}>
-      <Text style={styles.label}>{title}</Text>
-      <View style={styles.pair}>
-        <OptionButton label="Sim" centered selected={value === true} onPress={() => onSelect(true)} style={styles.pairItem} />
-        <OptionButton label="Não" centered selected={value === false} onPress={() => onSelect(false)} style={styles.pairItem} />
-      </View>
+    <View style={styles.pair}>
+      <OptionButton label="Sim" centered selected={value === true} onPress={() => selecionarEAvancar(() => onSelect(true))} style={styles.pairItem} />
+      <OptionButton label="Não" centered selected={value === false} onPress={() => selecionarEAvancar(() => onSelect(false))} style={styles.pairItem} />
     </View>
   );
 
-  const SectionHead = ({ children }: { children: string }) => (
-    <Text style={styles.sectionHead} accessibilityRole="header">{children}</Text>
+  const botaoContinuar = (habilitado: boolean) => (
+    <Button
+      label="Continuar"
+      icon="arrow-right"
+      onPress={() => irPara(step + 1)}
+      disabled={!habilitado}
+      style={styles.continuar}
+    />
   );
 
-  // Tela de espera: sessão e storage precisam ter terminado antes do formulário
-  if (loadingSession || isLoadingStorage) {
-    return (
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.colors.accent.main} />
-          <Text style={styles.waitingText}>
-            {loadingSession ? 'Verificando sessão...' : 'Carregando dados...'}
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Os passos seguem a MESMA ordem dos blocos de blocosRespondidos().
+  const blocos = blocosRespondidos();
 
-  return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.flex}
-      >
-        <View style={styles.stepBar}>
-          <View style={styles.stepMeta}>
-            <Text style={styles.stepLabel}>Perfil inicial</Text>
-            <Text style={styles.stepLabel}>
-              {completude.respondidos} de {completude.total}
-            </Text>
-          </View>
-          <ProgressTrack
-            ratio={completude.respondidos / completude.total}
-            accessibilityLabel="Progresso do questionário"
-          />
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.title} accessibilityRole="header">Vamos construir sua base.</Text>
-          <Text style={styles.subtitle}>Poucas respostas para um plano realmente pessoal.</Text>
-
-          {error ? <Notice tone="danger" title={error} style={styles.notice} /> : null}
-
-          <SectionHead>Informações pessoais</SectionHead>
-
+  type StepDef = { titulo: string; dica?: string; corpo: React.ReactNode };
+  const steps: StepDef[] = [
+    {
+      titulo: 'Como podemos te chamar?',
+      dica: 'Seu plano fala com você pelo nome.',
+      corpo: (
+        <>
           <TextField
             label="Nome completo"
             value={nome}
             onChangeText={setNome}
             autoCapitalize="words"
           />
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Data de nascimento</Text>
-            <View style={styles.dateRow}>
-              <TextInput
-                style={[styles.miniInput, styles.dateCell]}
-                placeholder="DD"
-                accessibilityLabel="Dia de nascimento"
-                placeholderTextColor={theme.colors.text.quiet}
-                selectionColor={theme.colors.accent.main}
-                value={diaNascimento}
-                onChangeText={setDiaNascimento}
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-              <TextInput
-                style={[styles.miniInput, styles.dateCell]}
-                placeholder="MM"
-                accessibilityLabel="Mês de nascimento"
-                placeholderTextColor={theme.colors.text.quiet}
-                selectionColor={theme.colors.accent.main}
-                value={mesNascimento}
-                onChangeText={setMesNascimento}
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-              <TextInput
-                style={[styles.miniInput, styles.yearCell]}
-                placeholder="AAAA"
-                accessibilityLabel="Ano de nascimento"
-                placeholderTextColor={theme.colors.text.quiet}
-                selectionColor={theme.colors.accent.main}
-                value={anoNascimento}
-                onChangeText={setAnoNascimento}
-                keyboardType="number-pad"
-                maxLength={4}
-              />
-            </View>
+          {botaoContinuar(blocos[0])}
+        </>
+      ),
+    },
+    {
+      titulo: 'Quando você nasceu?',
+      dica: 'A idade calibra volume e recuperação.',
+      corpo: (
+        <>
+          <View style={styles.dateRow}>
+            <TextInput
+              style={[styles.miniInput, styles.dateCell]}
+              placeholder="DD"
+              accessibilityLabel="Dia de nascimento"
+              placeholderTextColor={theme.colors.text.quiet}
+              selectionColor={theme.colors.accent.main}
+              value={diaNascimento}
+              onChangeText={setDiaNascimento}
+              keyboardType="number-pad"
+              maxLength={2}
+            />
+            <TextInput
+              style={[styles.miniInput, styles.dateCell]}
+              placeholder="MM"
+              accessibilityLabel="Mês de nascimento"
+              placeholderTextColor={theme.colors.text.quiet}
+              selectionColor={theme.colors.accent.main}
+              value={mesNascimento}
+              onChangeText={setMesNascimento}
+              keyboardType="number-pad"
+              maxLength={2}
+            />
+            <TextInput
+              style={[styles.miniInput, styles.yearCell]}
+              placeholder="AAAA"
+              accessibilityLabel="Ano de nascimento"
+              placeholderTextColor={theme.colors.text.quiet}
+              selectionColor={theme.colors.accent.main}
+              value={anoNascimento}
+              onChangeText={setAnoNascimento}
+              keyboardType="number-pad"
+              maxLength={4}
+            />
           </View>
-
-          {renderOptions(GENDER_OPTIONS, genero, (v) => setGenero(v as string), 'Gênero')}
-
+          {botaoContinuar(blocos[1])}
+        </>
+      ),
+    },
+    {
+      titulo: 'Como você se identifica?',
+      corpo: renderOptions(GENDER_OPTIONS, genero, (v) => setGenero(v as string)),
+    },
+    {
+      titulo: 'Seu corpo hoje.',
+      dica: 'Base para as cargas iniciais — dá para atualizar depois.',
+      corpo: (
+        <>
           <View style={styles.pair}>
             <View style={styles.pairItem}>
               <Text style={styles.label}>Peso (kg)</Text>
@@ -521,36 +540,66 @@ const QuestionnaireScreen = () => {
               />
             </View>
           </View>
-
-          <SectionHead>Experiência e objetivos</SectionHead>
-          {renderOptions(EXPERIENCE_LEVELS, experienciaTreino, (v) => setExperienciaTreino(v as string), 'Nível de experiência com treinos?')}
-          {renderOptions(GOALS, objetivo, (v) => setObjetivo(v as string), 'Objetivo principal?')}
-
-          <SectionHead>Preferências de treino</SectionHead>
-          <View style={styles.field}>
-            <Text style={styles.label}>Dias da semana para treinar?</Text>
-            <View style={styles.days}>
-              {DAYS_OF_WEEK.map((day) => (
-                <DayToggle
-                  key={day.value}
-                  label={day.label}
-                  accessibilityLabel={day.full}
-                  selected={!!trainingDays[day.value]}
-                  onPress={() => toggleTrainingDay(day.value)}
-                />
-              ))}
-            </View>
+          {botaoContinuar(blocos[3])}
+        </>
+      ),
+    },
+    {
+      titulo: 'Há quanto tempo você treina?',
+      dica: 'Sem resposta certa — o plano parte de onde você está.',
+      corpo: renderOptions(EXPERIENCE_LEVELS, experienciaTreino, (v) => setExperienciaTreino(v as string)),
+    },
+    {
+      titulo: 'Qual é o seu objetivo principal?',
+      dica: 'Isso define a estrutura de todo o plano.',
+      corpo: renderOptions(GOALS, objetivo, (v) => setObjetivo(v as string)),
+    },
+    {
+      titulo: 'Quais dias você pode treinar?',
+      dica: 'O plano respeita a sua semana real — dá para mudar depois.',
+      corpo: (
+        <>
+          <View style={styles.days}>
+            {DAYS_OF_WEEK.map((day) => (
+              <DayToggle
+                key={day.value}
+                label={day.label}
+                accessibilityLabel={day.full}
+                selected={!!trainingDays[day.value]}
+                onPress={() => toggleTrainingDay(day.value)}
+              />
+            ))}
           </View>
-          {renderOptions(TIME_OPTIONS, averageTrainingTime, (v) => setAverageTrainingTime(v as number), 'Tempo médio disponível por treino?')}
-          {renderYesNo(includeCardio, setIncludeCardio, 'Incluir cardio no plano?')}
-          {renderYesNo(includeStretching, setIncludeStretching, 'Incluir alongamentos no plano?')}
-
-          <SectionHead>Saúde e restrições</SectionHead>
-          {renderYesNo(temLesoes, setTemLesoes, 'Possui alguma lesão ou restrição médica?')}
+          {botaoContinuar(blocos[6])}
+        </>
+      ),
+    },
+    {
+      titulo: 'Quanto tempo por treino?',
+      dica: 'Num dia mais curto, o app adapta a sessão na hora.',
+      corpo: renderOptions(TIME_OPTIONS, averageTrainingTime, (v) => setAverageTrainingTime(v as number)),
+    },
+    {
+      titulo: 'Incluir cardio no plano?',
+      corpo: renderYesNo(includeCardio, setIncludeCardio),
+    },
+    {
+      titulo: 'Incluir alongamentos no plano?',
+      corpo: renderYesNo(includeStretching, setIncludeStretching),
+    },
+    {
+      titulo: 'Alguma lesão ou restrição?',
+      dica: 'O plano evita o que machuca — seja específico.',
+      corpo: (
+        <>
+          <View style={styles.pair}>
+            <OptionButton label="Sim" centered selected={temLesoes === true} onPress={() => setTemLesoes(true)} style={styles.pairItem} />
+            <OptionButton label="Não" centered selected={temLesoes === false} onPress={() => setTemLesoes(false)} style={styles.pairItem} />
+          </View>
           {temLesoes === true && (
             <>
               <View style={styles.field}>
-                <Text style={styles.label}>Quais lesões ou restrições? (Opcional)</Text>
+                <Text style={styles.label}>Quais lesões ou restrições?</Text>
                 <TextInput
                   style={styles.miniInput}
                   placeholder="Ex: Dor no joelho, Hérnia L5"
@@ -577,6 +626,8 @@ const QuestionnaireScreen = () => {
             </>
           )}
 
+          {error ? <Notice tone="danger" title={error} style={styles.notice} /> : null}
+
           <Button
             label="Conversar com IA"
             icon="message-circle"
@@ -585,18 +636,83 @@ const QuestionnaireScreen = () => {
             disabled={!isFormValid()}
             style={styles.submit}
           />
-
           <Button
             label="Gerar treino direto"
-            variant="outline"
+            variant="tonal"
             icon="zap"
             onPress={() => handleSubmit(true)}
             loading={isLoading}
             disabled={!isFormValid()}
             style={styles.submitDirect}
           />
+        </>
+      ),
+    },
+  ];
 
-          <Text style={styles.signature}>Desenvolvido no Brasil</Text>
+  // Tela de espera: sessão e storage precisam ter terminado antes do formulário
+  if (loadingSession || isLoadingStorage) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={theme.colors.accent.main} />
+          <Text style={styles.waitingText}>
+            {loadingSession ? 'Verificando sessão...' : 'Carregando dados...'}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const atual = steps[step];
+
+  return (
+    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.flex}
+      >
+        {/* Barra do stepper: voltar · contagem · módulos do F */}
+        <View style={styles.stepBar}>
+          <Pressable
+            onPress={() => irPara(step - 1)}
+            disabled={step === 0}
+            accessibilityRole="button"
+            accessibilityLabel="Voltar uma pergunta"
+            accessibilityState={{ disabled: step === 0 }}
+            hitSlop={10}
+            style={[styles.backBtn, step === 0 && styles.backBtnHidden]}
+          >
+            <Feather name="chevron-left" size={20} color={theme.colors.text.secondary} />
+          </Pressable>
+          <Text style={styles.stepCount}>
+            Pergunta {step + 1} de {TOTAL_STEPS}
+          </Text>
+          <FModules
+            lit={Math.ceil(((step + 1) / TOTAL_STEPS) * 3)}
+            accessibilityLabel={`Progresso: pergunta ${step + 1} de ${TOTAL_STEPS}`}
+          />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View
+            style={{
+              opacity: stepAnim,
+              transform: [
+                {
+                  translateY: stepAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+                },
+              ],
+            }}
+          >
+            <Text style={styles.title} accessibilityRole="header">{atual.titulo}</Text>
+            {atual.dica ? <Text style={styles.subtitle}>{atual.dica}</Text> : null}
+            <View style={styles.body}>{atual.corpo}</View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -621,12 +737,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  savingVeil: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(10, 10, 10, 0.88)', // preto da marca com véu
-  },
   waitingText: {
     marginTop: theme.spacing.md,
     color: theme.colors.text.secondary,
@@ -635,18 +745,25 @@ const styles = StyleSheet.create({
   },
 
   stepBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.xl,
     paddingTop: theme.spacing.md,
-    paddingBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border.subtle,
+    paddingBottom: theme.spacing.lg,
   },
-  stepMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: theme.spacing.sm,
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface.card,
   },
-  stepLabel: {
+  backBtnHidden: { opacity: 0 },
+  stepCount: {
     color: theme.colors.text.quiet,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.micro,
@@ -656,54 +773,45 @@ const styles = StyleSheet.create({
   },
 
   scroll: {
+    flexGrow: 1,
     paddingHorizontal: theme.spacing.xl,
-    paddingTop: theme.spacing.xxl,
     paddingBottom: theme.spacing.huge,
   },
   title: {
+    marginTop: theme.spacing.lg,
     color: theme.colors.text.primary,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.display,
     fontWeight: theme.typography.fontWeights.semiBold,
     letterSpacing: theme.typography.letterSpacing.display,
+    lineHeight: theme.typography.fontSizes.display * theme.typography.lineHeights.tight,
   },
   subtitle: {
-    marginTop: theme.spacing.xxs,
-    marginBottom: theme.spacing.xl,
+    marginTop: theme.spacing.xs,
     color: theme.colors.text.secondary,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.base,
   },
-  notice: { marginBottom: theme.spacing.lg },
+  body: { marginTop: theme.spacing.xxl },
 
-  sectionHead: {
-    marginTop: theme.spacing.xxl,
-    marginBottom: theme.spacing.lg,
-    paddingBottom: theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border.subtle,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-
-  field: { marginBottom: theme.spacing.lg },
+  stack: { gap: theme.spacing.sm },
+  pair: { flexDirection: 'row', gap: theme.spacing.md },
+  pairItem: { flex: 1 },
+  field: { marginTop: theme.spacing.lg },
   label: {
-    marginBottom: theme.spacing.sm,
-    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.xs,
+    color: theme.colors.text.quiet,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.xs,
-    fontWeight: theme.typography.fontWeights.medium,
+    letterSpacing: theme.typography.letterSpacing.wide,
+    textTransform: 'uppercase',
   },
-  stack: { gap: theme.spacing.sm },
-  pair: { flexDirection: 'row', gap: theme.spacing.sm, marginBottom: theme.spacing.lg },
-  pairItem: { flex: 1 },
-
+  dateRow: { flexDirection: 'row', gap: theme.spacing.md },
+  dateCell: { flex: 1 },
+  yearCell: { flex: 1.6 },
   miniInput: {
-    minHeight: theme.hitTarget.compact,
+    minHeight: theme.hitTarget.regular,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
     borderWidth: 1,
     borderColor: theme.colors.border.subtle,
     borderRadius: theme.borderRadius.md,
@@ -712,21 +820,20 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.md,
   },
-  textArea: { height: 96, paddingTop: theme.spacing.md, textAlignVertical: 'top' },
-  dateRow: { flexDirection: 'row', gap: theme.spacing.sm },
-  dateCell: { flex: 1, textAlign: 'center' },
-  yearCell: { flex: 1.35, textAlign: 'center' },
-
+  textArea: { minHeight: 84, textAlignVertical: 'top', paddingTop: theme.spacing.md },
   days: { flexDirection: 'row', gap: theme.spacing.xs },
 
+  continuar: { marginTop: theme.spacing.xxl },
+  notice: { marginTop: theme.spacing.lg },
   submit: { marginTop: theme.spacing.xxl },
-  submitDirect: { marginTop: theme.spacing.md },
-  signature: {
-    marginTop: theme.spacing.xl,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    textAlign: 'center',
+  submitDirect: { marginTop: theme.spacing.sm },
+
+  savingVeil: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(10, 10, 10, 0.88)', // preto da marca com véu
+    zIndex: theme.zIndex.modal,
   },
 });
 
