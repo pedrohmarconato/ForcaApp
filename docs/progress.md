@@ -621,3 +621,105 @@ Pendências conscientes (não são regressão):
 
 Sem CI de GitHub no repo — o portão de qualidade é a suíte local (496/496 + 305 + tsc 0),
 verde no HEAD dos dois PRs.
+
+## Direção 03 em PRODUÇÃO — virada executada (24/07/2026) ✅
+
+Runbook GO-PROD acima executado na íntegra. Nenhum passo pulado; nenhum plano
+gerado em produção (o smoke é infra-level, por decisão de custo — Opus).
+
+### 1. Portão de qualidade (HEAD do #39 = `29dad48`, working tree limpo)
+
+- `npx tsc --noEmit` → exit **0**.
+- `npx jest --runInBand` → **496/496** (56 suites, 33,1 s).
+- `python3 -m pytest backend/tests -q` → **305 passed**.
+- Série verificada por `merge-base`: `main c94d477` → #38 `bb10e48` (10 commits)
+  → #39 `29dad48` (8 commits). Sem commit inesperado.
+
+### 2. Merges (merge commit, série preservada)
+
+- **#38** mesclado 17:28:09Z → merge commit **`e6ed3c8`**.
+- **#39 NÃO re-alvejou sozinho**: o GitHub só re-alveja quando a branch-base é
+  apagada, e o merge do #38 preservou `feat/catalogo-exercicios`. Corrigido com
+  `gh pr edit 39 --base main` (voltou a `MERGEABLE/CLEAN`, 8 commits).
+- **#39** mesclado 17:28:33Z → merge commit **`a48ce9e`**.
+- `origin/main` = **`a48ce9e`**, contendo `bb10e48` e `29dad48` (ambos conferidos
+  com `git merge-base --is-ancestor`).
+
+### 3. Migrations em produção (forcaapp-hml / `zanqygwsgxkyjiuhrzju`)
+
+- Ref conferido antes e depois do push (`supabase/.temp/project-ref`).
+- **Antes**: 0000→0012 local=remote, só 0013/0014 pendentes — **sem drift**,
+  nenhuma migration extra. (O `AGENTS.md` ainda dizia 0000→0009; estava
+  desatualizado — 0010/0011/0012 já haviam entrado.)
+- `supabase db push` aplicou **0013** e **0014**. DDL revisada antes: aditiva
+  (colunas novas, `drop not null`, funções recriadas) — sem `drop table`/`delete`.
+- **Depois**: `supabase migration list` → local = remote nas 15 (0000→0014).
+- O aviso de Docker ao fim do push é só o cache local do catálogo pg-delta
+  (Docker Desktop parado); não afeta o que foi aplicado.
+
+### 4. Backfill do catálogo em planos vivos de prod
+
+- A service_role **não** está no `/docker/forcaapp/.env` da VPS (só `SUPABASE_ANON_KEY`);
+  obtida via `supabase projects api-keys` com o PAT, sem nunca ser impressa.
+- **Dry-run**: 300 exercícios lidos · 0 já com chave · 294 a atualizar ·
+  6 fora do catálogo · 70 séries de cardio/isometria a converter.
+- **`--apply`**: 294/294 exercícios canonizados (nome, `exercise_key`,
+  `muscle_group`, `equipment`, `metric`, `load_increment_kg`) e 70/70 séries de
+  prancha convertidas de reps para duração (frontal 40s, lateral 30s).
+- **Reverificação (2º dry-run)**: 294 já com chave · **0 a atualizar** — idempotente.
+- Preservados fora do catálogo, intactos: `Crucifixo invertido com halteres`,
+  `Pull-over com halter`.
+
+### 5. Backend na VPS (`/docker/forcaapp`)
+
+- **Antes do build**, comparação disco × container (runbook): marcador do molde 2=2
+  e hash agregado de todo o Python **idêntico** (37 arquivos, `4bc7d9ba…`) — o
+  container rodava `c94d477`, não um build antigo. Sem risco de regressão.
+- Rollback criado: imagem `forcaapp-backend:rollback-20260724` +
+  `/root/forcaapp-backup-20260724.tgz` (1,2 MB).
+- `git merge --ff-only origin/main` → clone da VPS em **`a48ce9e`**; nenhum
+  arquivo tracked modificado (só os untracked esperados: `docker-compose.yml` e
+  `docker-compose.override.yml`).
+- **Trava de loopback conferida antes de subir**: o `docker-compose.yml` que o
+  Compose usa publica `5001:5001` (0.0.0.0), mas o override `ports: !override`
+  resolve para `host_ip: 127.0.0.1` — confirmado em `docker compose config` e no
+  `docker ps` (`127.0.0.1:5001->5001/tcp`). Nada exposto à internet.
+- `docker compose build backend && docker compose up -d backend`.
+- **Depois**: disco e container batem no novo hash (**40 arquivos, `55ff695b…`**),
+  com `exercise_catalog.py`/`plan_mapper.py` na imagem e
+  `FORCA_USE_MOLDE_ARCHITECTURE=true`.
+- `https://forca-api.cadastrai.com/api/health` → **200 `{"status":"ok"}`**; boot
+  limpo (só os dois avisos conhecidos: `.env` não copiado para a imagem — vem por
+  `env_file` — e rate limit em memória).
+
+### 6. PWA em produção (Vercel)
+
+- `npx vercel deploy --prod` → **`dpl_2My6P3Lb3LbwvEJJXpcvpohjheSU`**, target
+  production, READY; aliases `forca-app-six.vercel.app` e
+  `forca-app-pmarconatos-projects.vercel.app`. Build 51 s.
+- `verify-web-bundle` passou no build: "bundle (production) aponta para
+  forca-api.cadastrai.com, sem endereços de LAN".
+- **Auditoria independente do bundle publicado** (`AppEntry-dbf6c7f5….js`,
+  3.014.623 bytes, baixado do domínio público): contém
+  `https://zanqygwsgxkyjiuhrzju.supabase.co` e `https://forca-api.cadastrai.com`;
+  **0** ocorrências de `mjdjtiujhwklchalquhc` (staging), `forca-api-hml` e de
+  IPs de LAN.
+
+### 7. Smoke de produção (infra-level, sem gerar plano nem criar dado)
+
+- API `/api/health` → **200** em 0,63 s.
+- PWA: `/` → 200 com CSP nos headers · `/login` → 200 (rewrite SPA) ·
+  `/manifest.json` → 200.
+- Tela de login renderiza correta (aba "Login", card completo) e o console traz
+  **11 mensagens, todas `[LOG]`, zero erros/exceções**: `INITIAL_SESSION` sem
+  usuário → `[RootNavigator] Direcionando para Auth`.
+
+### Pendências honestas
+
+1. **Login real e primeira sessão em produção são do dono** — não executados aqui
+   de propósito (geração de plano roda no Opus e custa; smoke ficou infra-level).
+2. `AGENTS.md` está **desatualizado** na seção de migrations (diz 0000→0009;
+   prod está em 0000→0014). Corrigir num passe curto.
+3. Follow-ups anteriores seguem abertos: recordes no `SessionSummary`, decisão de
+   produto sobre "Refazer questionário", rate limit em memória no backend
+   (contadores zeram a cada restart e não são compartilhados entre workers).
