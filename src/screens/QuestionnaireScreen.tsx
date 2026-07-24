@@ -301,6 +301,9 @@ const QuestionnaireScreen = () => {
   }, []);
 
   const irPara = (destino: number) => {
+    // Navegação manual cancela um avanço automático pendente — sem isso, tocar
+    // numa opção e voltar dentro da janela de 280ms pulava uma pergunta.
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
     Keyboard.dismiss();
     setStep(Math.max(0, Math.min(TOTAL_STEPS - 1, destino)));
   };
