@@ -428,3 +428,14 @@ describe('resumo do exercício na lista do treino', () => {
     expect(formatExerciseTarget(musculacao)).toBe('3 séries × 8-12 reps');
   });
 });
+
+describe('fila de séries (SessionQueue)', () => {
+  it('série pendente de cardio não anuncia "0 reps"', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const caminhada = draft.exercises[0];
+    // Mesmo helper usado pela fila e pelo card do player.
+    const texto = alvoDaSerie(caminhada, caminhada.sets[0]);
+    expect(texto).not.toMatch(/reps/i);
+    expect(texto).not.toMatch(/\b0\b/);
+  });
+});

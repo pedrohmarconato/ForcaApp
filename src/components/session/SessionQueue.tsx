@@ -10,7 +10,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../theme/theme';
 import { type SessionDraft, type DraftExercise, type DraftSet } from '../../engine/sessionModel';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
-import { repsAlvo } from './SessionPlayer';
+import { alvoDaSerie } from './SessionPlayer';
 
 type Props = {
   draft: SessionDraft;
@@ -92,7 +92,7 @@ const SessionQueue = ({ draft, metaFor }: Props) => {
                 >
                   <Text style={styles.markPending}>·</Text>
                   <Text style={styles.rowLabel}>S{s.setOrder}</Text>
-                  <Text style={styles.rowPending}>alvo {repsAlvo(s)} reps</Text>
+                  <Text style={styles.rowPending}>alvo {alvoDaSerie(ex, s)}</Text>
                 </TouchableOpacity>
               );
             })}
