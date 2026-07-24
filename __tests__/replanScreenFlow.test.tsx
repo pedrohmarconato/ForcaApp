@@ -197,13 +197,16 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.press(screen.getByLabelText('Começar treino'));
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
-  // 1. Recalculou ao abrir: banner com a falta da segunda
-  await waitFor(() => expect(screen.getByText('Replanejar a semana?')).toBeTruthy());
-  expect(screen.getByText('• Treino A · 2020-01-05 será marcado como pulado')).toBeTruthy();
+  // 1. Recalculou ao abrir: banner com a falta da segunda. Redesign 24/07/2026:
+  // o título virou o resumo e a sessão perdida virou cartão com o dia da semana
+  // (2020-01-05 é um domingo).
+  await waitFor(() => expect(screen.getByText(/na sua semana/)).toBeTruthy());
+  expect(screen.getByText('Treino A · dom')).toBeTruthy();
+  expect(screen.getByText('pulado')).toBeTruthy();
 
   // 2. RECUSA: banner some, nada foi escrito, treino segue inteiro
   fireEvent.press(screen.getByTestId('replan-decline'));
-  await waitFor(() => expect(screen.queryByText('Replanejar a semana?')).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/na sua semana/)).toBeNull());
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
   // Redesign: número e nome vivem em Texts separados na fila compacta.
   expect(screen.getByText('Tríceps Corda')).toBeTruthy();
@@ -213,15 +216,15 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.press(screen.getByTestId('replan-time-toggle'));
   fireEvent.changeText(screen.getByTestId('replan-minutes-input'), '40');
   fireEvent.press(screen.getByTestId('replan-minutes-apply'));
-  await waitFor(() =>
-    expect(screen.getByText('Menos tempo hoje (40 de 60 min)')).toBeTruthy(),
-  );
-  expect(screen.getByText('• Cortar Tríceps Corda (1 série)')).toBeTruthy();
-  expect(screen.queryByText(/será marcado como pulado/)).toBeNull();
+  await waitFor(() => expect(screen.getByText('Hoje · menos tempo')).toBeTruthy());
+  expect(screen.getByText('40 min')).toBeTruthy();
+  expect(screen.getByText('saem: Tríceps Corda (1)')).toBeTruthy();
+  // A redistribuição recusada não volta junto com o corte de tempo.
+  expect(screen.queryByText('Treino A · dom')).toBeNull();
 
   // 4. APLICAR: escreve via repositório e o acessório sai do caminho na tela
   fireEvent.press(screen.getByTestId('replan-confirm'));
   await waitFor(() => expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.getByText(/Cortado por tempo/)).toBeTruthy());
-  expect(screen.queryByText('Replanejar a semana?')).toBeNull();
+  expect(screen.queryByText(/na sua semana/)).toBeNull();
 });
