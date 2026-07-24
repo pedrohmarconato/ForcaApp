@@ -11,7 +11,7 @@ import type { SessionDetail } from '../services/trainingRepository';
 import {
   buildDraftFromDetail,
   computeOutcome,
-  normalizeName,
+  exerciseIdentity,
   suggestLoad,
   canCompleteSet,
   reconcileInjuryFlags,
@@ -24,7 +24,7 @@ import {
   saveSetLog,
   finishSessionLog,
   getOpenSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
   updateSetLogAdaptation,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
@@ -257,17 +257,19 @@ export const suggestionFor = (
   return suggestLoad({
     actualLoadKg: set.actualLoadKg,
     targetLoadKg: set.targetLoadKg,
-    lastLoad: draft.lastLoadByExercise[normalizeName(exercise.name)],
+    lastLoad: draft.lastLoadByExercise[exerciseIdentity(exercise)],
   });
 };
 
-/** Semente de última carga por nome (best-effort; falha não derruba o início). */
+/** Semente de última carga por exercício (best-effort; falha não derruba o início). */
 const seedLastLoads = async (
   detail: SessionDetail,
 ): Promise<Record<string, number>> => {
   try {
-    const nomes = (detail.planned_exercises ?? []).map((e) => e.name);
-    return await getLastLoadByExerciseName(nomes);
+    const identidades = (detail.planned_exercises ?? []).map((e) =>
+      exerciseIdentity({ exerciseKey: e.exercise_key ?? null, name: e.name }),
+    );
+    return await getLastLoadByExercise(identidades);
   } catch (e) {
     console.warn(
       '[activeSession] não foi possível semear cargas do histórico:',
@@ -305,7 +307,7 @@ const applyServerSetLogs = (
       const sl = porPlannedSet.get(s.plannedSetId);
       if (!sl) return s;
       if (sl.actual_load_kg != null && !ex.isBodyweight) {
-        const key = normalizeName(ex.name);
+        const key = exerciseIdentity(ex);
         const previous = latestFromOpenLog.get(key);
         if (
           !previous ||
@@ -793,7 +795,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       const fallback = suggestLoad({
         actualLoadKg: null,
         targetLoadKg: s.targetLoadKg,
-        lastLoad: draft.lastLoadByExercise[normalizeName(ex.name)],
+        lastLoad: draft.lastLoadByExercise[exerciseIdentity(ex)],
       });
       const base = s.actualLoadKg ?? fallback ?? 0;
       const next =
@@ -898,7 +900,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       // chamador retry (F3 — insert confirmado nunca é reapresentado como falha).
       const lastLoad = { ...atual.lastLoadByExercise };
       if (saved.actualLoadKg != null && !exercise.isBodyweight) {
-        lastLoad[normalizeName(exercise.name)] = saved.actualLoadKg;
+        lastLoad[exerciseIdentity(exercise)] = saved.actualLoadKg;
       }
       const novo: SessionDraft = {
         ...withSet(atual, exerciseId, setOrder, (s) => ({

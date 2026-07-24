@@ -203,27 +203,29 @@ def test_sessao_metadados(resultado):
 # ---------- Exercícios: prioridade, descanso, faixas ----------
 
 def test_prioridade_da_ia_e_fallback_por_ordem(resultado):
-    por_nome = {e["name"]: e for e in resultado["exercises"]}
+    # Busca pela chave do catálogo: o `name` agora é o nome canônico, não o
+    # texto livre da IA (migration 0013).
+    por_chave = {e["exercise_key"]: e for e in resultado["exercises"]}
     # IA declarou "primario"
-    assert por_nome["Supino Reto"]["priority"] == "primary"
+    assert por_chave["supino_reto_barra"]["priority"] == "primary"
     # sem prioridade: ordem 2 → secondary; ordem 4 → accessory; ordem 1 → primary
-    assert por_nome["Supino Inclinado"]["priority"] == "secondary"
-    assert por_nome["Tríceps Corda"]["priority"] == "accessory"
-    assert por_nome["Remada Curvada"]["priority"] == "primary"
+    assert por_chave["supino_inclinado_barra"]["priority"] == "secondary"
+    assert por_chave["triceps_corda"]["priority"] == "accessory"
+    assert por_chave["remada_curvada_barra"]["priority"] == "primary"
 
 
 def test_descanso_em_formatos_variados(resultado):
-    por_nome = {e["name"]: e for e in resultado["exercises"]}
-    assert por_nome["Supino Reto"]["rest_seconds"] == 60      # "60s"
-    assert por_nome["Supino Inclinado"]["rest_seconds"] == 90  # inteiro
-    assert por_nome["Tríceps Corda"]["rest_seconds"] == 120    # "2min"
-    assert por_nome["Agachamento"]["rest_seconds"] is None     # ausente
+    por_chave = {e["exercise_key"]: e for e in resultado["exercises"]}
+    assert por_chave["supino_reto_barra"]["rest_seconds"] == 60      # "60s"
+    assert por_chave["supino_inclinado_barra"]["rest_seconds"] == 90  # inteiro
+    assert por_chave["triceps_corda"]["rest_seconds"] == 120          # "2min"
+    assert por_chave["agachamento_livre"]["rest_seconds"] is None     # ausente
 
 
 def test_exercicio_campos(resultado):
-    supino = next(e for e in resultado["exercises"] if e["name"] == "Supino Reto")
+    supino = next(e for e in resultado["exercises"] if e["exercise_key"] == "supino_reto_barra")
     assert supino["exercise_order"] == 1
-    assert supino["equipment"] == "barra"
+    assert supino["equipment"] == "Barra"  # canônico do catálogo, não "barra" da IA
     assert supino["target_rm_percent"] == 75
     assert supino["sets_planned"] == 4
     assert supino["reps_raw"] == "8-12"
@@ -232,7 +234,7 @@ def test_exercicio_campos(resultado):
 # ---------- Séries: expansão e faixas de reps ----------
 
 def test_expansao_de_series_e_faixa(resultado):
-    supino = next(e for e in resultado["exercises"] if e["name"] == "Supino Reto")
+    supino = next(e for e in resultado["exercises"] if e["exercise_key"] == "supino_reto_barra")
     sets_supino = [s for s in resultado["sets"] if s["exercise_id"] == supino["id"]]
     assert len(sets_supino) == 4
     assert [s["set_order"] for s in sorted(sets_supino, key=lambda x: x["set_order"])] == [1, 2, 3, 4]
@@ -242,13 +244,13 @@ def test_expansao_de_series_e_faixa(resultado):
 
 
 def test_reps_fixas_e_amrap(resultado):
-    por_nome = {e["name"]: e for e in resultado["exercises"]}
-    inclinado_sets = [s for s in resultado["sets"] if s["exercise_id"] == por_nome["Supino Inclinado"]["id"]]
+    por_chave = {e["exercise_key"]: e for e in resultado["exercises"]}
+    inclinado_sets = [s for s in resultado["sets"] if s["exercise_id"] == por_chave["supino_inclinado_barra"]["id"]]
     assert all(s["target_reps_min"] == 10 and s["target_reps_max"] == 10 for s in inclinado_sets)
     # "AMRAP" (sem número): usa faixa padrão 8-12 e preserva o texto em reps_raw
-    corda_sets = [s for s in resultado["sets"] if s["exercise_id"] == por_nome["Tríceps Corda"]["id"]]
+    corda_sets = [s for s in resultado["sets"] if s["exercise_id"] == por_chave["triceps_corda"]["id"]]
     assert all(s["target_reps_min"] == 8 and s["target_reps_max"] == 12 for s in corda_sets)
-    assert por_nome["Tríceps Corda"]["reps_raw"] == "AMRAP"
+    assert por_chave["triceps_corda"]["reps_raw"] == "AMRAP"
 
 
 # ---------- Robustez ----------
@@ -290,7 +292,7 @@ def test_series_absurdas_sao_limitadas():
 
     resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
 
-    supino = next(e for e in resultado["exercises"] if e["name"] == "Supino Reto")
+    supino = next(e for e in resultado["exercises"] if e["exercise_key"] == "supino_reto_barra")
     assert supino["sets_planned"] == 10  # clamp em MAX_SERIES_POR_EXERCICIO
     assert len([s for s in resultado["sets"] if s["exercise_id"] == supino["id"]]) == 10
 
@@ -318,3 +320,86 @@ def test_duration_weeks_reflete_cobertura_real_nao_a_declarada():
     plano["plano_principal"]["duracao_semanas"] = 12
     resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
     assert resultado["plan"]["duration_weeks"] == 2
+
+
+# ---------- Catálogo canônico de exercícios (migration 0013) ----------
+
+def _plano_com_exercicio(nome, equipamento=None, observacoes=None):
+    """Plano mínimo com um único exercício, para exercitar a canonização."""
+    plano = _plano_exemplo()
+    ciclos = plano["plano_principal"]["ciclos"]
+    del ciclos[1:]
+    micro = ciclos[0]["microciclos"]
+    del micro[1:]
+    sessao = micro[0]["sessoes"][0]
+    del micro[0]["sessoes"][1:]
+    exercicio = {
+        "nome": nome,
+        "ordem": 1,
+        "series": 3,
+        "repeticoes": "8-12",
+    }
+    if equipamento is not None:
+        exercicio["equipamento"] = equipamento
+    if observacoes is not None:
+        exercicio["observacoes"] = observacoes
+    sessao["exercicios"] = [exercicio]
+    return plano
+
+
+def _unico_exercicio(nome, equipamento=None, observacoes=None):
+    resultado = mapear_plano_ia(
+        _plano_com_exercicio(nome, equipamento, observacoes),
+        user_id=USER_ID,
+        start_date=START,
+    )
+    assert len(resultado["exercises"]) == 1
+    return resultado["exercises"][0]
+
+
+def test_nome_traduzido_ao_pe_da_letra_e_canonizado():
+    """'Linha Curvada' (bent-over row) era gravado tal e qual no banco."""
+    ex = _unico_exercicio("Linha Curvada com Halteres", "Halteres")
+    assert ex["name"] == "Remada Curvada com Halteres"
+    assert ex["exercise_key"] == "remada_curvada_halteres"
+    assert ex["name_original"] == "Linha Curvada com Halteres"
+
+
+def test_muscle_group_deixa_de_ser_sempre_nulo():
+    """Com muscle_group NULL, o replanejamento semanal não redistribui nada."""
+    ex = _unico_exercicio("Linha Curvada com Halteres", "Halteres")
+    assert ex["muscle_group"] == "Costas"
+
+
+def test_incremento_de_carga_vem_do_catalogo():
+    """Era 2.5 fixo para tudo — inclusive elevação lateral de 6 kg."""
+    assert _unico_exercicio("Elevação Lateral com Halteres", "Halteres")["load_increment_kg"] == 1.0
+    assert _unico_exercicio("Leg Press", "Máquina")["load_increment_kg"] == 10.0
+
+
+def test_estado_da_semana_sai_do_nome_e_vira_observacao():
+    ex = _unico_exercicio("Supino com Halteres (Deload)", "Halteres")
+    assert ex["name"] == "Supino Reto com Halteres"
+    assert "Deload" in (ex["notes"] or "")
+
+
+def test_qualificador_nao_apaga_observacao_da_ia():
+    ex = _unico_exercicio(
+        "Supino com Halteres (Deload)", "Halteres", observacoes="Cuidado com o ombro"
+    )
+    assert "Cuidado com o ombro" in ex["notes"]
+    assert "Deload" in ex["notes"]
+
+
+def test_nome_fora_do_catalogo_e_preservado_sem_chave():
+    ex = _unico_exercicio("Movimento Proprietário XYZ", "Halteres")
+    assert ex["name"] == "Movimento Proprietário XYZ"
+    assert ex["exercise_key"] is None
+    assert ex["muscle_group"] is None
+    assert ex["name_original"] is None  # nome não mudou: nada a auditar
+
+
+def test_name_original_so_aparece_quando_o_nome_muda():
+    ex = _unico_exercicio("Prancha", "Peso corporal")
+    assert ex["name"] == "Prancha"
+    assert ex["name_original"] is None

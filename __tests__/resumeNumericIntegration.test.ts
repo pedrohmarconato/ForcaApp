@@ -100,7 +100,7 @@ it('retoma do servidor com actual_load_kg="50" (string) e o stepper dá 52.5, n�
   fromMock.mockReset();
 
   fromMock
-    // 1) seedLastLoads → getLastLoadByExerciseName (set_logs): sem histórico
+    // 1) seedLastLoads → getLastLoadByExercise (set_logs): sem histórico
     .mockReturnValueOnce(builder({ data: [], error: null }))
     // 2) getOpenSessionLog: log + séries no MESMO snapshot PostgREST
     .mockReturnValueOnce(

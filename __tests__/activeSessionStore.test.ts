@@ -26,7 +26,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
-    getLastLoadByExerciseName: jest.fn(),
+    getLastLoadByExercise: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (error: unknown) =>
       error instanceof SessionExecutionRequestError &&
@@ -50,7 +50,7 @@ import {
   saveSetLog,
   finishSessionLog,
   getOpenSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 import {
@@ -177,7 +177,7 @@ beforeEach(() => {
     status: 'idle',
     saveError: null,
   });
-  mock(getLastLoadByExerciseName).mockResolvedValue({});
+  mock(getLastLoadByExercise).mockResolvedValue({});
   mock(loadDraft).mockResolvedValue(null);
   mock(getOpenSessionLog).mockResolvedValue(null);
   mock(startSessionLog).mockResolvedValue({
@@ -218,7 +218,7 @@ describe('início da sessão', () => {
   });
 
   it('início resiliente: falha ao semear histórico não derruba o start', async () => {
-    mock(getLastLoadByExerciseName).mockRejectedValue(new Error('rede'));
+    mock(getLastLoadByExercise).mockRejectedValue(new Error('rede'));
     await store().startOrResume({
       sessionId: 'sess-1',
       userId: 'user-1',

@@ -13,6 +13,8 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional
 
+from backend.services.exercise_catalog import resolver_exercicio
+
 # Faixa padrão INTERNA quando a IA não dá número de reps (ex.: "AMRAP").
 # É um alvo de trabalho para o motor de adaptação — a UI exibe reps_raw,
 # nunca esta faixa, quando a prescrição original não é numérica.
@@ -71,6 +73,21 @@ def _parse_descanso_segundos(valor: Any) -> Optional[int]:
     if "min" in texto:
         n *= 60
     return n if n > 0 else None
+
+
+def _observacoes_com_qualificador(observacoes: Any, qualificador: Optional[str]) -> Optional[str]:
+    """
+    O que vinha entre parênteses no nome ('(Deload)', '(Goblet - Mínimo)') sai
+    da identidade do exercício e vira observação — a informação não se perde,
+    mas para de quebrar o casamento por nome.
+    """
+    base = str(observacoes).strip() if observacoes not in (None, "") else ""
+    extra = (qualificador or "").strip()
+    if not extra:
+        return base or None
+    if extra.lower() in base.lower():
+        return base or None
+    return f"{base} ({extra})".strip() if base else extra
 
 
 def _prioridade(ex: Dict[str, Any]) -> str:
@@ -206,22 +223,28 @@ def mapear_plano_ia(
                     series = min(series, MAX_SERIES_POR_EXERCICIO)
                     reps_min, reps_max = _parse_reps(ex.get("repeticoes"))
                     rm = ex.get("percentual_rm")
+                    # Canonização pelo catálogo: nome de academia em PT-BR,
+                    # grupo muscular e incremento de carga por exercício. Nome
+                    # fora do catálogo passa intacto, com chave/grupo nulos.
+                    canonico = resolver_exercicio(ex.get("nome"), ex.get("equipamento"))
                     exercises.append({
                         "id": exercise_id,
                         "session_id": session_id,
                         "exercise_order": ex.get("ordem") if isinstance(ex.get("ordem"), int) else posicao,
-                        "name": str(ex.get("nome") or "Exercício"),
-                        "muscle_group": None,  # a IA só dá grupos por sessão
+                        "name": canonico.nome,
+                        "exercise_key": canonico.chave,
+                        "name_original": canonico.nome_original if canonico.nome_original != canonico.nome else None,
+                        "muscle_group": canonico.grupo_muscular,
                         "priority": _prioridade(ex),
-                        "equipment": ex.get("equipamento"),
-                        "load_increment_kg": 2.5,
+                        "equipment": canonico.equipamento,
+                        "load_increment_kg": canonico.incremento_kg,
                         "rest_seconds": _parse_descanso_segundos(ex.get("tempo_descanso")),
                         "target_rm_percent": rm if isinstance(rm, (int, float)) else None,
                         "sets_planned": series,
                         "reps_raw": str(ex.get("repeticoes")) if ex.get("repeticoes") is not None else None,
                         "method": ex.get("metodo"),
                         "cadence": ex.get("cadencia"),
-                        "notes": ex.get("observacoes"),
+                        "notes": _observacoes_com_qualificador(ex.get("observacoes"), canonico.qualificador),
                         "injury_flags": [],
                     })
                     for numero_serie in range(1, series + 1):

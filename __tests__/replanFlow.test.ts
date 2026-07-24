@@ -19,7 +19,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
-    getLastLoadByExerciseName: jest.fn(),
+    getLastLoadByExercise: jest.fn(),
     updateSetLogAdaptation: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (e: unknown) =>
@@ -39,7 +39,7 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
 import {
   startSessionLog,
   getOpenSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
 } from '../src/services/sessionExecutionRepository';
 import { saveDraft, loadDraft } from '../src/services/sessionDraftStorage';
 import {
@@ -186,7 +186,7 @@ beforeEach(() => {
   useActiveSessionStore.getState().reset();
   mock(loadDraft).mockResolvedValue(null);
   mock(saveDraft).mockResolvedValue(undefined);
-  mock(getLastLoadByExerciseName).mockResolvedValue({});
+  mock(getLastLoadByExercise).mockResolvedValue({});
   mock(getOpenSessionLog).mockResolvedValue(null);
   mock(startSessionLog).mockResolvedValue({ sessionLogId: 'log-1', startedAt: '2020-01-07T10:00:00Z' });
   mock(getWeekReplanContext).mockResolvedValue(makeContext());

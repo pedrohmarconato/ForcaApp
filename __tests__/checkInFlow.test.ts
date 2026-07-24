@@ -23,7 +23,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
-    getLastLoadByExerciseName: jest.fn(),
+    getLastLoadByExercise: jest.fn(),
     updateSetLogAdaptation: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (error: unknown) =>
@@ -43,7 +43,7 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
 import {
   startSessionLog,
   getOpenSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
 } from '../src/services/sessionExecutionRepository';
 import { loadDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
@@ -99,7 +99,7 @@ const resetStore = () => {
   useActiveSessionStore.getState().reset();
   jest.clearAllMocks();
   mock(loadDraft).mockResolvedValue(null);
-  mock(getLastLoadByExerciseName).mockResolvedValue(new Map());
+  mock(getLastLoadByExercise).mockResolvedValue(new Map());
 };
 
 describe('check-in pré-treino — sessão nova', () => {

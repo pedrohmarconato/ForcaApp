@@ -672,6 +672,7 @@ def _executar_geracao_molde(
     import json as _json
     import jsonschema as _jsonschema
     from backend.schemas.molde_schema import MOLDE_SCHEMA
+    from backend.services.exercise_catalog import catalogo_para_prompt
     from backend.utils.anthropic_retry import criar_mensagem_com_deadline
 
     job.transition(JobStatus.GERANDO_MOLDE, "gerando_molde", "Montando a estratégia de treino...")
@@ -716,7 +717,16 @@ INSTRUÇÕES:
    - delta_series: incrementa séries em X por semana
    - deload_percentual: reduz %RM e séries por fator em uma semana específica
 5. Use semanas_avulsas APENAS se houver uma exceção que realmente não couber nas regras.
-6. Retorne SOMENTE o JSON do molde, sem texto adicional.
+6. NOMES DE EXERCÍCIO: use EXATAMENTE um dos nomes do catálogo abaixo, copiado
+   caractere por caractere. Nunca traduza do inglês por conta própria, nunca
+   invente variação e NUNCA escreva o estado da semana no nome (nada de
+   "(Deload)", "(Força)", "(Semana 3)") — isso vai em observacoes. Se o
+   exercício que você quer não estiver no catálogo, escolha o mais próximo que
+   estiver; só use um nome de fora se não houver nada equivalente.
+7. Retorne SOMENTE o JSON do molde, sem texto adicional.
+
+CATÁLOGO DE EXERCÍCIOS (grupo: nomes permitidos):
+{catalogo_para_prompt()}
 
 SCHEMA DO MOLDE:
 {_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"""

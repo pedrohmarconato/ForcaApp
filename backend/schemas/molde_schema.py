@@ -57,7 +57,15 @@ MOLDE_SCHEMA = {
                                         "type": "object",
                                         "required": ["nome", "ordem", "series", "repeticoes"],
                                         "properties": {
-                                            "nome": {"type": "string"},
+                                            "nome": {
+                                                "type": "string",
+                                                "description": (
+                                                    "Nome EXATO de um exercício do catálogo fornecido no prompt "
+                                                    "(ex: 'Remada Curvada com Halteres'). Sem tradução literal do "
+                                                    "inglês e sem estado da semana no nome — '(Deload)', '(Força)' "
+                                                    "e similares vão em observacoes."
+                                                ),
+                                            },
                                             "ordem": {"type": "integer", "minimum": 1},
                                             "equipamento": {"type": "string"},
                                             "series": {"type": "integer", "minimum": 1, "maximum": 10},
@@ -170,7 +178,14 @@ MOLDE_SCHEMA = {
                                         "type": "object",
                                         "required": ["nome", "ordem", "series", "repeticoes"],
                                         "properties": {
-                                            "nome": {"type": "string"},
+                                            "nome": {
+                                                "type": "string",
+                                                "description": (
+                                                    "Nome EXATO de um exercício do catálogo fornecido no prompt. "
+                                                    "Semana avulsa NÃO muda o nome do exercício: se é deload, "
+                                                    "isso vai em observacoes, nunca em nome."
+                                                ),
+                                            },
                                             "ordem": {"type": "integer"},
                                             "series": {"type": "integer", "minimum": 1},
                                             "repeticoes": {"type": "string"},

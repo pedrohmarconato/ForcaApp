@@ -38,6 +38,9 @@ export type DraftExercise = {
   exerciseId: string;
   name: string;
   order: number;
+  // Chave canônica do catálogo (planned_exercises.exercise_key). Null em planos
+  // gerados antes do catálogo — aí a identidade cai no nome normalizado.
+  exerciseKey?: string | null;
   equipment: string | null;
   isBodyweight: boolean;
   // Há alguma flag de lesão? Guardrail da Fase 5: nunca sugere subir carga (F5).
@@ -63,10 +66,21 @@ export type SessionDraft = {
   startedAt: string | null;
   status: 'active' | 'finished';
   exercises: DraftExercise[];
-  // Última carga conhecida por exercício (nome normalizado → kg). Semeada do
-  // histórico no início e atualizada a cada série concluída na sessão.
+  // Última carga conhecida por exercício (identidade → kg). Semeada do histórico
+  // no início e atualizada a cada série concluída na sessão. A identidade é a
+  // chave do catálogo quando existe — antes disso era o nome, e "Supino com
+  // Halteres (Deload)" perdia o histórico de "Supino com Halteres".
   lastLoadByExercise: Record<string, number>;
 };
+
+/**
+ * Identidade de um exercício para casar histórico entre sessões.
+ * Chave do catálogo quando existe; senão o nome normalizado (planos legados).
+ */
+export const exerciseIdentity = (ex: {
+  exerciseKey?: string | null;
+  name: string;
+}): string => (ex.exerciseKey ? `k:${ex.exerciseKey}` : normalizeName(ex.name));
 
 /**
  * Compara reps realizadas com a faixa-alvo.
@@ -189,6 +203,7 @@ export const buildDraftFromDetail = (
     exerciseId: ex.id,
     name: ex.name,
     order: ex.exercise_order,
+    exerciseKey: ex.exercise_key ?? null,
     equipment: ex.equipment,
     isBodyweight: isBodyweightEquipment(ex.equipment),
     hasInjury: (ex.injury_flags ?? []).length > 0,

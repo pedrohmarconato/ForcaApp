@@ -15,7 +15,7 @@ import {
   saveSetLog,
   getOpenSessionLog,
   finishSessionLog,
-  getLastLoadByExerciseName,
+  getLastLoadByExercise,
   getCompletedSessions,
   getSessionLogDetail,
   isTransportSessionExecutionError,
@@ -321,9 +321,9 @@ describe('finishSessionLog (RPC atômica finish_session)', () => {
   });
 });
 
-describe('getLastLoadByExerciseName', () => {
-  it('nomes vazios não consultam o banco', async () => {
-    expect(await getLastLoadByExerciseName([])).toEqual({});
+describe('getLastLoadByExercise', () => {
+  it('lista vazia não consulta o banco', async () => {
+    expect(await getLastLoadByExercise([])).toEqual({});
     expect(fromMock).not.toHaveBeenCalled();
   });
 
@@ -351,8 +351,54 @@ describe('getLastLoadByExerciseName', () => {
       }),
     );
     expect(
-      await getLastLoadByExerciseName(['Supino Reto', 'Agachamento']),
+      await getLastLoadByExercise(['supino reto', 'agachamento']),
     ).toEqual({ 'supino reto': 42.5 });
+  });
+
+  // Modo de falha que motivou o catálogo: a semana de deload rotulava o mesmo
+  // exercício como "Supino com Halteres (Deload)". Casando por NOME, o histórico
+  // da semana anterior não era encontrado e o aluno perdia a sugestão de carga.
+  it('casa pelo exercise_key mesmo quando o nome exibido difere', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_load_kg: '30',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino com Halteres (Deload)',
+                exercise_key: 'supino_reto_halteres',
+              },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(await getLastLoadByExercise(['k:supino_reto_halteres'])).toEqual({
+      'k:supino_reto_halteres': 30,
+    });
+  });
+
+  it('plano legado sem exercise_key continua casando pelo nome normalizado', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_load_kg: '25',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: {
+              planned_exercises: { name: 'Rosca Direta', exercise_key: null },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(await getLastLoadByExercise(['rosca direta'])).toEqual({
+      'rosca direta': 25,
+    });
   });
 });
 

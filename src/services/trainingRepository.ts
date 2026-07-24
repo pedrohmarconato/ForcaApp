@@ -20,6 +20,10 @@ export type PlannedExercise = {
   session_id: string;
   exercise_order: number;
   name: string;
+  // Chave canônica do catálogo (migration 0013). Null em planos anteriores a ela
+  // e em nomes que a IA inventou fora do catálogo.
+  exercise_key?: string | null;
+  name_original?: string | null;
   muscle_group: string | null;
   priority: 'primary' | 'secondary' | 'accessory';
   equipment: string | null;

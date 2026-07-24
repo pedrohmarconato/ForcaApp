@@ -9,7 +9,7 @@
 
 import { supabase } from '../config/supabaseClient';
 import type { Outcome } from '../engine/sessionModel';
-import { normalizeName, toNum } from '../engine/sessionModel';
+import { exerciseIdentity, toNum } from '../engine/sessionModel';
 
 export type ServerSetLog = {
   id: string;
@@ -309,21 +309,25 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
 };
 
 /**
- * Última carga registrada por exercício (nome normalizado → kg), a partir do
- * histórico de set_logs do usuário (RLS já restringe às execuções dele).
+ * Última carga registrada por exercício (identidade → kg), a partir do histórico
+ * de set_logs do usuário (RLS já restringe às execuções dele).
  * Usada para SUGERIR a carga na próxima vez — decisão nº 4 do plano.
- * Só considera exercícios cujos nomes foram pedidos.
+ * Só considera exercícios cujas identidades foram pedidas.
+ *
+ * A identidade é a chave do catálogo quando existe. Casar por NOME fazia o
+ * histórico morrer em qualquer variação do rótulo: "Supino com Halteres" e
+ * "Supino com Halteres (Deload)" eram exercícios diferentes para a sugestão.
  */
-export const getLastLoadByExerciseName = async (
-  exerciseNames: string[],
+export const getLastLoadByExercise = async (
+  identities: string[],
 ): Promise<Record<string, number>> => {
-  if (exerciseNames.length === 0) return {};
-  const alvo = new Set(exerciseNames.map(normalizeName));
+  if (identities.length === 0) return {};
+  const alvo = new Set(identities);
 
   const { data, error } = await supabase
     .from('set_logs')
     .select(
-      'actual_load_kg, completed_at, planned_sets(planned_exercises(name))',
+      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key))',
     )
     .not('actual_load_kg', 'is', null)
     .order('completed_at', { ascending: false })
@@ -332,11 +336,14 @@ export const getLastLoadByExerciseName = async (
 
   const mapa: Record<string, number> = {};
   for (const linha of (data ?? []) as any[]) {
-    const nome: string | undefined =
-      linha?.planned_sets?.planned_exercises?.name;
+    const exercicio = linha?.planned_sets?.planned_exercises;
+    const nome: string | undefined = exercicio?.name;
     const carga = linha?.actual_load_kg;
     if (!nome || carga == null) continue;
-    const chave = normalizeName(nome);
+    const chave = exerciseIdentity({
+      exerciseKey: exercicio?.exercise_key ?? null,
+      name: nome,
+    });
     if (!alvo.has(chave)) continue;
     // Ordenado por completed_at desc → o PRIMEIRO visto é o mais recente.
     const numeric = toNum(carga);
