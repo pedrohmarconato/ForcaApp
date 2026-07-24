@@ -28,6 +28,11 @@ class TestParseDuracao:
         ("45s", 45),
         ("45 seg", 45),
         ("1h", 3600),
+        ("1h30min", 5400),    # horas + minutos combinados
+        ("1h30", 5400),       # minutos após 'h' sem sufixo
+        ("1 h 30 min", 5400), # com espaços
+        ("1.5h", 5400),       # hora fracionada
+        ("2 horas", 7200),    # 'horas' por extenso
         ("25-30min", 1500),   # faixa: prescreve o piso
         (30, 1800),           # número puro em campo de duração é minuto
         ("", None),

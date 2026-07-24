@@ -255,7 +255,7 @@ export const formatDuration = (seconds: number | null | undefined): string => {
   return `${min}:${String(seg).padStart(2, '0')}`;
 };
 
-/** Distância legível em km: 5000 → "5,0 km". */
+/** Distância legível em km, sem zeros à toa: 5000 → "5 km", 3200 → "3,2 km". */
 export const formatDistance = (meters: number | null | undefined): string => {
   if (meters == null || meters <= 0) return '—';
   return `${(meters / 1000).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} km`;

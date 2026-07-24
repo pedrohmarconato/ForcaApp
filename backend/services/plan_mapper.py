@@ -78,13 +78,19 @@ def _parse_duracao_segundos(valor: Any) -> Optional[int]:
     if isinstance(valor, (int, float)):
         return int(valor * 60) if valor > 0 else None
     texto = str(valor).strip().lower()
+    # Horas (com minutos opcionais colados): "1h30min", "1h30", "1 h 30 min",
+    # "1.5h", "2 horas". O 2º número, quando existe, são os minutos.
+    hm = re.search(r"(\d+(?:[.,]\d+)?)\s*h(?:oras?)?\s*(\d+(?:[.,]\d+)?)?", texto)
+    if hm:
+        horas = float(hm.group(1).replace(",", "."))
+        minutos = float(hm.group(2).replace(",", ".")) if hm.group(2) else 0.0
+        segundos = int(round(horas * 3600 + minutos * 60))
+        return segundos if segundos > 0 else None
     numeros = [float(n.replace(",", ".")) for n in re.findall(r"\d+(?:[.,]\d+)?", texto)]
     if not numeros:
         return None
     n = numeros[0]  # faixa "25-30min": prescreve o piso
-    if "h" in texto and "min" not in texto:
-        segundos = n * 3600
-    elif re.search(r"\bs\b|seg|\ds\b", texto) and "min" not in texto:
+    if re.search(r"\bs\b|seg|\ds\b", texto) and "min" not in texto:
         segundos = n
     else:
         segundos = n * 60  # 'min' explícito ou número puro
