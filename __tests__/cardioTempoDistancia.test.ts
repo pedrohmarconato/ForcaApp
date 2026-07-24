@@ -61,6 +61,7 @@ import {
   paceSecondsPerKm,
 } from '../src/engine/sessionModel';
 import { alvoDaSerie } from '../src/components/session/SessionPlayer';
+import { doneLine } from '../src/components/session/SessionQueue';
 import {
   formatExerciseTarget,
   type SessionDetail,
@@ -464,5 +465,47 @@ describe('entrada decimal (3,2 km / 42,5 kg)', () => {
   it('3,2 km viram 3200 metros no store', () => {
     const km = parseFloatOrNull('3,2')!;
     expect(Math.round(km * 1000)).toBe(3200);
+  });
+});
+
+describe('linha da série concluída', () => {
+  it('cardio resume tempo · distância · pace · esforço (não "null reps")', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const caminhada = draft.exercises[0];
+    const serie = {
+      ...caminhada.sets[0],
+      status: 'done' as const,
+      actualDurationSeconds: 1350,
+      actualDistanceM: 3200,
+      perceivedEffort: 'moderado' as const,
+    };
+    const linha = doneLine(caminhada, serie);
+    expect(linha).toBe('22:30 · 3,2 km · 7:02 /km · moderado');
+    expect(linha).not.toMatch(/null/);
+    expect(linha).not.toMatch(/reps/i);
+  });
+
+  it('isometria sem distância mostra só o tempo', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const prancha = draft.exercises[1];
+    const serie = {
+      ...prancha.sets[0],
+      status: 'done' as const,
+      actualDurationSeconds: 50,
+    };
+    expect(doneLine(prancha, serie)).toBe('0:50');
+  });
+
+  it('musculação continua resumindo reps × carga', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const musculacao = { ...draft.exercises[0], metric: 'carga_reps' as const, isBodyweight: false };
+    const serie = {
+      ...draft.exercises[0].sets[0],
+      status: 'done' as const,
+      actualReps: 10,
+      actualLoadKg: 40,
+      actualRir: 2,
+    };
+    expect(doneLine(musculacao, serie)).toBe('10 reps × 40 kg · fôlego 2');
   });
 });

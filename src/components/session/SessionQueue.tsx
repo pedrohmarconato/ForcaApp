@@ -8,7 +8,17 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../theme/theme';
-import { type SessionDraft, type DraftExercise, type DraftSet } from '../../engine/sessionModel';
+import {
+  paceSecondsPerKm,
+  metricOf,
+  isTimeBased,
+  formatPace,
+  formatDuration,
+  formatDistance,
+  type SessionDraft,
+  type DraftExercise,
+  type DraftSet,
+} from '../../engine/sessionModel';
 import { useActiveSessionStore } from '../../store/activeSessionStore';
 import { alvoDaSerie } from './SessionPlayer';
 
@@ -18,7 +28,19 @@ type Props = {
   metaFor: (exercise: DraftExercise) => string | null;
 };
 
-const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
+export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
+  // Cardio/isometria: o que foi feito é tempo, distância e pace — jamais reps.
+  if (isTimeBased(metricOf(exercise))) {
+    const partes = [formatDuration(set.actualDurationSeconds)];
+    if (set.actualDistanceM != null) {
+      partes.push(formatDistance(set.actualDistanceM));
+      partes.push(
+        formatPace(paceSecondsPerKm(set.actualDurationSeconds, set.actualDistanceM)),
+      );
+    }
+    if (set.perceivedEffort) partes.push(set.perceivedEffort);
+    return partes.join(' · ');
+  }
   const carga = exercise.isBodyweight
     ? 'peso corporal'
     : set.actualLoadKg != null
