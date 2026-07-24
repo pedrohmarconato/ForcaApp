@@ -90,13 +90,13 @@ describe('ProfileScreen — identidade e navegação', () => {
     expect(getByText('pedro@exemplo.com')).toBeTruthy();
   });
 
-  it('abre o histórico de treinos', async () => {
-    const { getByText } = render(<ProfileScreen />);
+  it('não expõe mais a linha de histórico — ela migrou para a aba Progresso (Direção 03)', async () => {
+    const { getByText, queryByText } = render(<ProfileScreen />);
 
-    await waitFor(() => expect(getByText('Histórico de treinos')).toBeTruthy());
-    fireEvent.press(getByText('Histórico de treinos'));
-
-    expect(mockNavigate).toHaveBeenCalledWith('SessionHistory');
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+    // Regressão da migração: uma linha de histórico reaparecendo aqui viraria
+    // controle duplicado com a aba Progresso.
+    expect(queryByText('Histórico de treinos')).toBeNull();
   });
 
   it('encerra a sessão pelo botão Sair', async () => {

@@ -12,7 +12,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 
 import theme from '../theme/theme';
 import { useAuth } from '../contexts/AuthContext';
-import type { ProfileStackParamList } from '../navigation/MainNavigator';
+import type { ProgressStackParamList } from '../navigation/MainNavigator';
 import {
   getCompletedSessions,
   type CompletedSessionSummary,
@@ -32,7 +32,7 @@ const formatarQuando = (iso: string): string => {
 };
 
 const SessionHistoryScreen = () => {
-  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList, 'SessionHistory'>>();
+  const navigation = useNavigation<StackNavigationProp<ProgressStackParamList, 'SessionHistory'>>();
   const { user } = useAuth();
   const [items, setItems] = useState<CompletedSessionSummary[]>([]);
   const [loading, setLoading] = useState(true);

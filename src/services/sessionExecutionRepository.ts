@@ -10,6 +10,7 @@
 import { supabase } from '../config/supabaseClient';
 import type { Outcome } from '../engine/sessionModel';
 import { exerciseIdentity, toNum } from '../engine/sessionModel';
+import type { SetLogResumo } from '../engine/progressStats';
 
 export type ServerSetLog = {
   id: string;
@@ -437,6 +438,51 @@ export const getCompletedSessions = async (
     startedAt: linha.started_at,
     finishedAt: linha.finished_at,
   }));
+};
+
+// Mesmo teto de max_rows do PostgREST do getCompletedSessions: sem paginação,
+// os agregados do Progresso virariam parciais plausíveis a partir da linha 1001.
+const PAGINA_SET_LOGS = 1000;
+
+/**
+ * TODAS as séries registradas do usuário em sessões CONCLUÍDAS, no formato
+ * mínimo que o motor de progresso consome (identidade + carga + reps + quando).
+ * Alimenta recordes e volume por semana — sempre dados reais, paginados até o fim.
+ */
+export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> => {
+  const linhas: any[] = [];
+
+  for (let inicio = 0; ; inicio += PAGINA_SET_LOGS) {
+    const { data, error } = await supabase
+      .from('set_logs')
+      .select(
+        'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key))',
+      )
+      .eq('session_logs.user_id', userId)
+      .not('session_logs.finished_at', 'is', null)
+      .order('completed_at', { ascending: false })
+      .range(inicio, inicio + PAGINA_SET_LOGS - 1);
+    if (error) throw error;
+
+    const pagina = (data ?? []) as any[];
+    linhas.push(...pagina);
+    if (pagina.length < PAGINA_SET_LOGS) break;
+  }
+
+  const resumo: SetLogResumo[] = [];
+  for (const linha of linhas) {
+    const exercicio = linha?.planned_sets?.planned_exercises;
+    const nome: string | undefined = exercicio?.name;
+    if (!nome || !linha?.completed_at) continue;
+    resumo.push({
+      identity: exerciseIdentity({ exerciseKey: exercicio?.exercise_key ?? null, name: nome }),
+      name: nome,
+      loadKg: toNum(linha.actual_load_kg),
+      reps: linha.actual_reps ?? null,
+      completedAt: linha.completed_at,
+    });
+  }
+  return resumo;
 };
 
 export type HistorySetLog = {

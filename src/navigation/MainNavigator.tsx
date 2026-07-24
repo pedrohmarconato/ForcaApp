@@ -12,15 +12,16 @@ type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 // Importar as telas
 import HomeScreen from '../screens/HomeScreen';
 import TrainingSessionScreen from '../screens/TrainingSessionScreen';
+import ProgressScreen from '../screens/ProgressScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 import ActiveSessionScreen from '../screens/ActiveSessionScreen';
 import SessionHistoryScreen from '../screens/SessionHistoryScreen';
 import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
 
-// Fase 4 — navegação tipada. A execução da sessão (ActiveSession) é registrada
-// tanto na Home (Home → Detalhe → Iniciar) quanto na aba Treino (Iniciar/Retomar
-// direto). O histórico vive no Perfil. Cada stack declara seu ParamList.
+// Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
+// (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
+// Perfil e virou cidadão de primeira classe dentro do Progresso.
 export type HomeStackParamList = {
   HomeMain: undefined;
   WorkoutDetail: { sessionId: string };
@@ -32,15 +33,20 @@ export type TrainingStackParamList = {
   ActiveSession: { sessionId: string };
 };
 
-export type ProfileStackParamList = {
-  ProfileMain: undefined;
+export type ProgressStackParamList = {
+  ProgressMain: undefined;
   SessionHistory: undefined;
   SessionHistoryDetail: { sessionLogId: string; title?: string };
+};
+
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
 };
 
 const BottomTab = createBottomTabNavigator();
 const HomeStack = createStackNavigator<HomeStackParamList>();
 const TrainingStack = createStackNavigator<TrainingStackParamList>();
+const ProgressStack = createStackNavigator<ProgressStackParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
 function HomeStackNavigator() {
@@ -62,12 +68,20 @@ function TrainingStackNavigator() {
   );
 }
 
+function ProgressStackNavigator() {
+  return (
+    <ProgressStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle, ...stackTransition }}>
+      <ProgressStack.Screen name="ProgressMain" component={ProgressScreen} />
+      <ProgressStack.Screen name="SessionHistory" component={SessionHistoryScreen} />
+      <ProgressStack.Screen name="SessionHistoryDetail" component={SessionHistoryDetailScreen} />
+    </ProgressStack.Navigator>
+  );
+}
+
 function ProfileStackNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle, ...stackTransition }}>
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
-      <ProfileStack.Screen name="SessionHistory" component={SessionHistoryScreen} />
-      <ProfileStack.Screen name="SessionHistoryDetail" component={SessionHistoryDetailScreen} />
     </ProfileStack.Navigator>
   );
 }
@@ -85,7 +99,10 @@ const MainNavigator = () => {
               iconName = 'home';
               break;
             case 'Training':
-              iconName = 'activity';
+              iconName = 'layers';
+              break;
+            case 'Progress':
+              iconName = 'trending-up';
               break;
             case 'Profile':
               iconName = 'user';
@@ -125,6 +142,11 @@ const MainNavigator = () => {
         name="Training"
         component={TrainingStackNavigator}
         options={{ tabBarLabel: 'Plano' }}
+      />
+      <BottomTab.Screen
+        name="Progress"
+        component={ProgressStackNavigator}
+        options={{ tabBarLabel: 'Progresso' }}
       />
       <BottomTab.Screen
         name="Profile"

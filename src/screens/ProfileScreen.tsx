@@ -8,19 +8,17 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useDiaLocal } from '../hooks/useDiaLocal';
 import theme from '../theme/theme';
-import type { ProfileStackParamList } from '../navigation/MainNavigator';
 import {
   getCompletedSessions,
   type CompletedSessionSummary,
 } from '../services/sessionExecutionRepository';
 import { resumirSemana, minutosTotais, formatarDuracao } from '../utils/weekSummary';
-import { Screen, ScreenTitle, Card, ListRow } from '../components/ui/Surface';
+import { Screen, ScreenTitle, Card } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Metric, MetricGroup, Notice } from '../components/ui/Feedback';
 
@@ -35,7 +33,6 @@ const iniciais = (nome: string): string =>
 
 const ProfileScreen = () => {
   const { user, profile, signOut } = useAuth();
-  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList, 'ProfileMain'>>();
 
   const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [statsError, setStatsError] = useState(false);
@@ -115,14 +112,7 @@ const ProfileScreen = () => {
         <Metric value={metricas.semana} label="Nesta semana" />
       </MetricGroup>
 
-      <Text style={styles.listTitle}>Treino</Text>
-      <ListRow
-        title="Histórico de treinos"
-        subtitle="Séries, cargas e repetições registradas"
-        showChevron
-        onPress={() => navigation.navigate('SessionHistory')}
-      />
-
+      {/* Direção 03: o histórico virou cidadão da aba Progresso. */}
       <Button label="Sair" variant="danger" onPress={signOut} style={styles.logout} />
     </Screen>
   );
@@ -165,14 +155,6 @@ const styles = StyleSheet.create({
 
   notice: { marginBottom: theme.spacing.lg },
   metrics: { marginBottom: theme.spacing.xxl },
-
-  listTitle: {
-    marginBottom: theme.spacing.md,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
 
   logout: { marginTop: theme.spacing.xxl },
 });
