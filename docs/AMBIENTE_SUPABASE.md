@@ -2,25 +2,67 @@
 
 Fonte de verdade sobre qual projeto Supabase o ForcaApp usa. Criado para evitar a confusão de ambiente que ocorreu em 18/07/2026.
 
-## Decisão registrada
+> ⚠️ **ATUALIZAÇÃO 25/07/2026 — Correção de nomenclatura crítica.**
+> A versão anterior deste doc (18/07/2026) dizia que `forcaapp-hml` era o "único ambiente
+> ativo" porque, à época, só existiam `nfe_database` (pausado) e `forcaapp-hml`. Em 22/07/2026
+> foi criado o `forcaapp-staging`, o que **inverteu a semântica**: o projeto com sufixo `-hml`
+> é, na prática, **PRODUÇÃO** (tem usuários reais — ex.: `tonettoo@gmail.com`, cadastrado em
+> 25/07). Em 25/07/2026 o projeto foi **renomeado** para `forcaapp-prod` para eliminar a
+> armadilha. Detalhes abaixo.
 
-**O ForcaApp tem um único projeto Supabase: `forcaapp-hml`.**
+---
 
-| Campo | Valor |
-|---|---|
-| Nome do projeto | `forcaapp-hml` |
-| Project ref | `zanqygwsgxkyjiuhrzju` |
-| Org ID | `ltmhaqdcvidzsbfkxmii` |
-| Conta dona | `pedrohmarconato@gmail.com` |
-| Região | East US (North Virginia) |
+## 🚨 AVISO DE SEGURANÇA — LEIA ANTES DE QUALQUER COMANDO
 
-> Apesar do sufixo `-hml`, **este é o ambiente de trabalho ativo do Forca**. Não existe ambiente de produção separado.
+| Ref | Nome (25/07/2026) | Ambiente | Pode resetar/force-push? |
+|---|---|---|---|
+| `zanqygwsgxkyjiuhrzju` | **`forcaapp-prod`** | **PRODUÇÃO** (usuários reais) | ❌ **NUNCA.** Dados de clientes reais. |
+| `mjdjtiujhwklchalquhc` | `forcaapp-staging` | HML/staging (somente testes) | ✅ Sim, descartável. |
 
-## Provas (coletadas em 18/07/2026)
+**Comandos PROIBIDOS no ref `zanqygwsgxkyjiuhrzju` (PROD):**
+- `supabase db reset` — apaga TODOS os dados.
+- `supabase db push --force` (com migração destrutiva) — ignora warnings.
+- Qualquer `DROP TABLE` / `TRUNCATE` / `DROP SCHEMA public CASCADE`.
+- Rodar migrations experimentais diretamente no banco.
 
-- `supabase projects list` (token da conta pedrohmarconato) retorna somente: `nfe_database` (pausado) e `forcaapp-hml`.
-- Busca por `fato_registrotreino` e `dim_humor` em **todos os schemas** do forcaapp-hml: **0 resultados**. Essas tabelas legadas **não existem** neste projeto.
-- `public` tem 7 tabelas — exatamente o modelo 0000/0001 do Forca. Não há schema de DW legado.
+**Fluxo obrigatório para mudar schema em PROD:**
+1. Desenvolver e testar a migration em `forcaapp-staging` primeiro.
+2. Aplicar via `supabase db push` apontando para PROD **apenas após validação**.
+3. Para mudança de dados (DML) em PROD: backup/PITR confirmado antes.
+
+> O **ref não muda** quando o projeto é renomeado. URLs Supabase, anon keys, connection
+> strings e todas as configurações do app continuam válidas — apenas o **display name**
+> no dashboard mudou de `forcaapp-hml` para `forcaapp-prod`.
+
+---
+
+## Decisão registrada (atualizada 25/07/2026)
+
+**O ForcaApp tem DOIS projetos Supabase:** `forcaapp-prod` (produção) e `forcaapp-staging` (homologação/testes).
+
+| Campo | PROD | HML/staging |
+|---|---|---|
+| Nome do projeto | `forcaapp-prod` (era `forcaapp-hml`) | `forcaapp-staging` |
+| Project ref | `zanqygwsgxkyjiuhrzju` | `mjdjtiujhwklchalquhc` |
+| Criado em | 2026-07-17 | 2026-07-22 |
+| Conta dona | `pedrohmarconato@gmail.com` | `pedrohmarconato@gmail.com` |
+| Org | `ltmhaqdcvidzsbfkxmii` (Marconato) | mesma |
+| Região | East US (North Virginia) | East US (North Virginia) |
+| Usuários | **Reais** (ex.: `tonettoo@gmail.com`) | Apenas teste (`smoke-hml@forca.test`, `pedrohmarconato+e2e-*`) |
+| App aponta para | ✅ Este (via `EXPO_PUBLIC_SUPABASE_URL`) | ❌ Não usado pelo app |
+
+> **Atenção histórica:** qualquer referência antiga a "`forcaapp-hml`" nesta doc, em
+> commits, scripts ou configs **significa o que hoje se chama `forcaapp-prod`** (mesmo
+> ref `zanqygwsgxkyjiuhrzju`). Não confundir com o `forcaapp-staging` atual.
+
+## Provas (coletadas 18/07 + 25/07/2026)
+
+- 18/07: `supabase projects list` retornava `nfe_database` (pausado) + `forcaapp-hml` (≈ hoje `forcaapp-prod`). Não havia staging.
+- 18/07: busca por `fato_registrotreino` e `dim_humor` em **todos os schemas** do prod: **0 resultados**. Essas tabelas legadas **não existem**.
+- 18/07: `public` tinha 7 tabelas — exatamente o modelo 0000/0001 do Forca. Não há schema de DW legado.
+- 25/07: `forcaapp-staging` (criado 22/07) tem apenas 3 perfis de teste (`smoke-hml@forca.test`, `pedrohmarconato@gmail.com`, `pedrohmarconato+e2e-*`) — **confirmado como ambiente de teste, não prod**.
+- 25/07: `forcaapp-prod` tem usuários reais (ex.: `tonettoo@gmail.com`, onboarding incompleto) — **confirmado como produção**.
+- 25/07: rename aplicado via Management API (`PATCH /v1/projects/zanqygwsgxkyjiuhrzju` body `{"name":"forcaapp-prod"}`); ref preservado, status `ACTIVE_HEALTHY`.
 
 ## O que NÃO é o ForcaApp (não mexa ao trabalhar aqui)
 
@@ -33,10 +75,10 @@ Fonte de verdade sobre qual projeto Supabase o ForcaApp usa. Criado para evitar 
 ## Autenticação
 
 - PAT em `~/.supabase_pat` (chmod 600) → `export SUPABASE_ACCESS_TOKEN="$(cat ~/.supabase_pat)"`.
-- `supabase login` via browser: **selecione `pedrohmarconato@gmail.com`**. O browser abre por padrão na conta CarreraCampos, que **não enxerga** o forcaapp-hml (link falha com "does not have the necessary privileges").
+- `supabase login` via browser: **selecione `pedrohmarconato@gmail.com`**. O browser abre por padrão na conta CarreraCampos, que **não enxerga** os projetos forcaapp (link falha com "does not have the necessary privileges").
 - Nunca imprimir tokens/connection strings/anon keys no chat ou commits.
 
-## Estado das migrations (forcaapp-hml)
+## Estado das migrations (forcaapp-prod — ref `zanqygwsgxkyjiuhrzju`)
 
 Todas aplicadas e registradas (`supabase migration list`: local = remote, 0000 → 0009).
 
