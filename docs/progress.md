@@ -907,5 +907,32 @@ Branch `feat/catalogo-exercicios-api`, empilhada sobre o PR #44.
 - `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
 - `python3 -m pytest backend/tests -q`: exit 0, 325/325 testes; 1 warning já
   conhecido do urllib3/LibreSSL.
-- Homologação do backend/endpoint e validação do cache no PWA ainda pendentes
-  neste ponto; nenhuma migration pertence a este PR.
+- Nenhuma migration pertence a este PR.
+
+### Homologação HML
+
+- **PR #45** aberto em draft, empilhado sobre o #44
+  (`feat/catalogo-exercicios-api` → `fix/molde-cardio-sem-repeticoes`).
+- `git push origin feat/catalogo-exercicios-api:staging` publicou `328681f`; o
+  timer da VPS recriou o backend. Durante o deploy a rota passou de 404 (imagem
+  antiga) para 401 sem token, enquanto `/api/health` permaneceu 200.
+- Smoke autenticado com usuário descartável no Supabase staging:
+
+| Conferência | Resultado |
+|---|---|
+| JWT exigido | sem token → 401; com token → 200 |
+| Versão e tamanho | versão 2, 106 exercícios |
+| Chaves | 106 únicas |
+| Aliases no payload | 0 |
+| Métricas fora do enum | 0 |
+| Cache | `private, max-age=86400` |
+| ETag | presente |
+| Revalidação | `If-None-Match` → 304 sem corpo |
+
+- PWA Preview: deploy `dpl_9UTqMxhdu1M1f8JM5WMPCksxDb5J`, estado READY em
+  `https://forca-lyhm60eyw-pmarconatos-projects.vercel.app` (raiz HTTP 200).
+  `verify-web-bundle` passou: bundle Preview aponta para
+  `forca-api-hml.cadastrai.com` e não contém endereços de LAN.
+- O serviço do catálogo ainda não tem tela consumidora por desenho — a UI entra
+  no PR 4. Por isso a homologação deste PR validou o contrato HTTP real e o
+  cache/busca nos testes, sem inventar um fluxo visual inexistente.
