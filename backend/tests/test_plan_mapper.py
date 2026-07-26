@@ -517,3 +517,29 @@ def test_name_original_so_aparece_quando_o_nome_muda():
     ex = _unico_exercicio("Prancha", "Peso corporal")
     assert ex["name"] == "Prancha"
     assert ex["name_original"] is None
+
+
+def test_created_by_e_parametrizavel_sem_mudar_o_default_da_ia():
+    plano = _plano_com_exercicio("Supino Reto com Barra", "Barra")
+
+    manual = mapear_plano_ia(
+        plano, user_id=USER_ID, start_date=START, created_by="user"
+    )
+    ia = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    assert manual["plan"]["created_by"] == "user"
+    assert ia["plan"]["created_by"] == "ai"
+
+
+def test_limitacao_explicita_do_editor_alimenta_guardrail_sem_questionario():
+    plano = _plano_com_exercicio("Supino Reto com Barra", "Barra")
+    exercicio = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0][
+        "exercicios"
+    ][0]
+    exercicio["tem_limitacao"] = True
+
+    resultado = mapear_plano_ia(
+        plano, user_id=USER_ID, start_date=START, created_by="user"
+    )
+
+    assert resultado["exercises"][0]["injury_flags"] == ["limitacao_aluno"]

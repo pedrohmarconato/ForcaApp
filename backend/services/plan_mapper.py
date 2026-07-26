@@ -252,6 +252,7 @@ def mapear_plano_ia(
     user_id: str,
     start_date: Optional[datetime.date] = None,
     restricoes_lesao: Optional[List[Dict[str, Any]]] = None,
+    created_by: str = "ai",
 ) -> Dict[str, Any]:
     """
     Converte o plano da IA em linhas prontas para o PostgREST.
@@ -285,7 +286,7 @@ def mapear_plano_ia(
         "start_date": inicio.isoformat(),
         "status": "active",
         "raw_plan": plano,
-        "created_by": "ai",
+        "created_by": created_by,
     }
 
     sessions: List[Dict[str, Any]] = []
@@ -385,6 +386,11 @@ def mapear_plano_ia(
                         reps_min, reps_max = _parse_reps(ex.get("repeticoes"))
                         duracao_alvo = None
                         distancia_alvo = None
+                    injury_flags = (
+                        ["limitacao_aluno"]
+                        if created_by == "user" and ex.get("tem_limitacao") is True
+                        else _injury_flags(canonico, restricoes_lesao)
+                    )
                     exercises.append({
                         "id": exercise_id,
                         "session_id": session_id,
@@ -409,7 +415,7 @@ def mapear_plano_ia(
                         "method": ex.get("metodo"),
                         "cadence": ex.get("cadencia"),
                         "notes": _observacoes_com_qualificador(ex.get("observacoes"), canonico.qualificador),
-                        "injury_flags": _injury_flags(canonico, restricoes_lesao),
+                        "injury_flags": injury_flags,
                     })
                     for numero_serie in range(1, series + 1):
                         sets.append({

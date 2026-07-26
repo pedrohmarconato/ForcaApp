@@ -1,4 +1,5 @@
 # backend/app.py
+import datetime
 import os
 import sys
 from urllib.parse import urlparse
@@ -23,14 +24,16 @@ try:
         get_plan_model_name, get_anthropic_timeout_seconds,
     )
     from backend.utils.anthropic_retry import criar_mensagem_com_deadline
-    from backend.services.plan_mapper import mapear_plano_ia
+    from backend.services.plan_mapper import MAX_TOTAL_SETS, mapear_plano_ia
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
+    from backend.services.manual_plan_builder import construir_molde_manual
     from backend.services.exercise_catalog import catalogo_serializavel, etag_catalogo
     from backend.services.job_manager import (
         JobStatus, PlanJob, criar_job, obter_job, executar_job,
     )
     from backend.schemas.diretrizes_schema import DIRETRIZES_SCHEMA
+    from backend.schemas.plano_manual_schema import PLANO_MANUAL_SCHEMA
 except ImportError as e:
     print(f"ERRO FATAL: Falha ao importar módulos necessários: {e}")
     print("Verifique a estrutura do projeto e se o PYTHONPATH está configurado corretamente.")
@@ -55,6 +58,10 @@ CHAT_RATE_LIMIT = int(os.environ.get("CHAT_RATE_LIMIT", "10"))  # req por janela
 CHAT_RATE_WINDOW_SECONDS = int(os.environ.get("CHAT_RATE_WINDOW_SECONDS", "60"))
 PLAN_RATE_LIMIT = int(os.environ.get("PLAN_RATE_LIMIT", "3"))
 PLAN_RATE_WINDOW_SECONDS = int(os.environ.get("PLAN_RATE_WINDOW_SECONDS", "3600"))
+MANUAL_PLAN_RATE_LIMIT = int(os.environ.get("MANUAL_PLAN_RATE_LIMIT", "10"))
+MANUAL_PLAN_RATE_WINDOW_SECONDS = int(
+    os.environ.get("MANUAL_PLAN_RATE_WINDOW_SECONDS", "3600")
+)
 
 # Feature flag da nova arquitetura molde+expansor+job.
 # false (default): comportamento antigo (plano direto síncrono via TreinadorEspecialista).
@@ -363,6 +370,214 @@ def handle_exercise_catalog():
     response.set_etag(etag)
     response.headers["Cache-Control"] = "private, max-age=86400"
     return response
+
+
+def _validar_rascunho_manual(rascunho):
+    """Valida schema e invariantes que dependem de mais de um campo."""
+    import jsonschema
+
+    try:
+        jsonschema.validate(instance=rascunho, schema=PLANO_MANUAL_SCHEMA)
+    except jsonschema.exceptions.ValidationError as exc:
+        return "Plano manual inválido: {}".format(exc.message)
+
+    dias = [
+        treino.get("dia_offset")
+        for treino in rascunho["treinos"]
+        if treino.get("dia_offset") is not None
+    ]
+    if len(dias) != len(set(dias)):
+        return "Plano manual inválido: dois treinos no mesmo dia."
+
+    duracao_semanas = rascunho["duracao_semanas"]
+    sets_por_semana = sum(
+        sum(exercicio["series"] for exercicio in treino["exercicios"])
+        + int(treino.get("incluir_aquecimento") is True)
+        + int(treino.get("incluir_alongamento") is True)
+        for treino in rascunho["treinos"]
+    )
+    total_expandido = sets_por_semana * duracao_semanas
+    if total_expandido > MAX_TOTAL_SETS:
+        return (
+            "Plano manual inválido: excede o teto de {} séries totais após "
+            "expandir {} semanas."
+        ).format(MAX_TOTAL_SETS, duracao_semanas)
+
+    progressao = rascunho.get("progressao") or {}
+    series = progressao.get("series") or {}
+    if series.get("ativa") is True:
+        if series["semana_inicio"] > series["semana_fim"]:
+            return "Plano manual inválido: início da progressão vem depois do fim."
+        if series["semana_fim"] > duracao_semanas:
+            return "Plano manual inválido: progressão termina depois do plano."
+    deload = progressao.get("deload") or {}
+    if deload.get("ativa") is True and deload["semana"] > duracao_semanas:
+        return "Plano manual inválido: semana de descarga fica depois do plano."
+    return None
+
+
+def _rascunho_manual_da_requisicao():
+    if not request.is_json:
+        return None, "Requisição inválida. Esperado JSON."
+    rascunho = request.get_json(silent=True)
+    if not isinstance(rascunho, dict):
+        return None, "Corpo JSON inválido. Esperado objeto."
+    erro = _validar_rascunho_manual(rascunho)
+    return rascunho, erro
+
+
+def _executar_pipeline_manual(rascunho, user_id, inicio):
+    molde = construir_molde_manual(rascunho)
+    plano = expandir_plano(
+        molde,
+        {"id": str(user_id), "nivel": "iniciante"},
+        start_date=inicio,
+    )
+    mapeado = mapear_plano_ia(
+        plano,
+        user_id=str(user_id),
+        start_date=inicio,
+        created_by="user",
+    )
+    # A RPC da migration 0015 persiste inclusive `[]`: progressão desligada
+    # continua sendo uma decisão explícita, não ausência acidental de dados.
+    mapeado["plan"]["progression_rules"] = molde["progressao"]["regras"]
+    return molde, plano, mapeado
+
+
+def _numero_legivel(valor):
+    numero = float(valor)
+    return str(int(numero)) if numero.is_integer() else str(round(numero, 2)).replace(".", ",")
+
+
+def _alvo_preview(exercicio, series_exercicio):
+    quantidade = exercicio["sets_planned"]
+    primeira_serie = series_exercicio[0] if series_exercicio else {}
+    duracao = primeira_serie.get("target_duration_seconds")
+    distancia = primeira_serie.get("target_distance_m")
+    if duracao is not None:
+        if duracao % 60 == 0:
+            alvo = "{} min".format(_numero_legivel(duracao / 60))
+        else:
+            alvo = "{} s".format(_numero_legivel(duracao))
+        if distancia is not None:
+            alvo += " / {} km".format(_numero_legivel(float(distancia) / 1000))
+    else:
+        alvo = exercicio.get("reps_raw")
+        if not alvo:
+            minimo = primeira_serie.get("target_reps_min")
+            maximo = primeira_serie.get("target_reps_max")
+            alvo = str(minimo) if minimo == maximo else "{}-{}".format(minimo, maximo)
+        alvo = "{} reps".format(alvo)
+    return "{} séries × {}".format(quantidade, alvo)
+
+
+def _resumo_preview(mapeado):
+    exercicios_por_sessao = {}
+    for exercicio in mapeado["exercises"]:
+        exercicios_por_sessao.setdefault(exercicio["session_id"], []).append(exercicio)
+    sets_por_exercicio = {}
+    for serie in mapeado["sets"]:
+        sets_por_exercicio.setdefault(serie["exercise_id"], []).append(serie)
+
+    duracao = mapeado["plan"]["duration_weeks"]
+    semanas_escolhidas = []
+    for semana in (1, (duracao + 1) // 2, duracao):
+        if semana not in semanas_escolhidas:
+            semanas_escolhidas.append(semana)
+
+    resposta = []
+    for numero_semana in semanas_escolhidas:
+        sessoes = sorted(
+            (
+                sessao
+                for sessao in mapeado["sessions"]
+                if sessao["week_number"] == numero_semana
+            ),
+            key=lambda sessao: sessao["order_in_week"],
+        )
+        treinos = []
+        for sessao in sessoes:
+            exercicios = sorted(
+                exercicios_por_sessao.get(sessao["id"], []),
+                key=lambda exercicio: exercicio["exercise_order"],
+            )
+            treinos.append(
+                {
+                    "nome": sessao["title"],
+                    "dia": sessao["day_of_week"],
+                    "exercicios": [
+                        {
+                            "nome": exercicio["name"],
+                            "alvo": _alvo_preview(
+                                exercicio,
+                                sets_por_exercicio.get(exercicio["id"], []),
+                            ),
+                        }
+                        for exercicio in exercicios
+                    ],
+                    "minutos": sessao["estimated_minutes"],
+                }
+            )
+        resposta.append({"semana": numero_semana, "treinos": treinos})
+    return {"semanas": resposta}
+
+
+@app.route('/api/manual-plan', methods=['POST'])
+@token_required
+def handle_manual_plan():
+    """Cria e persiste um plano manual pelo pipeline determinístico existente."""
+    rascunho, erro = _rascunho_manual_da_requisicao()
+    if erro:
+        return jsonify({"error": erro}), 400
+
+    user_id = (g.user or {}).get("id")
+    if not user_id:
+        return jsonify({"error": "ID do usuário não fornecido."}), 400
+    if _rate_limit_hit(
+        "manual_plan",
+        user_id,
+        MANUAL_PLAN_RATE_LIMIT,
+        MANUAL_PLAN_RATE_WINDOW_SECONDS,
+    ):
+        return jsonify(
+            {"error": "Muitas solicitações de plano manual. Tente novamente mais tarde."}
+        ), 429
+
+    inicio = datetime.date.today()
+    try:
+        _, _, mapeado = _executar_pipeline_manual(rascunho, user_id, inicio)
+        plan_id = persistir_plano(mapeado, access_token=g.access_token)
+    except ValueError as exc:
+        app_logger.warning(f"Plano manual inválido para usuário {user_id}: {exc}")
+        return jsonify({"error": str(exc)}), 400
+    except PlanPersistenceError:
+        app_logger.exception(f"Falha ao persistir plano manual do usuário {user_id}.")
+        return jsonify(
+            {"error": "Não foi possível salvar o plano manual. Tente novamente."}
+        ), 502
+
+    return jsonify({"plan_id": plan_id}), 201
+
+
+@app.route('/api/manual-plan/preview', methods=['POST'])
+@token_required
+def handle_manual_plan_preview():
+    """Expande sem persistir e devolve três pontos reais da progressão."""
+    rascunho, erro = _rascunho_manual_da_requisicao()
+    if erro:
+        return jsonify({"error": erro}), 400
+    user_id = (g.user or {}).get("id")
+    if not user_id:
+        return jsonify({"error": "ID do usuário não fornecido."}), 400
+
+    try:
+        _, _, mapeado = _executar_pipeline_manual(
+            rascunho, user_id, datetime.date.today()
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(_resumo_preview(mapeado)), 200
 
 
 @app.route('/api/generate-plan', methods=['POST'])
