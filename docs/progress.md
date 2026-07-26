@@ -1020,6 +1020,8 @@ Não há migration nem artefato frontend neste PR; por isso não houve novo
 deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
 telas consumidoras entram no PR 4.
 
+---
+
 ## Reordenação de treinos e exercícios (2026-07-29)
 
 O usuário agora PODE (nunca é obrigado a) reordenar, depois do plano criado:
@@ -1351,3 +1353,48 @@ Decisão do dono: **as duas** — desempenho e consistência.
   linha não-cardio. A suíte completa acima foi rodada depois de trazer `main`.
   A validação transacional em staging descrita acima antecede estes ajustes; a
   migration 0022 permanece **não aplicada** em staging e produção.
+---
+
+## 26/07/2026 — Plano manual, PR 4: editor no app
+
+Branch `feat/plano-manual-editor`, empilhada sobre o PR #46.
+
+### Entregue no código
+
+- O rascunho TypeScript espelha o contrato do backend, inclusive a métrica
+  explícita de nomes livres. Um store Zustand dedicado coordena as três telas,
+  persiste cada mutação no AsyncStorage por usuário e só apaga o rascunho após
+  receber um `plan_id` válido.
+- `ManualPlanEditorScreen` edita nome, duração, treinos e progressão; impede
+  salvar treino vazio, explica que a carga em kg depende do que for registrado
+  e mostra somente a prévia devolvida por `/api/manual-plan/preview`.
+- `ManualWorkoutEditorScreen` oferece seleção seg→dom ou sem dia fixo,
+  aquecimento/alongamento opcionais, duração declarada opcional e exercícios
+  editáveis, removíveis e reordenáveis.
+- `ExercisePickerScreen` busca sem acento, filtra por grupo, mantém
+  Cardio/Mobilidade alcançáveis e aceita nome livre mesmo offline. Catálogo
+  continua autoritativo para métrica/equipamento; nome livre oferece seletor de
+  carga/reps, tempo ou tempo+distância. A limitação marcada alimenta o guardrail
+  já existente.
+- A progressão começa ligada com descarga na semana 4. Séries continuam
+  desligadas por padrão e exibem janela mais aviso de efeito acumulativo;
+  cardio só aparece quando existe cardio; intensidade só aparece quando existe
+  `%RM`. Desligar uma regra é preservado durante edições posteriores.
+- As rotas foram adicionadas à stack de Plano. Os dois pontos de entrada
+  (onboarding e edição de plano ativo) pertencem deliberadamente ao PR 5.
+
+### RED → GREEN e portões locais
+
+- RED inicial: quatro suítes não coletavam porque tipos, storage, store e telas
+  ainda não existiam. Depois, um RED específico reproduziu a progressão de
+  cardio sendo religada contra a escolha do aluno.
+- Novas suítes: 16 testes de rascunho, store e telas; junto do guarda Web, 26
+  testes focados. O guarda repo-wide confirmou que nenhum `TextInput` flexível
+  novo ficou sem `minWidth: 0`.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 64/64 suítes e 544/544 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
+  conhecido do urllib3/LibreSSL.
+
+Homologação PWA será registrada aqui depois da publicação do draft PR. Não há
+migration nem mudança de backend neste PR.
