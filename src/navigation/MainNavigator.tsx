@@ -18,6 +18,9 @@ import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 import ActiveSessionScreen from '../screens/ActiveSessionScreen';
 import SessionHistoryScreen from '../screens/SessionHistoryScreen';
 import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
+import ManualPlanEditorScreen from '../screens/ManualPlanEditorScreen';
+import ManualWorkoutEditorScreen from '../screens/ManualWorkoutEditorScreen';
+import ExercisePickerScreen from '../screens/ExercisePickerScreen';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -32,6 +35,9 @@ export type TrainingStackParamList = {
   TrainingOverview: undefined;
   WorkoutDetail: { sessionId: string };
   ActiveSession: { sessionId: string };
+  ManualPlanEditor: { fromPlanId?: string } | undefined;
+  ManualWorkoutEditor: { workoutIndex: number };
+  ExercisePicker: { workoutIndex: number; exerciseIndex?: number };
 };
 
 export type ProgressStackParamList = {
@@ -66,6 +72,9 @@ function TrainingStackNavigator() {
       <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
       <TrainingStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
+      <TrainingStack.Screen name="ManualPlanEditor" component={ManualPlanEditorScreen} />
+      <TrainingStack.Screen name="ManualWorkoutEditor" component={ManualWorkoutEditorScreen} />
+      <TrainingStack.Screen name="ExercisePicker" component={ExercisePickerScreen} />
     </TrainingStack.Navigator>
   );
 }
