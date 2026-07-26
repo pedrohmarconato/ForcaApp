@@ -763,4 +763,58 @@ Branch local: `fix/plano-base-dia-progressao`, baseada em `b8c602b`.
   do catálogo, não a migration nem suas asserções.
 - Branch rebaseada sobre `origin/main` (`bcdd4d6`, PR #42), que renomeou o projeto
   de produção para `forcaapp-prod` — o `AGENTS.md` deste PR já usa o nome novo.
-- O PR 2 só começa depois do smoke em HML, para preservar o portão entre PRs.
+- **PR #43** aberto (`fix/plano-base-dia-progressao` → `main`).
+- `migration list` reconferido nesta sessão com o PAT do dono: local=remote em
+  0000→0015. A RPC viva no staging contém `progression_rules`
+  (`pg_get_functiondef` → verdadeiro).
+- Backend HML no ar com este commit: clone da VPS em `fe4c482`, container
+  `forcaapp-hml-backend-1` recriado pelo timer, `plan_mapper.py` dentro da
+  imagem já com `_dia_da_sessao`, `/api/health` 200.
+
+### Smoke E2E em HML (25/07/2026) — plano real gerado e conferido no banco
+
+Usuário descartável `pedrohmarconato+smoke-pr1-1785031679@gmail.com`, plano
+`81ec15b5-d5bd-4b76-a354-67abdf368b63` (Haiku, 25 s do POST ao `salvo`):
+48 sessões, 228 exercícios.
+
+| Conferência no banco de staging | Resultado |
+|---|---|
+| `progression_rules` gravado (0015) | 5 regras |
+| `day_of_week` preenchido | 48/48 |
+| `estimated_minutes` preenchido | 48/48 |
+| `scheduled_date` coerente com `day_of_week` (semanas 2+) | 0 divergências |
+| Dias distintos respeitando a preferência | segunda, terça, quinta, sexta |
+| `injury_flags` nos exercícios afetados | 36 exercícios de Ombros marcados com "Tendinite no manguito rotador direito" |
+
+Duas ressalvas honestas sobre a cobertura deste smoke:
+
+1. O molde declarou `duracao_minutos: 60` em todas as sessões, então o
+   `estimated_minutes` gravado veio do molde — **o estimador
+   `_estimar_minutos` não foi exercitado E2E**, só nos testes unitários.
+2. O plano não sorteou `supino_reto_barra`, então o casamento de lesão por
+   **chave de exercício** também ficou só nos testes unitários; o casamento por
+   grupo muscular foi provado em produçãozinha (36 exercícios).
+
+### Achado alheio ao PR 1: cardio derruba a geração do plano (afeta produção)
+
+A primeira tentativa do smoke pedia cardio e o job morreu em
+`molde_validation`: `Molde inválido: 'repeticoes' is a required property`,
+depois das 3 tentativas.
+
+Causa: `backend/schemas/molde_schema.py` exige `repeticoes` em todo exercício
+(`required: ["nome", "ordem", "series", "repeticoes"]`, linhas 58 e 209)
+enquanto a descrição de `duracao_minutos` instrui o modelo a **não** usar
+`repeticoes` em cardio e isometria. O `normalizar_molde` não preenche o campo.
+Prova determinística, sem custo de IA:
+
+```python
+jsonschema.validate({"nome": "Esteira", "ordem": 1, "series": 1, "duracao_minutos": 20}, <item de exercicios>)
+# -> 'repeticoes' is a required property
+```
+
+Não é regressão deste PR — vem da leva de cardio (0014/PR #38) — mas está vivo
+em produção: qualquer aluno que peça cardio cai em erro de geração. Corrigir
+antes de qualquer nova geração com cardio.
+
+- O PR 2 só começa depois do OK do dono no PR #43, para preservar o portão
+  entre PRs.
