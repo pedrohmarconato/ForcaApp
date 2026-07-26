@@ -450,6 +450,18 @@ def test_preview_devolve_so_primeira_meio_ultima_semana_sem_persistir(client):
     persistir.assert_not_called()
 
 
+def test_preview_usa_serie_no_singular(client):
+    rascunho = _rascunho(duracao_semanas=1)
+    rascunho["treinos"][0]["incluir_aquecimento"] = True
+
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+
+    assert response.status_code == 200
+    assert response.get_json()["semanas"][0]["treinos"][0]["exercicios"][0][
+        "alvo"
+    ] == "1 série × 5 min"
+
+
 def test_falha_de_persistencia_vira_502_sem_plan_id(client):
     with mock.patch.object(
         app_module,

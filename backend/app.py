@@ -452,6 +452,7 @@ def _numero_legivel(valor):
 
 def _alvo_preview(exercicio, series_exercicio):
     quantidade = exercicio["sets_planned"]
+    rotulo_series = "série" if quantidade == 1 else "séries"
     primeira_serie = series_exercicio[0] if series_exercicio else {}
     duracao = primeira_serie.get("target_duration_seconds")
     distancia = primeira_serie.get("target_distance_m")
@@ -469,7 +470,7 @@ def _alvo_preview(exercicio, series_exercicio):
             maximo = primeira_serie.get("target_reps_max")
             alvo = str(minimo) if minimo == maximo else "{}-{}".format(minimo, maximo)
         alvo = "{} reps".format(alvo)
-    return "{} séries × {}".format(quantidade, alvo)
+    return "{} {} × {}".format(quantidade, rotulo_series, alvo)
 
 
 def _resumo_preview(mapeado):
