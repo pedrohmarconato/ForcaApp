@@ -936,3 +936,76 @@ Branch `feat/catalogo-exercicios-api`, empilhada sobre o PR #44.
 - O serviço do catálogo ainda não tem tela consumidora por desenho — a UI entra
   no PR 4. Por isso a homologação deste PR validou o contrato HTTP real e o
   cache/busca nos testes, sem inventar um fluxo visual inexistente.
+
+---
+
+## 26/07/2026 — Plano manual, PR 3: pipeline determinístico no backend
+
+Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
+
+### Entregue no código
+
+- `PLANO_MANUAL_SCHEMA` formaliza o rascunho do editor (1–52 semanas, até 7
+  treinos e 30 exercícios por treino), mantendo opcionais explícitos como
+  `dia_offset`, duração, distância e `%RM` anuláveis.
+- `construir_molde_manual()` produz uma única semana `tipo_a`, repetida no
+  calendário, deriva grupos do catálogo e injeta Aquecimento Articular /
+  Alongamento Dinâmico como exercícios reais de Mobilidade quando os toggles
+  estão ligados. Repetições e duração ausentes recebem os mesmos defaults do
+  mapper; nenhum quilo é prescrito.
+- `POST /api/manual-plan` valida schema e invariantes cruzadas, rejeita dias
+  duplicados e mais de 2.000 sets **antes** de expandir, aplica limite próprio
+  de 10 criações/hora, usa o pipeline existente e grava com
+  `created_by='user'` pela mesma RPC transacional.
+- `POST /api/manual-plan/preview` não persiste e devolve as semanas 1, meio e
+  última a partir da expansão/mapeamento reais, inclusive minutos estimados.
+- Limitação marcada pelo aluno chega como `['limitacao_aluno']` no exercício;
+  nomes livres são preservados com `exercise_key`, grupo e equipamento nulos.
+- `scripts/exercicios_fora_do_catalogo.py` é somente leitura, pagina o
+  PostgREST, agrupa com a normalização canônica e conta ocorrências e usuários
+  distintos, com saída de tabela ou `--json`.
+
+### RED → GREEN e portões locais
+
+- RED inicial: 16 falhas reproduziram módulos/rotas ausentes,
+  `created_by='ai'` fixo e limitação manual descartada.
+- O primeiro smoke encontrou “1 séries” na prévia; um RED isolado registrou o
+  defeito antes da correção para “1 série”.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 348/348 testes; apenas o warning
+  já conhecido do urllib3/LibreSSL.
+
+### Homologação HML
+
+- Backend publicado no branch `staging`: `328681f → 3e10c74`; o health ficou
+  200 durante a troca e `/api/manual-plan` passou de 404 para 401 quando o
+  container novo entrou. A correção de singular foi publicada em seguida no
+  commit `b764fbe` e confirmada por nova chamada autenticada no HML:
+  `1 série × 5 min`.
+- Smoke autenticado real com usuário descartável: preview HTTP 200; criação
+  HTTP 201; plano `f3c77ea9-fe21-4fbe-844b-1357352e8992` persistido.
+
+| Conferência no staging | Resultado |
+|---|---|
+| Plano | `created_by=user`, ativo, 12 semanas |
+| Progressão | deload da semana 4 persistido em `progression_rules` |
+| Agenda | rótulos segunda/quarta/sexta; semana 4 em 10/12/14-08 |
+| Sessão sem duração declarada | estimativa do servidor = 38 min |
+| Deload | Supino de segunda: 4 sets na semana 1 → 3 na semana 4 |
+| Aquecimento/alongamento | exercícios `tempo`, Mobilidade, `accessory`, 300 s |
+| Cardio | Caminhada `tempo_distancia`, 1.200 s e 2.000 m quando informado |
+| Limitação | somente o Supino marcado recebeu `['limitacao_aluno']` |
+| Nome livre | chave/grupo/equipamento nulos; reps 10–12 preservadas |
+| Curadoria | relatório encontrou “Rosca escocesa no banco 45”: 12 ocorrências, 1 usuário |
+
+Nota honesta sobre a primeira semana: o smoke ocorreu quando a data do backend
+já era domingo (26/07). A trava do mapper que proíbe agendar antes de
+`start_date` comprimiu seg/qua/sex da semana 1 para 26/07, mantendo os rótulos.
+As semanas seguintes preservaram os offsets (semana 4: segunda 10/08, quarta
+12/08, sexta 14/08). Esse é o comportamento deliberadamente mantido no PR 1,
+não uma regressão do editor.
+
+Não há migration nem artefato frontend neste PR; por isso não houve novo
+deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
+telas consumidoras entram no PR 4.
