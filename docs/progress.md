@@ -977,7 +977,7 @@ Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
   defeito antes da correção para “1 série”.
 - `npx tsc --noEmit`: exit 0, 0 erros.
 - `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
-- `python3 -m pytest backend/tests -q`: exit 0, 350/350 testes; apenas o warning
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
   já conhecido do urllib3/LibreSSL.
 
 ### Homologação HML
@@ -987,6 +987,12 @@ Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
   container novo entrou. A correção de singular foi publicada em seguida no
   commit `b764fbe` e confirmada por nova chamada autenticada no HML:
   `1 série × 5 min`.
+- O contrato de métrica livre foi publicado depois em `bc70370`: smoke
+  autenticado com “Circuito de escada do professor” confirmou progressão de
+  1,05 km na semana 1 para 1,6 km na semana 12. A prévia que mostrava a duração
+  decimal como 948 s ganhou um RED específico e foi corrigida em `8b3a40f`
+  para exibir `15,8 min`; nova chamada autenticada confirmou no container
+  `2 séries × 15,8 min / 1,05 km` na semana 1 e `24 min / 1,6 km` na semana 12.
 - Smoke autenticado real com usuário descartável: preview HTTP 200; criação
   HTTP 201; plano `f3c77ea9-fe21-4fbe-844b-1357352e8992` persistido.
 
