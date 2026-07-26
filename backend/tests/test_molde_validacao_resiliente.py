@@ -193,6 +193,57 @@ def test_no_op_do_dono_salva_na_primeira_chamada_sem_retry(monkeypatch):
     assert chamada.call_count == 1
 
 
+def test_molde_com_cardio_por_tempo_salva_sem_retry(monkeypatch):
+    """Modo de falha REAL do smoke de HML em 25/07/2026.
+
+    O aluno pediu cardio; o modelo obedeceu à instrução 7 do prompt (cardio se
+    prescreve por `duracao_minutos`, nunca por `repeticoes`) e o schema o
+    reprovava por exigir `repeticoes`. As duas tentativas queimavam e o aluno
+    via "Erro ao gerar plano".
+    """
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Caminhada", "ordem": 2, "series": 1, "duracao_minutos": 20,
+        "prioridade": "acessorio",
+    })
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-cardio")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ) as chamada, mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-cardio"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante", "incluirCardio": "sim"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-cardio",
+                access_token="fake-token",
+            )
+
+    visao = job.to_dict()
+    assert visao["status"] == "salvo", visao.get("error")
+    assert chamada.call_count == 1  # nenhuma geração extra paga
+
+    # O cardio chega ao banco medido por TEMPO, não por repetição.
+    mapeado = persistir.call_args.args[0]
+    caminhadas = [e for e in mapeado["exercises"] if e["name"] == "Caminhada"]
+    assert caminhadas, "o exercício de cardio sumiu do payload persistido"
+    assert {e["metric"] for e in caminhadas} == {"tempo_distancia"}
+    assert all(e["reps_raw"] is None for e in caminhadas)
+    ids = {e["id"] for e in caminhadas}
+    series_cardio = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series_cardio and all(s["target_duration_seconds"] == 1200 for s in series_cardio)
+    assert all(s["target_reps_min"] is None for s in series_cardio)
+
+
 def test_pipeline_passa_apenas_restricoes_estruturadas_de_lesao_ao_mapper(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
     monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")

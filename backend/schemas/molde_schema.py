@@ -55,7 +55,18 @@ MOLDE_SCHEMA = {
                                     "minItems": 1,
                                     "items": {
                                         "type": "object",
-                                        "required": ["nome", "ordem", "series", "repeticoes"],
+                                        "description": (
+                                            "Todo exercício precisa de PELO MENOS UM alvo de prescrição: "
+                                            "`repeticoes` (carga × repetição), `duracao_minutos` (cardio e "
+                                            "isometria) ou `distancia_km`. Cardio e isometria NÃO usam "
+                                            "`repeticoes`."
+                                        ),
+                                        "required": ["nome", "ordem", "series"],
+                                        "anyOf": [
+                                            {"required": ["repeticoes"]},
+                                            {"required": ["duracao_minutos"]},
+                                            {"required": ["distancia_km"]},
+                                        ],
                                         "properties": {
                                             "nome": {
                                                 "type": "string",
@@ -206,7 +217,16 @@ MOLDE_SCHEMA = {
                                     "type": "array",
                                     "items": {
                                         "type": "object",
-                                        "required": ["nome", "ordem", "series", "repeticoes"],
+                                        "description": (
+                                            "Mesmo contrato das semanas-tipo: pelo menos um alvo de "
+                                            "prescrição entre `repeticoes`, `duracao_minutos` e `distancia_km`."
+                                        ),
+                                        "required": ["nome", "ordem", "series"],
+                                        "anyOf": [
+                                            {"required": ["repeticoes"]},
+                                            {"required": ["duracao_minutos"]},
+                                            {"required": ["distancia_km"]},
+                                        ],
                                         "properties": {
                                             "nome": {
                                                 "type": "string",

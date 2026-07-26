@@ -216,6 +216,121 @@ def test_delta_rm_valor_negativo_rejeitado_localmente():
         jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
 
 
+# ==================== Cardio e isometria (prescrição por tempo) ====================
+#
+# Defeito observado no smoke de HML em 25/07/2026: o job morria em
+# `molde_validation` com "'repeticoes' is a required property" sempre que o
+# aluno pedia cardio. A instrução 7 do prompt do molde manda NÃO usar
+# `repeticoes` em cardio e isometria ("20min" escrito em repeticoes vira 20
+# REPETIÇÕES), enquanto o schema — que vai no mesmo prompt — exigia o campo em
+# todo exercício. O modelo obedecia à instrução e o schema o reprovava.
+#
+# Contrato correto: todo exercício precisa de PELO MENOS UM alvo de prescrição —
+# `repeticoes` (carga × repetição), `duracao_minutos` (tempo) ou `distancia_km`.
+
+
+def test_cardio_por_tempo_sem_repeticoes_e_valido():
+    molde = _molde_valido()
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Esteira",
+        "ordem": 2,
+        "series": 1,
+        "duracao_minutos": 20,
+        "prioridade": "acessorio",
+    })
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_cardio_por_distancia_sem_repeticoes_e_valido():
+    molde = _molde_valido()
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Corrida",
+        "ordem": 2,
+        "series": 1,
+        "distancia_km": 5,
+    })
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_isometria_por_tempo_sem_repeticoes_e_valida():
+    molde = _molde_valido()
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Prancha",
+        "ordem": 2,
+        "series": 3,
+        "duracao_minutos": 1,
+    })
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_exercicio_sem_nenhum_alvo_de_prescricao_falha():
+    """Sem repeticoes, sem duracao e sem distância não há o que prescrever."""
+    molde = _molde_valido()
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"] = [
+        {"nome": "Supino Reto", "ordem": 1, "series": 4, "percentual_rm": 75}
+    ]
+    with pytest.raises(jsonschema.exceptions.ValidationError):
+        jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_semana_avulsa_aceita_cardio_por_tempo():
+    molde = _molde_valido()
+    molde["semanas_avulsas"] = {
+        "semana_6": {
+            "semana": 6,
+            "sessoes": [
+                {
+                    "nome": "Recuperação Ativa",
+                    "tipo": "Cardio",
+                    "duracao_minutos": 30,
+                    "exercicios": [
+                        {"nome": "Caminhada", "ordem": 1, "series": 1, "duracao_minutos": 30}
+                    ],
+                }
+            ],
+        }
+    }
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_semana_avulsa_sem_alvo_de_prescricao_falha():
+    molde = _molde_valido()
+    molde["semanas_avulsas"] = {
+        "semana_6": {
+            "semana": 6,
+            "sessoes": [
+                {
+                    "nome": "Recuperação Ativa",
+                    "tipo": "Cardio",
+                    "exercicios": [{"nome": "Caminhada", "ordem": 1, "series": 1}],
+                }
+            ],
+        }
+    }
+    with pytest.raises(jsonschema.exceptions.ValidationError):
+        jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+
+def test_repeticoes_nao_e_exigida_incondicionalmente_em_lugar_nenhum():
+    """Trava de regressão: nenhum `required` do schema pode voltar a exigir
+    `repeticoes` fora de uma alternativa `anyOf`/`oneOf`, senão o prompt e o
+    schema voltam a se contradizer."""
+    exigencias = []
+
+    def _varrer(no, caminho, dentro_de_alternativa):
+        if isinstance(no, dict):
+            if not dentro_de_alternativa and "repeticoes" in (no.get("required") or []):
+                exigencias.append(caminho)
+            for chave, valor in no.items():
+                _varrer(valor, f"{caminho}.{chave}", chave in ("anyOf", "oneOf"))
+        elif isinstance(no, list):
+            for i, item in enumerate(no):
+                _varrer(item, f"{caminho}[{i}]", dentro_de_alternativa)
+
+    _varrer(MOLDE_SCHEMA, "MOLDE_SCHEMA", False)
+    assert exigencias == [], f"`repeticoes` exigida incondicionalmente em: {exigencias}"
+
+
 def test_id_semana_tipo_fora_do_pattern_falha():
     molde = _molde_valido()
     molde["semanas_tipo"][0]["id"] = "SemanaTipoInválida"

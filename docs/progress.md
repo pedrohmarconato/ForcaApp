@@ -799,13 +799,14 @@ Duas ressalvas honestas sobre a cobertura deste smoke:
 
 A primeira tentativa do smoke pedia cardio e o job morreu em
 `molde_validation`: `Molde inválido: 'repeticoes' is a required property`,
-depois das 3 tentativas.
+depois das 2 tentativas (`MAX_TENTATIVAS_MOLDE = 2`).
 
 Causa: `backend/schemas/molde_schema.py` exige `repeticoes` em todo exercício
 (`required: ["nome", "ordem", "series", "repeticoes"]`, linhas 58 e 209)
-enquanto a descrição de `duracao_minutos` instrui o modelo a **não** usar
-`repeticoes` em cardio e isometria. O `normalizar_molde` não preenche o campo.
-Prova determinística, sem custo de IA:
+enquanto a instrução 7 do prompt do molde — e a descrição de `duracao_minutos`
+no próprio schema — mandam **não** usar `repeticoes` em cardio e isometria. O
+modelo obedece à instrução e o schema o reprova. O `normalizar_molde` não
+preenche o campo. Prova determinística, sem custo de IA:
 
 ```python
 jsonschema.validate({"nome": "Esteira", "ordem": 1, "series": 1, "duracao_minutos": 20}, <item de exercicios>)
@@ -813,8 +814,44 @@ jsonschema.validate({"nome": "Esteira", "ordem": 1, "series": 1, "duracao_minuto
 ```
 
 Não é regressão deste PR — vem da leva de cardio (0014/PR #38) — mas está vivo
-em produção: qualquer aluno que peça cardio cai em erro de geração. Corrigir
-antes de qualquer nova geração com cardio.
+em produção: qualquer aluno que peça cardio cai em erro de geração.
+
+**Corrigido no PR seguinte** (`fix/molde-cardio-sem-repeticoes`, empilhado sobre
+este) — ver seção abaixo.
 
 - O PR 2 só começa depois do OK do dono no PR #43, para preservar o portão
   entre PRs.
+
+---
+
+## 25/07/2026 — PR do cardio: `repeticoes` deixa de ser obrigatória
+
+Branch `fix/molde-cardio-sem-repeticoes`, empilhada sobre o PR #43.
+
+### O contrato que o schema passa a expressar
+
+Todo exercício precisa de **pelo menos um** alvo de prescrição: `repeticoes`
+(carga × repetição), `duracao_minutos` (cardio e isometria) ou `distancia_km`.
+Nos dois pontos do schema (`semanas_tipo` e `semanas_avulsas`), `repeticoes`
+saiu do `required` e entrou num `anyOf` com as outras duas. Exercício sem
+nenhum alvo continua sendo rejeitado — a validação afrouxou só onde era
+contraditória.
+
+### RED → GREEN
+
+- RED: 6 testes novos falham sem a correção (5 de schema + 1 de pipeline).
+  Conferido com `git stash` do schema: os mesmos 6 vermelhos, 29 verdes.
+- O teste de pipeline roda o caminho inteiro (resposta do modelo → validação →
+  normalização → expansão → mapeamento) e confere o payload que iria ao banco:
+  cardio com `metric=tempo_distancia`, `reps_raw` nulo,
+  `target_duration_seconds=1200` e alvos de repetição nulos. Uma única chamada
+  ao modelo — nenhuma geração extra paga.
+- Trava de regressão: `test_repeticoes_nao_e_exigida_incondicionalmente_em_lugar_nenhum`
+  varre o schema inteiro e falha se `repeticoes` voltar a um `required` fora de
+  um `anyOf`/`oneOf`.
+- `python3 -m pytest backend/tests -q`: 323/323. `npx tsc --noEmit`: 0 erros.
+
+Nota sobre a cobertura anterior: os testes de cardio já existentes
+(`test_cardio_prescricao.py`) sempre passavam a duração dentro de `repeticoes`
+("20min"), justamente o que a instrução 7 proíbe — por isso a suíte estava
+verde com o defeito vivo.
