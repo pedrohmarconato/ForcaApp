@@ -514,6 +514,32 @@ def test_preview_usa_serie_no_singular(client):
     ] == "1 série × 5 min"
 
 
+def test_preview_formata_progressao_cardio_em_minutos_decimais(client):
+    livre = _exercicio(
+        nome="Circuito de escada do professor",
+        exercise_key=None,
+        equipamento=None,
+        repeticoes=None,
+        duracao_minutos=15,
+        distancia_km=1,
+        metrica="tempo_distancia",
+        series=2,
+    )
+    progressao = _rascunho()["progressao"]
+    progressao["cardio"] = {"ativa": True, "valor": 5, "alvo": "ambos"}
+
+    response = _post_autenticado(
+        client,
+        "/api/manual-plan/preview",
+        _rascunho(exercicios=[livre], progressao=progressao),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["semanas"][0]["treinos"][0]["exercicios"][0][
+        "alvo"
+    ] == "2 séries × 15,8 min / 1,05 km"
+
+
 def test_falha_de_persistencia_vira_502_sem_plan_id(client):
     with mock.patch.object(
         app_module,

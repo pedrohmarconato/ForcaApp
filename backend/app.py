@@ -457,7 +457,7 @@ def _alvo_preview(exercicio, series_exercicio):
     duracao = primeira_serie.get("target_duration_seconds")
     distancia = primeira_serie.get("target_distance_m")
     if duracao is not None:
-        if duracao % 60 == 0:
+        if duracao >= 60:
             alvo = "{} min".format(_numero_legivel(duracao / 60))
         else:
             alvo = "{} s".format(_numero_legivel(duracao))
