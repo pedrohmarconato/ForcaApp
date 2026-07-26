@@ -250,7 +250,13 @@ def _aplicar_progressao(
 def _e_por_tempo(exercicio: Dict[str, Any]) -> bool:
     """Cardio/isometria: medido por tempo (e distância), nunca por %RM."""
     canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
-    return canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+    metrica = (
+        exercicio.get("metrica")
+        if canonico.chave is None
+        and exercicio.get("metrica") in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+        else canonico.metrica
+    )
+    return metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
 
 
 def _aplicar_progressao_cardio(

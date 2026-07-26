@@ -46,8 +46,9 @@ def _exercicio(
     distancia_km=None,
     tem_limitacao=False,
     percentual_rm=None,
+    metrica=None,
 ):
-    return {
+    exercicio = {
         "exercise_key": exercise_key,
         "nome": nome,
         "equipamento": equipamento,
@@ -61,6 +62,9 @@ def _exercicio(
         "observacoes": None,
         "tem_limitacao": tem_limitacao,
     }
+    if metrica is not None:
+        exercicio["metrica"] = metrica
+    return exercicio
 
 
 def _rascunho(
@@ -300,6 +304,54 @@ def test_cardio_sem_duracao_recebe_default_e_grupo_vem_do_catalogo():
     assert mapeado["sets"][0]["target_duration_seconds"] == 20 * 60
     assert mapeado["sets"][0]["target_distance_m"] == 5000
     assert mapeado["sets"][0]["target_reps_min"] is None
+
+
+def test_nome_livre_pode_declarar_metrica_de_tempo_sem_virar_repeticoes():
+    from backend.schemas.plano_manual_schema import PLANO_MANUAL_SCHEMA
+
+    propriedades = PLANO_MANUAL_SCHEMA["properties"]["treinos"]["items"][
+        "properties"
+    ]["exercicios"]["items"]["properties"]
+    assert "metrica" in propriedades
+
+    livre = _exercicio(
+        nome="Circuito de escada do professor",
+        exercise_key=None,
+        equipamento=None,
+        repeticoes=None,
+        duracao_minutos=15,
+        distancia_km=1,
+        metrica="tempo_distancia",
+    )
+    progressao = _rascunho()["progressao"]
+    progressao["cardio"] = {"ativa": True, "valor": 5, "alvo": "ambos"}
+    plano = _expandir(_rascunho(exercicios=[livre], progressao=progressao))
+    mapeado = mapear_plano_ia(
+        plano, user_id=USER_ID, start_date=START, created_by="user"
+    )
+
+    assert mapeado["exercises"][0]["exercise_key"] is None
+    assert mapeado["exercises"][0]["metric"] == "tempo_distancia"
+    assert mapeado["sets"][0]["target_reps_min"] is None
+    assert mapeado["sets"][0]["target_duration_seconds"] > 15 * 60
+    ultima_serie = mapeado["sets"][-1]
+    assert ultima_serie["target_duration_seconds"] > mapeado["sets"][0][
+        "target_duration_seconds"
+    ]
+
+
+def test_metrica_digitada_nao_sobrescreve_exercicio_do_catalogo():
+    catalogado = _exercicio(metrica="tempo", repeticoes="8-12", duracao_minutos=20)
+    mapeado = mapear_plano_ia(
+        _expandir(_rascunho(exercicios=[catalogado], duracao_semanas=1)),
+        user_id=USER_ID,
+        start_date=START,
+        created_by="user",
+    )
+
+    assert mapeado["exercises"][0]["exercise_key"] == "supino_reto_barra"
+    assert mapeado["exercises"][0]["metric"] == "carga_reps"
+    assert mapeado["sets"][0]["target_reps_min"] == 8
 
 
 def test_delta_series_zero_e_omitido_mesmo_quando_toggle_esta_ligado():

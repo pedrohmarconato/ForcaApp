@@ -186,6 +186,23 @@ PLANO_MANUAL_SCHEMA = {
                                     ]
                                 },
                                 "tem_limitacao": {"type": "boolean"},
+                                # O catálogo continua autoritativo. Este campo
+                                # só é considerado pelo pipeline quando
+                                # exercise_key/nome não casam com o catálogo,
+                                # viabilizando o seletor de métrica do nome livre.
+                                "metrica": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string",
+                                            "enum": [
+                                                "carga_reps",
+                                                "tempo",
+                                                "tempo_distancia",
+                                            ],
+                                        },
+                                        {"type": "null"},
+                                    ]
+                                },
                             },
                         },
                     },

@@ -355,10 +355,17 @@ def mapear_plano_ia(
                     # grupo muscular e incremento de carga por exercício. Nome
                     # fora do catálogo passa intacto, com chave/grupo nulos.
                     canonico = resolver_exercicio(ex.get("nome"), ex.get("equipamento"))
+                    metrica = (
+                        ex.get("metrica")
+                        if created_by == "user"
+                        and canonico.chave is None
+                        and ex.get("metrica") in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+                        else canonico.metrica
+                    )
                     # Cardio/isometria não se mede em carga × repetição: a
                     # prescrição vira duração (e distância), e %RM/reps ficam
                     # NULOS em vez de virar lixo ("20min" → 20 repetições).
-                    eh_tempo = canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+                    eh_tempo = metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
                     if eh_tempo:
                         reps_min = reps_max = None
                         duracao_alvo = (
@@ -367,7 +374,7 @@ def mapear_plano_ia(
                             or _parse_duracao_segundos(ex.get("tempo"))
                         )
                         distancia_alvo = None
-                        if canonico.metrica == METRICA_TEMPO_DISTANCIA:
+                        if metrica == METRICA_TEMPO_DISTANCIA:
                             distancia_km = ex.get("distancia_km")
                             distancia_alvo = (
                                 float(distancia_km) * 1000
@@ -397,7 +404,7 @@ def mapear_plano_ia(
                         "exercise_order": ex.get("ordem") if isinstance(ex.get("ordem"), int) else posicao,
                         "name": canonico.nome,
                         "exercise_key": canonico.chave,
-                        "metric": canonico.metrica,
+                        "metric": metrica,
                         "name_original": canonico.nome_original if canonico.nome_original != canonico.nome else None,
                         "muscle_group": canonico.grupo_muscular,
                         "priority": _prioridade(ex),

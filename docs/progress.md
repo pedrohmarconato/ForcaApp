@@ -948,6 +948,10 @@ Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
 - `PLANO_MANUAL_SCHEMA` formaliza o rascunho do editor (1–52 semanas, até 7
   treinos e 30 exercícios por treino), mantendo opcionais explícitos como
   `dia_offset`, duração, distância e `%RM` anuláveis.
+- O campo opcional `metrica` fecha o contrato do seletor para nomes livres:
+  `carga_reps`, `tempo` ou `tempo_distancia`. Ele só vence quando o exercício
+  não casa com o catálogo; em item catalogado, a métrica canônica continua
+  autoritativa. O expansor também respeita essa escolha na progressão cardio.
 - `construir_molde_manual()` produz uma única semana `tipo_a`, repetida no
   calendário, deriva grupos do catálogo e injeta Aquecimento Articular /
   Alongamento Dinâmico como exercícios reais de Mobilidade quando os toggles
@@ -973,7 +977,7 @@ Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
   defeito antes da correção para “1 série”.
 - `npx tsc --noEmit`: exit 0, 0 erros.
 - `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
-- `python3 -m pytest backend/tests -q`: exit 0, 348/348 testes; apenas o warning
+- `python3 -m pytest backend/tests -q`: exit 0, 350/350 testes; apenas o warning
   já conhecido do urllib3/LibreSSL.
 
 ### Homologação HML

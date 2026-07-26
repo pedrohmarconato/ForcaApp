@@ -7,6 +7,7 @@
 from typing import Any, Dict, List
 
 from backend.services.exercise_catalog import (
+    METRICA_CARGA_REPS,
     METRICA_TEMPO,
     METRICA_TEMPO_DISTANCIA,
     resolver_exercicio,
@@ -37,12 +38,24 @@ _ALONGAMENTO = {
     "tem_limitacao": False,
 }
 
+_METRICAS_MANUAIS = {
+    METRICA_CARGA_REPS,
+    METRICA_TEMPO,
+    METRICA_TEMPO_DISTANCIA,
+}
+
 
 def _exercicio_do_molde(exercicio: Dict[str, Any], ordem: int) -> Dict[str, Any]:
     canonico = resolver_exercicio(
         exercicio.get("nome"), exercicio.get("equipamento")
     )
-    eh_tempo = canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+    metrica_declarada = exercicio.get("metrica")
+    metrica = (
+        metrica_declarada
+        if canonico.chave is None and metrica_declarada in _METRICAS_MANUAIS
+        else canonico.metrica
+    )
+    eh_tempo = metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
     convertido: Dict[str, Any] = {
         "nome": str(exercicio.get("nome") or canonico.nome),
         "ordem": ordem,
@@ -55,6 +68,8 @@ def _exercicio_do_molde(exercicio: Dict[str, Any], ordem: int) -> Dict[str, Any]
     # pelo nome/equipamento e não confia nesta chave para canonizar entrada.
     if exercicio.get("exercise_key"):
         convertido["exercise_key"] = exercicio["exercise_key"]
+    if canonico.chave is None and metrica_declarada in _METRICAS_MANUAIS:
+        convertido["metrica"] = metrica_declarada
     for origem, destino in (
         ("equipamento", "equipamento"),
         ("percentual_rm", "percentual_rm"),
