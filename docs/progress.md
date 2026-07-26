@@ -819,8 +819,8 @@ em produção: qualquer aluno que peça cardio cai em erro de geração.
 **Corrigido no PR seguinte** (`fix/molde-cardio-sem-repeticoes`, empilhado sobre
 este) — ver seção abaixo.
 
-- O PR 2 só começa depois do OK do dono no PR #43, para preservar o portão
-  entre PRs.
+- O PR 2 começou após o OK do dono em 25/07/2026, preservando o portão entre
+  PRs e usando o topo homologado da pilha (#43 + #44) como base.
 
 ---
 
@@ -874,3 +874,38 @@ gerado e salvo em 26 s, usuário `pedrohmarconato+smoke-cardio-1785032280@gmail.
 Estado das branches ao fim do dia: `#43` (correções de base) e `#44` (cardio,
 empilhado no #43) abertos, ambos homologados em HML; produção segue em
 `0000→0014` e no build antigo, aguardando revisão do dono.
+
+---
+
+## 25/07/2026 — Plano manual, PR 2: catálogo de exercícios na API
+
+Branch `feat/catalogo-exercicios-api`, empilhada sobre o PR #44.
+
+### Entregue no código
+
+- `catalogo_serializavel()` expõe os 106 exercícios canônicos com versão 2 e
+  somente os sete campos consumidos pelo app; aliases continuam privados ao
+  resolvedor do backend.
+- `GET /api/exercise-catalog` exige JWT, devolve ETag forte derivado da versão +
+  hash do arquivo e `Cache-Control: private, max-age=86400`; `If-None-Match`
+  válido recebe 304 sem corpo. A rota não consome o rate limit da IA.
+- `exerciseCatalogService.ts` mantém cache AsyncStorage em
+  `@exercise_catalog_v<versao>`, guarda metadado/ETag e revalida em background.
+  Sem rede usa o último cache válido; sem rede e sem cache levanta
+  `ExerciseCatalogUnavailableError`, nunca retorna `[]` como falso "sem
+  resultados".
+- `searchCatalog` espelha a normalização do backend (sem acento, minúsculas),
+  filtra grupo/equipamento e respeita as opções de Cardio/Mobilidade sem mutar a
+  lista original.
+
+### RED → GREEN e portões locais
+
+- RED backend: `catalogo_serializavel` ausente e rota 404; 2 falhas, 60 testes
+  adjacentes verdes.
+- RED app: módulo `exerciseCatalogService` ausente.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 325/325 testes; 1 warning já
+  conhecido do urllib3/LibreSSL.
+- Homologação do backend/endpoint e validação do cache no PWA ainda pendentes
+  neste ponto; nenhuma migration pertence a este PR.

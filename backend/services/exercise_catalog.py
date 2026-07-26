@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unicodedata
@@ -128,10 +129,19 @@ def separar_qualificador(nome: str) -> Tuple[str, Optional[str]]:
 
 
 @lru_cache(maxsize=1)
-def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
-    """Carrega e valida o catálogo do disco (uma vez por processo)."""
+def _carregar_documento() -> Dict[str, Any]:
+    """Lê o documento versionado uma vez por processo."""
     with open(_CAMINHO_CATALOGO, "r", encoding="utf-8") as fh:
         bruto = json.load(fh)
+    if not isinstance(bruto, dict) or not isinstance(bruto.get("versao"), int):
+        raise ValueError("Catálogo inválido: versão inteira ausente.")
+    return bruto
+
+
+@lru_cache(maxsize=1)
+def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
+    """Carrega e valida o catálogo do disco (uma vez por processo)."""
+    bruto = _carregar_documento()
 
     entradas: List[ExercicioCanonico] = []
     chaves_vistas = set()
@@ -158,6 +168,32 @@ def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
     if not entradas:
         raise ValueError("Catálogo inválido: nenhum exercício carregado.")
     return tuple(entradas)
+
+
+def catalogo_serializavel() -> Dict[str, Any]:
+    """Catálogo completo para o app: versão + lista achatada, sem aliases."""
+    return {
+        "versao": _carregar_documento()["versao"],
+        "exercicios": [
+            {
+                "chave": ex.chave,
+                "nome": ex.nome,
+                "grupo_muscular": ex.grupo_muscular,
+                "equipamento": ex.equipamento,
+                "peso_corporal": ex.peso_corporal,
+                "incremento_kg": ex.incremento_kg,
+                "metrica": ex.metrica,
+            }
+            for ex in carregar_catalogo()
+        ],
+    }
+
+
+@lru_cache(maxsize=1)
+def etag_catalogo() -> str:
+    """ETag forte derivado da versão declarada e do conteúdo exato do arquivo."""
+    digest = hashlib.sha256(_CAMINHO_CATALOGO.read_bytes()).hexdigest()[:16]
+    return "catalogo-v{}-{}".format(_carregar_documento()["versao"], digest)
 
 
 @lru_cache(maxsize=1)

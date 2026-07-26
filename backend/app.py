@@ -26,6 +26,7 @@ try:
     from backend.services.plan_mapper import mapear_plano_ia
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
+    from backend.services.exercise_catalog import catalogo_serializavel, etag_catalogo
     from backend.services.job_manager import (
         JobStatus, PlanJob, criar_job, obter_job, executar_job,
     )
@@ -348,6 +349,20 @@ def handle_chat():
         return jsonify({"error": "A IA não retornou uma resposta de texto."}), 502
 
     return jsonify({"reply": reply.strip()}), 200
+
+
+@app.route('/api/exercise-catalog', methods=['GET'])
+@token_required
+def handle_exercise_catalog():
+    """Catálogo canônico versionado para o editor de plano do app."""
+    etag = etag_catalogo()
+    if request.if_none_match.contains(etag):
+        response = app.response_class(status=304)
+    else:
+        response = jsonify(catalogo_serializavel())
+    response.set_etag(etag)
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
 
 
 @app.route('/api/generate-plan', methods=['POST'])

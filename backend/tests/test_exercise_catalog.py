@@ -6,9 +6,13 @@ homologação em 23/07/2026 (plano fab9b0b0…, Haiku 4.5): tradução literal d
 inglês, estado da semana dentro do nome e ausência de grupo muscular.
 """
 
+import unittest.mock as mock
+
 import pytest
 
+import backend.services.exercise_catalog as exercise_catalog
 from backend.services.exercise_catalog import (
+    METRICAS_VALIDAS,
     carregar_catalogo,
     catalogo_para_prompt,
     normalizar,
@@ -67,6 +71,25 @@ class TestIntegridadeDoCatalogo:
         chaves = [ex.chave for ex in carregar_catalogo()]
         assert len(chaves) == len(set(chaves))
 
+    def test_catalogo_serializavel_expoe_106_itens_sem_aliases(self):
+        payload = exercise_catalog.catalogo_serializavel()
+
+        assert payload["versao"] == 2
+        assert len(payload["exercicios"]) == 106
+        assert len({item["chave"] for item in payload["exercicios"]}) == 106
+        for item in payload["exercicios"]:
+            assert set(item) == {
+                "chave",
+                "nome",
+                "grupo_muscular",
+                "equipamento",
+                "peso_corporal",
+                "incremento_kg",
+                "metrica",
+            }
+            assert item["metrica"] in METRICAS_VALIDAS
+            assert "aliases" not in item
+
     def test_nenhum_alias_aponta_para_dois_exercicios(self):
         """Ambiguidade de alias canonizaria errado para sempre — o índice recusa."""
         vistos = {}
@@ -77,6 +100,40 @@ class TestIntegridadeDoCatalogo:
                     f"alias '{forma}' colide entre '{vistos.get(n)}' e '{ex.chave}'"
                 )
                 vistos[n] = ex.chave
+
+
+def test_endpoint_catalogo_tem_etag_estavel_cache_privado_e_304():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        primeira = client.get(
+            "/api/exercise-catalog",
+            headers={"Authorization": "Bearer token-valido"},
+        )
+        segunda = client.get(
+            "/api/exercise-catalog",
+            headers={"Authorization": "Bearer token-valido"},
+        )
+        condicional = client.get(
+            "/api/exercise-catalog",
+            headers={
+                "Authorization": "Bearer token-valido",
+                "If-None-Match": primeira.headers["ETag"],
+            },
+        )
+
+    assert primeira.status_code == 200
+    assert len(primeira.get_json()["exercicios"]) == 106
+    assert primeira.headers["ETag"] == segunda.headers["ETag"]
+    assert "private" in primeira.headers["Cache-Control"]
+    assert "max-age=86400" in primeira.headers["Cache-Control"]
+    assert condicional.status_code == 304
+    assert condicional.data == b""
+    assert condicional.headers["ETag"] == primeira.headers["ETag"]
 
 
 class TestTraducaoLiteralDoIngles:
