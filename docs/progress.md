@@ -855,3 +855,22 @@ Nota sobre a cobertura anterior: os testes de cardio já existentes
 (`test_cardio_prescricao.py`) sempre passavam a duração dentro de `repeticoes`
 ("20min"), justamente o que a instrução 7 proíbe — por isso a suíte estava
 verde com o defeito vivo.
+
+### Smoke E2E em HML — o mesmo pedido que falhava agora passa
+
+Backend de homologação em `6ec7250` (container recriado pelo timer, schema com
+`anyOf` dentro da imagem). Mesmo questionário da tentativa que morreu de manhã,
+com `incluirCardio: "sim"`: plano `de64fbee-cead-4191-a4ff-038a72d53772`
+gerado e salvo em 26 s, usuário `pedrohmarconato+smoke-cardio-1785032280@gmail.com`.
+
+| Conferência no banco de staging | Resultado |
+|---|---|
+| Plano com cardio gerado sem `molde_validation` | 48 sessões, 120 exercícios |
+| Exercícios medidos por tempo/distância | 24 (Corrida, Bicicleta Ergométrica) |
+| Séries de cardio com duração/distância | 24/24 |
+| Séries de cardio que viraram repetição | 0 |
+| Cardio com %RM | 0 |
+
+Estado das branches ao fim do dia: `#43` (correções de base) e `#44` (cardio,
+empilhado no #43) abertos, ambos homologados em HML; produção segue em
+`0000→0014` e no build antigo, aguardando revisão do dono.
