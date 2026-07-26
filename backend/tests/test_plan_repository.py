@@ -75,6 +75,21 @@ def test_payload_grande_continua_em_uma_unica_transacao_http():
     assert len(post.call_args.kwargs["json"]["p_sets"]) == 450
 
 
+def test_progression_rules_nao_somem_do_payload_da_rpc():
+    mapped = _mapeado()
+    mapped["plan"]["progression_rules"] = [
+        {"tipo": "deload_percentual", "semana": 4, "fator_rm": 0.8, "fator_series": 0.8}
+    ]
+    with mock.patch(
+        "backend.services.plan_repository.requests.post", return_value=_response()
+    ) as post:
+        persistir_plano(mapped, access_token=TOKEN)
+
+    assert post.call_args.kwargs["json"]["p_plan"]["progression_rules"] == mapped["plan"][
+        "progression_rules"
+    ]
+
+
 def test_erro_sql_da_rpc_propaga_sem_tentar_limpeza_compensatoria():
     with mock.patch(
         "backend.services.plan_repository.requests.post", return_value=_response(status=409)
@@ -130,3 +145,22 @@ def test_migration_declara_serializacao_rls_e_todas_as_insercoes():
         "planned_sets",
     ):
         assert "insert into public.{}".format(table) in sql
+
+
+def test_migration_0015_recoloca_progression_rules_sem_regredir_cardio():
+    sql = (
+        Path(REPO_ROOT)
+        / "supabase"
+        / "migrations"
+        / "0015_progression_rules_na_rpc.sql"
+    ).read_text(encoding="utf-8").lower()
+
+    assert "p_plan -> 'progression_rules'" in sql
+    assert "pg_get_functiondef" in sql
+    for campo in (
+        "progression_rules",
+        "metric",
+        "target_duration_seconds",
+        "target_distance_m",
+    ):
+        assert campo in sql

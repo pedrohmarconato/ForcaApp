@@ -9,6 +9,7 @@
 # - Carga em kg e RIR ficam nulos: o aluno informa a 1ª carga na execução (Fase 4).
 
 import datetime
+import math
 import re
 import uuid
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from backend.services.exercise_catalog import (
     METRICA_TEMPO,
     METRICA_TEMPO_DISTANCIA,
+    normalizar,
     resolver_exercicio,
 )
 
@@ -34,6 +36,11 @@ DEFAULT_DURACAO_CARDIO_SEGUNDOS = 20 * 60
 MAX_SERIES_POR_EXERCICIO = 10
 MAX_TOTAL_SETS = 2000
 
+# Estimativa de duração quando a sessão não declara. PADRÃO A VALIDAR por
+# profissional de educação física — mesma convenção de src/engine/config.ts.
+SEGUNDOS_EXECUCAO_POR_SERIE = 40
+DESCANSO_PADRAO_SEGUNDOS = 90
+
 _DIA_SEMANA_OFFSET = {
     "segunda": 0, "segunda-feira": 0,
     "terca": 1, "terça": 1, "terca-feira": 1, "terça-feira": 1,
@@ -43,6 +50,10 @@ _DIA_SEMANA_OFFSET = {
     "sabado": 5, "sábado": 5,
     "domingo": 6,
 }
+
+_NOME_DIA_POR_OFFSET = (
+    "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo",
+)
 
 _PRIORIDADE_MAP = {
     "primario": "primary", "primário": "primary", "primary": "primary",
@@ -157,15 +168,76 @@ def _prioridade(ex: Dict[str, Any]) -> str:
     return "accessory"
 
 
-def _offset_dia_semana(dia: Any, order_in_week: int) -> int:
-    """Offset (0=segunda … 6=domingo) dentro da semana. Sem dia utilizável,
-    distribui pela ordem da sessão na semana."""
-    if isinstance(dia, int) and 0 <= dia <= 6:
-        return dia
-    chave = str(dia or "").strip().lower()
-    if chave in _DIA_SEMANA_OFFSET:
-        return _DIA_SEMANA_OFFSET[chave]
-    return min(max(order_in_week - 1, 0), 6)
+def _dia_da_sessao(sessao: Dict[str, Any], order_in_week: int) -> tuple[int, str]:
+    """(offset 0..6, rótulo textual).
+
+    Aceita ``dia_semana`` (str/int) e ``dia_offset`` (int, contrato do molde).
+    Sem nenhum dos dois, distribui pela ordem da sessão na semana.
+    """
+    dia_semana = sessao.get("dia_semana")
+    if isinstance(dia_semana, str):
+        texto_original = dia_semana.strip()
+        chave = texto_original.lower()
+        if chave in _DIA_SEMANA_OFFSET:
+            return _DIA_SEMANA_OFFSET[chave], texto_original
+    if isinstance(dia_semana, int) and not isinstance(dia_semana, bool) and 0 <= dia_semana <= 6:
+        return dia_semana, _NOME_DIA_POR_OFFSET[dia_semana]
+    dia_offset = sessao.get("dia_offset")
+    if isinstance(dia_offset, int) and not isinstance(dia_offset, bool) and 0 <= dia_offset <= 6:
+        return dia_offset, _NOME_DIA_POR_OFFSET[dia_offset]
+    fallback = min(max(order_in_week - 1, 0), 6)
+    return fallback, _NOME_DIA_POR_OFFSET[fallback]
+
+
+def _estimar_minutos(
+    exercicios_mapeados: List[Dict[str, Any]],
+    sets_da_sessao: List[Dict[str, Any]],
+) -> int:
+    """Estima a duração da sessão a partir dos alvos já canonizados."""
+    sets_por_exercicio: Dict[str, List[Dict[str, Any]]] = {}
+    for serie in sets_da_sessao:
+        sets_por_exercicio.setdefault(serie["exercise_id"], []).append(serie)
+
+    total_segundos = 0
+    for exercicio in exercicios_mapeados:
+        series_exercicio = sets_por_exercicio.get(exercicio["id"], [])
+        descanso = exercicio.get("rest_seconds") or DESCANSO_PADRAO_SEGUNDOS
+        if exercicio.get("metric") in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA):
+            total_segundos += sum(
+                int(serie.get("target_duration_seconds") or 0)
+                for serie in series_exercicio
+            )
+            total_segundos += max(len(series_exercicio) - 1, 0) * descanso
+        else:
+            total_segundos += len(series_exercicio) * (
+                SEGUNDOS_EXECUCAO_POR_SERIE + descanso
+            )
+
+    return max(1, math.ceil(total_segundos / 60))
+
+
+def _injury_flags(
+    canonico: Any,
+    restricoes_lesao: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+    """Casa lesões estruturadas por chave de exercício ou grupo muscular."""
+    flags: List[str] = []
+    for restricao in restricoes_lesao or []:
+        if not isinstance(restricao, dict) or restricao.get("tipo") != "lesao":
+            continue
+        casou = False
+        exercicio_afetado = restricao.get("exercicio_afetado")
+        if exercicio_afetado and canonico.chave:
+            afetado = resolver_exercicio(exercicio_afetado)
+            casou = afetado.chave is not None and afetado.chave == canonico.chave
+        grupo_afetado = restricao.get("grupo_afetado")
+        if grupo_afetado and canonico.grupo_muscular:
+            casou = casou or normalizar(grupo_afetado) == normalizar(canonico.grupo_muscular)
+        if casou:
+            descricao = str(restricao.get("descricao") or "lesao").strip() or "lesao"
+            if descricao not in flags:
+                flags.append(descricao)
+    return flags
 
 
 def _uuid_ou_none(valor: Any) -> Optional[str]:
@@ -179,6 +251,7 @@ def mapear_plano_ia(
     plano: Dict[str, Any],
     user_id: str,
     start_date: Optional[datetime.date] = None,
+    restricoes_lesao: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Converte o plano da IA em linhas prontas para o PostgREST.
@@ -231,7 +304,7 @@ def mapear_plano_ia(
             sessoes_semana = [s for s in (micro.get("sessoes") or []) if isinstance(s, dict)]
             for ordem_na_semana, sessao in enumerate(sessoes_semana, start=1):
                 session_id = str(uuid.uuid4())
-                offset = _offset_dia_semana(sessao.get("dia_semana"), ordem_na_semana)
+                offset, rotulo_dia = _dia_da_sessao(sessao, ordem_na_semana)
                 data_agendada = segunda_semana1 + datetime.timedelta(days=(semana - 1) * 7 + offset)
                 # Nunca agendar antes do início do plano (achado #8: gerar numa
                 # sexta ancorava a semana 1 na segunda ANTERIOR ao início)
@@ -242,12 +315,12 @@ def mapear_plano_ia(
                     for g in (sessao.get("grupos_musculares") or [])
                     if isinstance(g, dict) and g.get("nome")
                 ]
-                sessions.append({
+                session_row = {
                     "id": session_id,
                     "plan_id": plan_id,
                     "user_id": user_id,
                     "week_number": semana,
-                    "day_of_week": sessao.get("dia_semana") if isinstance(sessao.get("dia_semana"), str) else None,
+                    "day_of_week": rotulo_dia,
                     "order_in_week": ordem_na_semana,
                     "title": str(sessao.get("nome") or "Treino"),
                     "session_type": sessao.get("tipo"),
@@ -257,7 +330,8 @@ def mapear_plano_ia(
                     else None,
                     "status": "pending",
                     "muscle_groups": grupos,
-                })
+                }
+                sessions.append(session_row)
 
                 exercicios = [e for e in (sessao.get("exercicios") or []) if isinstance(e, dict)]
                 if not exercicios:
@@ -267,6 +341,8 @@ def mapear_plano_ia(
                             sessao.get("nome") or "sem nome"
                         )
                     )
+                inicio_exercicios = len(exercises)
+                inicio_sets = len(sets)
                 for posicao, ex in enumerate(exercicios, start=1):
                     exercise_id = str(uuid.uuid4())
                     series = ex.get("series")
@@ -333,7 +409,7 @@ def mapear_plano_ia(
                         "method": ex.get("metodo"),
                         "cadence": ex.get("cadencia"),
                         "notes": _observacoes_com_qualificador(ex.get("observacoes"), canonico.qualificador),
-                        "injury_flags": [],
+                        "injury_flags": _injury_flags(canonico, restricoes_lesao),
                     })
                     for numero_serie in range(1, series + 1):
                         sets.append({
@@ -351,6 +427,11 @@ def mapear_plano_ia(
                         raise ValueError(
                             "Plano inválido: excede o teto de {} séries totais.".format(MAX_TOTAL_SETS)
                         )
+                if not isinstance(sessao.get("duracao_minutos"), int):
+                    session_row["estimated_minutes"] = _estimar_minutos(
+                        exercises[inicio_exercicios:],
+                        sets[inicio_sets:],
+                    )
 
     if not sessions:
         raise ValueError("Plano inválido: nenhuma sessão de treino encontrada.")

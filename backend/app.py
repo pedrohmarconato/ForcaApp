@@ -878,7 +878,16 @@ SCHEMA DO MOLDE:
     job.transition(JobStatus.SALVANDO, "salvando", "Salvando o plano...")
 
     try:
-        mapeado = mapear_plano_ia(plano_gerado, user_id=user_id)
+        restricoes_lesao = [
+            restricao
+            for restricao in (diretrizes.get("restricoes") or [])
+            if isinstance(restricao, dict) and restricao.get("tipo") == "lesao"
+        ]
+        mapeado = mapear_plano_ia(
+            plano_gerado,
+            user_id=user_id,
+            restricoes_lesao=restricoes_lesao,
+        )
 
         if molde.get("progressao", {}).get("regras"):
             mapeado["plan"]["progression_rules"] = molde["progressao"]["regras"]

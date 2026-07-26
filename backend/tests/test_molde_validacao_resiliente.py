@@ -193,6 +193,41 @@ def test_no_op_do_dono_salva_na_primeira_chamada_sem_retry(monkeypatch):
     assert chamada.call_count == 1
 
 
+def test_pipeline_passa_apenas_restricoes_estruturadas_de_lesao_ao_mapper(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-lesao")
+    diretrizes = {
+        "preferencias": [],
+        "restricoes": [
+            {"tipo": "lesao", "descricao": "Ombro", "grupo_afetado": "Ombros"},
+            {"tipo": "equipamento", "descricao": "Sem máquina"},
+        ],
+        "excecoes_estruturais": [],
+    }
+
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        return_value=_resposta(json.dumps(MOLDE_VALIDO)),
+    ), mock.patch("backend.app.mapear_plano_ia", wraps=__import__(
+        "backend.services.plan_mapper", fromlist=["mapear_plano_ia"]
+    ).mapear_plano_ia) as mapper, mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-lesao"
+    ):
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes=diretrizes,
+                user_id="user-lesao",
+                access_token="fake-token",
+            )
+
+    assert mapper.call_args.kwargs["restricoes_lesao"] == [diretrizes["restricoes"][0]]
+
+
 def test_parse_impossivel_tambem_ganha_retry(monkeypatch):
     job, chamada = _rodar_pipeline(
         monkeypatch,

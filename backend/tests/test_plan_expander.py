@@ -402,3 +402,36 @@ def test_saida_compativel_com_plan_mapper():
     assert len(resultado["sessions"]) > 0
     assert len(resultado["exercises"]) > 0
     assert len(resultado["sets"]) > 0
+
+
+def test_dia_offset_sobrevive_ao_fluxo_expander_mapper():
+    """Seg/qua/sex no molde não pode virar seg/ter/qua por ordem da sessão."""
+    from backend.services.plan_mapper import mapear_plano_ia
+
+    molde = _molde_minimo()
+    sessoes = molde["semanas_tipo"][0]["sessoes"]
+    base = sessoes[0]
+    sessoes[:] = []
+    for nome, offset in (("Seg", 0), ("Qua", 2), ("Sex", 4)):
+        sessoes.append({
+            **base,
+            "nome": nome,
+            "dia_offset": offset,
+            "exercicios": [dict(base["exercicios"][0])],
+        })
+    molde["frequencia_semanal"] = 3
+
+    plano = expandir_plano(molde, DADOS_USUARIO, start_date=datetime.date(2026, 7, 20))
+    resultado = mapear_plano_ia(
+        plano,
+        user_id=DADOS_USUARIO["id"],
+        start_date=datetime.date(2026, 7, 20),
+    )
+    semana_1 = [s for s in resultado["sessions"] if s["week_number"] == 1]
+
+    assert [s["scheduled_date"] for s in semana_1] == [
+        "2026-07-20",
+        "2026-07-22",
+        "2026-07-24",
+    ]
+    assert [s["day_of_week"] for s in semana_1] == ["segunda", "quarta", "sexta"]

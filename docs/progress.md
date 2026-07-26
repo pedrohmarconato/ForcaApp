@@ -718,8 +718,49 @@ gerado em produção (o smoke é infra-level, por decisão de custo — Opus).
 
 1. **Login real e primeira sessão em produção são do dono** — não executados aqui
    de propósito (geração de plano roda no Opus e custa; smoke ficou infra-level).
-2. `AGENTS.md` está **desatualizado** na seção de migrations (diz 0000→0009;
-   prod está em 0000→0014). Corrigir num passe curto.
+2. ~~`AGENTS.md` desatualizado na seção de migrations.~~ **Resolvido em
+   25/07/2026** no PR 1 do plano manual.
 3. Follow-ups anteriores seguem abertos: recordes no `SessionSummary`, decisão de
    produto sobre "Refazer questionário", rate limit em memória no backend
    (contadores zeram a cada restart e não são compartilhados entre workers).
+
+---
+
+## 25/07/2026 — Plano manual, PR 1 (correções de base)
+
+Branch local: `fix/plano-base-dia-progressao`, baseada em `b8c602b`.
+
+### Entregue no código
+
+- `dia_offset` do molde agora chega a `scheduled_date` e `day_of_week`; o mapper
+  mantém precedência do `dia_semana` legado e a trava contra data anterior ao
+  início do plano.
+- Sessão sem `duracao_minutos` recebe estimativa pelo volume mapeado, distinguindo
+  exercícios de carga/repetição dos prescritos por tempo.
+- Restrições estruturadas `tipo=lesao` chegam ao mapper e preenchem
+  `injury_flags` por chave canônica ou grupo muscular normalizado.
+- A migration `0015_progression_rules_na_rpc.sql` restaura a persistência de
+  `progression_rules` e repete as asserções cumulativas da 0014.
+- `AGENTS.md` deixou de recomendar Jest com `--runInBand`; `modelo-dados.md` foi
+  marcado explicitamente como histórico.
+
+### RED → GREEN e portões
+
+- RED dirigido: 7 falhas novas reproduziram dia ignorado, duração nula, lesões
+  descartadas, falta da 0015 e ausência das restrições no pipeline.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 59/59 suítes e 522/522 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 315/315 testes; 1 warning já
+  conhecido do urllib3/LibreSSL.
+- RPC da 0015 comparada com a 0014: somente `progression_rules` foi acrescentado
+  à lista de colunas e aos valores de `training_plans`.
+
+### Homologação
+
+- Ref conferido antes do push: `mjdjtiujhwklchalquhc` (`forcaapp-staging`).
+- `supabase db push` aplicou e registrou a 0015; `migration list` final mostrou
+  local=remote em 0000→0015. O aviso final de Docker afetou somente o cache local
+  do catálogo, não a migration nem suas asserções.
+- Branch rebaseada sobre `origin/main` (`bcdd4d6`, PR #42), que renomeou o projeto
+  de produção para `forcaapp-prod` — o `AGENTS.md` deste PR já usa o nome novo.
+- O PR 2 só começa depois do smoke em HML, para preservar o portão entre PRs.

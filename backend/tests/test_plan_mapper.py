@@ -6,6 +6,9 @@
 # - prioridade ausente (fallback determinístico por ordem)
 # - user_id NUNCA vem do payload (anti-spoofing)
 # - datas deterministas (start_date injetado)
+# - dia_offset do molde não pode ser descartado pelo mapper
+# - duração ausente é estimada pelo volume real da sessão
+# - restrições estruturadas de lesão alimentam os guardrails do app
 
 import datetime
 import os
@@ -192,12 +195,84 @@ def test_datas_agendadas_deterministas(resultado):
     assert por_titulo["Full Body"]["week_number"] == 2
 
 
+def test_dia_offset_do_molde_define_datas_e_rotulos():
+    plano = _plano_exemplo()
+    sessoes = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"]
+    base = sessoes[0]
+    sessoes[:] = []
+    for nome, offset in (("Treino Seg", 0), ("Treino Qua", 2), ("Treino Sex", 4)):
+        sessao = {
+            **base,
+            "nome": nome,
+            "dia_offset": offset,
+            "exercicios": [dict(base["exercicios"][0])],
+        }
+        sessao.pop("dia_semana", None)
+        sessoes.append(sessao)
+    plano["plano_principal"]["ciclos"][0]["microciclos"] = [
+        plano["plano_principal"]["ciclos"][0]["microciclos"][0]
+    ]
+
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    assert [s["scheduled_date"] for s in resultado["sessions"]] == [
+        "2026-07-20",
+        "2026-07-22",
+        "2026-07-24",
+    ]
+    assert [s["day_of_week"] for s in resultado["sessions"]] == [
+        "segunda",
+        "quarta",
+        "sexta",
+    ]
+
+
+def test_dia_semana_textual_tem_precedencia_sobre_dia_offset():
+    plano = _plano_com_exercicio("Supino Reto com Barra", "Barra")
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["dia_semana"] = "quinta-feira"
+    sessao["dia_offset"] = 0
+
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    assert resultado["sessions"][0]["scheduled_date"] == "2026-07-23"
+    assert resultado["sessions"][0]["day_of_week"] == "quinta-feira"
+
+
 def test_sessao_metadados(resultado):
     sessao = next(s for s in resultado["sessions"] if s["title"] == "Peito/Tríceps")
     assert sessao["session_type"] == "Hipertrofia"
     assert sessao["estimated_minutes"] == 60
     assert sessao["muscle_groups"] == ["Peito", "Tríceps"]
     assert sessao["status"] == "pending"
+
+
+def test_sessao_sem_duracao_declarada_recebe_estimativa_coerente_com_volume():
+    plano = _plano_com_exercicio("Supino Reto com Barra", "Barra")
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao.pop("duracao_minutos", None)
+    sessao["exercicios"][0].update({"series": 3, "tempo_descanso": "60s"})
+
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    # 3 × (40 s de execução + 60 s de descanso) = 300 s = 5 min.
+    assert resultado["sessions"][0]["estimated_minutes"] == 5
+
+
+def test_estimativa_de_exercicio_por_tempo_soma_duracao_e_descanso_entre_series():
+    plano = _plano_com_exercicio("Caminhada", None)
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao.pop("duracao_minutos", None)
+    sessao["exercicios"][0].update({
+        "series": 2,
+        "duracao_minutos": 5,
+        "tempo_descanso": "60s",
+    })
+
+    resultado = mapear_plano_ia(plano, user_id=USER_ID, start_date=START)
+
+    # 2 × 5 min de execução + 1 descanso de 60 s = 11 min.
+    assert resultado["sessions"][0]["estimated_minutes"] == 11
 
 
 # ---------- Exercícios: prioridade, descanso, faixas ----------
@@ -397,6 +472,45 @@ def test_nome_fora_do_catalogo_e_preservado_sem_chave():
     assert ex["exercise_key"] is None
     assert ex["muscle_group"] is None
     assert ex["name_original"] is None  # nome não mudou: nada a auditar
+
+
+def test_restricao_de_lesao_por_grupo_marca_apenas_o_grupo_normalizado():
+    plano = _plano_exemplo()
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["exercicios"] = [
+        {"nome": "Desenvolvimento com Halteres", "series": 3, "repeticoes": "8-12"},
+        {"nome": "Supino Reto com Barra", "series": 3, "repeticoes": "8-12"},
+    ]
+    resultado = mapear_plano_ia(
+        plano,
+        user_id=USER_ID,
+        start_date=START,
+        restricoes_lesao=[
+            {"tipo": "lesao", "descricao": "Evitar dor", "grupo_afetado": "ombros"}
+        ],
+    )
+    por_chave = {e["exercise_key"]: e for e in resultado["exercises"]}
+
+    assert por_chave["desenvolvimento_halteres"]["injury_flags"] == ["Evitar dor"]
+    assert por_chave["supino_reto_barra"]["injury_flags"] == []
+
+
+def test_restricao_de_lesao_por_exercicio_casa_pela_chave_canonica():
+    resultado = mapear_plano_ia(
+        _plano_com_exercicio("Supino Reto", "Barra"),
+        user_id=USER_ID,
+        start_date=START,
+        restricoes_lesao=[
+            {
+                "tipo": "lesao",
+                "descricao": "Lesão no peitoral",
+                "exercicio_afetado": "Supino com barra",
+            }
+        ],
+    )
+
+    assert resultado["exercises"][0]["exercise_key"] == "supino_reto_barra"
+    assert resultado["exercises"][0]["injury_flags"] == ["Lesão no peitoral"]
 
 
 def test_name_original_so_aparece_quando_o_nome_muda():
