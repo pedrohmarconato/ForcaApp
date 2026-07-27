@@ -32,27 +32,73 @@ docker exec forcaapp-backend-1 grep -c "_executar_geracao_molde" /app/backend/ap
 
 Se os números divergirem, **pare e descubra por quê** antes de buildar.
 
-### 2. `docker-compose.yml` vence o `docker-compose.yaml` versionado
+### 2. O compose que produção carregava não estava no git (resolvido em 27/07/2026)
 
-A VPS tem um `docker-compose.yml` (untracked) que é cópia do
-`docker-compose.yaml` deste repositório. O Compose usa o `.yml` e ignora o
-`.yaml` — ou seja, **editar o arquivo versionado não afeta produção**. Ao mudar
-o compose, altere o arquivo que a VPS realmente carrega (o log do
-`docker compose` diz qual: `level=warning msg="Using /docker/forcaapp/docker-compose.yml"`).
+O Compose prefere `docker-compose.yml` a `docker-compose.yaml` quando os dois
+existem. Enquanto o versionado se chamava `.yaml`, a cópia `.yml` largada em
+`/docker/forcaapp` vencia em silêncio: **mudança feita no arquivo versionado
+nunca chegava em produção**. Homologação não tinha essa cópia, então rodava o
+arquivo certo — foi por isso que o CORS de homologação estava correto e o de
+produção ficou no default de desenvolvimento (ver armadilha 5).
 
-### 3. O override de loopback é uma trava de segurança
+O versionado agora se chama `docker-compose.yml` e ocupa o nome vencedor. Uma
+edição manual na VPS passa a aparecer como arquivo modificado no `git status`,
+em vez de virar um arquivo paralelo invisível.
+
+Para conferir que não voltou a divergir, o `docker compose` avisa quando há mais
+de um candidato:
+
+```sh
+docker compose config 2>&1 >/dev/null | grep -i "Found multiple"
+# silêncio = só existe um compose no diretório
+```
+
+### 3. O override de loopback é defesa em profundidade — não a única trava
 
 A chain `DOCKER-USER` desta VPS está vazia, então portas publicadas pelo Docker
-furam o UFW. `docker-compose.override.yml` força o bind em `127.0.0.1`. Ele não
-está versionado com esse nome para não conflitar com o `git pull` — o modelo
-está em `docker-compose.override.yml.example`. **Sem ele, o backend sobe
-exposto na internet.**
+furam o UFW. Desde o hardening de 22/07/2026 o **arquivo versionado** já binda
+`${FORCA_BIND_HOST:-127.0.0.1}`, então o default seguro está no git. Conferido
+em 27/07/2026: sem o `docker-compose.override.yml`, o bind continua em
+`127.0.0.1`. O override permanece porque ele usa `!override` e vence até um
+`FORCA_BIND_HOST=0.0.0.0` passado por engano — mas ele é a segunda linha, não a
+primeira. O modelo está em `docker-compose.override.yml.example`.
+
+Prova rápida de que a porta não está exposta (rodar de fora da VPS):
+
+```sh
+curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 http://187.77.225.31:5001/api/health
+# 000 / timeout = fechado, como esperado
+```
 
 ### 4. Hotfixes manuais que não voltam para o git
 
 Já houve `backend/Dockerfile` e `.env.example` editados direto na VPS e não
 commitados. Rode `git status` e leia cada `git diff` antes de descartar
 qualquer coisa.
+
+### 5. Variáveis de produção que falham em silêncio
+
+`CORS_ORIGINS` tinha default de desenvolvimento (`localhost`) e ficou assim em
+produção sem ninguém notar. O servidor não acusa nada: quem bloqueia é o
+navegador, e o app mostra apenas `Erro ao gerar plano: Network Error` mais
+"Assistente indisponível" (o probe `/api/health` é barrado do mesmo jeito).
+Nenhum participante conseguia gerar plano pelo browser.
+
+A variável virou obrigatória no compose (`${CORS_ORIGINS:?...}`) — faltando
+ela, o Compose se recusa a subir em vez de degradar calado. O `.env` de cada
+ambiente precisa listar as origens do PWA daquele ambiente.
+
+Diagnóstico deste modo de falha, sem depender do navegador:
+
+```sh
+curl -s -i -X OPTIONS https://forca-api.cadastrai.com/api/chat \
+  -H "Origin: https://forca-app-six.vercel.app" \
+  -H "Access-Control-Request-Method: POST" | grep -i access-control-allow-origin
+# sem saída = origem bloqueada; toda chamada do app vira "Network Error"
+```
+
+As origens de produção são os três aliases do projeto na Vercel
+(`vercel inspect <deploy de produção>` lista todos), mais `localhost` para dev.
 
 ## Procedimento
 

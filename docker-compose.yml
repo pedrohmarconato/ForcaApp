@@ -1,8 +1,15 @@
-# docker-compose.yaml — backend do ForcaApp para VPS Hostinger
+# docker-compose.yml — backend do ForcaApp para VPS Hostinger
 # Deploy: apontar a ferramenta de projetos da VPS para este repositório
 # (ela clona e sobe este arquivo). As variáveis de ambiente do projeto
 # (SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY...) são injetadas
 # pela plataforma — NUNCA commitar o .env.
+#
+# O nome é `.yml`, não `.yaml`, de propósito: o Compose prefere `.yml` quando
+# os dois existem. Enquanto o versionado se chamava `.yaml`, qualquer cópia
+# `.yml` largada na VPS vencia em silêncio e as mudanças feitas aqui nunca
+# chegavam em produção — foi assim que o CORS de produção ficou no default de
+# desenvolvimento até 27/07/2026. Com o versionado ocupando o nome vencedor,
+# uma edição manual na VPS aparece como arquivo modificado no `git status`.
 
 services:
   backend:
@@ -21,6 +28,12 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:?defina SUPABASE_URL no ambiente do projeto}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?defina SUPABASE_ANON_KEY no ambiente do projeto}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?defina ANTHROPIC_API_KEY no ambiente do projeto}
+      # Sem default de propósito. O default antigo era `localhost` — um valor de
+      # desenvolvimento que em produção não quebra nada no servidor: o browser é
+      # que bloqueia a resposta, e o app mostra "Network Error". Ficou assim em
+      # produção sem ninguém perceber até 27/07/2026. Faltando a variável, o
+      # Compose agora se recusa a subir em vez de degradar em silêncio.
+      CORS_ORIGINS: ${CORS_ORIGINS:?defina CORS_ORIGINS com as origens do app (ex. https://forca-app-six.vercel.app,http://localhost:8081)}
       # Opcionais com default sensato
       CLAUDE_MODEL_NAME: ${CLAUDE_MODEL_NAME:-claude-sonnet-4-6}
       CHAT_MODEL_NAME: ${CHAT_MODEL_NAME:-claude-haiku-4-5}
@@ -41,6 +54,5 @@ services:
       CHAT_RATE_WINDOW_SECONDS: ${CHAT_RATE_WINDOW_SECONDS:-60}
       PLAN_RATE_LIMIT: ${PLAN_RATE_LIMIT:-3}
       PLAN_RATE_WINDOW_SECONDS: ${PLAN_RATE_WINDOW_SECONDS:-3600}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:19006}
       FLASK_DEBUG: "false"
       PORT: "5001"

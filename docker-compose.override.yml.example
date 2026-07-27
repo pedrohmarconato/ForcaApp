@@ -2,7 +2,7 @@
 # no diretório de deploy (/docker/forcaapp). O Compose aplica overrides
 # automaticamente, sem precisar de -f.
 #
-# Desde o hardening de 22/07/2026, o docker-compose.yaml versionado JÁ faz
+# Desde o hardening de 22/07/2026, o docker-compose.yml versionado JÁ faz
 # bind em loopback por padrão (FORCA_BIND_HOST default 127.0.0.1). Este
 # override permanece como cinto-e-suspensórios na VPS: mesmo que alguém
 # exporte FORCA_BIND_HOST=0.0.0.0 no ambiente do projeto, o !override
