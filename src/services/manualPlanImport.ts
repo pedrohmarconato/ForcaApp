@@ -221,12 +221,29 @@ const progressionFromRules = (
             registrar('Havia mais de uma regra de séries; só a última será mantida.');
           }
           conferirEscopo(rule, 'aumento de séries');
-          progression.series = {
-            ativa: true,
-            valor: rule.valor,
-            semana_inicio: rule.semana_inicio,
-            semana_fim: rule.semana_fim,
-          };
+          // A janela precisa caber no plano: um plano da IA que prometia 12
+          // semanas mas mapeou 4 trazia a janela 2→8, o Salvar ficava
+          // habilitado e o POST voltava 400 "progressão termina depois do
+          // plano" — sem que nada na tela apontasse o campo.
+          const inicioSeries = Math.max(2, Math.min(rule.semana_inicio, durationWeeks));
+          const fimSeries = Math.max(inicioSeries, Math.min(rule.semana_fim, durationWeeks));
+          if (inicioSeries !== rule.semana_inicio || fimSeries !== rule.semana_fim) {
+            registrar(
+              `A janela do aumento de séries ia da semana ${rule.semana_inicio} à ${rule.semana_fim} e não cabe num plano de ${durationWeeks} semanas; passa a valer da ${inicioSeries} à ${fimSeries}.`,
+            );
+          }
+          progression.series =
+            durationWeeks >= 2
+              ? {
+                  ativa: true,
+                  valor: rule.valor,
+                  semana_inicio: inicioSeries,
+                  semana_fim: fimSeries,
+                }
+              : null;
+          if (durationWeeks < 2) {
+            registrar('O plano tem só uma semana, então o aumento de séries não se aplica.');
+          }
         } else {
           registrar('A regra de aumento de séries estava incompleta e não será mantida.');
         }
@@ -268,9 +285,14 @@ const progressionFromRules = (
           if (progression.deload) {
             registrar('Havia mais de uma semana de descarga; só a última será mantida.');
           }
+          if (rule.semana > durationWeeks) {
+            registrar(
+              `A semana de descarga era a ${rule.semana} e o plano tem ${durationWeeks} semanas; passa a ser a ${durationWeeks}.`,
+            );
+          }
           progression.deload = {
             ativa: true,
-            semana: rule.semana,
+            semana: Math.min(rule.semana, durationWeeks),
             // Mesmos defaults do expansor quando o molde omite os fatores.
             fator_rm: finiteNumber(rule.fator_rm) ? rule.fator_rm : 0.8,
             fator_series: finiteNumber(rule.fator_series) ? rule.fator_series : 0.8,

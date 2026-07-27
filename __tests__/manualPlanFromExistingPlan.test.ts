@@ -338,3 +338,50 @@ describe('manualDraftFromExistingPlan — regressões da auditoria', () => {
     expect(progressionChanges.join(' ')).toContain('delta_inventado');
   });
 });
+
+describe('manualDraftFromExistingPlan — janela que não cabe no plano', () => {
+  it('janela de séries maior que o plano é encaixada e o aviso explica', () => {
+    // Plano que prometia 12 semanas mas mapeou 4: a janela 2→8 voltava intacta,
+    // o Salvar ficava habilitado e o POST devolvia 400 "progressão termina
+    // depois do plano", sem nada na tela apontando o campo.
+    const curto: ExistingManualPlanMetadata = {
+      ...metadata,
+      duration_weeks: 4,
+      progression_rules: [
+        { tipo: 'delta_series', valor: 1, semana_inicio: 2, semana_fim: 8, grupo_alvo: 'todos' },
+        { tipo: 'deload_percentual', semana: 6, fator_rm: 0.8, fator_series: 0.8 },
+      ],
+    };
+
+    const { draft, progressionChanges } = manualDraftFromExistingPlan(curto, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.progressao.series).toEqual({
+      ativa: true,
+      valor: 1,
+      semana_inicio: 2,
+      semana_fim: 4,
+    });
+    expect(draft.progressao.deload?.semana).toBe(4);
+    expect(progressionChanges.join(' ')).toContain('não cabe num plano de 4 semanas');
+    expect(progressionChanges.join(' ')).toContain('semana de descarga');
+  });
+
+  it('plano de uma semana não importa aumento de séries e avisa', () => {
+    const umaSemana: ExistingManualPlanMetadata = {
+      ...metadata,
+      duration_weeks: 1,
+      progression_rules: [
+        { tipo: 'delta_series', valor: 1, semana_inicio: 1, semana_fim: 1, grupo_alvo: 'todos' },
+      ],
+    };
+
+    const { draft, progressionChanges } = manualDraftFromExistingPlan(umaSemana, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.progressao.series).toBeNull();
+    expect(progressionChanges.join(' ')).toContain('só uma semana');
+  });
+});
