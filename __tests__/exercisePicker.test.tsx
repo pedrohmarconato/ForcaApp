@@ -24,6 +24,7 @@ jest.mock('../src/config/supabaseClient', () => ({
 jest.mock('../src/services/exerciseCatalogService', () => ({
   ...jest.requireActual('../src/services/exerciseCatalogService'),
   getCatalog: jest.fn(async () => []),
+  resolveExerciseName: jest.fn(async () => null),
 }));
 
 const mockGoBack = jest.fn();
@@ -39,7 +40,10 @@ jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 
 import ExercisePickerScreen from '../src/screens/ExercisePickerScreen';
 import { useManualPlanStore } from '../src/store/manualPlanStore';
-import type { CatalogEntry } from '../src/services/exerciseCatalogService';
+import {
+  resolveExerciseName,
+  type CatalogEntry,
+} from '../src/services/exerciseCatalogService';
 
 const catalog: CatalogEntry[] = [
   {
@@ -113,8 +117,36 @@ describe('ExercisePickerScreen', () => {
     const livre = await screen.findByText('Usar “Rosca escocesa no banco 45”');
     expect(livre).toBeTruthy();
     fireEvent.press(livre);
-    expect(screen.getByText(/ainda não está na nossa lista/i)).toBeTruthy();
+    // Offline o resolvedor devolve null e o nome livre continua valendo.
+    expect(await screen.findByText(/ainda não está na nossa lista/i)).toBeTruthy();
     expect(screen.getByText('Escolher métrica')).toBeTruthy();
+  });
+
+  it('nome que o servidor canoniza vira item do catálogo, não nome livre', async () => {
+    // Os aliases não viajam no payload: o app não tem como saber sozinho que
+    // "Bent Over Row" é "Remada Curvada com Barra". Sem consultar o resolvedor,
+    // o app afirmava "não está na nossa lista" e a métrica escolhida pelo aluno
+    // era descartada em silêncio na gravação.
+    (resolveExerciseName as jest.Mock).mockResolvedValueOnce({
+      chave: 'remada_curvada_barra',
+      nome: 'Remada Curvada com Barra',
+      grupo_muscular: 'Costas',
+      equipamento: 'Barra',
+      peso_corporal: false,
+      incremento_kg: 2.5,
+      metrica: 'carga_reps',
+    });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(
+      screen.getByLabelText('Buscar ou escrever exercício'),
+      'Bent Over Row',
+    );
+    fireEvent.press(await screen.findByText('Usar “Bent Over Row”'));
+
+    // Aparece no header e no card de resumo.
+    expect((await screen.findAllByText('Remada Curvada com Barra')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ainda não está na nossa lista/i)).toBeNull();
+    expect(screen.getByText('Barra')).toBeTruthy();
   });
 
   it('Cardio/Mobilidade começam recolhidos, mas continuam alcançáveis', async () => {

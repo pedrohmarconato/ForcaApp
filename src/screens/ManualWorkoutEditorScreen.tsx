@@ -8,12 +8,18 @@ import {
   CheckboxRow,
   DayToggle,
   EmptyState,
+  Notice,
   Screen,
   SectionHeader,
   StackHeader,
   TextField,
 } from '../components/ui';
 import { useManualPlanStore } from '../store/manualPlanStore';
+import {
+  MANUAL_WORKOUT_MAX_MINUTES,
+  MANUAL_WORKOUT_MIN_MINUTES,
+  isValidWorkoutDuration,
+} from '../types/manualPlan';
 import theme from '../theme/theme';
 
 const DAYS = [
@@ -26,10 +32,15 @@ const DAYS = [
   { label: 'D', full: 'Domingo' },
 ] as const;
 
-const numberOrNull = (value: string): number | null => {
+// A estimativa é um inteiro de minutos. Decimal ("37,5") reprovava o rascunho
+// inteiro na releitura do AsyncStorage e o store gravava um plano VAZIO por
+// cima: todo o trabalho do aluno sumia, sem mensagem nenhuma. Nada fracionário
+// entra no rascunho — o valor fora da faixa vira erro visível no próprio campo.
+const minutosOuNull = (value: string): number | null => {
   if (!value.trim()) return null;
   const parsed = Number(value.replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed);
 };
 
 const ManualWorkoutEditorScreen = () => {
@@ -90,8 +101,15 @@ const ManualWorkoutEditorScreen = () => {
           value={workout.duracao_minutos == null ? '' : String(workout.duracao_minutos)}
           placeholder="O servidor estima pelo volume"
           keyboardType="number-pad"
-          onChangeText={(value) => setWorkoutDuration(workoutIndex, numberOrNull(value))}
+          onChangeText={(value) => setWorkoutDuration(workoutIndex, minutosOuNull(value))}
         />
+        {isValidWorkoutDuration(workout.duracao_minutos) ? null : (
+          <Notice
+            tone="danger"
+            title={`A estimativa precisa ficar entre ${MANUAL_WORKOUT_MIN_MINUTES} e ${MANUAL_WORKOUT_MAX_MINUTES} minutos.`}
+            description="Deixe em branco para o servidor estimar pelo volume do treino."
+          />
+        )}
 
         <View style={styles.options}>
           <CheckboxRow
