@@ -74,6 +74,11 @@ MANUAL_PLAN_RATE_WINDOW_SECONDS = int(
 MANUAL_PLAN_PREVIEW_RATE_LIMIT = int(
     os.environ.get("MANUAL_PLAN_PREVIEW_RATE_LIMIT", "60")
 )
+# Balde de ABUSO, checado antes da validação: limita CPU do worker único sem
+# punir quem só está errando o formulário. Checar o balde de CRIAÇÃO (10/h)
+# antes da validação trancava por uma hora o aluno que tentou salvar um plano
+# grande demais dez vezes seguidas — sem nunca ter criado plano nenhum.
+MANUAL_PLAN_ABUSE_LIMIT = int(os.environ.get("MANUAL_PLAN_ABUSE_LIMIT", "60"))
 
 # Feature flag da nova arquitetura molde+expansor+job.
 # false (default): comportamento antigo (plano direto síncrono via TreinadorEspecialista).
@@ -449,6 +454,16 @@ _MENSAGENS_RASCUNHO_MANUAL = {
         "a distância de um exercício precisa ficar entre 10 metros e 100 km",
     (("treinos", "exercicios", "distancia_km"), "maximum"):
         "a distância de um exercício precisa ficar entre 10 metros e 100 km",
+    (("treinos", "exercicios", "percentual_rm"), "minimum"):
+        "a intensidade em %RM precisa ficar entre 0 e 100",
+    (("treinos", "exercicios", "percentual_rm"), "maximum"):
+        "a intensidade em %RM precisa ficar entre 0 e 100",
+    (("treinos", "exercicios", "tempo_descanso"), "minimum"):
+        "o descanso entre séries precisa ser um tempo válido",
+    (("treinos", "exercicios", "observacoes"), "maxLength"):
+        "as observações de um exercício ficaram longas demais",
+    (("treinos", "exercicios", "repeticoes"), "maxLength"):
+        "o campo de repetições ficou longo demais",
     (("treinos", "exercicios", "series"), "minimum"):
         "cada exercício precisa de pelo menos 1 série",
     (("treinos", "exercicios", "series"), "maximum"):
@@ -502,45 +517,17 @@ def _mensagem_de_validacao(exc):
     return "Plano manual inválido: revise os dados do plano."
 
 
-def _series_projetadas(rascunho):
-    """
-    Total de séries do plano DEPOIS de expandir, contando a progressão.
-
-    Precisa bater EXATAMENTE com o que o pipeline grava. Somar só
-    `series × semanas` fazia um plano comum morrer com 400 no meio do pipeline;
-    somar o incremento em cardio — que o expansor não progride — faz o inverso,
-    recusando plano legítimo com um número que nunca existiu (invariante 12).
-    Por isso a regra de quem progride vem do MESMO predicado do expansor
-    (`progride_por_series`) e a janela vem do MESMO builder que monta o molde.
-    """
-    from backend.services.exercise_catalog import progride_por_series
-
-    duracao_semanas = rascunho["duracao_semanas"]
-    regras = construir_regras_progressao(
-        rascunho.get("progressao") or {}, duracao_semanas
-    )
-    regra_series = next(
-        (r for r in regras if r["tipo"] == "delta_series"), None
-    )
-    inicio = regra_series["semana_inicio"] if regra_series else 0
-    fim = regra_series["semana_fim"] if regra_series else -1
-    valor = regra_series["valor"] if regra_series else 0
-
-    total = 0
-    for semana in range(1, duracao_semanas + 1):
-        for treino in rascunho["treinos"]:
-            for exercicio in treino["exercicios"]:
-                series = exercicio["series"]
-                if regra_series and inicio <= semana <= fim and progride_por_series(exercicio):
-                    incremento = valor * (semana - inicio + 1)
-                    series = min(max(series + incremento, 2), 10)
-                total += series
-            # Aquecimento e alongamento são 1 série fixa e não progridem.
-            total += int(treino.get("incluir_aquecimento") is True)
-            total += int(treino.get("incluir_alongamento") is True)
-    return total
-
-
+# Sem projeção paralela do teto de séries.
+#
+# Duas tentativas de "pré-checar" o teto reimplementando a fórmula do expansor
+# divergiram do pipeline nos dois sentidos: contando de menos, plano comum
+# morria com 400 no meio do caminho; contando de mais (incremento em cardio,
+# deload ignorado, métrica decidida no rascunho e não no molde), plano legítimo
+# era recusado com um número que nenhuma etapa do sistema produz — invariante 12.
+#
+# Quem sabe o total exato é o mapper, porque ele conta as séries que vai gravar.
+# O endpoint traduz o ValueError dele numa mensagem acionável, e o número
+# exibido passa a ser sempre o real.
 def _validar_rascunho_manual(rascunho):
     """Valida schema e invariantes que dependem de mais de um campo."""
     import jsonschema
@@ -568,21 +555,6 @@ def _validar_rascunho_manual(rascunho):
         return "Plano manual inválido: dois treinos no mesmo dia."
 
     duracao_semanas = rascunho["duracao_semanas"]
-    total_expandido = _series_projetadas(rascunho)
-    if total_expandido > MAX_TOTAL_SETS:
-        progressao_de_series = (
-            (rascunho.get("progressao") or {}).get("series") or {}
-        ).get("ativa") is True
-        sugestao = (
-            "Reduza a duração do plano, o número de exercícios ou desligue o "
-            "aumento de séries."
-            if progressao_de_series
-            else "Reduza a duração do plano ou o número de exercícios."
-        )
-        return (
-            "Plano manual inválido: o plano chega a {} séries ao expandir {} "
-            "semanas e o teto é {}. {}"
-        ).format(total_expandido, duracao_semanas, MAX_TOTAL_SETS, sugestao)
 
     progressao = rascunho.get("progressao") or {}
     series = progressao.get("series") or {}
@@ -605,6 +577,23 @@ def _rascunho_manual_da_requisicao():
         return None, "Corpo JSON inválido. Esperado objeto."
     erro = _validar_rascunho_manual(rascunho)
     return rascunho, erro
+
+
+def _erro_de_pipeline_legivel(rascunho, exc):
+    """Traduz o ValueError do pipeline em algo que o aluno saiba corrigir."""
+    texto = str(exc)
+    if "teto de" in texto and "séries" in texto:
+        progressao_de_series = (
+            (rascunho.get("progressao") or {}).get("series") or {}
+        ).get("ativa") is True
+        sugestao = (
+            "Reduza a duração do plano, o número de exercícios ou desligue o "
+            "aumento de séries."
+            if progressao_de_series
+            else "Reduza a duração do plano ou o número de exercícios."
+        )
+        return "Plano manual inválido: {} {}".format(texto.replace("Plano inválido: ", ""), sugestao)
+    return texto
 
 
 def _executar_pipeline_manual(rascunho, user_id, inicio):
@@ -709,12 +698,26 @@ def _resumo_preview(mapeado):
 @token_required
 def handle_manual_plan():
     """Cria e persiste um plano manual pelo pipeline determinístico existente."""
-    # Rate limit ANTES da validação: rascunho inválido também custa CPU do
-    # worker único, e um chamador em loop com payload no teto do schema nunca
-    # consumia o balde porque morria no 400 antes de chegar aqui.
     user_id = (g.user or {}).get("id")
     if not user_id:
         return jsonify({"error": "ID do usuário não fornecido."}), 400
+    # Balde de abuso primeiro (limita CPU mesmo em payload inválido)...
+    if _rate_limit_hit(
+        "manual_plan_abuso",
+        user_id,
+        MANUAL_PLAN_ABUSE_LIMIT,
+        MANUAL_PLAN_RATE_WINDOW_SECONDS,
+    ):
+        return jsonify(
+            {"error": "Muitas solicitações seguidas. Tente novamente em alguns minutos."}
+        ), 429
+
+    rascunho, erro = _rascunho_manual_da_requisicao()
+    if erro:
+        return jsonify({"error": erro}), 400
+
+    # ...e só um rascunho VÁLIDO consome a cota de criação de plano. Errar o
+    # formulário não pode custar a cota de quem ainda não criou nada.
     if _rate_limit_hit(
         "manual_plan",
         user_id,
@@ -725,17 +728,13 @@ def handle_manual_plan():
             {"error": "Muitas solicitações de plano manual. Tente novamente mais tarde."}
         ), 429
 
-    rascunho, erro = _rascunho_manual_da_requisicao()
-    if erro:
-        return jsonify({"error": erro}), 400
-
     inicio = datetime.date.today()
     try:
         _, _, mapeado = _executar_pipeline_manual(rascunho, user_id, inicio)
         plan_id = persistir_plano(mapeado, access_token=g.access_token)
     except ValueError as exc:
         app_logger.warning(f"Plano manual inválido para usuário {user_id}: {exc}")
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _erro_de_pipeline_legivel(rascunho, exc)}), 400
     except PlanPersistenceError:
         app_logger.exception(f"Falha ao persistir plano manual do usuário {user_id}.")
         return jsonify(
@@ -771,7 +770,7 @@ def handle_manual_plan_preview():
             rascunho, user_id, datetime.date.today()
         )
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _erro_de_pipeline_legivel(rascunho, exc)}), 400
     return jsonify(_resumo_preview(mapeado)), 200
 
 
