@@ -848,3 +848,46 @@ def test_preview_tem_rate_limit_proprio(client):
     assert primeira.status_code == 200
     assert segunda.status_code == 200
     assert terceira.status_code == 429
+
+
+def test_isometria_curta_e_prescricao_valida_no_contrato(client):
+    """
+    Prancha de 45 s = 0,75 min. Com o piso do contrato em 1 minuto, reabrir um
+    plano que tem isometria curta reprovava o plano INTEIRO — o editor do plano
+    ativo ficava inutilizável para qualquer plano com prancha de 45 s.
+    """
+    prancha = _exercicio(
+        nome="Prancha",
+        exercise_key="prancha",
+        equipamento="Peso corporal",
+        repeticoes=None,
+        duracao_minutos=0.75,
+        series=3,
+    )
+    sprint = _exercicio(
+        nome="Corrida",
+        exercise_key="corrida",
+        equipamento=None,
+        repeticoes=None,
+        duracao_minutos=0.5,
+        distancia_km=0.05,
+        series=4,
+    )
+    rascunho = _rascunho(exercicios=[prancha, sprint], duracao_semanas=2)
+
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+    assert response.status_code == 200, response.get_json()
+
+    mapeado = mapear_plano_ia(
+        _expandir(rascunho), user_id=USER_ID, start_date=START, created_by="user"
+    )
+    por_nome = {e["name"]: e for e in mapeado["exercises"]}
+    serie_prancha = next(
+        s for s in mapeado["sets"] if s["exercise_id"] == por_nome["Prancha"]["id"]
+    )
+    assert serie_prancha["target_duration_seconds"] == 45
+    serie_sprint = next(
+        s for s in mapeado["sets"] if s["exercise_id"] == por_nome["Corrida"]["id"]
+    )
+    assert serie_sprint["target_duration_seconds"] == 30
+    assert serie_sprint["target_distance_m"] == 50

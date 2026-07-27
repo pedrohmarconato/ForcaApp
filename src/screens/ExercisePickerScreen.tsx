@@ -23,7 +23,11 @@ import {
 } from '../services/exerciseCatalogService';
 import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
-import type { ManualExerciseDraft, ManualExercisePriority } from '../types/manualPlan';
+import {
+  formatWorkDuration,
+  type ManualExerciseDraft,
+  type ManualExercisePriority,
+} from '../types/manualPlan';
 
 const metricCopy: Record<CatalogMetric, string> = {
   carga_reps: 'Carga e repetições',
@@ -294,6 +298,11 @@ const ExercisePickerScreen = () => {
               keyboardType="decimal-pad"
               onChangeText={(value) => patchExercise({ duracao_minutos: numberOrNull(value) })}
             />
+            {exercise.duracao_minutos != null && exercise.duracao_minutos < 1 ? (
+              <Text style={styles.hint}>
+                Equivale a {formatWorkDuration(exercise.duracao_minutos)} por série.
+              </Text>
+            ) : null}
             {exercise.metrica === 'tempo_distancia' ? (
               <TextField
                 label="Distância por série (km, opcional)"
@@ -386,6 +395,11 @@ const ExercisePickerScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  hint: {
+    color: theme.colors.text.secondary,
+    fontSize: theme.typography.fontSizes.sm,
+    marginTop: -theme.spacing.xs,
+  },
   content: {
     paddingHorizontal: theme.spacing.xl,
     paddingTop: theme.spacing.lg,

@@ -109,6 +109,20 @@ export const createEmptyManualWorkout = (
   exercicios: [],
 });
 
+/**
+ * Duração de uma série em texto legível.
+ *
+ * O contrato guarda minutos (0,75 = 45 s) porque é assim que o molde e o
+ * expansor trabalham. Mostrar "0,75 min" para o aluno seria transformar uma
+ * prescrição correta em algo ilegível — abaixo de 1 minuto, exibe segundos.
+ */
+export const formatWorkDuration = (minutos: number | null): string | null => {
+  if (minutos == null || !Number.isFinite(minutos) || minutos <= 0) return null;
+  if (minutos < 1) return `${Math.round(minutos * 60)} s`;
+  const arredondado = Math.round(minutos * 10) / 10;
+  return `${String(arredondado).replace('.', ',')} min`;
+};
+
 // Duração declarada do treino: o mesmo intervalo do PLANO_MANUAL_SCHEMA.
 export const MANUAL_WORKOUT_MIN_MINUTES = 15;
 export const MANUAL_WORKOUT_MAX_MINUTES = 180;
