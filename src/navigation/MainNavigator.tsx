@@ -32,6 +32,7 @@ import { withJointTrainingGate } from './JointTrainingGate';
 import ManualPlanEditorScreen from '../screens/ManualPlanEditorScreen';
 import ManualWorkoutEditorScreen from '../screens/ManualWorkoutEditorScreen';
 import ExercisePickerScreen from '../screens/ExercisePickerScreen';
+import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -56,7 +57,11 @@ export type TrainingStackParamList = {
   // geração direto, sem chat.
   Questionnaire: undefined;
   PostQuestionnaireChat: { formData?: any; skipChat?: boolean };
-  ManualPlanEditor: { fromPlanId?: string } | undefined;
+  ManualPlanEditor: {
+    fromPlanId?: string;
+    onboarding?: boolean;
+    questionnaireData?: ManualOnboardingQuestionnaire;
+  } | undefined;
   ManualWorkoutEditor: { workoutIndex: number };
   ExercisePicker: { workoutIndex: number; exerciseIndex?: number };
 };

@@ -6,16 +6,25 @@ import { create } from 'zustand';
 
 import apiClient, { ENDPOINTS, classifyApiError } from '../services/api/apiClient';
 import { getCatalog, type CatalogEntry } from '../services/exerciseCatalogService';
+import { manualDraftFromExistingPlan } from '../services/manualPlanImport';
 import {
   clearManualPlanDraft,
   loadManualPlanDraft,
   saveManualPlanDraft,
 } from '../services/manualPlanDraftStorage';
 import {
+  getPlanSessions,
+  getSessionDetail,
+  getTrainingPlanMetadata,
+  type SessionDetail,
+} from '../services/trainingRepository';
+import {
   createEmptyManualPlanDraft,
   createEmptyManualWorkout,
+  createManualPlanDraftFromQuestionnaire,
   hasCardioExercise,
   type ManualExerciseDraft,
+  type ManualOnboardingQuestionnaire,
   type ManualPlanDraft,
   type ManualPlanPreview,
   type ManualProgression,
@@ -35,6 +44,8 @@ type InitOptions = {
   incluirAlongamento?: boolean;
 };
 
+type DraftOrigin = 'empty' | 'onboarding' | 'existing';
+
 type ResetOptions = { clearPersisted?: boolean };
 
 type ManualPlanState = {
@@ -47,7 +58,15 @@ type ManualPlanState = {
   previewData: ManualPlanPreview | null;
   incluirCardio: boolean;
   incluirAlongamento: boolean;
+  draftOrigin: DraftOrigin | null;
+  sourcePlanId: string | null;
+  progressionUnavailable: boolean;
   initEmpty: (userId: string, options?: InitOptions) => Promise<void>;
+  initFromQuestionnaire: (
+    userId: string,
+    questionnaire: ManualOnboardingQuestionnaire,
+  ) => Promise<void>;
+  initFromPlan: (userId: string, planId: string) => Promise<void>;
   setPlanName: (name: string) => void;
   setDurationWeeks: (weeks: number) => void;
   setProgression: (partial: Partial<ManualProgression>) => void;
@@ -76,7 +95,12 @@ let operationEpoch = 0;
 
 const cloneDraft = (draft: ManualPlanDraft): ManualPlanDraft => ({
   ...draft,
-  progressao: { ...draft.progressao },
+  progressao: {
+    series: draft.progressao.series ? { ...draft.progressao.series } : null,
+    cardio: draft.progressao.cardio ? { ...draft.progressao.cardio } : null,
+    intensidade: draft.progressao.intensidade ? { ...draft.progressao.intensidade } : null,
+    deload: draft.progressao.deload ? { ...draft.progressao.deload } : null,
+  },
   treinos: draft.treinos.map((treino) => ({
     ...treino,
     exercicios: treino.exercicios.map((exercicio) => ({ ...exercicio })),
@@ -144,16 +168,23 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
     previewData: null,
     incluirCardio: true,
     incluirAlongamento: false,
+    draftOrigin: null,
+    sourcePlanId: null,
+    progressionUnavailable: false,
 
     initEmpty: async (userId, options = {}) => {
       const epoch = ++operationEpoch;
       set({
         userId,
+        draft: null,
         status: 'loading',
         saveError: null,
         catalogError: null,
         incluirCardio: options.incluirCardio ?? true,
         incluirAlongamento: options.incluirAlongamento ?? false,
+        draftOrigin: 'empty',
+        sourcePlanId: null,
+        progressionUnavailable: false,
       });
       const stored = options.forceNew ? null : await loadManualPlanDraft(userId);
       if (epoch !== operationEpoch) return;
@@ -169,6 +200,127 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           set({
             catalog: [],
             catalogError: 'Sem conexão com o catálogo. Você ainda pode escrever o nome livre.',
+          });
+        }
+      }
+    },
+
+    initFromQuestionnaire: async (userId, questionnaire) => {
+      const epoch = ++operationEpoch;
+      set({
+        userId,
+        draft: null,
+        status: 'loading',
+        saveError: null,
+        catalogError: null,
+        previewData: null,
+        incluirCardio: questionnaire.inclui_cardio === true,
+        incluirAlongamento: questionnaire.inclui_alongamento === true,
+        draftOrigin: 'onboarding',
+        sourcePlanId: null,
+        progressionUnavailable: false,
+      });
+      let stored: ManualPlanDraft | null = null;
+      try {
+        stored = await loadManualPlanDraft(userId);
+      } catch {
+        // Storage local indisponível não bloqueia o editor; o aviso abaixo
+        // deixa explícito que manter o app aberto é necessário nesta sessão.
+      }
+      if (epoch !== operationEpoch) return;
+      const draft = stored ?? createManualPlanDraftFromQuestionnaire(questionnaire);
+      set({ draft, status: 'ready' });
+      if (!stored) {
+        try {
+          await saveManualPlanDraft(userId, draft);
+        } catch {
+          if (epoch === operationEpoch) {
+            set({
+              saveError: 'Não foi possível salvar o rascunho local. Mantenha o app aberto.',
+            });
+          }
+        }
+      }
+
+      try {
+        const catalog = await getCatalog();
+        if (epoch === operationEpoch) set({ catalog, catalogError: null });
+      } catch {
+        if (epoch === operationEpoch) {
+          set({
+            catalog: [],
+            catalogError: 'Sem conexão com o catálogo. Você ainda pode escrever o nome livre.',
+          });
+        }
+      }
+    },
+
+    initFromPlan: async (userId, planId) => {
+      const epoch = ++operationEpoch;
+      set({
+        userId,
+        draft: null,
+        status: 'loading',
+        saveError: null,
+        catalogError: null,
+        previewData: null,
+        draftOrigin: 'existing',
+        sourcePlanId: planId,
+        progressionUnavailable: false,
+      });
+
+      try {
+        const [sessions, metadata] = await Promise.all([
+          getPlanSessions(userId),
+          getTrainingPlanMetadata(planId),
+        ]);
+        if (epoch !== operationEpoch) return;
+        if (!metadata) throw new Error('Plano não encontrado.');
+
+        const weekOne = sessions.filter(
+          (session) => session.plan_id === planId && session.week_number === 1,
+        );
+        if (weekOne.length === 0) throw new Error('Semana 1 do plano não encontrada.');
+        const details = await Promise.all(
+          weekOne.map((session) => getSessionDetail(session.id)),
+        );
+        if (epoch !== operationEpoch) return;
+        if (details.some((detail) => detail === null)) {
+          throw new Error('Não foi possível ler todos os treinos da semana 1.');
+        }
+
+        const imported = manualDraftFromExistingPlan(
+          metadata,
+          details as SessionDetail[],
+        );
+        set({
+          draft: imported.draft,
+          status: 'ready',
+          progressionUnavailable: imported.progressionUnavailable,
+          incluirCardio: true,
+          incluirAlongamento: imported.draft.treinos.some(
+            (workout) => workout.incluir_alongamento,
+          ),
+        });
+        await saveManualPlanDraft(userId, imported.draft);
+
+        try {
+          const catalog = await getCatalog();
+          if (epoch === operationEpoch) set({ catalog, catalogError: null });
+        } catch {
+          if (epoch === operationEpoch) {
+            set({
+              catalog: [],
+              catalogError: 'Sem conexão com o catálogo. Você ainda pode escrever o nome livre.',
+            });
+          }
+        }
+      } catch {
+        if (epoch === operationEpoch) {
+          set({
+            draft: null,
+            status: 'error',
+            saveError: 'Não foi possível carregar o plano atual para edição.',
           });
         }
       }
@@ -313,7 +465,14 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           // O plano já foi persistido no servidor. Não transformar sucesso em
           // aparente falha (e induzir uma segunda criação); a limpeza é cache.
         }
-        set({ draft: null, previewData: null, status: 'idle' });
+        set({
+          draft: null,
+          previewData: null,
+          status: 'idle',
+          draftOrigin: null,
+          sourcePlanId: null,
+          progressionUnavailable: false,
+        });
         return planId;
       } catch (error) {
         set({
@@ -337,6 +496,9 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         previewData: null,
         incluirCardio: true,
         incluirAlongamento: false,
+        draftOrigin: null,
+        sourcePlanId: null,
+        progressionUnavailable: false,
       });
     },
   };

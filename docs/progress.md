@@ -1408,3 +1408,47 @@ Branch `feat/plano-manual-editor`, empilhada sobre o PR #46.
   mas não têm ponto de entrada por desenho: o onboarding e “Editar plano”
   entram no PR 5. Portanto o smoke navegável ponta a ponta não foi fingido
   neste PR; ele começa assim que a próxima camada publicar esses acessos.
+
+---
+
+## 26/07/2026 — Plano manual, PR 5: entradas e edição do plano ativo
+
+Branch `feat/plano-manual-entradas`, empilhada sobre o PR #47.
+
+### Entregue no código
+
+- O onboarding agora oferece “Prefiro montar meu treino” com o mesmo peso das
+  alternativas existentes. O questionário só pré-preenche dias, duração e as
+  preferências explícitas de cardio/alongamento; nenhum exercício é escolhido
+  pelo app.
+- Salvar no onboarding volta ao portão de revelação já existente. O perfil
+  continua intocado até o toque em “Começar”, quando `onboarding_completed` e
+  `current_plan_id` são atualizados juntos.
+- A aba Plano ganhou “Editar plano”. O store lê somente a semana 1 do plano
+  ativo, preserva prescrição, dia, duração, limitação e regras de progressão e
+  abre o mesmo editor manual.
+- Aquecimento Articular e Alongamento Dinâmico persistidos voltam a toggles e
+  saem da lista editável, impedindo duplicação em edições sucessivas. Planos
+  atingidos pela antiga regressão de `progression_rules` ficam com todas as
+  regras desligadas e recebem aviso explícito; nenhuma progressão é inferida.
+- A substituição exige confirmação e explica que a RPC cria um plano novo,
+  arquiva o atual e preserva os treinos já executados no histórico.
+- O rascunho persistido vence o prefill ao retomar o onboarding, evitando que
+  fechar e reabrir o app apague trabalho já digitado.
+
+### RED → GREEN e portões locais
+
+- RED inicial: o conversor não existia, a terceira opção não aparecia, o save
+  manual pulava a revelação e o aviso não exigia confirmação.
+- Três suítes novas cobrem importação/round-trip, onboarding manual e aviso de
+  substituição; testes existentes foram ampliados para o store, metadados do
+  plano e a ação na aba Plano.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 67/67 suítes e 556/556 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
+  conhecido do urllib3/LibreSSL.
+
+### Homologação HML
+
+- Pendente de publicação do PWA Preview e smoke navegável deste PR. Não há
+  migration nem alteração de backend nesta camada.

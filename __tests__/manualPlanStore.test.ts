@@ -30,6 +30,18 @@ jest.mock('../src/services/manualPlanDraftStorage', () => ({
   clearManualPlanDraft: jest.fn(async () => undefined),
 }));
 
+jest.mock('../src/services/trainingRepository', () => ({
+  getPlanSessions: jest.fn(async () => []),
+  getSessionDetail: jest.fn(async () => null),
+  getTrainingPlanMetadata: jest.fn(async () => null),
+}));
+
+import {
+  getPlanSessions,
+  getSessionDetail,
+  getTrainingPlanMetadata,
+} from '../src/services/trainingRepository';
+
 const mockedPost = apiClient.post as jest.Mock;
 
 const exercise = (
@@ -55,6 +67,9 @@ describe('manualPlanStore', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     (storage.loadManualPlanDraft as jest.Mock).mockResolvedValue(null);
+    (getPlanSessions as jest.Mock).mockResolvedValue([]);
+    (getSessionDetail as jest.Mock).mockResolvedValue(null);
+    (getTrainingPlanMetadata as jest.Mock).mockResolvedValue(null);
     await useManualPlanStore.getState().reset({ clearPersisted: false });
     await useManualPlanStore.getState().initEmpty('user-1', { forceNew: true });
   });
@@ -139,6 +154,103 @@ describe('manualPlanStore', () => {
     store.removeExercise(0, 1);
 
     expect(useManualPlanStore.getState().draft?.progressao.cardio).toBeNull();
+  });
+
+  it('importa somente a semana 1 do plano ativo para edição', async () => {
+    (getPlanSessions as jest.Mock).mockResolvedValue([
+      {
+        id: 'session-week-1',
+        plan_id: 'plan-old',
+        user_id: 'user-1',
+        week_number: 1,
+        order_in_week: 1,
+      },
+      {
+        id: 'session-week-2',
+        plan_id: 'plan-old',
+        user_id: 'user-1',
+        week_number: 2,
+        order_in_week: 1,
+      },
+    ]);
+    (getTrainingPlanMetadata as jest.Mock).mockResolvedValue({
+      id: 'plan-old',
+      name: 'Plano original',
+      duration_weeks: 8,
+      progression_rules: [],
+    });
+    (getSessionDetail as jest.Mock).mockResolvedValue({
+      id: 'session-week-1',
+      plan_id: 'plan-old',
+      user_id: 'user-1',
+      week_number: 1,
+      day_of_week: 'segunda',
+      order_in_week: 1,
+      title: 'Treino A',
+      session_type: 'Personalizado',
+      scheduled_date: '2026-07-20',
+      estimated_minutes: 45,
+      status: 'pending',
+      muscle_groups: ['Peito'],
+      planned_exercises: [
+        {
+          id: 'exercise-1',
+          session_id: 'session-week-1',
+          exercise_order: 1,
+          name: 'Supino Reto com Barra',
+          exercise_key: 'supino_reto_barra',
+          metric: 'carga_reps',
+          muscle_group: 'Peito',
+          priority: 'primary',
+          equipment: 'Barra',
+          load_increment_kg: 2.5,
+          rest_seconds: 90,
+          target_rm_percent: null,
+          sets_planned: 3,
+          reps_raw: '8-12',
+          method: null,
+          notes: null,
+          injury_flags: [],
+          planned_sets: [],
+        },
+      ],
+    });
+
+    await useManualPlanStore.getState().initFromPlan('user-1', 'plan-old');
+
+    expect(getSessionDetail).toHaveBeenCalledTimes(1);
+    expect(getSessionDetail).toHaveBeenCalledWith('session-week-1');
+    expect(useManualPlanStore.getState()).toMatchObject({
+      draftOrigin: 'existing',
+      sourcePlanId: 'plan-old',
+      progressionUnavailable: false,
+    });
+    expect(useManualPlanStore.getState().draft).toMatchObject({
+      nome: 'Plano original',
+      duracao_semanas: 8,
+      treinos: [{ nome: 'Treino A', dia_offset: 0 }],
+    });
+  });
+
+  it('retoma rascunho persistido no onboarding em vez de sobrescrever com o prefill', async () => {
+    const persisted = {
+      ...useManualPlanStore.getState().draft!,
+      nome: 'Rascunho de vinte minutos',
+      treinos: [],
+    };
+    (storage.loadManualPlanDraft as jest.Mock).mockResolvedValueOnce(persisted);
+
+    await useManualPlanStore.getState().initFromQuestionnaire('user-1', {
+      dias_treino: ['mon', 'wed'],
+      tempo_medio_treino_min: 45,
+      inclui_cardio: false,
+      inclui_alongamento: true,
+    });
+
+    expect(useManualPlanStore.getState().draft?.nome).toBe('Rascunho de vinte minutos');
+    expect(storage.saveManualPlanDraft).not.toHaveBeenCalledWith('user-1', expect.objectContaining({
+      treinos: expect.arrayContaining([expect.objectContaining({ dia_offset: 0 })]),
+    }));
   });
 
   it('preview mantém exatamente os números do servidor, sem recalcular', async () => {

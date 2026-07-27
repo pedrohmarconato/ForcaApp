@@ -21,6 +21,7 @@ import {
   getTodaySession,
   getUpcomingSessions,
   getSessionDetail,
+  getTrainingPlanMetadata,
   formatExerciseTarget,
 } from '../src/services/trainingRepository';
 
@@ -55,6 +56,22 @@ describe('getActivePlanId', () => {
   it('sem plano ativo devolve null', async () => {
     fromMock.mockReturnValueOnce(builderComResultado({ data: [], error: null }));
     expect(await getActivePlanId('user-1')).toBeNull();
+  });
+});
+
+describe('getTrainingPlanMetadata', () => {
+  it('lê progression_rules sem inferir regra ausente', async () => {
+    const metadata = {
+      id: 'plan-ativo',
+      name: 'Plano A',
+      duration_weeks: 12,
+      progression_rules: null,
+    };
+    const builder = builderComResultado({ data: metadata, error: null });
+    fromMock.mockReturnValueOnce(builder);
+
+    await expect(getTrainingPlanMetadata('plan-ativo')).resolves.toEqual(metadata);
+    expect(builder.eq).toHaveBeenCalledWith('id', 'plan-ativo');
   });
 });
 
