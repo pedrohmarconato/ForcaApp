@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,6 +23,7 @@ import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import {
   DEFAULT_MANUAL_PROGRESSION,
+  defaultSeriesWindow,
   hasCardioExercise,
   hasRmExercise,
   isManualPlanSavable,
@@ -64,13 +65,19 @@ const ManualPlanEditorScreen = () => {
   const onboarding = route.params?.onboarding === true;
   const questionnaireData = route.params?.questionnaireData;
 
+  // Marcador preso a ESTA montagem da tela. Uma guarda por `status` global
+  // impedia o re-disparo logo após o save, mas nunca era zerada: reabrir o
+  // editor na mesma sessão do app mostrava "Plano criado / Abrindo seu plano…"
+  // para sempre, sem lista de treinos e sem retry, até matar o app.
+  const salvouNestaTela = useRef(false);
+
   useEffect(() => {
-    // `status === 'saved'` significa que o rascunho virou plano agora há pouco.
     // Sem esta guarda o efeito re-dispara logo após o save: no fluxo de edição
     // isso reimportava o plano recém-ARQUIVADO e a tela mostrava "não foi
     // possível abrir o plano" para um salvamento que deu certo — levando o
-    // aluno a refazer tudo e criar um segundo plano.
-    if (status === 'saved' || status === 'saving') return;
+    // aluno a refazer tudo e criar um segundo plano. O marcador é preso a ESTA
+    // montagem: um status global nunca era zerado e travava a tela para sempre.
+    if (salvouNestaTela.current || status === 'saving') return;
     if (!user?.id) return;
     if (fromPlanId) {
       if (
@@ -114,21 +121,21 @@ const ManualPlanEditorScreen = () => {
         <StackHeader title="Meu plano" onBack={() => navigation.goBack()} />
         <EmptyState
           title={
-            status === 'saved'
+            salvouNestaTela.current
               ? 'Plano criado'
               : status === 'error'
                 ? 'Não foi possível abrir o plano'
                 : 'Preparando editor'
           }
           description={
-            status === 'saved'
+            salvouNestaTela.current
               ? 'Abrindo seu plano…'
               : status === 'error'
                 ? saveError ?? 'Volte e tente novamente.'
                 : 'Recuperando seu rascunho…'
           }
           action={
-            status === 'error' && user?.id && fromPlanId ? (
+            !salvouNestaTela.current && status === 'error' && user?.id && fromPlanId ? (
               <Button
                 label="Tentar novamente"
                 variant="outline"
@@ -151,7 +158,7 @@ const ManualPlanEditorScreen = () => {
     const defaults = DEFAULT_MANUAL_PROGRESSION();
     setProgression({
       deload: defaults.deload,
-      series: defaults.series,
+      series: { ...defaultSeriesWindow(draft.duracao_semanas), ativa: false },
       cardio: hasCardio ? { ativa: true, valor: 5, alvo: 'ambos' } : null,
       intensidade: hasRm ? { ativa: false, valor: 2.5 } : null,
     });
@@ -160,6 +167,7 @@ const ManualPlanEditorScreen = () => {
   const handleSave = async () => {
     const planId = await save();
     if (!planId) return;
+    salvouNestaTela.current = true;
     if (onboarding) {
       navigation.navigate('PostQuestionnaireChat', { manualPlanId: planId });
       return;
@@ -320,11 +328,12 @@ const ManualPlanEditorScreen = () => {
                 onPress={() => setProgression({
                   series: draft.progressao.series?.ativa
                     ? null
-                    : { ativa: true, valor: 1, semana_inicio: 5, semana_fim: Math.min(8, draft.duracao_semanas) },
+                    : defaultSeriesWindow(draft.duracao_semanas),
                 })}
               />
               <Text style={styles.support}>
                 Soma +1 série a cada semana da janela; o efeito é acumulativo e respeita o teto do app.
+                A semana 1 é sempre o que você montou — a progressão começa na 2.
               </Text>
               {draft.progressao.series?.ativa ? (
                 <View style={styles.seriesWindow}>
@@ -334,9 +343,17 @@ const ManualPlanEditorScreen = () => {
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
                     onChangeText={(value) => {
-                      const week = Math.max(1, Math.min(draft.duracao_semanas, Number(value) || 1));
+                      // Piso 2: a semana 1 é a linha de base, no app e no motor.
+                      const week = Math.max(
+                        2,
+                        Math.min(draft.duracao_semanas, Number(value) || 2),
+                      );
                       setProgression({
-                        series: { ...draft.progressao.series!, semana_inicio: week },
+                        series: {
+                          ...draft.progressao.series!,
+                          semana_inicio: week,
+                          semana_fim: Math.max(week, draft.progressao.series!.semana_fim),
+                        },
                       });
                     }}
                   />
@@ -346,9 +363,13 @@ const ManualPlanEditorScreen = () => {
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
                     onChangeText={(value) => {
-                      const week = Math.max(1, Math.min(draft.duracao_semanas, Number(value) || 1));
+                      const week = Math.max(2, Math.min(draft.duracao_semanas, Number(value) || 2));
                       setProgression({
-                        series: { ...draft.progressao.series!, semana_fim: week },
+                        series: {
+                          ...draft.progressao.series!,
+                          semana_fim: week,
+                          semana_inicio: Math.min(week, draft.progressao.series!.semana_inicio),
+                        },
                       });
                     }}
                   />

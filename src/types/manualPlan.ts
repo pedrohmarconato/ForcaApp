@@ -75,6 +75,19 @@ export type ManualPlanPreview = {
   semanas: Array<{ semana: number; treinos: ManualPlanPreviewWorkout[] }>;
 };
 
+/**
+ * Janela padrão do "Aumentar séries", válida para QUALQUER duração de plano.
+ *
+ * A janela fixa 5→8 com `Math.min(8, duracao)` produzia 5→4 num plano de 4
+ * semanas: início depois do fim, rejeitado pelo backend com o Salvar
+ * habilitado e sem nenhuma pista do que estava errado. O piso é 2 porque a
+ * semana 1 é a linha de base do plano.
+ */
+export const defaultSeriesWindow = (duracaoSemanas: number) => {
+  const fim = Math.max(2, Math.min(8, duracaoSemanas));
+  return { ativa: true as const, valor: 1, semana_inicio: Math.min(5, fim), semana_fim: fim };
+};
+
 export type ManualOnboardingQuestionnaire = {
   dias_treino?: string[];
   tempo_medio_treino_min?: number | null;
@@ -127,6 +140,26 @@ export const formatWorkDuration = (minutos: number | null): string | null => {
 export const MANUAL_WORKOUT_MIN_MINUTES = 15;
 export const MANUAL_WORKOUT_MAX_MINUTES = 180;
 
+// Duração de uma SÉRIE, no mesmo intervalo do PLANO_MANUAL_SCHEMA (0,25 min =
+// 15 s). É outro campo, com outra faixa, que o do treino — e o aluno precisa
+// descobrir isso na tela onde digita, não num 400 genérico depois de salvar.
+export const MANUAL_EXERCISE_MIN_MINUTES = 0.25;
+export const MANUAL_EXERCISE_MAX_MINUTES = 180;
+export const MANUAL_EXERCISE_MIN_KM = 0.01;
+export const MANUAL_EXERCISE_MAX_KM = 100;
+
+export const isValidExerciseDuration = (valor: number | null): boolean =>
+  valor === null ||
+  (Number.isFinite(valor) &&
+    valor >= MANUAL_EXERCISE_MIN_MINUTES &&
+    valor <= MANUAL_EXERCISE_MAX_MINUTES);
+
+export const isValidExerciseDistance = (valor: number | null): boolean =>
+  valor === null ||
+  (Number.isFinite(valor) &&
+    valor >= MANUAL_EXERCISE_MIN_KM &&
+    valor <= MANUAL_EXERCISE_MAX_KM);
+
 export const isValidWorkoutDuration = (valor: number | null): boolean =>
   valor === null ||
   (Number.isInteger(valor) &&
@@ -178,6 +211,19 @@ export const hasCardioExercise = (draft: ManualPlanDraft): boolean =>
     treino.exercicios.some((exercicio) => exercicio.metrica !== 'carga_reps'),
   );
 
+/**
+ * Só cardio de deslocamento LIGA a progressão de cardio sozinha.
+ *
+ * `hasCardioExercise` é amplo de propósito: ele decide se o controle aparece e
+ * se a regra é preservada. Usá-lo também para ligar automaticamente fazia uma
+ * prancha (métrica `tempo`) religar uma progressão que o aluno tinha desligado
+ * de propósito — decisão dele sendo desfeita pelo app.
+ */
+export const shouldAutoEnableCardioProgression = (draft: ManualPlanDraft): boolean =>
+  draft.treinos.some((treino) =>
+    treino.exercicios.some((exercicio) => exercicio.metrica === 'tempo_distancia'),
+  );
+
 export const hasRmExercise = (draft: ManualPlanDraft): boolean =>
   draft.treinos.some((treino) =>
     treino.exercicios.some((exercicio) => (exercicio.percentual_rm ?? 0) > 0),
@@ -193,5 +239,10 @@ export const isManualPlanSavable = (draft: ManualPlanDraft | null): boolean =>
       treino.exercicios.length > 0 &&
       // Sem isto, "10" na estimativa deixava o Salvar habilitado e o aluno só
       // descobria o problema num 400 do servidor, sem saber qual campo era.
-      isValidWorkoutDuration(treino.duracao_minutos),
+      isValidWorkoutDuration(treino.duracao_minutos) &&
+      treino.exercicios.every(
+        (exercicio) =>
+          isValidExerciseDuration(exercicio.duracao_minutos) &&
+          isValidExerciseDistance(exercicio.distancia_km),
+      ),
   );

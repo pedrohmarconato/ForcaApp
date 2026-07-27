@@ -336,23 +336,40 @@ describe('manualPlanStore — regressões da auditoria', () => {
     expect(useManualPlanStore.getState().status).toBe('saved');
   });
 
-  it('cardio por tempo puro (HIIT) conta como cardio e liga a progressão', async () => {
+  it('cardio por tempo puro (HIIT) preserva a progressão em vez de apagá-la', async () => {
     // `hasCardioExercise` olhava só para `tempo_distancia`: com HIIT, Pular
-    // Corda ou Escada o bloco "Progredir o cardio" nunca aparecia e a regra
-    // chegava a ser apagada em silêncio ao editar outro exercício.
+    // Corda ou Escada bastava editar qualquer exercício para a regra de cardio
+    // ser apagada em silêncio, sem controle visível para desfazer.
     await useManualPlanStore.getState().initEmpty('user-1');
     useManualPlanStore.getState().addWorkout();
     useManualPlanStore.getState().addExercise(0, exercise('Cardio Intervalado (HIIT)', 'tempo'));
+    useManualPlanStore.getState().setProgression({
+      cardio: { ativa: true, valor: 5, alvo: 'ambos' },
+    });
+
+    useManualPlanStore.getState().updateExercise(0, 0, { series: 4 });
 
     expect(useManualPlanStore.getState().draft?.progressao.cardio).toEqual({
       ativa: true,
       valor: 5,
       alvo: 'ambos',
     });
+  });
 
-    // E editar um exercício qualquer não pode apagar a regra.
-    useManualPlanStore.getState().updateExercise(0, 0, { series: 4 });
-    expect(useManualPlanStore.getState().draft?.progressao.cardio).not.toBeNull();
+  it('exercício por tempo não LIGA sozinho a progressão de cardio', async () => {
+    // Só cardio de deslocamento liga sozinho. Uma prancha religando uma regra
+    // que o aluno desligou de propósito é o app desfazendo a decisão dele.
+    await useManualPlanStore.getState().initEmpty('user-1');
+    useManualPlanStore.getState().addWorkout();
+    useManualPlanStore.getState().addExercise(0, exercise('Prancha', 'tempo'));
+    expect(useManualPlanStore.getState().draft?.progressao.cardio).toBeNull();
+
+    useManualPlanStore.getState().addExercise(0, exercise('Corrida', 'tempo_distancia'));
+    expect(useManualPlanStore.getState().draft?.progressao.cardio).toEqual({
+      ativa: true,
+      valor: 5,
+      alvo: 'ambos',
+    });
   });
 
   it('exercício além do teto de 30 devolve false em vez de sumir calado', async () => {
