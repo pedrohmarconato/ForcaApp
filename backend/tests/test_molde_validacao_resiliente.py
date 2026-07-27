@@ -244,6 +244,97 @@ def test_molde_com_cardio_por_tempo_salva_sem_retry(monkeypatch):
     assert all(s["target_reps_min"] is None for s in series_cardio)
 
 
+def test_cardio_fora_do_catalogo_honra_a_duracao_em_vez_de_inventar_repeticoes(monkeypatch):
+    """Lacuna aberta pela própria relaxação do schema feita neste PR.
+
+    Sem `repeticoes` obrigatória, um nome que o catálogo NÃO reconhece
+    ("Sprint na Esteira") resolvia para `carga_reps`, o mapper caía no ramo de
+    carga e `_parse_reps(None)` devolvia a faixa padrão: a duração prescrita
+    sumia e nasciam 8–12 repetições que ninguém pediu.
+    """
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Sprint na Esteira", "ordem": 2, "series": 3, "duracao_minutos": 5,
+        "prioridade": "acessorio",
+    })
+    # O schema tem de continuar aceitando esse item (é o contrato deste PR).
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-sprint")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ), mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-sprint"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-sprint",
+                access_token="fake-token",
+            )
+
+    assert job.to_dict()["status"] == "salvo"
+    mapeado = persistir.call_args.args[0]
+    sprints = [e for e in mapeado["exercises"] if e["name"] == "Sprint na Esteira"]
+    assert sprints, "o exercício sumiu do payload persistido"
+    assert {e["metric"] for e in sprints} == {"tempo"}
+    assert all(e["exercise_key"] is None for e in sprints)  # segue fora do catálogo
+    ids = {e["id"] for e in sprints}
+    series = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series
+    assert all(s["target_duration_seconds"] == 300 for s in series)
+    assert all(s["target_reps_min"] is None and s["target_reps_max"] is None for s in series)
+
+
+def test_exercicio_de_carga_fora_do_catalogo_continua_com_repeticoes(monkeypatch):
+    """A promoção para tempo não pode capturar exercício de carga legítimo."""
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Movimento Proprietário XYZ", "ordem": 2, "series": 3,
+        "repeticoes": "8-12", "prioridade": "acessorio",
+    })
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-carga")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ), mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-carga"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-carga",
+                access_token="fake-token",
+            )
+
+    mapeado = persistir.call_args.args[0]
+    proprietarios = [
+        e for e in mapeado["exercises"] if e["name"] == "Movimento Proprietário XYZ"
+    ]
+    assert proprietarios
+    assert {e["metric"] for e in proprietarios} == {"carga_reps"}
+    ids = {e["id"] for e in proprietarios}
+    series = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series and all(s["target_reps_min"] == 8 for s in series)
+    assert all(s["target_duration_seconds"] is None for s in series)
+
+
 def test_pipeline_passa_apenas_restricoes_estruturadas_de_lesao_ao_mapper(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
     monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
