@@ -13,7 +13,7 @@
 // — do contrário o texto incompleto ("0,") seria reescrito no meio da digitação.
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { TextInputProps } from 'react-native';
+import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 
 import TextField from './TextField';
 
@@ -30,6 +30,7 @@ type NumericFieldProps = Omit<TextInputProps, 'value' | 'onChangeText'> & {
    */
   formatExternal?: (value: number | null) => string;
   error?: string | null;
+  containerStyle?: StyleProp<ViewStyle>;
 };
 
 const SEPARADORES = [',', '.'];
@@ -76,6 +77,7 @@ const NumericField = ({
   integer = false,
   formatExternal,
   error,
+  containerStyle,
   ...inputProps
 }: NumericFieldProps) => {
   const exibir = formatExternal ?? textoDoValor;
@@ -107,6 +109,7 @@ const NumericField = ({
       {...inputProps}
       label={label}
       error={error}
+      containerStyle={containerStyle}
       value={text}
       onChangeText={handleChangeText}
     />

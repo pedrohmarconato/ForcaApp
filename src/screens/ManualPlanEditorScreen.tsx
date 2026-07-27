@@ -11,6 +11,7 @@ import {
   ListRow,
   NO_DATA,
   Notice,
+  NumericField,
   OptionButton,
   Screen,
   ScreenTitle,
@@ -29,6 +30,7 @@ import {
   hasCardioExercise,
   hasRmExercise,
   isManualPlanSavable,
+  isValidSeriesWindow,
 } from '../types/manualPlan';
 
 const DAY_NAMES = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'] as const;
@@ -243,43 +245,48 @@ const ManualPlanEditorScreen = () => {
               ) : null}
               {draft.progressao.series?.ativa ? (
                 <View style={styles.seriesWindow}>
-                  <TextField
+                  {/*
+                    O clamp saiu do onChange: ele rodava a cada tecla e, como o
+                    campo se reconstruía do número, apagar o "5" para digitar "3"
+                    virava `Number('') || 2` = 2 e depois "23" -> 12. O aluno
+                    pedia 3→8 e recebia 12→12, com o outro campo reescrito junto.
+                    Agora o que ele digita fica; o que não serve vira aviso.
+                  */}
+                  <NumericField
                     label="Começa na semana"
-                    value={String(draft.progressao.series.semana_inicio)}
+                    value={draft.progressao.series.semana_inicio}
+                    integer
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
-                    onChangeText={(value) => {
-                      // Piso 2: a semana 1 é a linha de base, no app e no motor.
-                      const week = Math.max(
-                        2,
-                        Math.min(draft.duracao_semanas, Number(value) || 2),
-                      );
+                    onChangeNumber={(value) => {
+                      if (value == null) return;
                       setProgression({
-                        series: {
-                          ...draft.progressao.series!,
-                          semana_inicio: week,
-                          semana_fim: Math.max(week, draft.progressao.series!.semana_fim),
-                        },
+                        series: { ...draft.progressao.series!, semana_inicio: value },
                       });
                     }}
                   />
-                  <TextField
+                  <NumericField
                     label="Termina na semana"
-                    value={String(draft.progressao.series.semana_fim)}
+                    value={draft.progressao.series.semana_fim}
+                    integer
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
-                    onChangeText={(value) => {
-                      const week = Math.max(2, Math.min(draft.duracao_semanas, Number(value) || 2));
+                    onChangeNumber={(value) => {
+                      if (value == null) return;
                       setProgression({
-                        series: {
-                          ...draft.progressao.series!,
-                          semana_fim: week,
-                          semana_inicio: Math.min(week, draft.progressao.series!.semana_inicio),
-                        },
+                        series: { ...draft.progressao.series!, semana_fim: value },
                       });
                     }}
                   />
                 </View>
+              ) : null}
+              {draft.progressao.series?.ativa &&
+              !isValidSeriesWindow(draft.progressao.series, draft.duracao_semanas) ? (
+                <Notice
+                  tone="danger"
+                  title={`A janela precisa começar na semana 2 ou depois, terminar até a ${draft.duracao_semanas}ª e não acabar antes de começar.`}
+                  description="A semana 1 é a sua linha de base — a progressão começa na 2."
+                />
               ) : null}
 
               {hasCardio ? (
