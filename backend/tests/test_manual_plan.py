@@ -891,3 +891,196 @@ def test_isometria_curta_e_prescricao_valida_no_contrato(client):
     )
     assert serie_sprint["target_duration_seconds"] == 30
     assert serie_sprint["target_distance_m"] == 50
+
+
+def _total_de_series_reais(rascunho):
+    """Séries que o pipeline REALMENTE grava, para conferir a projeção."""
+    return len(
+        mapear_plano_ia(
+            _expandir(rascunho), user_id=USER_ID, start_date=START, created_by="user"
+        )["sets"]
+    )
+
+
+@pytest.mark.parametrize(
+    "com_cardio,com_progressao",
+    [(False, False), (False, True), (True, False), (True, True)],
+)
+def test_projecao_do_teto_bate_exatamente_com_o_que_o_pipeline_grava(
+    com_cardio, com_progressao
+):
+    """
+    O pré-cheque e o pipeline TÊM de contar a mesma coisa. Contando de menos,
+    plano comum morria com 400 no meio do pipeline; contando de mais (somando
+    incremento em cardio, que o expansor não progride), plano legítimo era
+    recusado com um número que nunca existiu — invariante 12.
+    """
+    from backend.app import _series_projetadas
+
+    exercicios = [_exercicio(series=3), _exercicio(nome="Agachamento Livre",
+                                                   exercise_key="agachamento_livre",
+                                                   equipamento="Barra", series=4)]
+    if com_cardio:
+        exercicios.append(
+            _exercicio(
+                nome="Corrida", exercise_key="corrida", equipamento=None,
+                repeticoes=None, duracao_minutos=20, distancia_km=5, series=2,
+            )
+        )
+        exercicios.append(
+            _exercicio(
+                nome="Prancha", exercise_key="prancha", equipamento="Peso corporal",
+                repeticoes=None, duracao_minutos=1, series=3,
+            )
+        )
+    treinos = [
+        {
+            "nome": "Treino A", "dia_offset": 0, "duracao_minutos": None,
+            "incluir_aquecimento": True, "incluir_alongamento": True,
+            "exercicios": exercicios,
+        }
+    ]
+    progressao = _rascunho()["progressao"]
+    if com_progressao:
+        progressao["series"] = {
+            "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 8,
+        }
+    rascunho = _rascunho(treinos=treinos, progressao=progressao, duracao_semanas=8)
+
+    assert _series_projetadas(rascunho) == _total_de_series_reais(rascunho)
+
+
+def test_plano_com_muito_cardio_nao_e_recusado_por_teto_inflado(client):
+    """
+    Cardio não ganha série no expansor. Somar o incremento nele fazia a
+    validação inventar milhares de séries e recusar um plano que cabe no teto.
+    """
+    cardio = [
+        _exercicio(
+            nome=nome, exercise_key=chave, equipamento=None,
+            repeticoes=None, duracao_minutos=20, series=3,
+        )
+        for nome, chave in [
+            ("Corrida", "corrida"),
+            ("Caminhada", "caminhada"),
+            ("Bicicleta Ergométrica", "bicicleta_ergometrica"),
+            ("Elíptico", "eliptico"),
+            ("Pular Corda", "pular_corda"),
+            ("Cardio Intervalado (HIIT)", "cardio_hiit"),
+        ]
+    ]
+    treinos = [
+        {
+            "nome": f"Treino {i}", "dia_offset": i, "duracao_minutos": None,
+            "incluir_aquecimento": False, "incluir_alongamento": False,
+            "exercicios": [_exercicio(series=3), _exercicio(series=3)] + cardio,
+        }
+        for i in range(5)
+    ]
+    progressao = _rascunho()["progressao"]
+    progressao["series"] = {
+        "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 10,
+    }
+    rascunho = _rascunho(treinos=treinos, progressao=progressao, duracao_semanas=10)
+
+    # O plano grava 1.620 séries — cabe no teto de 2.000 com folga. Somando o
+    # incremento também no cardio, a projeção antiga chegava a 2.880 e recusava.
+    from backend.app import _series_projetadas
+
+    assert _series_projetadas(rascunho) == _total_de_series_reais(rascunho)
+    assert _series_projetadas(rascunho) < MAX_TOTAL_SETS
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+    assert response.status_code == 200, response.get_json()
+
+
+def test_semana_1_e_a_prescricao_do_aluno_tambem_com_aumento_de_series():
+    """
+    `delta_series` com janela começando na semana 1 entregava 4 séries de um
+    Supino que o aluno escreveu com 3 — e cada rodada de edição subia um degrau.
+    """
+    progressao = _rascunho()["progressao"]
+    progressao["series"] = {
+        "ativa": True, "valor": 1, "semana_inicio": 1, "semana_fim": 8,
+    }
+    rascunho = _rascunho(
+        exercicios=[_exercicio(series=3)], progressao=progressao, duracao_semanas=8
+    )
+    mapeado = mapear_plano_ia(
+        _expandir(rascunho), user_id=USER_ID, start_date=START, created_by="user"
+    )
+
+    def series_da_semana(numero):
+        sessoes = {s["id"] for s in mapeado["sessions"] if s["week_number"] == numero}
+        return next(
+            e["sets_planned"] for e in mapeado["exercises"] if e["session_id"] in sessoes
+        )
+
+    assert series_da_semana(1) == 3  # exatamente o que o aluno digitou
+    assert series_da_semana(2) == 4
+    assert series_da_semana(8) > 4
+
+
+def test_cardio_nao_ganha_serie_mas_isometria_catalogada_ganha():
+    corrida = _exercicio(
+        nome="Corrida", exercise_key="corrida", equipamento=None,
+        repeticoes=None, duracao_minutos=20, distancia_km=5, series=1,
+    )
+    prancha = _exercicio(
+        nome="Prancha", exercise_key="prancha", equipamento="Peso corporal",
+        repeticoes=None, duracao_minutos=1, series=3,
+    )
+    progressao = _rascunho()["progressao"]
+    progressao["series"] = {
+        "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 8,
+    }
+    mapeado = mapear_plano_ia(
+        _expandir(_rascunho(exercicios=[corrida, prancha], progressao=progressao,
+                            duracao_semanas=8)),
+        user_id=USER_ID, start_date=START, created_by="user",
+    )
+    sessoes_8 = {s["id"] for s in mapeado["sessions"] if s["week_number"] == 8}
+    por_nome = {
+        e["name"]: e for e in mapeado["exercises"] if e["session_id"] in sessoes_8
+    }
+
+    assert por_nome["Corrida"]["sets_planned"] == 1
+    assert por_nome["Prancha"]["sets_planned"] > 3
+
+
+def test_mensagem_de_erro_aponta_o_campo_certo_do_exercicio(client):
+    """
+    Casando só pelo último nome de campo, uma prancha com duração fora de faixa
+    devolvia a mensagem da estimativa do TREINO — outra tela, outro campo.
+    """
+    prancha = _exercicio(
+        nome="Prancha", exercise_key="prancha", equipamento="Peso corporal",
+        repeticoes=None, duracao_minutos=0.1, series=3,
+    )
+    treinos = [
+        {
+            "nome": "Treino A", "dia_offset": 0, "duracao_minutos": 60,
+            "incluir_aquecimento": False, "incluir_alongamento": False,
+            "exercicios": [_exercicio(), prancha],
+        }
+    ]
+    response = _post_autenticado(client, "/api/manual-plan", _rascunho(treinos=treinos))
+
+    assert response.status_code == 400
+    erro = response.get_json()["error"]
+    assert "duração de um exercício" in erro
+    assert "estimativa de um treino" not in erro
+    # O caminho traz os índices: usá-los evita o aluno caçar o campo errado.
+    assert "treino 1" in erro and "exercício 2" in erro
+
+
+def test_rate_limit_conta_mesmo_quando_o_rascunho_e_invalido(client):
+    """Rascunho inválido também custa CPU: não pode ser cota infinita."""
+    invalido = _rascunho()
+    invalido["duracao_semanas"] = 999
+
+    with mock.patch.object(app_module, "MANUAL_PLAN_PREVIEW_RATE_LIMIT", 1):
+        primeira = _post_autenticado(client, "/api/manual-plan/preview", invalido)
+        segunda = _post_autenticado(client, "/api/manual-plan/preview", _rascunho())
+
+    assert primeira.status_code == 400
+    assert segunda.status_code == 429

@@ -377,3 +377,117 @@ def test_parse_impossivel_tambem_ganha_retry(monkeypatch):
     )
     assert job.to_dict()["status"] == "salvo"
     assert chamada.call_count == 2
+
+
+def _molde_com(exercicio, regras):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    sessao = molde["semanas_tipo"][0]["sessoes"][0]
+    sessao["exercicios"] = [exercicio]
+    molde["duracao_semanas"] = 8
+    molde["calendario"] = [molde["calendario"][0]] * 8
+    molde["progressao"] = {"regras": regras}
+    return molde
+
+
+# Regras a partir da semana 2 para que a semana 1 seja a linha de base e o
+# teste consiga comparar "o que foi prescrito" com "o que progrediu".
+_REGRAS_TUDO = [
+    {"tipo": "delta_series", "semana_inicio": 2, "semana_fim": 8, "valor": 1, "grupo_alvo": "todos"},
+    {"tipo": "delta_cardio_percentual", "semana_inicio": 2, "semana_fim": 8, "valor": 5, "alvo": "ambos"},
+    {"tipo": "delta_rm_percentual", "semana_inicio": 2, "semana_fim": 8, "valor": 2, "grupo_alvo": "todos"},
+]
+
+
+def _semana(mapeado, numero):
+    from backend.services.plan_mapper import mapear_plano_ia  # noqa: F401
+
+    sessoes = {s["id"] for s in mapeado["sessions"] if s["week_number"] == numero}
+    exercicio = next(e for e in mapeado["exercises"] if e["session_id"] in sessoes)
+    serie = next(s for s in mapeado["sets"] if s["exercise_id"] == exercicio["id"])
+    return exercicio, serie
+
+
+def _expandir_e_mapear(molde):
+    import datetime
+
+    from backend.services.plan_expander import expandir_plano
+    from backend.services.plan_mapper import mapear_plano_ia
+
+    plano = expandir_plano(molde, {"id": "u", "nivel": "iniciante"})
+    return mapear_plano_ia(
+        plano,
+        user_id="3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b",
+        start_date=datetime.date(2026, 7, 20),
+    )
+
+
+def test_expansor_e_mapper_concordam_sobre_o_que_e_exercicio_por_tempo():
+    """
+    O mapper promovia nome fora do catálogo com duração para métrica de tempo,
+    mas o expansor continuava tratando o mesmo exercício como carga: ele ganhava
+    séries e %RM na expansão e era gravado como cardio, com o %RM descartado e a
+    duração nunca alongada. Uma corrida de 5 min virava 9 séries de 5 min.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Sprint na Esteira", "ordem": 1, "series": 1,
+            "duracao_minutos": 5, "percentual_rm": 70, "prioridade": "acessorio",
+        },
+        _REGRAS_TUDO,
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+
+    exercicio_1, serie_1 = _semana(mapeado, 1)
+    exercicio_8, serie_8 = _semana(mapeado, 8)
+
+    assert exercicio_1["metric"] == "tempo"
+    # %RM não descreve exercício por tempo: o expansor não pode subi-lo.
+    assert exercicio_1["target_rm_percent"] is None
+    assert exercicio_8["target_rm_percent"] is None
+    # A duração progride de verdade (delta_cardio), não some.
+    assert serie_1["target_duration_seconds"] == 300
+    assert serie_8["target_duration_seconds"] > 300
+    assert serie_8["target_reps_min"] is None
+
+
+def test_prescricao_so_por_distancia_nao_vira_repeticao_inventada():
+    """
+    O MOLDE_SCHEMA aceita exercício só com `distancia_km`. Sem promoção por
+    distância, os 400 m — única prescrição do exercício — sumiam e nasciam 8–12
+    repetições que ninguém pediu.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Tiro na Pista de 400m", "ordem": 1, "series": 4,
+            "distancia_km": 0.4, "prioridade": "acessorio",
+        },
+        [],
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+    exercicio, serie = _semana(mapeado, 1)
+
+    assert exercicio["metric"] == "tempo_distancia"
+    assert serie["target_distance_m"] == 400
+    assert serie["target_reps_min"] is None and serie["target_reps_max"] is None
+    # O CHECK do banco exige reps OU duração: a duração default garante isso.
+    assert serie["target_duration_seconds"] is not None
+
+
+def test_exercicio_de_carga_fora_do_catalogo_nao_e_promovido():
+    molde = _molde_com(
+        {
+            "nome": "Movimento Proprietário XYZ", "ordem": 1, "series": 3,
+            "repeticoes": "8-12", "percentual_rm": 70, "prioridade": "primario",
+        },
+        _REGRAS_TUDO,
+    )
+    mapeado = _expandir_e_mapear(molde)
+    exercicio_1, serie_1 = _semana(mapeado, 1)
+
+    assert exercicio_1["metric"] == "carga_reps"
+    assert serie_1["target_reps_min"] == 8
+    exercicio_2, _ = _semana(mapeado, 2)
+    assert exercicio_1["target_rm_percent"] == 70  # semana 1 = prescrito
+    assert exercicio_2["target_rm_percent"] == 72  # %RM progride normalmente

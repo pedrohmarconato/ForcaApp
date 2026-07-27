@@ -547,6 +547,29 @@ def test_restricao_de_lesao_por_grupo_cobre_articulacao_com_varios_grupos():
     assert por_grupo["Peito"]["injury_flags"] == []
 
 
+@pytest.mark.parametrize(
+    "grupo_afetado,grupo_esperado,grupo_proibido",
+    [
+        ("deltoide posterior", "Ombros", "Posterior de Coxa"),
+        ("ombro posterior", "Ombros", "Posterior de Coxa"),
+        ("coluna cervical", "Trapézio", "Lombar"),
+        ("coluna lombar", "Lombar", "Trapézio"),
+    ],
+)
+def test_frase_de_lesao_vence_a_palavra_solta(
+    grupo_afetado, grupo_esperado, grupo_proibido
+):
+    """
+    "deltoide posterior" é ombro. Somando o token "posterior" o guardrail
+    congelava a carga de toda a perna por 12 semanas, em silêncio.
+    """
+    from backend.services.plan_mapper import _grupos_do_termo
+
+    atingidos = _grupos_do_termo(grupo_afetado)
+    assert grupo_esperado in atingidos
+    assert grupo_proibido not in atingidos
+
+
 def test_restricao_de_lesao_por_grupo_desconhecido_nao_marca_nada():
     """Termo que não casa com nenhum grupo não pode marcar o plano inteiro."""
     plano = _plano_exemplo()

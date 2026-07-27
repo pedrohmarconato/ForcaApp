@@ -30,6 +30,7 @@ try:
     from backend.services.manual_plan_builder import (
         alocar_dias_dos_treinos,
         construir_molde_manual,
+        regras_progressao as construir_regras_progressao,
     )
     from backend.services.exercise_catalog import catalogo_serializavel, etag_catalogo
     from backend.services.job_manager import (
@@ -434,34 +435,70 @@ def handle_exercise_catalog_resolve():
 # Mensagens de validação do schema em pt-BR, por (campo, validador). Repassar
 # `exc.message` cru colocava "10 is less than the minimum of 15" na tela do
 # aluno, em inglês e sem dizer qual campo — a UI renderiza esse texto direto.
+# Chaveado pelo CAMINHO, não pelo último nome de campo: `duracao_minutos`
+# existe no treino (15–180 min) e no exercício (0,25–180 min). Casando só pelo
+# nome curto, uma prancha com duração fora de faixa devolvia "a estimativa de um
+# treino precisa ficar entre 15 e 180 minutos" — um campo de OUTRA tela, que
+# estava preenchido corretamente, e o aluno ficava travado no lugar errado.
 _MENSAGENS_RASCUNHO_MANUAL = {
-    ("duracao_minutos", "minimum"): "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
-    ("duracao_minutos", "maximum"): "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
-    ("duracao_minutos", "type"): "a estimativa de um treino precisa ser um número inteiro de minutos",
-    ("duracao_semanas", "minimum"): "o plano precisa ter entre 1 e 52 semanas",
-    ("duracao_semanas", "maximum"): "o plano precisa ter entre 1 e 52 semanas",
-    ("series", "minimum"): "cada exercício precisa de pelo menos 1 série",
-    ("series", "maximum"): "um exercício não pode passar de 10 séries",
-    ("treinos", "maxItems"): "o plano aceita no máximo 7 treinos por semana",
-    ("treinos", "minItems"): "adicione pelo menos um treino ao plano",
-    ("exercicios", "maxItems"): "cada treino aceita no máximo 30 exercícios",
-    ("exercicios", "minItems"): "cada treino precisa de pelo menos um exercício",
-    ("nome", "minLength"): "informe o nome",
-    ("nome", "maxLength"): "o nome ficou longo demais",
+    (("treinos", "exercicios", "duracao_minutos"), "minimum"):
+        "a duração de um exercício precisa ficar entre 15 segundos e 180 minutos",
+    (("treinos", "exercicios", "duracao_minutos"), "maximum"):
+        "a duração de um exercício precisa ficar entre 15 segundos e 180 minutos",
+    (("treinos", "exercicios", "distancia_km"), "minimum"):
+        "a distância de um exercício precisa ficar entre 10 metros e 100 km",
+    (("treinos", "exercicios", "distancia_km"), "maximum"):
+        "a distância de um exercício precisa ficar entre 10 metros e 100 km",
+    (("treinos", "exercicios", "series"), "minimum"):
+        "cada exercício precisa de pelo menos 1 série",
+    (("treinos", "exercicios", "series"), "maximum"):
+        "um exercício não pode passar de 10 séries",
+    (("treinos", "exercicios", "nome"), "minLength"): "informe o nome do exercício",
+    (("treinos", "exercicios", "nome"), "maxLength"): "o nome do exercício ficou longo demais",
+    (("treinos", "exercicios"), "maxItems"): "cada treino aceita no máximo 30 exercícios",
+    (("treinos", "exercicios"), "minItems"): "cada treino precisa de pelo menos um exercício",
+    (("treinos", "duracao_minutos"), "minimum"):
+        "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
+    (("treinos", "duracao_minutos"), "maximum"):
+        "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
+    (("treinos", "duracao_minutos"), "type"):
+        "a estimativa de um treino precisa ser um número inteiro de minutos",
+    (("treinos", "nome"), "minLength"): "informe o nome do treino",
+    (("treinos", "nome"), "maxLength"): "o nome do treino ficou longo demais",
+    (("treinos",), "maxItems"): "o plano aceita no máximo 7 treinos por semana",
+    (("treinos",), "minItems"): "adicione pelo menos um treino ao plano",
+    (("duracao_semanas",), "minimum"): "o plano precisa ter entre 1 e 52 semanas",
+    (("duracao_semanas",), "maximum"): "o plano precisa ter entre 1 e 52 semanas",
+    (("nome",), "minLength"): "informe o nome do plano",
+    (("nome",), "maxLength"): "o nome do plano ficou longo demais",
 }
+
+
+def _localizacao_legivel(caminho):
+    """"treino 2, exercício 5" a partir dos índices que o jsonschema já traz."""
+    partes = []
+    for i, parte in enumerate(caminho):
+        if parte == "treinos" and i + 1 < len(caminho) and isinstance(caminho[i + 1], int):
+            partes.append("treino {}".format(caminho[i + 1] + 1))
+        if parte == "exercicios" and i + 1 < len(caminho) and isinstance(caminho[i + 1], int):
+            partes.append("exercício {}".format(caminho[i + 1] + 1))
+    return ", ".join(partes)
 
 
 def _mensagem_de_validacao(exc):
     """Traduz a ValidationError do jsonschema para algo acionável em pt-BR."""
-    caminho = [parte for parte in exc.absolute_path if isinstance(parte, str)]
-    campo = caminho[-1] if caminho else None
-    especifica = _MENSAGENS_RASCUNHO_MANUAL.get((campo, exc.validator))
+    caminho = list(exc.absolute_path)
+    nomes = tuple(parte for parte in caminho if isinstance(parte, str))
+    especifica = _MENSAGENS_RASCUNHO_MANUAL.get((nomes, exc.validator))
+    onde = _localizacao_legivel(caminho)
     if especifica:
-        return "Plano manual inválido: {}.".format(especifica)
-    if campo:
+        return "Plano manual inválido: {}{}.".format(
+            especifica, " ({})".format(onde) if onde else ""
+        )
+    if nomes:
         return (
-            "Plano manual inválido: o campo '{}' não está no formato esperado."
-        ).format(campo)
+            "Plano manual inválido: o campo '{}' não está no formato esperado{}."
+        ).format(nomes[-1], " ({})".format(onde) if onde else "")
     return "Plano manual inválido: revise os dados do plano."
 
 
@@ -469,25 +506,32 @@ def _series_projetadas(rascunho):
     """
     Total de séries do plano DEPOIS de expandir, contando a progressão.
 
-    O pré-cheque somava só `series × semanas` e ignorava o "aumentar séries";
-    um plano perfeitamente normal passava na validação e morria com 400 no meio
-    do pipeline, com uma mensagem sobre um teto que o rascunho não estourava.
-    Aqui a projeção usa a MESMA fórmula do expansor.
+    Precisa bater EXATAMENTE com o que o pipeline grava. Somar só
+    `series × semanas` fazia um plano comum morrer com 400 no meio do pipeline;
+    somar o incremento em cardio — que o expansor não progride — faz o inverso,
+    recusando plano legítimo com um número que nunca existiu (invariante 12).
+    Por isso a regra de quem progride vem do MESMO predicado do expansor
+    (`progride_por_series`) e a janela vem do MESMO builder que monta o molde.
     """
+    from backend.services.exercise_catalog import progride_por_series
+
     duracao_semanas = rascunho["duracao_semanas"]
-    progressao = rascunho.get("progressao") or {}
-    regra = progressao.get("series") or {}
-    ativa = regra.get("ativa") is True and regra.get("valor")
-    inicio = regra.get("semana_inicio", 1)
-    fim = regra.get("semana_fim", 1)
-    valor = regra.get("valor", 0)
+    regras = construir_regras_progressao(
+        rascunho.get("progressao") or {}, duracao_semanas
+    )
+    regra_series = next(
+        (r for r in regras if r["tipo"] == "delta_series"), None
+    )
+    inicio = regra_series["semana_inicio"] if regra_series else 0
+    fim = regra_series["semana_fim"] if regra_series else -1
+    valor = regra_series["valor"] if regra_series else 0
 
     total = 0
     for semana in range(1, duracao_semanas + 1):
         for treino in rascunho["treinos"]:
             for exercicio in treino["exercicios"]:
                 series = exercicio["series"]
-                if ativa and inicio <= semana <= fim:
+                if regra_series and inicio <= semana <= fim and progride_por_series(exercicio):
                     incremento = valor * (semana - inicio + 1)
                     series = min(max(series + incremento, 2), 10)
                 total += series
@@ -665,10 +709,9 @@ def _resumo_preview(mapeado):
 @token_required
 def handle_manual_plan():
     """Cria e persiste um plano manual pelo pipeline determinístico existente."""
-    rascunho, erro = _rascunho_manual_da_requisicao()
-    if erro:
-        return jsonify({"error": erro}), 400
-
+    # Rate limit ANTES da validação: rascunho inválido também custa CPU do
+    # worker único, e um chamador em loop com payload no teto do schema nunca
+    # consumia o balde porque morria no 400 antes de chegar aqui.
     user_id = (g.user or {}).get("id")
     if not user_id:
         return jsonify({"error": "ID do usuário não fornecido."}), 400
@@ -681,6 +724,10 @@ def handle_manual_plan():
         return jsonify(
             {"error": "Muitas solicitações de plano manual. Tente novamente mais tarde."}
         ), 429
+
+    rascunho, erro = _rascunho_manual_da_requisicao()
+    if erro:
+        return jsonify({"error": erro}), 400
 
     inicio = datetime.date.today()
     try:
@@ -702,9 +749,6 @@ def handle_manual_plan():
 @token_required
 def handle_manual_plan_preview():
     """Expande sem persistir e devolve três pontos reais da progressão."""
-    rascunho, erro = _rascunho_manual_da_requisicao()
-    if erro:
-        return jsonify({"error": erro}), 400
     user_id = (g.user or {}).get("id")
     if not user_id:
         return jsonify({"error": "ID do usuário não fornecido."}), 400
@@ -717,6 +761,10 @@ def handle_manual_plan_preview():
         return jsonify(
             {"error": "Muitas prévias seguidas. Tente novamente em alguns minutos."}
         ), 429
+
+    rascunho, erro = _rascunho_manual_da_requisicao()
+    if erro:
+        return jsonify({"error": erro}), 400
 
     try:
         _, _, mapeado = _executar_pipeline_manual(
