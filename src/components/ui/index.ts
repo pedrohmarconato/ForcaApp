@@ -5,6 +5,11 @@
 
 export { default as Button, type ButtonVariant } from './Button';
 export { default as TextField } from './TextField';
+export {
+  default as NumericField,
+  sanitizeNumericText,
+  numericTextToNumber,
+} from './NumericField';
 export { ForcaMark, ForcaLockup } from './Logo';
 export { Screen, ScreenTitle, Card, SectionHeader, ListRow, Divider } from './Surface';
 export { OptionButton, DayToggle, CheckboxRow, StackHeader } from './Controls';

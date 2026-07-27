@@ -3,7 +3,8 @@
 // - falha/offline sem catálogo bloqueia nome livre (não pode);
 // - opção livre some ou não fica em primeiro quando não há casamento;
 // - Cardio/Mobilidade ficam inalcançáveis quando a preferência é falsa;
-// - item catalogado perde métrica/equipamento ao entrar na prescrição.
+// - item catalogado perde métrica/equipamento ao entrar na prescrição;
+// - separador decimal digitado tecla a tecla é engolido e multiplica o valor.
 
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -147,6 +148,112 @@ describe('ExercisePickerScreen', () => {
     expect((await screen.findAllByText('Remada Curvada com Barra')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/ainda não está na nossa lista/i)).toBeNull();
     expect(screen.getByText('Barra')).toBeTruthy();
+  });
+
+  // Digitação real: o usuário digita UMA tecla por vez, sempre por cima do que o
+  // campo está exibindo. Um campo controlado por String(numero) reconstrói o texto
+  // a partir do número a cada tecla, então o separador decimal nunca sobrevive:
+  // "0" -> 0 -> "0"; "," -> Number("0.") = 0 -> "0"; "7" -> "07" -> 7; "5" -> 75.
+  // O aluno digita 0,75 min (45 s de prancha) e o rascunho grava 75 minutos.
+  // Seleciona tudo e digita por cima — o gesto de quem troca um valor sugerido.
+  const digitarTecla = (input: any, texto: string) => {
+    fireEvent.changeText(input, '');
+    for (const tecla of texto) {
+      fireEvent.changeText(input, `${input.props.value ?? ''}${tecla}`);
+    }
+  };
+
+  const prancha: CatalogEntry = {
+    chave: 'prancha',
+    nome: 'Prancha',
+    grupo_muscular: 'Abdômen',
+    equipamento: 'Peso corporal',
+    peso_corporal: true,
+    incremento_kg: 0,
+    metrica: 'tempo',
+  };
+
+  it.each([
+    ['vírgula', '0,75'],
+    ['ponto', '0.75'],
+  ])('duração decimal digitada com %s chega ao rascunho como 0,75 e não como 75', async (_rotulo, digitado) => {
+    useManualPlanStore.setState({ catalog: [...catalog, prancha], catalogError: null });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(screen.getByLabelText('Buscar ou escrever exercício'), 'prancha');
+    fireEvent.press(await screen.findByText('Prancha'));
+
+    const campo = screen.getByLabelText('Duração por série (min)');
+    digitarTecla(campo, digitado);
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+
+    const exercicio = useManualPlanStore.getState().draft!.treinos[0].exercicios[0];
+    expect(exercicio.duracao_minutos).toBe(0.75);
+  });
+
+  it('distância decimal digitada tecla a tecla não vira 45 km', async () => {
+    useManualPlanStore.setState({ catalog, catalogError: null });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.press(screen.getByText('Mostrar cardio e mobilidade'));
+    fireEvent.press(await screen.findByText('Caminhada'));
+
+    const campo = screen.getByLabelText('Distância por série (km, opcional)');
+    digitarTecla(campo, '4,5');
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+
+    const exercicio = useManualPlanStore.getState().draft!.treinos[0].exercicios[0];
+    expect(exercicio.distancia_km).toBe(4.5);
+  });
+
+  it('o piso de 0,25 min prometido pela própria tela é alcançável pelo teclado', async () => {
+    useManualPlanStore.setState({ catalog: [...catalog, prancha], catalogError: null });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(screen.getByLabelText('Buscar ou escrever exercício'), 'prancha');
+    fireEvent.press(await screen.findByText('Prancha'));
+
+    const campo = screen.getByLabelText('Duração por série (min)');
+    digitarTecla(campo, '0,25');
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+
+    // 0,25 é exatamente o piso que a tela anuncia — e o backend exige desde a
+    // camada do motor. Antes o campo entregava 25 minutos, dentro da faixa e
+    // portanto sem aviso nenhum: o erro passava calado pela validação.
+    const exercicio = useManualPlanStore.getState().draft!.treinos[0].exercicios[0];
+    expect(exercicio.duracao_minutos).toBe(0.25);
+    expect(screen.queryByText(/precisa ficar entre 15 segundos/i)).toBeNull();
+  });
+
+  it('descanso de 600s não é interrompido pelo preset de 60s no meio da digitação', async () => {
+    // "6" -> 6; "60" -> casa com o preset 60s e o campo se limpava sozinho;
+    // o "0" seguinte caía num campo vazio e virava tempo_descanso: 0 — que o
+    // mapper traduz para rest_seconds NULL. O aluno pede 10 min de descanso e
+    // a sessão não mostra descanso nenhum, sem aviso em lugar algum.
+    useManualPlanStore.setState({ catalog, catalogError: null });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(screen.getByLabelText('Buscar ou escrever exercício'), 'elevacao');
+    fireEvent.press(await screen.findByText('Elevação Lateral com Halteres'));
+
+    digitarTecla(screen.getByLabelText('Outro descanso (segundos)'), '600');
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+
+    const exercicio = useManualPlanStore.getState().draft!.treinos[0].exercicios[0];
+    expect(exercicio.tempo_descanso).toBe(600);
+  });
+
+  it('escolher um preset limpa o campo de descanso livre', async () => {
+    useManualPlanStore.setState({ catalog, catalogError: null });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(screen.getByLabelText('Buscar ou escrever exercício'), 'elevacao');
+    fireEvent.press(await screen.findByText('Elevação Lateral com Halteres'));
+
+    const livre = screen.getByLabelText('Outro descanso (segundos)');
+    digitarTecla(livre, '600');
+    fireEvent.press(screen.getByText('45s'));
+
+    expect(screen.getByLabelText('Outro descanso (segundos)').props.value).toBe('');
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+    expect(
+      useManualPlanStore.getState().draft!.treinos[0].exercicios[0].tempo_descanso,
+    ).toBe(45);
   });
 
   it('Cardio/Mobilidade começam recolhidos, mas continuam alcançáveis', async () => {

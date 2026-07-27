@@ -9,6 +9,7 @@ import {
   Chip,
   ListRow,
   Notice,
+  NumericField,
   OptionButton,
   Screen,
   SectionHeader,
@@ -57,6 +58,8 @@ const newExercise = (entry: CatalogEntry | null, freeName?: string): ManualExerc
     tem_limitacao: false,
   };
 };
+
+const DESCANSO_PRESETS = [45, 60, 90, 120];
 
 const numberOrNull = (value: string): number | null => {
   if (!value.trim()) return null;
@@ -296,11 +299,11 @@ const ExercisePickerScreen = () => {
           />
         ) : (
           <>
-            <TextField
+            <NumericField
               label="Duração por série (min)"
-              value={exercise.duracao_minutos == null ? '' : String(exercise.duracao_minutos)}
+              value={exercise.duracao_minutos}
               keyboardType="decimal-pad"
-              onChangeText={(value) => patchExercise({ duracao_minutos: numberOrNull(value) })}
+              onChangeNumber={(value) => patchExercise({ duracao_minutos: value })}
             />
             {!isValidExerciseDuration(exercise.duracao_minutos) ? (
               <Notice
@@ -313,11 +316,11 @@ const ExercisePickerScreen = () => {
               </Text>
             ) : null}
             {exercise.metrica === 'tempo_distancia' ? (
-              <TextField
+              <NumericField
                 label="Distância por série (km, opcional)"
-                value={exercise.distancia_km == null ? '' : String(exercise.distancia_km)}
+                value={exercise.distancia_km}
                 keyboardType="decimal-pad"
-                onChangeText={(value) => patchExercise({ distancia_km: numberOrNull(value) })}
+                onChangeNumber={(value) => patchExercise({ distancia_km: value })}
               />
             ) : null}
             {!isValidExerciseDistance(exercise.distancia_km) ? (
@@ -331,7 +334,7 @@ const ExercisePickerScreen = () => {
 
         <Text style={styles.fieldLabel}>Descanso</Text>
         <View style={styles.optionsRow}>
-          {[45, 60, 90, 120].map((seconds) => (
+          {DESCANSO_PRESETS.map((seconds) => (
             <OptionButton
               key={seconds}
               label={`${seconds}s`}
@@ -341,16 +344,18 @@ const ExercisePickerScreen = () => {
             />
           ))}
         </View>
-        <TextField
+        <NumericField
           label="Outro descanso (segundos)"
-          value={
-            typeof exercise.tempo_descanso === 'number' &&
-            ![45, 60, 90, 120].includes(exercise.tempo_descanso)
-              ? String(exercise.tempo_descanso)
-              : ''
-          }
+          value={typeof exercise.tempo_descanso === 'number' ? exercise.tempo_descanso : null}
+          integer
           keyboardType="number-pad"
-          onChangeText={(value) => patchExercise({ tempo_descanso: numberOrNull(value) })}
+          // Só quando o descanso muda POR FORA (toque num preset) o campo livre
+          // se esvazia. Antes isso valia também no meio da digitação: "600"
+          // passava por "60", o campo se limpava e o último "0" virava zero.
+          formatExternal={(valor) =>
+            valor == null || DESCANSO_PRESETS.includes(valor) ? '' : String(valor)
+          }
+          onChangeNumber={(value) => patchExercise({ tempo_descanso: value })}
         />
 
         <Text style={styles.fieldLabel}>Prioridade</Text>
