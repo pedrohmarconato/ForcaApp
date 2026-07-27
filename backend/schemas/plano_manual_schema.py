@@ -150,15 +150,22 @@ PLANO_MANUAL_SCHEMA = {
                                         {"type": "null"},
                                     ]
                                 },
+                                # Isometria curta é prescrição legítima: uma
+                                # prancha de 45 s é 0,75 min. Com o piso em 1
+                                # o contrato não conseguia representar o que o
+                                # próprio pipeline já grava, e reabrir um plano
+                                # com prancha de 45 s reprovava o plano INTEIRO.
+                                # 0,25 min = 15 s é o menor alvo com sentido.
                                 "duracao_minutos": {
                                     "anyOf": [
-                                        {"type": "number", "minimum": 1, "maximum": 180},
+                                        {"type": "number", "minimum": 0.25, "maximum": 180},
                                         {"type": "null"},
                                     ]
                                 },
+                                # Mesmo motivo: 50 m de sprint é 0,05 km.
                                 "distancia_km": {
                                     "anyOf": [
-                                        {"type": "number", "minimum": 0.1, "maximum": 100},
+                                        {"type": "number", "minimum": 0.01, "maximum": 100},
                                         {"type": "null"},
                                     ]
                                 },
