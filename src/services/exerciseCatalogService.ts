@@ -129,11 +129,18 @@ const persistirCache = async (
   payload: CatalogPayload,
   etag: string | null,
 ): Promise<void> => {
-  await AsyncStorage.setItem(cacheKey(payload.versao), JSON.stringify(payload));
-  await AsyncStorage.setItem(
-    META_KEY,
-    JSON.stringify({ versao: payload.versao, etag } satisfies CatalogMeta),
-  );
+  // O cache local é otimização, não requisito: em janela anônima do Safari o
+  // setItem lança e derrubava um fetch de catálogo perfeitamente bem-sucedido,
+  // deixando o editor sem nenhum exercício com a rede funcionando.
+  try {
+    await AsyncStorage.setItem(cacheKey(payload.versao), JSON.stringify(payload));
+    await AsyncStorage.setItem(
+      META_KEY,
+      JSON.stringify({ versao: payload.versao, etag } satisfies CatalogMeta),
+    );
+  } catch {
+    // Sem persistência a próxima abertura simplesmente refaz a GET.
+  }
 };
 
 const revalidarEmBackground = async (meta: CatalogMeta): Promise<void> => {
@@ -182,6 +189,21 @@ export const getCatalog = async (): Promise<CatalogEntry[]> => {
   }
 };
 
+// Casa "supino barra" com "Supino Reto com Barra": todo token da consulta
+// precisa aparecer em algum token do nome. `includes` puro exigia a ordem e a
+// adjacência exatas, então o app anunciava "não está na nossa lista" para
+// exercício que o resolvedor do backend reconhece e canoniza — e a métrica
+// escolhida pelo aluno era descartada em silêncio na gravação.
+const casaPorTokens = (nomeNormalizado: string, busca: string): boolean => {
+  if (nomeNormalizado.includes(busca)) return true;
+  const tokensDoNome = nomeNormalizado.split(' ').filter(Boolean);
+  const tokensDaBusca = busca.split(' ').filter(Boolean);
+  if (!tokensDaBusca.length) return true;
+  return tokensDaBusca.every((token) =>
+    tokensDoNome.some((alvo) => alvo.startsWith(token) || token.startsWith(alvo)),
+  );
+};
+
 export const searchCatalog = (
   query: string,
   entries: CatalogEntry[],
@@ -193,10 +215,57 @@ export const searchCatalog = (
 
   return entries.filter((entry) => {
     const grupoDoItem = normalizar(entry.grupo_muscular);
-    if (!opts.incluirCardio && grupoDoItem === 'cardio') return false;
-    if (!opts.incluirMobilidade && grupoDoItem === 'mobilidade') return false;
+    // A preferência do questionário esconde Cardio/Mobilidade da NAVEGAÇÃO,
+    // mas não pode esconder o que o aluno digitou explicitamente: era assim
+    // que "Corrida" virava nome livre para quem respondeu "sem cardio".
+    if (!busca) {
+      if (!opts.incluirCardio && grupoDoItem === 'cardio') return false;
+      if (!opts.incluirMobilidade && grupoDoItem === 'mobilidade') return false;
+    }
     if (grupo && grupoDoItem !== grupo) return false;
     if (equipamento && normalizar(entry.equipamento) !== equipamento) return false;
-    return !busca || normalizar(entry.nome).includes(busca);
+    return !busca || casaPorTokens(normalizar(entry.nome), busca);
   });
+};
+
+export type ResolvedExerciseName = {
+  chave: string;
+  nome: string;
+  grupo_muscular: string;
+  equipamento: string;
+  peso_corporal: boolean;
+  incremento_kg: number;
+  metrica: CatalogMetric;
+};
+
+/**
+ * Pergunta ao backend se um nome livre casa com o catálogo.
+ *
+ * O resolvedor do servidor usa aliases que, de propósito, não viajam no payload
+ * do catálogo. Sem esta consulta o app afirmava "esse exercício ainda não está
+ * na nossa lista" para nomes que o servidor canoniza — e a métrica/prescrição
+ * escolhida pelo aluno era sobrescrita depois, sem aviso.
+ *
+ * Offline ou em qualquer falha devolve `null`: o nome livre continua válido,
+ * como já era. Nada é inventado.
+ */
+export const resolveExerciseName = async (
+  nome: string,
+  equipamento?: string | null,
+): Promise<ResolvedExerciseName | null> => {
+  const termo = String(nome ?? '').trim();
+  if (!termo) return null;
+  try {
+    const response = await apiClient.post<{ exercicio: ResolvedExerciseName | null }>(
+      ENDPOINTS.EXERCISE_CATALOG_RESOLVE,
+      { nome: termo, equipamento: equipamento ?? null },
+    );
+    const item = response?.data?.exercicio;
+    if (!item || typeof item.chave !== 'string' || !metricasValidas.has(item.metrica)) {
+      return null;
+    }
+    return item;
+  } catch {
+    return null;
+  }
 };

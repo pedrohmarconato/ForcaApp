@@ -57,16 +57,43 @@ const isDraft = (value: unknown): value is ManualPlanDraft => {
   );
 };
 
+// Campos recuperáveis são COAGIDOS antes de validar. Um rascunho gravado por
+// build anterior com `duracao_minutos: 37.5` reprovava inteiro e o store
+// gravava um plano vazio por cima — o aluno perdia tudo, em silêncio.
+const coerceDraft = (value: unknown): unknown => {
+  if (!value || typeof value !== 'object') return value;
+  const draft = value as { treinos?: unknown };
+  if (!Array.isArray(draft.treinos)) return value;
+  for (const workout of draft.treinos) {
+    if (!workout || typeof workout !== 'object') continue;
+    const w = workout as { duracao_minutos?: unknown };
+    if (typeof w.duracao_minutos === 'number' && Number.isFinite(w.duracao_minutos)) {
+      w.duracao_minutos = Math.round(w.duracao_minutos);
+    }
+  }
+  return value;
+};
+
 const parseDraft = (raw: string | null): ManualPlanDraft | null => {
   if (!raw) return null;
   try {
     const envelope = JSON.parse(raw) as { version?: unknown; draft?: unknown };
-    return envelope.version === VERSION && isDraft(envelope.draft)
-      ? envelope.draft
-      : null;
+    const candidato = coerceDraft(envelope.draft);
+    return envelope.version === VERSION && isDraft(candidato) ? candidato : null;
   } catch {
     return null;
   }
+};
+
+export type ManualPlanDraftLoad = {
+  draft: ManualPlanDraft | null;
+  /**
+   * Havia bytes gravados para este usuário — mesmo que ilegíveis.
+   *
+   * O chamador precisa saber disso para NÃO sobrescrever um rascunho que
+   * apenas não pôde ser lido: apagar por cima é irreversível.
+   */
+  hadStoredBytes: boolean;
 };
 
 export const saveManualPlanDraft = async (
@@ -79,12 +106,19 @@ export const saveManualPlanDraft = async (
   );
 };
 
+export const readManualPlanDraft = async (
+  userId: string,
+): Promise<ManualPlanDraftLoad> => {
+  const key = keyFor(userId);
+  return withKeyQueue(key, async () => {
+    const raw = await AsyncStorage.getItem(key);
+    return { draft: parseDraft(raw), hadStoredBytes: typeof raw === 'string' && raw.length > 0 };
+  });
+};
+
 export const loadManualPlanDraft = async (
   userId: string,
-): Promise<ManualPlanDraft | null> => {
-  const key = keyFor(userId);
-  return withKeyQueue(key, async () => parseDraft(await AsyncStorage.getItem(key)));
-};
+): Promise<ManualPlanDraft | null> => (await readManualPlanDraft(userId)).draft;
 
 export const clearManualPlanDraft = async (userId: string): Promise<void> => {
   const key = keyFor(userId);

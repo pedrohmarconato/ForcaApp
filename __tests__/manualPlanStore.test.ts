@@ -27,6 +27,7 @@ jest.mock('../src/services/exerciseCatalogService', () => ({
 jest.mock('../src/services/manualPlanDraftStorage', () => ({
   saveManualPlanDraft: jest.fn(async () => undefined),
   loadManualPlanDraft: jest.fn(async () => null),
+  readManualPlanDraft: jest.fn(async () => ({ draft: null, hadStoredBytes: false })),
   clearManualPlanDraft: jest.fn(async () => undefined),
 }));
 
@@ -67,6 +68,10 @@ describe('manualPlanStore', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     (storage.loadManualPlanDraft as jest.Mock).mockResolvedValue(null);
+    (storage.readManualPlanDraft as jest.Mock).mockResolvedValue({
+      draft: null,
+      hadStoredBytes: false,
+    });
     (getPlanSessions as jest.Mock).mockResolvedValue([]);
     (getSessionDetail as jest.Mock).mockResolvedValue(null);
     (getTrainingPlanMetadata as jest.Mock).mockResolvedValue(null);
@@ -238,7 +243,10 @@ describe('manualPlanStore', () => {
       nome: 'Rascunho de vinte minutos',
       treinos: [],
     };
-    (storage.loadManualPlanDraft as jest.Mock).mockResolvedValueOnce(persisted);
+    (storage.readManualPlanDraft as jest.Mock).mockResolvedValueOnce({
+      draft: persisted,
+      hadStoredBytes: true,
+    });
 
     await useManualPlanStore.getState().initFromQuestionnaire('user-1', {
       dias_treino: ['mon', 'wed'],
@@ -283,5 +291,78 @@ describe('manualPlanStore', () => {
     await expect(useManualPlanStore.getState().save()).resolves.toBe('plan-user-1');
     expect(storage.clearManualPlanDraft).toHaveBeenCalledWith('user-1');
     expect(useManualPlanStore.getState().draft).toBeNull();
+  });
+});
+
+describe('manualPlanStore — regressões da auditoria', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await useManualPlanStore.getState().reset();
+    (storage.readManualPlanDraft as jest.Mock).mockResolvedValue({
+      draft: null,
+      hadStoredBytes: false,
+    });
+  });
+
+  it('não semeia rascunho vazio por cima de bytes que não puderam ser lidos', async () => {
+    // Apagar por cima é irreversível: se havia algo gravado e a leitura falhou,
+    // o pior desfecho possível é sobrescrever com o plano vazio.
+    (storage.readManualPlanDraft as jest.Mock).mockResolvedValue({
+      draft: null,
+      hadStoredBytes: true,
+    });
+
+    await useManualPlanStore.getState().initEmpty('user-1');
+
+    expect(useManualPlanStore.getState().draft).not.toBeNull();
+    expect(storage.saveManualPlanDraft).not.toHaveBeenCalled();
+  });
+
+  it('semeia o rascunho quando o armazenamento estava mesmo vazio', async () => {
+    await useManualPlanStore.getState().initEmpty('user-1');
+    expect(storage.saveManualPlanDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('salvar deixa o status em "saved" para a tela não re-inicializar', async () => {
+    await useManualPlanStore.getState().initEmpty('user-1');
+    useManualPlanStore.getState().addWorkout();
+    useManualPlanStore.getState().addExercise(0, exercise('Supino'));
+    mockedPost.mockResolvedValue({ data: { plan_id: 'plano-1' } });
+
+    const planId = await useManualPlanStore.getState().save();
+
+    expect(planId).toBe('plano-1');
+    expect(useManualPlanStore.getState().draft).toBeNull();
+    expect(useManualPlanStore.getState().status).toBe('saved');
+  });
+
+  it('cardio por tempo puro (HIIT) conta como cardio e liga a progressão', async () => {
+    // `hasCardioExercise` olhava só para `tempo_distancia`: com HIIT, Pular
+    // Corda ou Escada o bloco "Progredir o cardio" nunca aparecia e a regra
+    // chegava a ser apagada em silêncio ao editar outro exercício.
+    await useManualPlanStore.getState().initEmpty('user-1');
+    useManualPlanStore.getState().addWorkout();
+    useManualPlanStore.getState().addExercise(0, exercise('Cardio Intervalado (HIIT)', 'tempo'));
+
+    expect(useManualPlanStore.getState().draft?.progressao.cardio).toEqual({
+      ativa: true,
+      valor: 5,
+      alvo: 'ambos',
+    });
+
+    // E editar um exercício qualquer não pode apagar a regra.
+    useManualPlanStore.getState().updateExercise(0, 0, { series: 4 });
+    expect(useManualPlanStore.getState().draft?.progressao.cardio).not.toBeNull();
+  });
+
+  it('exercício além do teto de 30 devolve false em vez de sumir calado', async () => {
+    await useManualPlanStore.getState().initEmpty('user-1');
+    useManualPlanStore.getState().addWorkout();
+    for (let i = 0; i < 30; i += 1) {
+      expect(useManualPlanStore.getState().addExercise(0, exercise(`Ex ${i}`))).toBe(true);
+    }
+    expect(useManualPlanStore.getState().addExercise(0, exercise('Ex 31'))).toBe(false);
+    expect(useManualPlanStore.getState().draft?.treinos[0].exercicios).toHaveLength(30);
+    expect(useManualPlanStore.getState().saveError).toContain('30 exercícios');
   });
 });

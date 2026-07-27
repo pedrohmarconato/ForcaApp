@@ -9,7 +9,7 @@ import { getCatalog, type CatalogEntry } from '../services/exerciseCatalogServic
 import { manualDraftFromExistingPlan } from '../services/manualPlanImport';
 import {
   clearManualPlanDraft,
-  loadManualPlanDraft,
+  readManualPlanDraft,
   saveManualPlanDraft,
 } from '../services/manualPlanDraftStorage';
 import {
@@ -36,6 +36,11 @@ type ManualPlanStatus =
   | 'ready'
   | 'previewing'
   | 'saving'
+  // 'saved' existe para a tela distinguir "sem rascunho porque nunca houve" de
+  // "sem rascunho porque acabou de virar plano". Sem essa distinção, o efeito
+  // de inicialização re-disparava logo após o save e regravava um rascunho
+  // fantasma no aparelho.
+  | 'saved'
   | 'error';
 
 type InitOptions = {
@@ -186,11 +191,16 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         sourcePlanId: null,
         progressionUnavailable: false,
       });
-      const stored = options.forceNew ? null : await loadManualPlanDraft(userId);
+      const carregado = options.forceNew
+        ? { draft: null, hadStoredBytes: false }
+        : await readManualPlanDraft(userId);
       if (epoch !== operationEpoch) return;
-      const draft = stored ?? createEmptyManualPlanDraft();
+      const draft = carregado.draft ?? createEmptyManualPlanDraft();
       set({ draft, status: 'ready' });
-      if (!stored) persist(draft);
+      // Só semeia o storage quando ele estava mesmo vazio. Se havia bytes que
+      // não puderam ser lidos, gravar o rascunho vazio por cima seria destruir
+      // trabalho do aluno de forma irreversível.
+      if (!carregado.draft && !carregado.hadStoredBytes) persist(draft);
 
       try {
         const catalog = await getCatalog();
@@ -221,8 +231,11 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         progressionUnavailable: false,
       });
       let stored: ManualPlanDraft | null = null;
+      let hadStoredBytes = false;
       try {
-        stored = await loadManualPlanDraft(userId);
+        const carregado = await readManualPlanDraft(userId);
+        stored = carregado.draft;
+        hadStoredBytes = carregado.hadStoredBytes;
       } catch {
         // Storage local indisponível não bloqueia o editor; o aviso abaixo
         // deixa explícito que manter o app aberto é necessário nesta sessão.
@@ -230,7 +243,9 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
       if (epoch !== operationEpoch) return;
       const draft = stored ?? createManualPlanDraftFromQuestionnaire(questionnaire);
       set({ draft, status: 'ready' });
-      if (!stored) {
+      // Bytes ilegíveis não podem virar apagamento: só semeia quando o
+      // armazenamento estava mesmo vazio.
+      if (!stored && !hadStoredBytes) {
         try {
           await saveManualPlanDraft(userId, draft);
         } catch {
@@ -468,7 +483,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         set({
           draft: null,
           previewData: null,
-          status: 'idle',
+          status: 'saved',
           draftOrigin: null,
           sourcePlanId: null,
           progressionUnavailable: false,

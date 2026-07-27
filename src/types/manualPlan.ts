@@ -109,6 +109,17 @@ export const createEmptyManualWorkout = (
   exercicios: [],
 });
 
+// Duração declarada do treino: o mesmo intervalo do PLANO_MANUAL_SCHEMA.
+export const MANUAL_WORKOUT_MIN_MINUTES = 15;
+export const MANUAL_WORKOUT_MAX_MINUTES = 180;
+
+export const isValidWorkoutDuration = (valor: number | null): boolean =>
+  valor === null ||
+  (Number.isInteger(valor) &&
+    valor >= MANUAL_WORKOUT_MIN_MINUTES &&
+    valor <= MANUAL_WORKOUT_MAX_MINUTES);
+
+
 const DAY_OFFSET_BY_VALUE: Record<string, number> = {
   mon: 0,
   tue: 1,
@@ -126,12 +137,7 @@ export const createManualPlanDraftFromQuestionnaire = (
   const draft = createEmptyManualPlanDraft();
   const duration = questionnaire.tempo_medio_treino_min;
   const validDuration =
-    typeof duration === 'number' &&
-    Number.isInteger(duration) &&
-    duration >= 15 &&
-    duration <= 180
-      ? duration
-      : null;
+    typeof duration === 'number' && isValidWorkoutDuration(duration) ? duration : null;
   const seenDays = new Set<number>();
 
   for (const day of questionnaire.dias_treino ?? []) {
@@ -149,9 +155,13 @@ export const createManualPlanDraftFromQuestionnaire = (
   return draft;
 };
 
+// Cardio para o motor é tudo que se mede por tempo — HIIT, Pular Corda e
+// Escada usam `tempo`, não `tempo_distancia`. Olhar só para `tempo_distancia`
+// escondia o bloco "Progredir o cardio" e, no fluxo de edição, chegava a APAGAR
+// em silêncio uma regra que o plano já tinha.
 export const hasCardioExercise = (draft: ManualPlanDraft): boolean =>
   draft.treinos.some((treino) =>
-    treino.exercicios.some((exercicio) => exercicio.metrica === 'tempo_distancia'),
+    treino.exercicios.some((exercicio) => exercicio.metrica !== 'carga_reps'),
   );
 
 export const hasRmExercise = (draft: ManualPlanDraft): boolean =>
@@ -164,5 +174,10 @@ export const isManualPlanSavable = (draft: ManualPlanDraft | null): boolean =>
   draft.nome.trim().length > 0 &&
   draft.treinos.length > 0 &&
   draft.treinos.every(
-    (treino) => treino.nome.trim().length > 0 && treino.exercicios.length > 0,
+    (treino) =>
+      treino.nome.trim().length > 0 &&
+      treino.exercicios.length > 0 &&
+      // Sem isto, "10" na estimativa deixava o Salvar habilitado e o aluno só
+      // descobria o problema num 400 do servidor, sem saber qual campo era.
+      isValidWorkoutDuration(treino.duracao_minutos),
   );

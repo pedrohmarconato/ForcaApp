@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   clearManualPlanDraft,
   loadManualPlanDraft,
+  readManualPlanDraft,
   saveManualPlanDraft,
 } from '../src/services/manualPlanDraftStorage';
 import { createEmptyManualPlanDraft } from '../src/types/manualPlan';
@@ -73,6 +74,41 @@ describe('manualPlanDraftStorage', () => {
       }),
     );
     await expect(loadManualPlanDraft('user-1')).resolves.toBeNull();
+  });
+
+  it('duração decimal é arredondada em vez de invalidar o rascunho inteiro', async () => {
+    // Um build anterior aceitava "37,5" no campo de estimativa. Na releitura o
+    // rascunho inteiro era rejeitado e o store gravava um plano VAZIO por cima:
+    // horas de trabalho sumiam sem mensagem nenhuma.
+    const draft = createEmptyManualPlanDraft();
+    draft.treinos.push({
+      nome: 'Treino A',
+      dia_offset: 0,
+      duracao_minutos: 37.5 as unknown as number,
+      incluir_aquecimento: false,
+      incluir_alongamento: false,
+      exercicios: [],
+    });
+    await AsyncStorage.setItem(
+      '@manual_plan_draft_user-1',
+      JSON.stringify({ version: 1, draft }),
+    );
+
+    const recuperado = await loadManualPlanDraft('user-1');
+    expect(recuperado).not.toBeNull();
+    expect(recuperado?.treinos[0].duracao_minutos).toBe(38);
+  });
+
+  it('bytes ilegíveis são sinalizados para não virarem apagamento silencioso', async () => {
+    await AsyncStorage.setItem('@manual_plan_draft_user-1', '{isto não é json');
+
+    const resultado = await readManualPlanDraft('user-1');
+    expect(resultado.draft).toBeNull();
+    expect(resultado.hadStoredBytes).toBe(true);
+
+    const semNada = await readManualPlanDraft('user-2');
+    expect(semNada.draft).toBeNull();
+    expect(semNada.hadStoredBytes).toBe(false);
   });
 
   it('limpa só a chave do usuário após salvar com sucesso', async () => {

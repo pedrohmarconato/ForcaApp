@@ -23,6 +23,7 @@ export const ENDPOINTS = {
   CHAT: '/chat', // POST /api/chat — proxy seguro para o Claude
   CONSOLIDATE_CHAT: '/consolidate-chat', // POST /api/consolidate-chat — consolida chat em diretrizes
   EXERCISE_CATALOG: '/exercise-catalog', // GET /api/exercise-catalog — catálogo canônico versionado
+  EXERCISE_CATALOG_RESOLVE: '/exercise-catalog/resolve', // POST — nome livre → item canônico (aliases ficam no servidor)
   MANUAL_PLAN: '/manual-plan', // POST /api/manual-plan — persiste plano determinístico do editor
   MANUAL_PLAN_PREVIEW: '/manual-plan/preview', // POST — expande sem persistir
   HEALTH: '/health', // GET /api/health (o Flask expõe /health e /api/health)
