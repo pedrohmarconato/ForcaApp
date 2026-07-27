@@ -68,6 +68,10 @@ export type TrainingPlanMetadata = {
   duration_weeks: number;
   // Null nos planos afetados pela regressão corrigida na migration 0015.
   progression_rules: unknown[] | null;
+  // Molde que originou o plano. É o único lugar que preserva a diferença entre
+  // "o aluno declarou 55 min" e "deixei o servidor estimar": o builder só grava
+  // `duracao_minutos` na sessão quando o aluno declarou um valor.
+  raw_plan?: unknown;
 };
 
 /**
@@ -144,7 +148,7 @@ export const getTrainingPlanMetadata = async (
 ): Promise<TrainingPlanMetadata | null> => {
   const { data, error } = await supabase
     .from('training_plans')
-    .select('id, name, duration_weeks, progression_rules')
+    .select('id, name, duration_weeks, progression_rules, raw_plan')
     .eq('id', planId)
     .single();
   if (error) throw error;
