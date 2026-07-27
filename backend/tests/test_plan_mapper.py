@@ -495,6 +495,77 @@ def test_restricao_de_lesao_por_grupo_marca_apenas_o_grupo_normalizado():
     assert por_chave["supino_reto_barra"]["injury_flags"] == []
 
 
+@pytest.mark.parametrize(
+    "grupo_afetado",
+    ["ombro", "Ombro", "ombros", "manguito rotador", "dor no ombro direito"],
+)
+def test_restricao_de_lesao_por_grupo_casa_singular_e_sinonimo(grupo_afetado):
+    """
+    O aluno fala "ombro"; o catálogo grava "Ombros". Com igualdade exata o
+    guardrail de lesão ficava ligado e nunca disparava.
+    """
+    plano = _plano_exemplo()
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["exercicios"] = [
+        {"nome": "Desenvolvimento com Halteres", "series": 3, "repeticoes": "8-12"},
+        {"nome": "Supino Reto com Barra", "series": 3, "repeticoes": "8-12"},
+    ]
+    resultado = mapear_plano_ia(
+        plano,
+        user_id=USER_ID,
+        start_date=START,
+        restricoes_lesao=[
+            {"tipo": "lesao", "descricao": "Evitar dor", "grupo_afetado": grupo_afetado}
+        ],
+    )
+    por_chave = {e["exercise_key"]: e for e in resultado["exercises"]}
+
+    assert por_chave["desenvolvimento_halteres"]["injury_flags"] == ["Evitar dor"]
+    # Sinônimo de ombro não pode transbordar para peito.
+    assert por_chave["supino_reto_barra"]["injury_flags"] == []
+
+
+def test_restricao_de_lesao_por_grupo_cobre_articulacao_com_varios_grupos():
+    """'joelho' atinge Quadríceps e Posterior de Coxa, não o plano inteiro."""
+    plano = _plano_exemplo()
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["exercicios"] = [
+        {"nome": "Agachamento Livre", "series": 3, "repeticoes": "8-12"},
+        {"nome": "Supino Reto com Barra", "series": 3, "repeticoes": "8-12"},
+    ]
+    resultado = mapear_plano_ia(
+        plano,
+        user_id=USER_ID,
+        start_date=START,
+        restricoes_lesao=[
+            {"tipo": "lesao", "descricao": "Condromalácia", "grupo_afetado": "joelho"}
+        ],
+    )
+    por_grupo = {e["muscle_group"]: e for e in resultado["exercises"]}
+
+    assert por_grupo["Quadríceps"]["injury_flags"] == ["Condromalácia"]
+    assert por_grupo["Peito"]["injury_flags"] == []
+
+
+def test_restricao_de_lesao_por_grupo_desconhecido_nao_marca_nada():
+    """Termo que não casa com nenhum grupo não pode marcar o plano inteiro."""
+    plano = _plano_exemplo()
+    sessao = plano["plano_principal"]["ciclos"][0]["microciclos"][0]["sessoes"][0]
+    sessao["exercicios"] = [
+        {"nome": "Supino Reto com Barra", "series": 3, "repeticoes": "8-12"},
+    ]
+    resultado = mapear_plano_ia(
+        plano,
+        user_id=USER_ID,
+        start_date=START,
+        restricoes_lesao=[
+            {"tipo": "lesao", "descricao": "Enxaqueca", "grupo_afetado": "cabeca"}
+        ],
+    )
+
+    assert resultado["exercises"][0]["injury_flags"] == []
+
+
 def test_restricao_de_lesao_por_exercicio_casa_pela_chave_canonica():
     resultado = mapear_plano_ia(
         _plano_com_exercicio("Supino Reto", "Barra"),

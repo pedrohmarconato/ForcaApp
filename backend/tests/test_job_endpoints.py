@@ -313,3 +313,57 @@ def test_fluxo_completo_modo_novo(client, monkeypatch):
 
     assert job.status == jm.JobStatus.SALVO
     assert job.plan_id == "db-plan-2"
+
+
+def test_regras_de_progressao_vazias_chegam_a_rpc_como_lista(client, monkeypatch):
+    """
+    `regras: []` é decisão explícita do molde ("plano sem progressão"), não
+    ausência de dado. Se o `[]` não for enviado, a coluna fica NULL e a UI passa
+    a dizer "progressão indisponível" para um plano que declarou o contrário.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-para-teste")
+    user_id = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
+
+    import json as _json
+    molde_json = _json.dumps({
+        "nome": "Plano Sem Progressão",
+        "descricao": "",
+        "periodizacao": {"tipo": "Linear"},
+        "duracao_semanas": 4,
+        "frequencia_semanal": 2,
+        "semanas_tipo": [{
+            "id": "tipo_a", "nome": "A",
+            "sessoes": [{
+                "nome": "Treino A", "tipo": "Hipertrofia", "duracao_minutos": 60, "dia_offset": 0,
+                "grupos_musculares": [{"nome": "Peito"}],
+                "exercicios": [{
+                    "nome": "Supino", "ordem": 1, "series": 3, "repeticoes": "10",
+                    "percentual_rm": 75, "prioridade": "primario",
+                }],
+            }],
+        }],
+        "calendario": ["tipo_a"] * 4,
+        "progressao": {"regras": []},
+    })
+    fake_response_obj = types.SimpleNamespace(content=[
+        types.SimpleNamespace(type="text", text=molde_json)
+    ])
+
+    from backend.app import _executar_geracao_molde
+
+    job, _ = jm.criar_job(user_id=user_id)
+
+    with mock.patch("backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+                    autospec=True, return_value=fake_response_obj), \
+         mock.patch("backend.app.persistir_plano", return_value="db-plan-3") as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id=user_id,
+                access_token="fake-token",
+            )
+
+    mapeado = persistir.call_args.args[0]
+    assert mapeado["plan"]["progression_rules"] == []

@@ -27,7 +27,10 @@ try:
     from backend.services.plan_mapper import MAX_TOTAL_SETS, mapear_plano_ia
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
-    from backend.services.manual_plan_builder import construir_molde_manual
+    from backend.services.manual_plan_builder import (
+        alocar_dias_dos_treinos,
+        construir_molde_manual,
+    )
     from backend.services.exercise_catalog import catalogo_serializavel, etag_catalogo
     from backend.services.job_manager import (
         JobStatus, PlanJob, criar_job, obter_job, executar_job,
@@ -61,6 +64,14 @@ PLAN_RATE_WINDOW_SECONDS = int(os.environ.get("PLAN_RATE_WINDOW_SECONDS", "3600"
 MANUAL_PLAN_RATE_LIMIT = int(os.environ.get("MANUAL_PLAN_RATE_LIMIT", "10"))
 MANUAL_PLAN_RATE_WINDOW_SECONDS = int(
     os.environ.get("MANUAL_PLAN_RATE_WINDOW_SECONDS", "3600")
+)
+# A prévia roda o MESMO pipeline (expansor + mapper) sem persistir e sem
+# consumir a cota de criação: sem teto próprio, o limite de 10/h da criação não
+# protege nada — um único token válido em loop ocupa o worker Flask e derruba
+# chat e geração de plano junto. É um botão, não um debounce de digitação, então
+# 60/h não atrapalha uso legítimo.
+MANUAL_PLAN_PREVIEW_RATE_LIMIT = int(
+    os.environ.get("MANUAL_PLAN_PREVIEW_RATE_LIMIT", "60")
 )
 
 # Feature flag da nova arquitetura molde+expansor+job.
@@ -372,6 +383,120 @@ def handle_exercise_catalog():
     return response
 
 
+# Tamanho máximo do nome a resolver: o catálogo mais longo tem ~40 caracteres.
+MAX_NOME_PARA_RESOLVER = 120
+
+
+@app.route('/api/exercise-catalog/resolve', methods=['POST'])
+@token_required
+def handle_exercise_catalog_resolve():
+    """
+    Resolve um nome livre contra o catálogo, sem expor os aliases.
+
+    O app não pode reproduzir o resolvedor: os sinônimos ficam de propósito
+    fora do payload do catálogo. Sem esta rota o editor afirmava "esse
+    exercício ainda não está na nossa lista" para nomes que o servidor
+    canoniza na gravação — e a métrica escolhida pelo aluno era sobrescrita
+    em silêncio. A resposta devolve SÓ o item que casou; nada de sinônimo.
+    """
+    from backend.services.exercise_catalog import resolver_exercicio
+
+    corpo = request.get_json(silent=True)
+    if not isinstance(corpo, dict):
+        return jsonify({"error": "Corpo JSON inválido. Esperado objeto."}), 400
+    nome = corpo.get("nome")
+    if not isinstance(nome, str) or not nome.strip():
+        return jsonify({"error": "Informe o nome do exercício."}), 400
+    if len(nome) > MAX_NOME_PARA_RESOLVER:
+        return jsonify({"error": "Nome de exercício longo demais."}), 400
+    equipamento = corpo.get("equipamento")
+    if equipamento is not None and (
+        not isinstance(equipamento, str) or len(equipamento) > MAX_NOME_PARA_RESOLVER
+    ):
+        return jsonify({"error": "Equipamento inválido."}), 400
+
+    canonico = resolver_exercicio(nome, equipamento)
+    if canonico.chave is None:
+        return jsonify({"exercicio": None}), 200
+    return jsonify({
+        "exercicio": {
+            "chave": canonico.chave,
+            "nome": canonico.nome,
+            "grupo_muscular": canonico.grupo_muscular,
+            "equipamento": canonico.equipamento,
+            "peso_corporal": canonico.peso_corporal,
+            "incremento_kg": canonico.incremento_kg,
+            "metrica": canonico.metrica,
+        }
+    }), 200
+
+
+# Mensagens de validação do schema em pt-BR, por (campo, validador). Repassar
+# `exc.message` cru colocava "10 is less than the minimum of 15" na tela do
+# aluno, em inglês e sem dizer qual campo — a UI renderiza esse texto direto.
+_MENSAGENS_RASCUNHO_MANUAL = {
+    ("duracao_minutos", "minimum"): "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
+    ("duracao_minutos", "maximum"): "a estimativa de um treino precisa ficar entre 15 e 180 minutos",
+    ("duracao_minutos", "type"): "a estimativa de um treino precisa ser um número inteiro de minutos",
+    ("duracao_semanas", "minimum"): "o plano precisa ter entre 1 e 52 semanas",
+    ("duracao_semanas", "maximum"): "o plano precisa ter entre 1 e 52 semanas",
+    ("series", "minimum"): "cada exercício precisa de pelo menos 1 série",
+    ("series", "maximum"): "um exercício não pode passar de 10 séries",
+    ("treinos", "maxItems"): "o plano aceita no máximo 7 treinos por semana",
+    ("treinos", "minItems"): "adicione pelo menos um treino ao plano",
+    ("exercicios", "maxItems"): "cada treino aceita no máximo 30 exercícios",
+    ("exercicios", "minItems"): "cada treino precisa de pelo menos um exercício",
+    ("nome", "minLength"): "informe o nome",
+    ("nome", "maxLength"): "o nome ficou longo demais",
+}
+
+
+def _mensagem_de_validacao(exc):
+    """Traduz a ValidationError do jsonschema para algo acionável em pt-BR."""
+    caminho = [parte for parte in exc.absolute_path if isinstance(parte, str)]
+    campo = caminho[-1] if caminho else None
+    especifica = _MENSAGENS_RASCUNHO_MANUAL.get((campo, exc.validator))
+    if especifica:
+        return "Plano manual inválido: {}.".format(especifica)
+    if campo:
+        return (
+            "Plano manual inválido: o campo '{}' não está no formato esperado."
+        ).format(campo)
+    return "Plano manual inválido: revise os dados do plano."
+
+
+def _series_projetadas(rascunho):
+    """
+    Total de séries do plano DEPOIS de expandir, contando a progressão.
+
+    O pré-cheque somava só `series × semanas` e ignorava o "aumentar séries";
+    um plano perfeitamente normal passava na validação e morria com 400 no meio
+    do pipeline, com uma mensagem sobre um teto que o rascunho não estourava.
+    Aqui a projeção usa a MESMA fórmula do expansor.
+    """
+    duracao_semanas = rascunho["duracao_semanas"]
+    progressao = rascunho.get("progressao") or {}
+    regra = progressao.get("series") or {}
+    ativa = regra.get("ativa") is True and regra.get("valor")
+    inicio = regra.get("semana_inicio", 1)
+    fim = regra.get("semana_fim", 1)
+    valor = regra.get("valor", 0)
+
+    total = 0
+    for semana in range(1, duracao_semanas + 1):
+        for treino in rascunho["treinos"]:
+            for exercicio in treino["exercicios"]:
+                series = exercicio["series"]
+                if ativa and inicio <= semana <= fim:
+                    incremento = valor * (semana - inicio + 1)
+                    series = min(max(series + incremento, 2), 10)
+                total += series
+            # Aquecimento e alongamento são 1 série fixa e não progridem.
+            total += int(treino.get("incluir_aquecimento") is True)
+            total += int(treino.get("incluir_alongamento") is True)
+    return total
+
+
 def _validar_rascunho_manual(rascunho):
     """Valida schema e invariantes que dependem de mais de um campo."""
     import jsonschema
@@ -379,29 +504,41 @@ def _validar_rascunho_manual(rascunho):
     try:
         jsonschema.validate(instance=rascunho, schema=PLANO_MANUAL_SCHEMA)
     except jsonschema.exceptions.ValidationError as exc:
-        return "Plano manual inválido: {}".format(exc.message)
+        return _mensagem_de_validacao(exc)
 
-    dias = [
+    # "Sem dia fixo" não é ausência de dia: o pipeline o materializa no
+    # primeiro dia livre. Validar só os offsets explícitos deixava um treino
+    # sem dia colidir com um treino de segunda — a colisão que este guard
+    # existe para impedir.
+    explicitos = [
         treino.get("dia_offset")
         for treino in rascunho["treinos"]
         if treino.get("dia_offset") is not None
     ]
-    if len(dias) != len(set(dias)):
+    if len(explicitos) != len(set(explicitos)):
+        return "Plano manual inválido: dois treinos no mesmo dia."
+    dias_efetivos = alocar_dias_dos_treinos(rascunho["treinos"])
+    if any(dia is None for dia in dias_efetivos):
+        return "Plano manual inválido: há mais treinos do que dias na semana."
+    if len(dias_efetivos) != len(set(dias_efetivos)):
         return "Plano manual inválido: dois treinos no mesmo dia."
 
     duracao_semanas = rascunho["duracao_semanas"]
-    sets_por_semana = sum(
-        sum(exercicio["series"] for exercicio in treino["exercicios"])
-        + int(treino.get("incluir_aquecimento") is True)
-        + int(treino.get("incluir_alongamento") is True)
-        for treino in rascunho["treinos"]
-    )
-    total_expandido = sets_por_semana * duracao_semanas
+    total_expandido = _series_projetadas(rascunho)
     if total_expandido > MAX_TOTAL_SETS:
+        progressao_de_series = (
+            (rascunho.get("progressao") or {}).get("series") or {}
+        ).get("ativa") is True
+        sugestao = (
+            "Reduza a duração do plano, o número de exercícios ou desligue o "
+            "aumento de séries."
+            if progressao_de_series
+            else "Reduza a duração do plano ou o número de exercícios."
+        )
         return (
-            "Plano manual inválido: excede o teto de {} séries totais após "
-            "expandir {} semanas."
-        ).format(MAX_TOTAL_SETS, duracao_semanas)
+            "Plano manual inválido: o plano chega a {} séries ao expandir {} "
+            "semanas e o teto é {}. {}"
+        ).format(total_expandido, duracao_semanas, MAX_TOTAL_SETS, sugestao)
 
     progressao = rascunho.get("progressao") or {}
     series = progressao.get("series") or {}
@@ -571,6 +708,15 @@ def handle_manual_plan_preview():
     user_id = (g.user or {}).get("id")
     if not user_id:
         return jsonify({"error": "ID do usuário não fornecido."}), 400
+    if _rate_limit_hit(
+        "manual_plan_preview",
+        user_id,
+        MANUAL_PLAN_PREVIEW_RATE_LIMIT,
+        MANUAL_PLAN_RATE_WINDOW_SECONDS,
+    ):
+        return jsonify(
+            {"error": "Muitas prévias seguidas. Tente novamente em alguns minutos."}
+        ), 429
 
     try:
         _, _, mapeado = _executar_pipeline_manual(
@@ -1120,8 +1266,17 @@ SCHEMA DO MOLDE:
             restricoes_lesao=restricoes_lesao,
         )
 
-        if molde.get("progressao", {}).get("regras"):
-            mapeado["plan"]["progression_rules"] = molde["progressao"]["regras"]
+        # Lista vazia é decisão explícita ("plano sem progressão"), não ausência
+        # de dado: com um teste de verdade (`if regras:`) o `[]` virava NULL na
+        # coluna e a UI passava a dizer "progressão indisponível" para um plano
+        # cujo molde diz, com todas as letras, que não há regra nenhuma.
+        # Lista vazia é decisão explícita ("plano sem progressão"), não ausência
+        # de dado: com um teste de verdade (`if regras:`) o `[]` virava NULL na
+        # coluna e a UI passava a dizer "progressão indisponível" para um plano
+        # cujo molde diz, com todas as letras, que não há regra nenhuma.
+        regras_progressao = (molde.get("progressao") or {}).get("regras")
+        if isinstance(regras_progressao, list):
+            mapeado["plan"]["progression_rules"] = regras_progressao
 
         db_plan_id = persistir_plano(mapeado, access_token=access_token)
     except (ValueError, PlanPersistenceError):

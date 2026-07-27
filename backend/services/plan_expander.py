@@ -198,6 +198,8 @@ def _aplicar_progressao(
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
                         # Cardio não tem %RM: progride por tempo/distância.
+                        if not _progressivel(ex):
+                            continue
                         if _atinge_grupo(ex, grupo_alvo) and not _e_por_tempo(ex):
                             rm_atual = ex.get("percentual_rm")
                             if isinstance(rm_atual, (int, float)):
@@ -214,6 +216,13 @@ def _aplicar_progressao(
                 incremento = valor * semanas_decorridas
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
+                        # Multiplicar SÉRIE de cardio/isometria é sem sentido:
+                        # uma corrida de 20 min virava 5 corridas de 28 min, e o
+                        # aquecimento de 5 min prometido pela UI virava 35 min.
+                        # Cardio progride por tempo/distância (delta_cardio),
+                        # espelhando o guard que delta_rm_percentual já tem.
+                        if not _progressivel(ex) or _e_por_tempo(ex):
+                            continue
                         if _atinge_grupo(ex, grupo_alvo):
                             series_atual = ex.get("series", 1)
                             if isinstance(series_atual, int):
@@ -230,6 +239,8 @@ def _aplicar_progressao(
                 fator_series = regra.get("fator_series", 0.8)
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
+                        if not _progressivel(ex):
+                            continue
                         if _e_por_tempo(ex):
                             # Deload de cardio = menos tempo/distância.
                             duracao = ex.get("duracao_minutos")
@@ -245,6 +256,15 @@ def _aplicar_progressao(
                         series_atual = ex.get("series")
                         if isinstance(series_atual, int):
                             ex["series"] = max(int(series_atual * fator_series), _PISO_SERIES)
+
+
+def _progressivel(exercicio: Dict[str, Any]) -> bool:
+    """
+    Exercício injetado pelo pipeline (aquecimento/alongamento dos toggles) não
+    progride: o aluno não pediu progressão para ele e a UI promete um valor
+    fixo. Qualquer outro exercício progride normalmente.
+    """
+    return exercicio.get("progressivel") is not False
 
 
 def _e_por_tempo(exercicio: Dict[str, Any]) -> bool:
@@ -275,7 +295,7 @@ def _aplicar_progressao_cardio(
     fator = min(1 + (valor / 100.0) * semanas_decorridas, _TETO_CARDIO_MULTIPLICADOR)
     for sessao in sessoes:
         for ex in sessao.get("exercicios", []):
-            if not _e_por_tempo(ex):
+            if not _e_por_tempo(ex) or not _progressivel(ex):
                 continue
             if alvo in ("duracao", "ambos"):
                 duracao = ex.get("duracao_minutos")

@@ -10,6 +10,7 @@
 import datetime
 import os
 import sys
+import re
 import unittest.mock as mock
 
 import jsonschema
@@ -333,7 +334,11 @@ def test_nome_livre_pode_declarar_metrica_de_tempo_sem_virar_repeticoes():
     assert mapeado["exercises"][0]["exercise_key"] is None
     assert mapeado["exercises"][0]["metric"] == "tempo_distancia"
     assert mapeado["sets"][0]["target_reps_min"] is None
-    assert mapeado["sets"][0]["target_duration_seconds"] > 15 * 60
+    # Semana 1 é a linha de base: exatamente o que o aluno digitou. A progressão
+    # começa na semana 2 (antes, a semana 1 já saía progredida e o plano que ele
+    # montou não existia em lugar nenhum).
+    assert mapeado["sets"][0]["target_duration_seconds"] == 15 * 60
+    assert mapeado["sets"][0]["target_distance_m"] == 1000
     ultima_serie = mapeado["sets"][-1]
     assert ultima_serie["target_duration_seconds"] > mapeado["sets"][0][
         "target_duration_seconds"
@@ -535,9 +540,20 @@ def test_preview_formata_progressao_cardio_em_minutos_decimais(client):
     )
 
     assert response.status_code == 200
-    assert response.get_json()["semanas"][0]["treinos"][0]["exercicios"][0][
-        "alvo"
-    ] == "2 séries × 15,8 min / 1,05 km"
+    semanas = response.get_json()["semanas"]
+    alvo_da_semana = lambda i: semanas[i]["treinos"][0]["exercicios"][0]["alvo"]
+
+    # Semana 1 é a linha de base: sem decimal porque nada progrediu ainda.
+    assert semanas[0]["semana"] == 1
+    assert alvo_da_semana(0) == "2 séries × 15 min / 1 km"
+    # A prévia devolve semana 1, meio e última. A progressão aparece nas duas
+    # seguintes — e em minutos legíveis, não em segundos (o defeito original
+    # mostrava "948 s").
+    assert [semana["semana"] for semana in semanas] == [1, 6, 12]
+    assert alvo_da_semana(1) == "2 séries × 18,8 min / 1,25 km"
+    assert alvo_da_semana(2) == "2 séries × 23,2 min / 1,55 km"
+    # Nenhuma semana exibe a duração em segundos ("948 s").
+    assert all(not re.search(r"\d+(?:,\d+)? s\b", alvo_da_semana(i)) for i in range(3))
 
 
 def test_falha_de_persistencia_vira_502_sem_plan_id(client):
@@ -563,4 +579,272 @@ def test_criacao_manual_tem_rate_limit_proprio(client):
 
     assert primeira.status_code == 201
     assert segunda.status_code == 201
+    assert terceira.status_code == 429
+
+
+def test_treino_sem_dia_fixo_nao_colide_com_treino_de_dia_explicito(client):
+    """
+    `dia_offset: null` é o DEFAULT de todo treino novo e existe um botão "Sem
+    dia fixo". O guard de dias duplicados descartava os nulos, mas o mapper
+    resolvia o nulo como `order_in_week - 1` — o 1º treino sem dia virava
+    SEGUNDA e caía em cima do treino que o aluno marcou como segunda, toda
+    semana do plano.
+    """
+    treinos = [
+        {
+            "nome": "Sem dia",
+            "dia_offset": None,
+            "duracao_minutos": None,
+            "incluir_aquecimento": False,
+            "incluir_alongamento": False,
+            "exercicios": [_exercicio()],
+        },
+        {
+            "nome": "Segunda",
+            "dia_offset": 0,
+            "duracao_minutos": None,
+            "incluir_aquecimento": False,
+            "incluir_alongamento": False,
+            "exercicios": [_exercicio()],
+        },
+    ]
+    rascunho = _rascunho(treinos=treinos, duracao_semanas=2)
+
+    plano = _expandir(rascunho)
+    mapeado = mapear_plano_ia(
+        plano, user_id=USER_ID, start_date=START, created_by="user"
+    )
+    semana_1 = [s for s in mapeado["sessions"] if s["week_number"] == 1]
+    assert len(semana_1) == 2
+    assert len({s["day_of_week"] for s in semana_1}) == 2, semana_1
+    assert len({s["scheduled_date"] for s in semana_1}) == 2, semana_1
+
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+    assert response.status_code == 200
+    dias_da_previa = [
+        treino["dia"] for treino in response.get_json()["semanas"][0]["treinos"]
+    ]
+    assert len(set(dias_da_previa)) == 2, dias_da_previa
+
+
+def test_semana_cheia_com_sete_treinos_continua_valida(client):
+    """
+    A materialização dos dias não pode recusar o caso legítimo do teto: 7
+    treinos com dia explícito ocupam a semana inteira e devem passar.
+    """
+    treinos = [
+        {
+            "nome": f"Treino {i}",
+            "dia_offset": i,
+            "duracao_minutos": None,
+            "incluir_aquecimento": False,
+            "incluir_alongamento": False,
+            "exercicios": [_exercicio()],
+        }
+        for i in range(7)
+    ]
+    rascunho = _rascunho(treinos=treinos, duracao_semanas=1)
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+    assert response.status_code == 200
+    dias = [t["dia"] for t in response.get_json()["semanas"][0]["treinos"]]
+    assert len(set(dias)) == 7, dias
+
+
+def test_semana_1_e_exatamente_o_que_o_aluno_digitou():
+    """
+    O expansor conta `semana - inicio + 1`, então regra começando na semana 1 já
+    progride a semana 1: o aluno digitava 70 %RM / 20 min e a semana 1 nascia
+    com 72 %RM / 21 min. O plano montado não existia em lugar nenhum.
+    """
+    carga = _exercicio(percentual_rm=70, series=3)
+    cardio = _exercicio(
+        nome="Corrida",
+        exercise_key="corrida",
+        equipamento=None,
+        repeticoes=None,
+        duracao_minutos=20,
+        distancia_km=5,
+        series=1,
+    )
+    progressao = _rascunho()["progressao"]
+    progressao["cardio"] = {"ativa": True, "valor": 5, "alvo": "ambos"}
+    progressao["intensidade"] = {"ativa": True, "valor": 2.5}
+    plano = _expandir(_rascunho(exercicios=[carga, cardio], progressao=progressao))
+    mapeado = mapear_plano_ia(
+        plano, user_id=USER_ID, start_date=START, created_by="user"
+    )
+
+    por_id = {e["id"]: e for e in mapeado["exercises"]}
+    sessoes_semana_1 = {
+        s["id"] for s in mapeado["sessions"] if s["week_number"] == 1
+    }
+    exercicios_semana_1 = [
+        e for e in mapeado["exercises"] if e["session_id"] in sessoes_semana_1
+    ]
+    supino = next(e for e in exercicios_semana_1 if e["exercise_key"] == "supino_reto_barra")
+    corrida = next(e for e in exercicios_semana_1 if e["exercise_key"] == "corrida")
+    assert supino["target_rm_percent"] == 70
+    serie_corrida = next(
+        s for s in mapeado["sets"] if s["exercise_id"] == corrida["id"]
+    )
+    assert serie_corrida["target_duration_seconds"] == 20 * 60
+    assert serie_corrida["target_distance_m"] == 5000
+
+    # E a semana 2 já progrediu uma vez — a regra continua valendo.
+    sessoes_semana_2 = {
+        s["id"] for s in mapeado["sessions"] if s["week_number"] == 2
+    }
+    supino_2 = next(
+        e for e in mapeado["exercises"]
+        if e["session_id"] in sessoes_semana_2 and e["exercise_key"] == "supino_reto_barra"
+    )
+    assert supino_2["target_rm_percent"] == 72
+    assert por_id  # sanidade do índice
+
+
+def test_aumento_de_series_nao_multiplica_cardio_nem_aquecimento():
+    """
+    1 corrida de 20 min virava 5 corridas de 28 min e o aquecimento de 5 min
+    prometido pela tela virava 5 séries. Cardio progride por tempo/distância.
+    """
+    cardio = _exercicio(
+        nome="Corrida",
+        exercise_key="corrida",
+        equipamento=None,
+        repeticoes=None,
+        duracao_minutos=20,
+        distancia_km=5,
+        series=1,
+    )
+    treinos = [
+        {
+            "nome": "Treino A",
+            "dia_offset": 0,
+            "duracao_minutos": None,
+            "incluir_aquecimento": True,
+            "incluir_alongamento": True,
+            "exercicios": [_exercicio(series=3), cardio],
+        }
+    ]
+    progressao = _rascunho()["progressao"]
+    progressao["series"] = {
+        "ativa": True, "valor": 1, "semana_inicio": 5, "semana_fim": 8,
+    }
+    rascunho = _rascunho(treinos=treinos, progressao=progressao)
+    mapeado = mapear_plano_ia(
+        _expandir(rascunho), user_id=USER_ID, start_date=START, created_by="user"
+    )
+
+    sessoes_semana_8 = {s["id"] for s in mapeado["sessions"] if s["week_number"] == 8}
+    da_semana_8 = [
+        e for e in mapeado["exercises"] if e["session_id"] in sessoes_semana_8
+    ]
+    por_nome = {e["name"]: e for e in da_semana_8}
+    assert por_nome["Corrida"]["sets_planned"] == 1
+    assert por_nome["Aquecimento Articular"]["sets_planned"] == 1
+    assert por_nome["Alongamento Dinâmico"]["sets_planned"] == 1
+    # O exercício de carga continua progredindo normalmente.
+    assert por_nome["Supino Reto com Barra"]["sets_planned"] == 7
+
+
+def test_aquecimento_e_alongamento_nao_esticam_com_a_progressao_de_cardio():
+    """A tela promete 'Aquecimento Articular (5 min)'. Tem de ser 5 min sempre."""
+    cardio = _exercicio(
+        nome="Corrida", exercise_key="corrida", equipamento=None,
+        repeticoes=None, duracao_minutos=20, distancia_km=5, series=1,
+    )
+    treinos = [
+        {
+            "nome": "Treino A", "dia_offset": 0, "duracao_minutos": None,
+            "incluir_aquecimento": True, "incluir_alongamento": True,
+            "exercicios": [cardio],
+        }
+    ]
+    progressao = _rascunho()["progressao"]
+    progressao["cardio"] = {"ativa": True, "valor": 5, "alvo": "ambos"}
+    mapeado = mapear_plano_ia(
+        _expandir(_rascunho(treinos=treinos, progressao=progressao)),
+        user_id=USER_ID, start_date=START, created_by="user",
+    )
+
+    sessoes_ultima = {s["id"] for s in mapeado["sessions"] if s["week_number"] == 12}
+    da_ultima = {
+        e["name"]: e for e in mapeado["exercises"] if e["session_id"] in sessoes_ultima
+    }
+    for bloco in ("Aquecimento Articular", "Alongamento Dinâmico"):
+        serie = next(
+            s for s in mapeado["sets"] if s["exercise_id"] == da_ultima[bloco]["id"]
+        )
+        assert serie["target_duration_seconds"] == 300, bloco
+    # A corrida, essa sim, progrediu.
+    serie_corrida = next(
+        s for s in mapeado["sets"] if s["exercise_id"] == da_ultima["Corrida"]["id"]
+    )
+    assert serie_corrida["target_duration_seconds"] > 20 * 60
+
+
+def test_teto_de_series_conta_a_progressao_antes_de_expandir(client):
+    """
+    O pré-cheque somava só `series × semanas`: um plano normal passava na
+    validação e morria com 400 no meio do pipeline, falando de um teto que o
+    rascunho aparentemente não estourava.
+    """
+    treinos = [
+        {
+            "nome": f"Treino {i}",
+            "dia_offset": i,
+            "duracao_minutos": None,
+            "incluir_aquecimento": False,
+            "incluir_alongamento": False,
+            "exercicios": [_exercicio(series=4) for _ in range(8)],
+        }
+        for i in range(4)
+    ]
+    progressao = _rascunho()["progressao"]
+    progressao["series"] = {
+        "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 12,
+    }
+    rascunho = _rascunho(treinos=treinos, progressao=progressao, duracao_semanas=12)
+
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+    assert response.status_code == 400
+    erro = response.get_json()["error"]
+    assert "séries" in erro
+    # A mensagem tem de dizer o que reduzir, não só o número.
+    assert "aumento de séries" in erro
+
+
+def test_mensagem_de_schema_invalido_e_em_portugues_e_aponta_o_campo(client):
+    treinos = [
+        {
+            "nome": "Treino curto",
+            "dia_offset": 0,
+            "duracao_minutos": 10,  # abaixo do mínimo de 15
+            "incluir_aquecimento": False,
+            "incluir_alongamento": False,
+            "exercicios": [_exercicio()],
+        }
+    ]
+    response = _post_autenticado(
+        client, "/api/manual-plan", _rascunho(treinos=treinos)
+    )
+
+    assert response.status_code == 400
+    erro = response.get_json()["error"]
+    assert "is less than the minimum" not in erro
+    assert "estimativa" in erro and "15" in erro and "180" in erro
+
+
+def test_preview_tem_rate_limit_proprio(client):
+    """
+    A prévia roda o pipeline inteiro e não consumia cota nenhuma: o limite de
+    criação não protegia o worker.
+    """
+    with mock.patch.object(app_module, "MANUAL_PLAN_PREVIEW_RATE_LIMIT", 2):
+        primeira = _post_autenticado(client, "/api/manual-plan/preview", _rascunho())
+        segunda = _post_autenticado(client, "/api/manual-plan/preview", _rascunho())
+        terceira = _post_autenticado(client, "/api/manual-plan/preview", _rascunho())
+
+    assert primeira.status_code == 200
+    assert segunda.status_code == 200
     assert terceira.status_code == 429
