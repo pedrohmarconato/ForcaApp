@@ -110,17 +110,24 @@ def _regras_progressao(
 ) -> List[Dict[str, Any]]:
     regras: List[Dict[str, Any]] = []
 
+    # A semana 1 é a linha de base para TODAS as regras, não só cardio e
+    # intensidade: com `semana_inicio: 1` o expansor (`semana - inicio + 1`) já
+    # entregava 4 séries na semana 1 de um Supino que o aluno escreveu com 3 —
+    # e cada rodada de "Editar plano" reimportava o número inflado e subia mais
+    # um degrau, em silêncio, até o teto de 10.
     series = progressao.get("series") or {}
     if series.get("ativa") is True and series.get("valor") != 0:
-        regras.append(
-            {
-                "tipo": "delta_series",
-                "semana_inicio": series["semana_inicio"],
-                "semana_fim": series["semana_fim"],
-                "valor": series["valor"],
-                "grupo_alvo": "todos",
-            }
-        )
+        inicio_series = max(2, series["semana_inicio"])
+        if inicio_series <= series["semana_fim"]:
+            regras.append(
+                {
+                    "tipo": "delta_series",
+                    "semana_inicio": inicio_series,
+                    "semana_fim": series["semana_fim"],
+                    "valor": series["valor"],
+                    "grupo_alvo": "todos",
+                }
+            )
 
     # O expansor conta `semanas_decorridas = semana - semana_inicio + 1`, então
     # uma regra que começa na semana 1 JÁ progride a semana 1: o aluno digitava
@@ -163,6 +170,11 @@ def _regras_progressao(
         )
 
     return regras
+
+
+# Alias público: a validação do endpoint precisa da MESMA janela de progressão
+# que vai para o molde, senão o pré-cheque e o pipeline divergem.
+regras_progressao = _regras_progressao
 
 
 DIAS_NA_SEMANA = 7
