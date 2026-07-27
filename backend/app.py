@@ -889,8 +889,17 @@ SCHEMA DO MOLDE:
             restricoes_lesao=restricoes_lesao,
         )
 
-        if molde.get("progressao", {}).get("regras"):
-            mapeado["plan"]["progression_rules"] = molde["progressao"]["regras"]
+        # Lista vazia é decisão explícita ("plano sem progressão"), não ausência
+        # de dado: com um teste de verdade (`if regras:`) o `[]` virava NULL na
+        # coluna e a UI passava a dizer "progressão indisponível" para um plano
+        # cujo molde diz, com todas as letras, que não há regra nenhuma.
+        # Lista vazia é decisão explícita ("plano sem progressão"), não ausência
+        # de dado: com um teste de verdade (`if regras:`) o `[]` virava NULL na
+        # coluna e a UI passava a dizer "progressão indisponível" para um plano
+        # cujo molde diz, com todas as letras, que não há regra nenhuma.
+        regras_progressao = (molde.get("progressao") or {}).get("regras")
+        if isinstance(regras_progressao, list):
+            mapeado["plan"]["progression_rules"] = regras_progressao
 
         db_plan_id = persistir_plano(mapeado, access_token=access_token)
     except (ValueError, PlanPersistenceError):

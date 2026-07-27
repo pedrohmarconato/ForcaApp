@@ -36,6 +36,59 @@ DEFAULT_DURACAO_CARDIO_SEGUNDOS = 20 * 60
 MAX_SERIES_POR_EXERCICIO = 10
 MAX_TOTAL_SETS = 2000
 
+# Vocabulário livre de lesão → grupos musculares do catálogo. O aluno fala
+# "ombro"/"joelho"/"perna"; o catálogo grava "Ombros"/"Quadríceps". Sem esta
+# ponte o guardrail de lesão fica ligado e nunca dispara. Chaves normalizadas
+# (sem acento, minúsculas) e no singular — `_grupos_do_termo` despluraliza.
+_SINONIMOS_GRUPO_MUSCULAR: Dict[str, tuple] = {
+    "ombro": ("Ombros",),
+    "deltoide": ("Ombros",),
+    "manguito": ("Ombros",),
+    "manguito rotador": ("Ombros",),
+    "peito": ("Peito",),
+    "peitoral": ("Peito",),
+    "costa": ("Costas",),
+    "dorsal": ("Costas",),
+    "latissimo": ("Costas",),
+    "lombar": ("Lombar",),
+    "coluna": ("Lombar",),
+    "trapezio": ("Trapézio",),
+    "pescoco": ("Trapézio",),
+    "cervical": ("Trapézio",),
+    "biceps": ("Bíceps",),
+    "triceps": ("Tríceps",),
+    "cotovelo": ("Bíceps", "Tríceps"),
+    "antebraco": ("Antebraço",),
+    "punho": ("Antebraço",),
+    "abdomen": ("Abdômen",),
+    "abdominal": ("Abdômen",),
+    "core": ("Abdômen", "Lombar"),
+    "quadriceps": ("Quadríceps",),
+    "coxa": ("Quadríceps", "Posterior de Coxa"),
+    "joelho": ("Quadríceps", "Posterior de Coxa"),
+    "posterior de coxa": ("Posterior de Coxa",),
+    "posterior": ("Posterior de Coxa",),
+    "isquiotibiais": ("Posterior de Coxa",),
+    "gluteo": ("Glúteos",),
+    "quadril": ("Glúteos", "Adutores"),
+    "adutor": ("Adutores",),
+    "virilha": ("Adutores",),
+    "panturrilha": ("Panturrilha",),
+    "tornozelo": ("Panturrilha",),
+    "canela": ("Panturrilha",),
+    "perna": ("Quadríceps", "Posterior de Coxa", "Glúteos", "Panturrilha", "Adutores"),
+    "cardio": ("Cardio",),
+    "mobilidade": ("Mobilidade",),
+}
+# Os próprios rótulos do catálogo continuam casando por igualdade.
+for _rotulo in (
+    "Abdômen", "Adutores", "Antebraço", "Bíceps", "Cardio", "Costas", "Glúteos",
+    "Lombar", "Mobilidade", "Ombros", "Panturrilha", "Peito", "Posterior de Coxa",
+    "Quadríceps", "Trapézio", "Tríceps",
+):
+    _SINONIMOS_GRUPO_MUSCULAR.setdefault(normalizar(_rotulo), (_rotulo,))
+del _rotulo
+
 # Estimativa de duração quando a sessão não declara. PADRÃO A VALIDAR por
 # profissional de educação física — mesma convenção de src/engine/config.ts.
 SEGUNDOS_EXECUCAO_POR_SERIE = 40
@@ -216,6 +269,34 @@ def _estimar_minutos(
     return max(1, math.ceil(total_segundos / 60))
 
 
+def _grupos_do_termo(termo: Any) -> set:
+    """
+    Grupos musculares do catálogo atingidos por um termo livre de lesão.
+
+    `grupo_afetado` é texto livre da consolidação do chat ("ombro", "joelho",
+    "perna"), enquanto o catálogo usa um vocabulário fechado de 16 rótulos no
+    plural/canônico ("Ombros", "Quadríceps"). Comparar por igualdade exata faz
+    o guardrail de lesão nunca disparar: "ombro" != "ombros". Aqui o termo é
+    normalizado, despluralizado e passado por um mapa anatômico explícito.
+    """
+    if not termo:
+        return set()
+    bruto = normalizar(termo)
+    if not bruto:
+        return set()
+    candidatos = {bruto}
+    # Frase inteira ("dor no ombro direito") também casa pelos tokens.
+    candidatos.update(token for token in bruto.split() if len(token) > 2)
+    atingidos: set = set()
+    for candidato in list(candidatos):
+        singular = candidato[:-1] if candidato.endswith("s") else candidato
+        for chave in (candidato, singular):
+            grupos = _SINONIMOS_GRUPO_MUSCULAR.get(chave)
+            if grupos:
+                atingidos.update(grupos)
+    return atingidos
+
+
 def _injury_flags(
     canonico: Any,
     restricoes_lesao: Optional[List[Dict[str, Any]]],
@@ -232,7 +313,7 @@ def _injury_flags(
             casou = afetado.chave is not None and afetado.chave == canonico.chave
         grupo_afetado = restricao.get("grupo_afetado")
         if grupo_afetado and canonico.grupo_muscular:
-            casou = casou or normalizar(grupo_afetado) == normalizar(canonico.grupo_muscular)
+            casou = casou or canonico.grupo_muscular in _grupos_do_termo(grupo_afetado)
         if casou:
             descricao = str(restricao.get("descricao") or "lesao").strip() or "lesao"
             if descricao not in flags:
