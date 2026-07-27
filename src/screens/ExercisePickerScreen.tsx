@@ -25,8 +25,10 @@ import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import {
   formatWorkDuration,
+  isValidExercise,
   isValidExerciseDistance,
   isValidExerciseDuration,
+  isValidRmPercent,
   type ManualExerciseDraft,
   type ManualExercisePriority,
 } from '../types/manualPlan';
@@ -133,7 +135,7 @@ const ExercisePickerScreen = () => {
   };
 
   const submit = () => {
-    if (!exercise) return;
+    if (!exercise || !isValidExercise(exercise)) return;
     if (exerciseIndex == null) {
       // O teto de 30 exercícios devolvia false e o picker fechava do mesmo
       // jeito: o aluno preenchia tudo, voltava e não via exercício nenhum,
@@ -400,8 +402,18 @@ const ExercisePickerScreen = () => {
           onPress={() => patchExercise({ tem_limitacao: !exercise.tem_limitacao })}
         />
         <Text style={styles.support}>O app não vai sugerir aumento de carga aqui.</Text>
+        {!isValidRmPercent(exercise.percentual_rm) ? (
+          <Notice tone="danger" title="A intensidade em %RM precisa ficar entre 0 e 100." />
+        ) : null}
 
-        <Button label={exerciseIndex == null ? 'Adicionar ao treino' : 'Salvar exercício'} onPress={submit} />
+        <Button
+          label={exerciseIndex == null ? 'Adicionar ao treino' : 'Salvar exercício'}
+          // Só avisar não bastava: o valor inválido entrava no rascunho, a tela
+          // fechava, e o Salvar do plano ficava cinza para sempre sem que
+          // nenhuma tela dissesse o motivo.
+          disabled={!isValidExercise(exercise)}
+          onPress={submit}
+        />
       </ScrollView>
     </Screen>
   );

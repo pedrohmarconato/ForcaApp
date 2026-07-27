@@ -91,8 +91,15 @@ export type ManualOnboardingQuestionnaire = {
  * habilitado e sem nenhuma pista do que estava errado. O piso é 2 porque a
  * semana 1 é a linha de base do plano.
  */
+export const canProgressSeries = (duracaoSemanas: number): boolean =>
+  duracaoSemanas >= 2;
+
 export const defaultSeriesWindow = (duracaoSemanas: number) => {
-  const fim = Math.max(2, Math.min(8, duracaoSemanas));
+  // Plano de 1 semana não progride: a semana 1 é a linha de base. Devolver
+  // 2→2 aqui criava uma janela que o backend recusa e que os campos da tela
+  // não deixam corrigir.
+  if (!canProgressSeries(duracaoSemanas)) return null;
+  const fim = Math.min(8, duracaoSemanas);
   return { ativa: true as const, valor: 1, semana_inicio: Math.min(5, fim), semana_fim: fim };
 };
 
@@ -201,6 +208,9 @@ export const isValidExerciseDistance = (valor: number | null): boolean =>
     valor >= MANUAL_EXERCISE_MIN_KM &&
     valor <= MANUAL_EXERCISE_MAX_KM);
 
+export const isValidRmPercent = (valor: number | null): boolean =>
+  valor === null || (Number.isFinite(valor) && valor >= 0 && valor <= 100);
+
 export const isValidWorkoutDuration = (valor: number | null): boolean =>
   valor === null ||
   (Number.isInteger(valor) &&
@@ -245,9 +255,28 @@ export const isManualPlanSavable = (draft: ManualPlanDraft | null): boolean =>
       // Sem isto, "10" na estimativa deixava o Salvar habilitado e o aluno só
       // descobria o problema num 400 do servidor, sem saber qual campo era.
       isValidWorkoutDuration(treino.duracao_minutos) &&
-      treino.exercicios.every(
-        (exercicio) =>
-          isValidExerciseDuration(exercicio.duracao_minutos) &&
-          isValidExerciseDistance(exercicio.distancia_km),
-      ),
+      treino.exercicios.every(isValidExercise),
   );
+
+/** Um exercício que o contrato aceita. Usado na tela E no gate do Salvar. */
+export const isValidExercise = (exercicio: ManualExerciseDraft): boolean =>
+  isValidExerciseDuration(exercicio.duracao_minutos) &&
+  isValidExerciseDistance(exercicio.distancia_km) &&
+  isValidRmPercent(exercicio.percentual_rm);
+
+/**
+ * Primeiro exercício que impede o plano de ser salvo, com onde ele está.
+ *
+ * Sem isto, o Salvar ficava permanentemente cinza e NENHUMA das três telas
+ * dizia qual treino ou exercício era o culpado: o aluno não tinha como
+ * descobrir o motivo.
+ */
+export const findInvalidExercise = (
+  draft: ManualPlanDraft | null,
+): { treino: string; exercicio: string } | null => {
+  for (const treino of draft?.treinos ?? []) {
+    const exercicio = treino.exercicios.find((item) => !isValidExercise(item));
+    if (exercicio) return { treino: treino.nome, exercicio: exercicio.nome };
+  }
+  return null;
+};

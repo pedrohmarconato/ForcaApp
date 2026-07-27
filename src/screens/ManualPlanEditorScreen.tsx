@@ -23,7 +23,9 @@ import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import {
   DEFAULT_MANUAL_PROGRESSION,
+  canProgressSeries,
   defaultSeriesWindow,
+  findInvalidExercise,
   hasCardioExercise,
   hasRmExercise,
   isManualPlanSavable,
@@ -152,6 +154,7 @@ const ManualPlanEditorScreen = () => {
   const hasRm = hasRmExercise(draft);
   const canSave = isManualPlanSavable(draft);
   const saveAllowed = canSave && (!fromPlanId || editConfirmed);
+  const exercicioInvalido = findInvalidExercise(draft);
 
   const enableProgression = () => {
     const defaults = DEFAULT_MANUAL_PROGRESSION();
@@ -219,6 +222,13 @@ const ManualPlanEditorScreen = () => {
             tone="warning"
             title="A progressão vai mudar em relação ao plano atual"
             description={progressionChanges.join(' ')}
+          />
+        ) : null}
+        {exercicioInvalido ? (
+          <Notice
+            tone="danger"
+            title="Um exercício está fora dos limites e impede salvar"
+            description={`Revise "${exercicioInvalido.exercicio}" em ${exercicioInvalido.treino}: duração, distância ou %RM estão fora da faixa aceita.`}
           />
         ) : null}
         <TextField
@@ -321,19 +331,23 @@ const ManualPlanEditorScreen = () => {
                 </View>
               ) : null}
 
-              <CheckboxRow
-                label="Aumentar séries"
-                checked={draft.progressao.series?.ativa === true}
-                onPress={() => setProgression({
-                  series: draft.progressao.series?.ativa
-                    ? null
-                    : defaultSeriesWindow(draft.duracao_semanas),
-                })}
-              />
-              <Text style={styles.support}>
-                Soma +1 série a cada semana da janela; o efeito é acumulativo e respeita o teto do app.
-                A semana 1 é sempre o que você montou — a progressão começa na 2.
-              </Text>
+              {canProgressSeries(draft.duracao_semanas) ? (
+                <CheckboxRow
+                  label="Aumentar séries"
+                  checked={draft.progressao.series?.ativa === true}
+                  onPress={() => setProgression({
+                    series: draft.progressao.series?.ativa
+                      ? null
+                      : defaultSeriesWindow(draft.duracao_semanas),
+                  })}
+                />
+              ) : null}
+              {canProgressSeries(draft.duracao_semanas) ? (
+                <Text style={styles.support}>
+                  Soma +1 série a cada semana da janela; o efeito é acumulativo e respeita o teto do app.
+                  A semana 1 é sempre o que você montou — a progressão começa na 2.
+                </Text>
+              ) : null}
               {draft.progressao.series?.ativa ? (
                 <View style={styles.seriesWindow}>
                   <TextField
