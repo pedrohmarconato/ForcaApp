@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from backend.services.exercise_catalog import (
     METRICA_TEMPO,
     METRICA_TEMPO_DISTANCIA,
+    metrica_do_exercicio,
     normalizar,
     resolver_exercicio,
 )
@@ -130,21 +131,6 @@ def _parse_reps(valor: Any) -> (int, int):
     if maximo < minimo:
         minimo, maximo = maximo, minimo
     return minimo, maximo
-
-
-def _tem_repeticoes_explicitas(valor: Any) -> bool:
-    """
-    True só quando o molde prescreveu repetições de verdade.
-
-    `_parse_reps` devolve a faixa padrão 8–12 para qualquer entrada ilegível,
-    inclusive `None`. Quem precisa decidir ENTRE reps e duração não pode usar
-    esse retorno como sinal — precisa saber se havia número.
-    """
-    if isinstance(valor, bool):
-        return False
-    if isinstance(valor, int):
-        return valor >= 1
-    return any(int(n) >= 1 for n in re.findall(r"\d+", str(valor or "")))
 
 
 def _parse_duracao_segundos(valor: Any) -> Optional[int]:
@@ -466,32 +452,15 @@ def mapear_plano_ia(
                     # grupo muscular e incremento de carga por exercício. Nome
                     # fora do catálogo passa intacto, com chave/grupo nulos.
                     canonico = resolver_exercicio(ex.get("nome"), ex.get("equipamento"))
-                    metrica = canonico.metrica
+                    # Decisão ÚNICA de métrica, compartilhada com o expansor
+                    # (exercise_catalog.metrica_do_exercicio). Quando cada
+                    # metade do motor decidia sozinha, o mesmo exercício
+                    # progredia como carga e era gravado como cardio.
                     # Cardio/isometria não se mede em carga × repetição: a
                     # prescrição vira duração (e distância), e %RM/reps ficam
                     # NULOS em vez de virar lixo ("20min" → 20 repetições).
+                    metrica = metrica_do_exercicio(ex)
                     eh_tempo = metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
-                    # Complemento obrigatório da relaxação do MOLDE_SCHEMA feita
-                    # neste PR: sem `repeticoes` exigida, um nome FORA do
-                    # catálogo com duração prescrita caía no ramo de carga/reps,
-                    # onde a duração era descartada e `_parse_reps(None)`
-                    # inventava a faixa padrão 8–12 que ninguém prescreveu.
-                    # A prescrição do molde manda. Só vale para nome não
-                    # canonizado: item do catálogo mantém a métrica do catálogo.
-                    if (
-                        not eh_tempo
-                        and canonico.chave is None
-                        and not _tem_repeticoes_explicitas(ex.get("repeticoes"))
-                        and _parse_duracao_segundos(ex.get("duracao_minutos"))
-                    ):
-                        distancia_declarada = ex.get("distancia_km")
-                        metrica = (
-                            METRICA_TEMPO_DISTANCIA
-                            if isinstance(distancia_declarada, (int, float))
-                            and distancia_declarada > 0
-                            else METRICA_TEMPO
-                        )
-                        eh_tempo = True
                     if eh_tempo:
                         reps_min = reps_max = None
                         duracao_alvo = (
