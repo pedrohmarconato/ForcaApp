@@ -238,9 +238,14 @@ def construir_molde_manual(rascunho: Dict[str, Any]) -> Dict[str, Any]:
         sessao: Dict[str, Any] = {
             "nome": treino.get("nome") or "Treino",
             "tipo": "Personalizado",
-            "grupos_musculares": [{"nome": grupo} for grupo in grupos],
             "exercicios": exercicios,
         }
+        # Só emite a chave quando há grupo de verdade. Um treino todo de nome
+        # livre não resolve nenhum grupo canônico, e `[]` não é "sem grupo" —
+        # é uma lista vazia que o schema (minItems=1) reprova e que chegaria ao
+        # mapper indistinguível de ausente. Mesmo critério do dia_offset abaixo.
+        if grupos:
+            sessao["grupos_musculares"] = [{"nome": grupo} for grupo in grupos]
         if dias_alocados[indice] is not None:
             sessao["dia_offset"] = dias_alocados[indice]
         if treino.get("duracao_minutos") is not None:

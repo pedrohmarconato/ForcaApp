@@ -244,6 +244,35 @@ def _dia_da_sessao(sessao: Dict[str, Any], order_in_week: int) -> tuple[int, str
     return fallback, _NOME_DIA_POR_OFFSET[fallback]
 
 
+def _resolver_dia(
+    sessao: Dict[str, Any], order_in_week: int, ocupados: set
+) -> tuple[int, str]:
+    """Mesmo dia para duas sessões da mesma semana = duas sessões empilhadas na
+    mesma data no app.
+
+    Nada a montante impede isso: o schema local não tem regra de unicidade, o
+    schema da API não expressa nem a FAIXA do campo (structured outputs não
+    aceita minimum/maximum), o expansor não olha, e planned_sessions não tem
+    constraint. Este é o último ponto onde dá para desempatar, e ele protege
+    também os moldes já gerados e o modo sem structured output.
+
+    O desempate é determinístico e conservador: a primeira sessão fica no dia
+    que o molde pediu, e só as seguintes andam para o próximo dia livre. Com a
+    semana cheia (7 sessões, 7 dias), não há para onde andar e o pedido é
+    mantido como veio.
+    """
+    offset, rotulo = _dia_da_sessao(sessao, order_in_week)
+    if offset not in ocupados:
+        ocupados.add(offset)
+        return offset, rotulo
+    for passo in range(1, 7):
+        candidato = (offset + passo) % 7
+        if candidato not in ocupados:
+            ocupados.add(candidato)
+            return candidato, _NOME_DIA_POR_OFFSET[candidato]
+    return offset, rotulo
+
+
 def _estimar_minutos(
     exercicios_mapeados: List[Dict[str, Any]],
     sets_da_sessao: List[Dict[str, Any]],
@@ -401,9 +430,12 @@ def mapear_plano_ia(
             if not isinstance(semana, int) or semana < 1:
                 semana = 1
             sessoes_semana = [s for s in (micro.get("sessoes") or []) if isinstance(s, dict)]
+            # Escopo do desempate é a SEMANA: dois treinos em semanas
+            # diferentes podem (e devem) cair no mesmo dia da semana.
+            dias_ocupados: set = set()
             for ordem_na_semana, sessao in enumerate(sessoes_semana, start=1):
                 session_id = str(uuid.uuid4())
-                offset, rotulo_dia = _dia_da_sessao(sessao, ordem_na_semana)
+                offset, rotulo_dia = _resolver_dia(sessao, ordem_na_semana, dias_ocupados)
                 data_agendada = segunda_semana1 + datetime.timedelta(days=(semana - 1) * 7 + offset)
                 # Nunca agendar antes do início do plano (achado #8: gerar numa
                 # sexta ancorava a semana 1 na segunda ANTERIOR ao início)
