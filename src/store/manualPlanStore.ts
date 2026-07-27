@@ -191,12 +191,15 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
     setDurationWeeks: (weeks) => mutateDraft((draft) => {
       draft.duracao_semanas = weeks;
       const deload = draft.progressao.deload;
-      if (deload && deload.semana > weeks) deload.semana = Math.min(weeks, 4);
-      const series = draft.progressao.series;
-      if (series) {
-        series.semana_inicio = Math.min(series.semana_inicio, weeks);
-        series.semana_fim = Math.min(series.semana_fim, weeks);
-      }
+      // A descarga acompanha o novo fim do plano. `Math.min(weeks, 4)` mandava
+      // para a semana 4 mesmo encurtando de 16 para 8 — um número que não vinha
+      // nem do aluno nem do plano.
+      if (deload && deload.semana > weeks) deload.semana = weeks;
+      // A janela de séries NÃO é achatada. Antes, `Math.min(semana, weeks)`
+      // reescrevia 5→8 para 4→4 no encurtamento, e voltar a duração não
+      // restaurava nada: a montagem do aluno tinha sido destruída no caminho.
+      // Uma janela que passou do fim do plano fica visível como aviso e trava o
+      // Salvar (isValidSeriesWindow); voltando a duração, ela volta a valer.
     }),
     setProgression: (partial) => mutateDraft((draft) => {
       draft.progressao = { ...draft.progressao, ...partial };
@@ -257,7 +260,14 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
       mutateDraft((draft) => {
         const hadCardio = shouldAutoEnableCardioProgression(draft);
         draft.treinos[workoutIndex].exercicios.push({ ...exercise });
-        if (!hadCardio && shouldAutoEnableCardioProgression(draft)) {
+        // O default só entra onde não há regra alguma. O guard olhava apenas os
+        // EXERCÍCIOS, então um plano importado com +10% na duração era rebaixado
+        // para +5% em duração e distância assim que o aluno somava uma corrida.
+        if (
+          !hadCardio &&
+          !draft.progressao.cardio &&
+          shouldAutoEnableCardioProgression(draft)
+        ) {
           draft.progressao.cardio = { ativa: true, valor: 5, alvo: 'ambos' };
         }
       });
@@ -267,7 +277,11 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
       const hadCardio = shouldAutoEnableCardioProgression(draft);
       const exercise = draft.treinos[workoutIndex]?.exercicios[exerciseIndex];
       if (exercise) Object.assign(exercise, partial);
-      if (!hadCardio && shouldAutoEnableCardioProgression(draft)) {
+      if (
+        !hadCardio &&
+        !draft.progressao.cardio &&
+        shouldAutoEnableCardioProgression(draft)
+      ) {
         draft.progressao.cardio = { ativa: true, valor: 5, alvo: 'ambos' };
       } else {
         removeCardioProgressionWhenUnused(draft);
@@ -295,9 +309,16 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           ENDPOINTS.MANUAL_PLAN_PREVIEW,
           draft,
         );
+        // `mutateDraft` troca a identidade do rascunho e zera a prévia a cada
+        // edição. Sem esta guarda, a resposta de um rascunho já superado se
+        // instalava como se fosse do plano atual — e ainda rebaixava para
+        // 'ready' um salvamento em andamento. A prévia é o que o aluno confere
+        // antes de confirmar: mostrar a errada é pior do que não mostrar.
+        if (get().draft !== draft) return null;
         set({ previewData: response.data, status: 'ready' });
         return response.data;
       } catch (error) {
+        if (get().draft !== draft) return null;
         set({
           status: 'error',
           saveError: errorMessage(error, 'Não foi possível gerar a prévia.'),
