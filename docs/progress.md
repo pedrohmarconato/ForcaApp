@@ -1063,5 +1063,15 @@ Branch `feat/plano-manual-editor`, empilhada sobre o PR #46.
 - `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
   conhecido do urllib3/LibreSSL.
 
-Homologação PWA será registrada aqui depois da publicação do draft PR. Não há
-migration nem mudança de backend neste PR.
+### Homologação HML
+
+- **Draft PR #47** aberto, empilhado sobre o #46.
+- PWA Preview `forca-aa36owq5i-pmarconatos-projects.vercel.app`, deployment
+  `5J9KTe6K3V3Dz2rYW15CEUHKeWqr`: estado READY e raiz HTTP 200.
+- O guarda executado no build remoto confirmou um único bundle Web, ambiente
+  `preview`, host `forca-api-hml.cadastrai.com` presente e nenhum endereço de
+  LAN. O deploy não usou `--prod`.
+- Não há migration nem mudança de backend neste PR. As telas existem na stack,
+  mas não têm ponto de entrada por desenho: o onboarding e “Editar plano”
+  entram no PR 5. Portanto o smoke navegável ponta a ponta não foi fingido
+  neste PR; ele começa assim que a próxima camada publicar esses acessos.
