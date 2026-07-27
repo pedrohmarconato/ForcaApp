@@ -3,15 +3,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../../theme/theme';
-import type { ManualExerciseDraft } from '../../types/manualPlan';
+import { formatWorkDuration, type ManualExerciseDraft } from '../../types/manualPlan';
 
 const metricLabel = (exercise: ManualExerciseDraft): string => {
   if (exercise.metrica === 'carga_reps') {
     return `${exercise.series} séries × ${exercise.repeticoes || 'reps a definir'}`;
   }
-  const duration = exercise.duracao_minutos != null
-    ? `${exercise.duracao_minutos} min`
-    : 'tempo a definir';
+  const duration = formatWorkDuration(exercise.duracao_minutos) ?? 'tempo a definir';
   const distance = exercise.distancia_km != null ? ` · ${exercise.distancia_km} km` : '';
   return `${exercise.series} séries × ${duration}${distance}`;
 };

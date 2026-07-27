@@ -11,7 +11,10 @@ import {
   readManualPlanDraft,
   saveManualPlanDraft,
 } from '../src/services/manualPlanDraftStorage';
-import { createEmptyManualPlanDraft } from '../src/types/manualPlan';
+import {
+  createEmptyManualPlanDraft,
+  formatWorkDuration,
+} from '../src/types/manualPlan';
 
 const mockMemory = new Map<string, string>();
 
@@ -119,5 +122,19 @@ describe('manualPlanDraftStorage', () => {
 
     await expect(loadManualPlanDraft('user-1')).resolves.toBeNull();
     await expect(loadManualPlanDraft('user-2')).resolves.not.toBeNull();
+  });
+});
+
+describe('formatWorkDuration', () => {
+  it('mostra segundos abaixo de um minuto e minutos acima', () => {
+    // O contrato guarda minutos (0,75 = 45 s) porque é assim que o expansor
+    // trabalha. Exibir "0,75 min" transformaria prescrição correta em ruído.
+    expect(formatWorkDuration(0.75)).toBe('45 s');
+    expect(formatWorkDuration(0.5)).toBe('30 s');
+    expect(formatWorkDuration(1)).toBe('1 min');
+    expect(formatWorkDuration(15.8)).toBe('15,8 min');
+    expect(formatWorkDuration(20)).toBe('20 min');
+    expect(formatWorkDuration(null)).toBeNull();
+    expect(formatWorkDuration(0)).toBeNull();
   });
 });
