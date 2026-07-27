@@ -28,6 +28,7 @@ import { getActivePlanId } from '../services/trainingRepository';
 import { STORAGE_KEY_CHAT_PREFIX, STORAGE_KEY_CHAT_STATE_PREFIX } from '../services/postQuestionnaireChatStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
+import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
 import theme from '../theme/theme';
 import Button from '../components/ui/Button';
 import { EmptyState, Notice } from '../components/ui/Feedback';
@@ -68,7 +69,11 @@ const OBJETIVO_LABELS: Record<string, string> = {
 
 // --- Tipos ---
 type Content = { role: 'user' | 'model' | 'system'; parts: { text: string }[] };
-type ChatScreenRouteParams = { formData?: any; skipChat?: boolean };
+type ChatScreenRouteParams = {
+  formData?: ManualOnboardingQuestionnaire;
+  skipChat?: boolean;
+  manualPlanId?: string;
+};
 type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackParamList, 'PostQuestionnaireChat'>;
 
 // --- Constantes Funcionais ---
@@ -236,6 +241,13 @@ const handleEnterApp = useCallback(async () => {
         // ... (implementação inalterada) ...
         setShowInitialChoice(false);
     }, []);
+
+    const handleUserWantsManualPlan = useCallback(() => {
+        navigation.navigate('ManualPlanEditor', {
+            onboarding: true,
+            questionnaireData,
+        });
+    }, [navigation, questionnaireData]);
 
     // Ajustar dependências se completeOnboardingAndGeneratePlan foi alterada
     const handleUserDeclinesChat = useCallback(async () => {
@@ -606,6 +618,15 @@ const handleEnterApp = useCallback(async () => {
     // atual para a geração usar os valores corretos fora do init.
     useEffect(() => { questionnaireDataRef.current = questionnaireData; }, [questionnaireData]);
     useEffect(() => { adjustmentsRef.current = adjustments; }, [adjustments]);
+    useEffect(() => {
+        const manualPlanId = route.params?.manualPlanId;
+        if (typeof manualPlanId !== 'string' || !manualPlanId) return;
+        setJobStage('salvo');
+        setReadyPlanId(manualPlanId);
+        setShowInitialChoice(false);
+        isGeneratingPlanRef.current = false;
+        setIsGeneratingPlan(false);
+    }, [route.params?.manualPlanId]);
 
 
     // --- Renderização de Mensagens ---
@@ -726,8 +747,8 @@ const handleEnterApp = useCallback(async () => {
             lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
             textAlign: 'center',
         },
-        escolhaAcoes: { flexDirection: 'row', gap: theme.spacing.sm },
-        escolhaBotao: { flex: 1 },
+        escolhaAcoes: { gap: theme.spacing.sm },
+        escolhaBotao: { width: '100%' },
 
         entrada: {
             flexDirection: 'row',
@@ -1136,6 +1157,14 @@ const handleEnterApp = useCallback(async () => {
                                     compact
                                     onPress={handleUserDeclinesChat}
                                     loading={isGeneratingPlan}
+                                    disabled={isGeneratingPlan || isLoadingAi}
+                                    style={styles.escolhaBotao}
+                                />
+                                <Button
+                                    label="Prefiro montar meu treino"
+                                    variant="tonal"
+                                    compact
+                                    onPress={handleUserWantsManualPlan}
                                     disabled={isGeneratingPlan || isLoadingAi}
                                     style={styles.escolhaBotao}
                                 />

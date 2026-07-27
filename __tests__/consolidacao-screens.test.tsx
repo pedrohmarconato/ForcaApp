@@ -128,6 +128,7 @@ describe('Fase 3 — TrainingSessionScreen lê a sessão real (planned_sessions)
       expect(getAllByText('Treino de Força A').length).toBeGreaterThanOrEqual(1);
       expect(getByText('Agachamento Livre')).toBeTruthy();
       expect(getByText('4 séries × 8 reps')).toBeTruthy();
+      expect(getByText('Editar plano')).toBeTruthy();
     });
   });
 });

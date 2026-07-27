@@ -203,6 +203,14 @@ const TrainingSessionScreen = () => {
               />
             );
           })}
+          <Button
+            label="Editar plano"
+            variant="ghost"
+            compact
+            icon="edit-2"
+            onPress={() => navigation.navigate('ManualPlanEditor', { fromPlanId: session.plan_id })}
+            style={styles.editPlan}
+          />
         </View>
       ) : null}
 
@@ -266,6 +274,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.sm,
     fontWeight: theme.typography.fontWeights.semiBold,
   },
+  editPlan: { alignSelf: 'flex-start', marginTop: theme.spacing.sm },
 
   summary: { marginBottom: theme.spacing.xl },
   summaryTop: {

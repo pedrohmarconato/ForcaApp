@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -39,7 +39,16 @@ const ManualPlanEditorScreen = () => {
   const status = useManualPlanStore((state) => state.status);
   const saveError = useManualPlanStore((state) => state.saveError);
   const previewData = useManualPlanStore((state) => state.previewData);
+  const draftOrigin = useManualPlanStore((state) => state.draftOrigin);
+  const sourcePlanId = useManualPlanStore((state) => state.sourcePlanId);
+  const progressionUnavailable = useManualPlanStore(
+    (state) => state.progressionUnavailable,
+  );
   const initEmpty = useManualPlanStore((state) => state.initEmpty);
+  const initFromQuestionnaire = useManualPlanStore(
+    (state) => state.initFromQuestionnaire,
+  );
+  const initFromPlan = useManualPlanStore((state) => state.initFromPlan);
   const setPlanName = useManualPlanStore((state) => state.setPlanName);
   const setDurationWeeks = useManualPlanStore((state) => state.setDurationWeeks);
   const setProgression = useManualPlanStore((state) => state.setProgression);
@@ -48,16 +57,70 @@ const ManualPlanEditorScreen = () => {
   const removeWorkout = useManualPlanStore((state) => state.removeWorkout);
   const preview = useManualPlanStore((state) => state.preview);
   const save = useManualPlanStore((state) => state.save);
+  const [editConfirmed, setEditConfirmed] = useState(false);
+
+  const fromPlanId = route.params?.fromPlanId as string | undefined;
+  const onboarding = route.params?.onboarding === true;
+  const questionnaireData = route.params?.questionnaireData;
 
   useEffect(() => {
-    if (user?.id && (!draft || stateUserId !== user.id)) void initEmpty(user.id);
-  }, [draft, initEmpty, stateUserId, user?.id]);
+    if (!user?.id) return;
+    if (fromPlanId) {
+      if (
+        stateUserId !== user.id ||
+        draftOrigin !== 'existing' ||
+        sourcePlanId !== fromPlanId
+      ) {
+        void initFromPlan(user.id, fromPlanId);
+      }
+      return;
+    }
+    if (onboarding) {
+      if (stateUserId !== user.id || draftOrigin !== 'onboarding' || !draft) {
+        void initFromQuestionnaire(user.id, questionnaireData ?? {});
+      }
+      return;
+    }
+    if (!draft || stateUserId !== user.id || draftOrigin !== 'empty') {
+      void initEmpty(user.id);
+    }
+  }, [
+    draft,
+    draftOrigin,
+    fromPlanId,
+    initEmpty,
+    initFromPlan,
+    initFromQuestionnaire,
+    onboarding,
+    questionnaireData,
+    sourcePlanId,
+    stateUserId,
+    user?.id,
+  ]);
+
+  useEffect(() => setEditConfirmed(false), [fromPlanId]);
 
   if (!draft) {
     return (
       <Screen>
         <StackHeader title="Meu plano" onBack={() => navigation.goBack()} />
-        <EmptyState title="Preparando editor" description="Recuperando seu rascunho…" />
+        <EmptyState
+          title={status === 'error' ? 'Não foi possível abrir o plano' : 'Preparando editor'}
+          description={
+            status === 'error'
+              ? saveError ?? 'Volte e tente novamente.'
+              : 'Recuperando seu rascunho…'
+          }
+          action={
+            status === 'error' && user?.id && fromPlanId ? (
+              <Button
+                label="Tentar novamente"
+                variant="outline"
+                onPress={() => initFromPlan(user.id, fromPlanId)}
+              />
+            ) : undefined
+          }
+        />
       </Screen>
     );
   }
@@ -66,6 +129,7 @@ const ManualPlanEditorScreen = () => {
   const hasCardio = hasCardioExercise(draft);
   const hasRm = hasRmExercise(draft);
   const canSave = isManualPlanSavable(draft);
+  const saveAllowed = canSave && (!fromPlanId || editConfirmed);
 
   const enableProgression = () => {
     const defaults = DEFAULT_MANUAL_PROGRESSION();
@@ -80,6 +144,10 @@ const ManualPlanEditorScreen = () => {
   const handleSave = async () => {
     const planId = await save();
     if (!planId) return;
+    if (onboarding) {
+      navigation.navigate('PostQuestionnaireChat', { manualPlanId: planId });
+      return;
+    }
     await updateProfile?.({ current_plan_id: planId });
     navigation.navigate('TrainingOverview');
   };
@@ -93,11 +161,25 @@ const ManualPlanEditorScreen = () => {
           title="Monte do seu jeito"
           subtitle="Escolha os treinos e exercícios; o restante do app continua funcionando igual."
         />
-        {route.params?.fromPlanId ? (
+        {fromPlanId ? (
+          <View style={styles.editWarning}>
+            <Notice
+              tone="warning"
+              title="Um novo plano será criado"
+              description="Isto cria um plano novo. O plano atual vai para o histórico e os treinos que você já fez continuam registrados."
+            />
+            <CheckboxRow
+              label="Entendi e quero criar o novo plano"
+              checked={editConfirmed}
+              onPress={() => setEditConfirmed((confirmed) => !confirmed)}
+            />
+          </View>
+        ) : null}
+        {progressionUnavailable ? (
           <Notice
-            tone="warning"
-            title="Um novo plano será criado"
-            description="O plano atual irá para o histórico. A confirmação final entra na próxima etapa deste fluxo."
+            tone="info"
+            title="Progressão original indisponível"
+            description="As regras do plano original não puderam ser lidas. Elas ficaram desligadas para você decidir sem estimativas."
           />
         ) : null}
         <TextField
@@ -319,7 +401,7 @@ const ManualPlanEditorScreen = () => {
         <Button
           testID="manual-plan-save"
           label="Salvar plano"
-          disabled={!canSave}
+          disabled={!saveAllowed}
           loading={status === 'saving'}
           onPress={handleSave}
         />
@@ -340,6 +422,7 @@ const styles = StyleSheet.create({
   workoutListRow: { flex: 1 },
   removeWorkout: { padding: theme.spacing.md },
   addWorkout: { marginTop: theme.spacing.sm, marginBottom: theme.spacing.lg },
+  editWarning: { gap: theme.spacing.md },
   progressionCard: { marginTop: theme.spacing.xl },
   progressionOptions: { gap: theme.spacing.sm, marginTop: theme.spacing.lg },
   support: {

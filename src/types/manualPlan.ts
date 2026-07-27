@@ -75,6 +75,14 @@ export type ManualPlanPreview = {
   semanas: Array<{ semana: number; treinos: ManualPlanPreviewWorkout[] }>;
 };
 
+export type ManualOnboardingQuestionnaire = {
+  dias_treino?: string[];
+  tempo_medio_treino_min?: number | null;
+  inclui_cardio?: boolean;
+  inclui_alongamento?: boolean;
+  objetivo?: string | null;
+};
+
 export const DEFAULT_MANUAL_PROGRESSION = (): ManualProgression => ({
   series: { ativa: false, valor: 1, semana_inicio: 5, semana_fim: 8 },
   cardio: null,
@@ -100,6 +108,46 @@ export const createEmptyManualWorkout = (
   incluir_alongamento: options.incluirAlongamento === true,
   exercicios: [],
 });
+
+const DAY_OFFSET_BY_VALUE: Record<string, number> = {
+  mon: 0,
+  tue: 1,
+  wed: 2,
+  thu: 3,
+  fri: 4,
+  sat: 5,
+  sun: 6,
+};
+
+/** Prefill estritamente derivado do questionário; exercícios nunca são escolhidos aqui. */
+export const createManualPlanDraftFromQuestionnaire = (
+  questionnaire: ManualOnboardingQuestionnaire,
+): ManualPlanDraft => {
+  const draft = createEmptyManualPlanDraft();
+  const duration = questionnaire.tempo_medio_treino_min;
+  const validDuration =
+    typeof duration === 'number' &&
+    Number.isInteger(duration) &&
+    duration >= 15 &&
+    duration <= 180
+      ? duration
+      : null;
+  const seenDays = new Set<number>();
+
+  for (const day of questionnaire.dias_treino ?? []) {
+    const offset = DAY_OFFSET_BY_VALUE[day];
+    if (offset == null || seenDays.has(offset) || draft.treinos.length >= 7) continue;
+    seenDays.add(offset);
+    const workout = createEmptyManualWorkout(draft.treinos.length, {
+      incluirAlongamento: questionnaire.inclui_alongamento === true,
+    });
+    workout.dia_offset = offset;
+    workout.duracao_minutos = validDuration;
+    draft.treinos.push(workout);
+  }
+
+  return draft;
+};
 
 export const hasCardioExercise = (draft: ManualPlanDraft): boolean =>
   draft.treinos.some((treino) =>
