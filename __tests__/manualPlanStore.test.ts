@@ -359,6 +359,82 @@ describe('manualPlanStore — regressões da auditoria', () => {
     });
   });
 
+  it('encurtar e voltar a duração devolve a janela de séries que o aluno montou', async () => {
+    // `Math.min(semana, weeks)` achatava a janela no encurtamento e nada
+    // guardava o original: voltar para 16 semanas deixava 4→4, ou seja +1 série
+    // só na última semana, em vez do acumulativo 5→8 que o aluno tinha montado.
+    await useManualPlanStore.getState().initEmpty('user-1', { forceNew: true });
+    const store = useManualPlanStore.getState();
+    store.setDurationWeeks(16);
+    store.setProgression({
+      series: { ativa: true, valor: 1, semana_inicio: 5, semana_fim: 8 },
+    });
+
+    store.setDurationWeeks(4);
+    store.setDurationWeeks(16);
+
+    expect(useManualPlanStore.getState().draft?.progressao.series).toMatchObject({
+      semana_inicio: 5,
+      semana_fim: 8,
+    });
+  });
+
+  it('encurtar a duração aproxima a descarga do novo fim, não do default 4', async () => {
+    // `Math.min(weeks, 4)` mandava a descarga para a semana 4 sempre — mesmo
+    // encurtando de 16 para 8, onde 8 é o fim novo e 4 não significa nada.
+    await useManualPlanStore.getState().initEmpty('user-1', { forceNew: true });
+    const store = useManualPlanStore.getState();
+    store.setDurationWeeks(16);
+    store.setProgression({
+      deload: { ativa: true, semana: 12, fator_rm: 0.6, fator_series: 0.6 },
+    });
+
+    store.setDurationWeeks(8);
+
+    expect(useManualPlanStore.getState().draft?.progressao.deload?.semana).toBe(8);
+  });
+
+  it('adicionar cardio não sobrescreve a regra de cardio que o plano já tinha', async () => {
+    // O guard só olhava os EXERCÍCIOS, nunca a regra. Um plano importado com
+    // +10% só na duração virava +5% em duração e distância no instante em que o
+    // aluno acrescentava a primeira corrida — decisão dele, desfeita pelo app.
+    await useManualPlanStore.getState().initEmpty('user-1', { forceNew: true });
+    const store = useManualPlanStore.getState();
+    store.addWorkout();
+    store.setProgression({ cardio: { ativa: true, valor: 10, alvo: 'duracao' } });
+
+    store.addExercise(0, exercise('Corrida', 'tempo_distancia'));
+
+    expect(useManualPlanStore.getState().draft?.progressao.cardio).toEqual({
+      ativa: true,
+      valor: 10,
+      alvo: 'duracao',
+    });
+  });
+
+  it('prévia atrasada de um rascunho superado não volta para a tela', async () => {
+    // O aluno toca "Ver como fica", muda a duração enquanto a resposta está em
+    // voo e salva. `mutateDraft` já tinha zerado a prévia, mas a resposta velha
+    // chegava e se instalava como se fosse do plano novo — e ainda rebaixava o
+    // status de 'saving' para 'ready' no meio do salvamento.
+    await useManualPlanStore.getState().initEmpty('user-1', { forceNew: true });
+    const store = useManualPlanStore.getState();
+    store.addWorkout();
+    store.addExercise(0, exercise('Supino'));
+
+    let resolvePreview: (valor: unknown) => void = () => {};
+    mockedPost.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePreview = resolve; }),
+    );
+
+    const emVoo = useManualPlanStore.getState().preview();
+    useManualPlanStore.getState().setDurationWeeks(16);
+    resolvePreview({ data: { semanas: [{ semana: 1, treinos: [] }] } });
+    await emVoo;
+
+    expect(useManualPlanStore.getState().previewData).toBeNull();
+  });
+
   it('não semeia rascunho vazio por cima de bytes que não puderam ser lidos', async () => {
     // Apagar por cima é irreversível: se havia algo gravado e a leitura falhou,
     // o pior desfecho possível é sobrescrever com o plano vazio.

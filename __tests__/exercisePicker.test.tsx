@@ -256,6 +256,30 @@ describe('ExercisePickerScreen', () => {
     ).toBe(45);
   });
 
+  it('tocar de novo na métrica já ativa não apaga o que foi digitado', async () => {
+    // Os três botões ficam lado a lado; errar a mira e tocar no que já está
+    // aceso devolvia duração para 20, zerava a distância e reescrevia as
+    // repetições — sem confirmação e sem desfazer.
+    useManualPlanStore.setState({ catalog: [], catalogError: 'Sem conexão com o catálogo.' });
+    const screen = render(<ExercisePickerScreen />);
+    fireEvent.changeText(screen.getByLabelText('Buscar ou escrever exercício'), 'Corrida na areia');
+    fireEvent.press(await screen.findByText('Usar “Corrida na areia”'));
+    await screen.findByText('Escolher métrica');
+
+    fireEvent.press(screen.getByText('Tempo e distância'));
+    digitarTecla(screen.getByLabelText('Duração por série (min)'), '35');
+    digitarTecla(screen.getByLabelText('Distância por série (km, opcional)'), '6');
+
+    // Segundo toque no botão que já está selecionado. O primeiro nó com esse
+    // texto é o resumo do card; o segundo é o botão da linha de métricas.
+    fireEvent.press(screen.getAllByText('Tempo e distância')[1]);
+    fireEvent.press(screen.getByText('Adicionar ao treino'));
+
+    const exercicio = useManualPlanStore.getState().draft!.treinos[0].exercicios[0];
+    expect(exercicio.duracao_minutos).toBe(35);
+    expect(exercicio.distancia_km).toBe(6);
+  });
+
   it('Cardio/Mobilidade começam recolhidos, mas continuam alcançáveis', async () => {
     const screen = render(<ExercisePickerScreen />);
     expect(screen.queryByText('Caminhada')).toBeNull();
