@@ -190,3 +190,151 @@ describe('manualDraftFromExistingPlan', () => {
     });
   });
 });
+
+describe('manualDraftFromExistingPlan — regressões da auditoria', () => {
+  it('deriva o dia do rótulo persistido, não da data comprimida da semana 1', () => {
+    // A trava que proíbe agendar antes de start_date comprime seg/qua/sex da
+    // semana 1 na mesma data quando o plano nasce numa sexta. Derivar o dia
+    // dessa data devolvia "sexta/sexta/sexta": o editor mostrava um schedule
+    // que o plano não tem e o save morria em "dois treinos no mesmo dia".
+    const sessoes: SessionDetail[] = ['segunda', 'quarta', 'sexta'].map((dia, index) => ({
+      ...sessionWithInjectedBlocks(),
+      id: `session-${index}`,
+      day_of_week: dia,
+      order_in_week: index + 1,
+      title: `Treino ${index + 1}`,
+      scheduled_date: '2026-07-24', // sexta: as três colapsaram na mesma data
+    }));
+
+    const { draft } = manualDraftFromExistingPlan(metadata, sessoes);
+
+    expect(draft.treinos.map((treino) => treino.dia_offset)).toEqual([0, 2, 4]);
+  });
+
+  it('usa a data agendada só quando o rótulo do dia não existe', () => {
+    const sessao: SessionDetail = {
+      ...sessionWithInjectedBlocks(),
+      day_of_week: null,
+      scheduled_date: '2026-07-22', // quarta-feira
+    };
+
+    const { draft } = manualDraftFromExistingPlan(metadata, [sessao]);
+
+    expect(draft.treinos[0].dia_offset).toBe(2);
+  });
+
+  it('isometria curta volta como fração de minuto que o contrato aceita', () => {
+    const prancha = plannedExercise('prancha', 'Prancha', {
+      metric: 'tempo',
+      reps_raw: null,
+      planned_sets: [
+        plannedSet({
+          target_reps_min: null,
+          target_reps_max: null,
+          target_duration_seconds: 45,
+          target_distance_m: 50,
+        }),
+      ],
+    });
+
+    const { draft } = manualDraftFromExistingPlan(metadata, [
+      sessionWithInjectedBlocks([prancha]),
+    ]);
+
+    const importado = draft.treinos[0].exercicios[0];
+    expect(importado.duracao_minutos).toBe(0.75);
+    expect(importado.distancia_km).toBe(0.05);
+  });
+
+  it('exercício do aluno parecido com aquecimento continua editável', () => {
+    // Nome livre "Aquecimento" de 10 min é canonizado para
+    // `aquecimento_articular`. Inferindo o toggle só pela chave, o exercício
+    // sumia da lista e o pipeline reinjetava o bloco padrão de 5 min por cima.
+    const aquecimentoDoAluno = plannedExercise('aquecimento_articular', 'Aquecimento', {
+      metric: 'tempo',
+      priority: 'primary',
+      sets_planned: 1,
+      reps_raw: null,
+      planned_sets: [
+        plannedSet({
+          target_reps_min: null,
+          target_reps_max: null,
+          target_duration_seconds: 600,
+        }),
+      ],
+    });
+    const sessao: SessionDetail = {
+      ...sessionWithInjectedBlocks(),
+      planned_exercises: [
+        aquecimentoDoAluno,
+        plannedExercise('supino_reto_barra', 'Supino Reto com Barra', { exercise_order: 2 }),
+      ],
+    };
+
+    const { draft } = manualDraftFromExistingPlan(metadata, [sessao]);
+
+    expect(draft.treinos[0].incluir_aquecimento).toBe(false);
+    expect(draft.treinos[0].exercicios.map((e) => e.nome)).toEqual([
+      'Aquecimento',
+      'Supino Reto com Barra',
+    ]);
+    expect(draft.treinos[0].exercicios[0].duracao_minutos).toBe(10);
+  });
+
+  it('regra com escopo ou janela que o editor não representa vira aviso explícito', () => {
+    const comEscopo: ExistingManualPlanMetadata = {
+      ...metadata,
+      progression_rules: [
+        {
+          tipo: 'delta_rm_percentual',
+          valor: 2.5,
+          semana_inicio: 5,
+          semana_fim: 12,
+          grupo_alvo: 'primario',
+        },
+      ],
+    };
+
+    const { draft, progressionUnavailable, progressionChanges } =
+      manualDraftFromExistingPlan(comEscopo, [sessionWithInjectedBlocks()]);
+
+    expect(progressionUnavailable).toBe(false);
+    expect(draft.progressao.intensidade).toEqual({ ativa: true, valor: 2.5 });
+    expect(progressionChanges.join(' ')).toContain('primario');
+    expect(progressionChanges.join(' ')).toContain('semana 5');
+  });
+
+  it('regra com campo opcional ausente usa o default do motor em vez de sumir', () => {
+    // `deload_percentual` sem fatores é válido no MOLDE_SCHEMA e o expansor
+    // aplica 0,8. Descartar a regra fazia o plano novo nascer sem a semana de
+    // descarga que o aluno tinha, com o checkbox desmarcado e nenhum aviso.
+    const semFatores: ExistingManualPlanMetadata = {
+      ...metadata,
+      progression_rules: [{ tipo: 'deload_percentual', semana: 4 }],
+    };
+
+    const { draft } = manualDraftFromExistingPlan(semFatores, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.progressao.deload).toEqual({
+      ativa: true,
+      semana: 4,
+      fator_rm: 0.8,
+      fator_series: 0.8,
+    });
+  });
+
+  it('regra de tipo desconhecido é declarada, nunca silenciada', () => {
+    const desconhecida: ExistingManualPlanMetadata = {
+      ...metadata,
+      progression_rules: [{ tipo: 'delta_inventado', valor: 3 }],
+    };
+
+    const { progressionChanges } = manualDraftFromExistingPlan(desconhecida, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(progressionChanges.join(' ')).toContain('delta_inventado');
+  });
+});

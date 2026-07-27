@@ -44,6 +44,7 @@ const ManualPlanEditorScreen = () => {
   const progressionUnavailable = useManualPlanStore(
     (state) => state.progressionUnavailable,
   );
+  const progressionChanges = useManualPlanStore((state) => state.progressionChanges);
   const initEmpty = useManualPlanStore((state) => state.initEmpty);
   const initFromQuestionnaire = useManualPlanStore(
     (state) => state.initFromQuestionnaire,
@@ -162,7 +163,16 @@ const ManualPlanEditorScreen = () => {
       navigation.navigate('PostQuestionnaireChat', { manualPlanId: planId });
       return;
     }
-    await updateProfile?.({ current_plan_id: planId });
+    try {
+      await updateProfile?.({ current_plan_id: planId });
+    } catch (erro) {
+      // A RPC já criou o plano novo e arquivou o antigo. Deixar a exceção
+      // escapar travava a tela num "não foi possível abrir o plano", o aluno
+      // concluía que o salvamento falhou, refazia tudo e criava um SEGUNDO
+      // plano — arquivando o que acabara de nascer. O perfil se reconcilia na
+      // próxima leitura do plano ativo.
+      console.warn('[ManualPlanEditor] plano criado, mas o perfil não atualizou', erro);
+    }
     navigation.navigate('TrainingOverview');
   };
 
@@ -194,6 +204,13 @@ const ManualPlanEditorScreen = () => {
             tone="info"
             title="Progressão original indisponível"
             description="As regras do plano original não puderam ser lidas. Elas ficaram desligadas para você decidir sem estimativas."
+          />
+        ) : null}
+        {progressionChanges.length > 0 ? (
+          <Notice
+            tone="warning"
+            title="A progressão vai mudar em relação ao plano atual"
+            description={progressionChanges.join(' ')}
           />
         ) : null}
         <TextField
