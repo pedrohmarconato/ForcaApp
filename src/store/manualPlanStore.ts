@@ -19,6 +19,7 @@ import {
   type ManualPlanDraft,
   type ManualPlanPreview,
   type ManualProgression,
+  shouldAutoEnableCardioProgression,
 } from '../types/manualPlan';
 
 type ManualPlanStatus =
@@ -254,19 +255,19 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         return false;
       }
       mutateDraft((draft) => {
-        const hadCardio = hasCardioExercise(draft);
+        const hadCardio = shouldAutoEnableCardioProgression(draft);
         draft.treinos[workoutIndex].exercicios.push({ ...exercise });
-        if (!hadCardio && hasCardioExercise(draft)) {
+        if (!hadCardio && shouldAutoEnableCardioProgression(draft)) {
           draft.progressao.cardio = { ativa: true, valor: 5, alvo: 'ambos' };
         }
       });
       return true;
     },
     updateExercise: (workoutIndex, exerciseIndex, partial) => mutateDraft((draft) => {
-      const hadCardio = hasCardioExercise(draft);
+      const hadCardio = shouldAutoEnableCardioProgression(draft);
       const exercise = draft.treinos[workoutIndex]?.exercicios[exerciseIndex];
       if (exercise) Object.assign(exercise, partial);
-      if (!hadCardio && hasCardioExercise(draft)) {
+      if (!hadCardio && shouldAutoEnableCardioProgression(draft)) {
         draft.progressao.cardio = { ativa: true, valor: 5, alvo: 'ambos' };
       } else {
         removeCardioProgressionWhenUnused(draft);

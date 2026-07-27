@@ -90,3 +90,45 @@ describe('ManualPlanEditorScreen', () => {
     expect(useManualPlanStore.getState().draft?.treinos).toHaveLength(7);
   });
 });
+
+describe('ManualPlanEditorScreen — regressões da auditoria', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await useManualPlanStore.getState().reset();
+    await useManualPlanStore.getState().initEmpty('user-1');
+  });
+
+  it('reabrir o editor depois de salvar não trava em "Plano criado"', async () => {
+    // A guarda por `status` global nunca era zerada: reabrir o editor na mesma
+    // sessão do app mostrava "Plano criado / Abrindo seu plano…" para sempre,
+    // sem lista de treinos e sem retry, até o app ser reiniciado.
+    useManualPlanStore.setState({
+      draft: null,
+      previewData: null,
+      status: 'saved',
+      userId: 'user-1',
+    });
+
+    const screen = render(<ManualPlanEditorScreen />);
+
+    expect(await screen.findByText('Monte do seu jeito')).toBeTruthy();
+    expect(screen.queryByText('Plano criado')).toBeNull();
+  });
+
+  it('plano de 4 semanas liga "Aumentar séries" com janela válida', async () => {
+    // A janela fixa 5→8 com Math.min(8, duracao) produzia 5→4: início depois do
+    // fim. O backend rejeitava com o Salvar habilitado e sem pista nenhuma.
+    useManualPlanStore.getState().setDurationWeeks(4);
+    const screen = render(<ManualPlanEditorScreen />);
+
+    // A progressão já nasce ativa (descarga na semana 4), então o bloco de
+    // opções está visível desde o começo.
+    fireEvent.press(await screen.findByText('Aumentar séries'));
+
+    const regra = useManualPlanStore.getState().draft?.progressao.series;
+    expect(regra?.ativa).toBe(true);
+    expect(regra!.semana_inicio).toBeGreaterThanOrEqual(2);
+    expect(regra!.semana_inicio).toBeLessThanOrEqual(regra!.semana_fim);
+    expect(regra!.semana_fim).toBeLessThanOrEqual(4);
+  });
+});

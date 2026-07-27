@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,6 +23,7 @@ import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import {
   DEFAULT_MANUAL_PROGRESSION,
+  defaultSeriesWindow,
   hasCardioExercise,
   hasRmExercise,
   isManualPlanSavable,
@@ -49,12 +50,14 @@ const ManualPlanEditorScreen = () => {
   const preview = useManualPlanStore((state) => state.preview);
   const save = useManualPlanStore((state) => state.save);
 
+  // Marcador preso a ESTA montagem da tela. Uma guarda por `status` global
+  // impedia o re-disparo logo após o save, mas nunca era zerada: reabrir o
+  // editor na mesma sessão do app mostrava "Plano criado / Abrindo seu plano…"
+  // para sempre, sem lista de treinos e sem retry, até matar o app.
+  const salvouNestaTela = useRef(false);
+
   useEffect(() => {
-    // `status === 'saved'` significa que o rascunho virou plano agora há pouco.
-    // Sem esta guarda o efeito re-disparava logo após o save e regravava um
-    // rascunho fantasma no aparelho, que reaparecia dias depois como se fosse
-    // trabalho em andamento do aluno.
-    if (status === 'saved' || status === 'saving') return;
+    if (salvouNestaTela.current || status === 'saving') return;
     if (user?.id && (!draft || stateUserId !== user.id)) void initEmpty(user.id);
   }, [draft, initEmpty, stateUserId, status, user?.id]);
 
@@ -63,11 +66,9 @@ const ManualPlanEditorScreen = () => {
       <Screen>
         <StackHeader title="Meu plano" onBack={() => navigation.goBack()} />
         <EmptyState
-          title={status === 'saved' ? 'Plano criado' : 'Preparando editor'}
+          title={salvouNestaTela.current ? 'Plano criado' : 'Preparando editor'}
           description={
-            status === 'saved'
-              ? 'Abrindo seu plano…'
-              : 'Recuperando seu rascunho…'
+            salvouNestaTela.current ? 'Abrindo seu plano…' : 'Recuperando seu rascunho…'
           }
         />
       </Screen>
@@ -83,7 +84,7 @@ const ManualPlanEditorScreen = () => {
     const defaults = DEFAULT_MANUAL_PROGRESSION();
     setProgression({
       deload: defaults.deload,
-      series: defaults.series,
+      series: { ...defaultSeriesWindow(draft.duracao_semanas), ativa: false },
       cardio: hasCardio ? { ativa: true, valor: 5, alvo: 'ambos' } : null,
       intensidade: hasRm ? { ativa: false, valor: 2.5 } : null,
     });
@@ -92,6 +93,7 @@ const ManualPlanEditorScreen = () => {
   const handleSave = async () => {
     const planId = await save();
     if (!planId) return;
+    salvouNestaTela.current = true;
     await updateProfile?.({ current_plan_id: planId });
     navigation.navigate('TrainingOverview');
   };
@@ -218,11 +220,12 @@ const ManualPlanEditorScreen = () => {
                 onPress={() => setProgression({
                   series: draft.progressao.series?.ativa
                     ? null
-                    : { ativa: true, valor: 1, semana_inicio: 5, semana_fim: Math.min(8, draft.duracao_semanas) },
+                    : defaultSeriesWindow(draft.duracao_semanas),
                 })}
               />
               <Text style={styles.support}>
                 Soma +1 série a cada semana da janela; o efeito é acumulativo e respeita o teto do app.
+                A semana 1 é sempre o que você montou — a progressão começa na 2.
               </Text>
               {draft.progressao.series?.ativa ? (
                 <View style={styles.seriesWindow}>
@@ -232,9 +235,17 @@ const ManualPlanEditorScreen = () => {
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
                     onChangeText={(value) => {
-                      const week = Math.max(1, Math.min(draft.duracao_semanas, Number(value) || 1));
+                      // Piso 2: a semana 1 é a linha de base, no app e no motor.
+                      const week = Math.max(
+                        2,
+                        Math.min(draft.duracao_semanas, Number(value) || 2),
+                      );
                       setProgression({
-                        series: { ...draft.progressao.series!, semana_inicio: week },
+                        series: {
+                          ...draft.progressao.series!,
+                          semana_inicio: week,
+                          semana_fim: Math.max(week, draft.progressao.series!.semana_fim),
+                        },
                       });
                     }}
                   />
@@ -244,9 +255,13 @@ const ManualPlanEditorScreen = () => {
                     keyboardType="number-pad"
                     containerStyle={styles.seriesField}
                     onChangeText={(value) => {
-                      const week = Math.max(1, Math.min(draft.duracao_semanas, Number(value) || 1));
+                      const week = Math.max(2, Math.min(draft.duracao_semanas, Number(value) || 2));
                       setProgression({
-                        series: { ...draft.progressao.series!, semana_fim: week },
+                        series: {
+                          ...draft.progressao.series!,
+                          semana_fim: week,
+                          semana_inicio: Math.min(week, draft.progressao.series!.semana_inicio),
+                        },
                       });
                     }}
                   />
