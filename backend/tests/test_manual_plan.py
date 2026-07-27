@@ -425,14 +425,18 @@ def test_endpoint_rejeita_teto_de_sets_antes_de_expandir(client):
         )
     assert sum(ex["series"] for t in treinos for ex in t["exercicios"]) > MAX_TOTAL_SETS
 
-    with mock.patch.object(app_module, "expandir_plano") as expandir:
+    with mock.patch.object(app_module, "persistir_plano") as persistir:
         response = _post_autenticado(
             client, "/api/manual-plan", _rascunho(treinos=treinos, duracao_semanas=1)
         )
 
     assert response.status_code == 400
-    assert str(MAX_TOTAL_SETS) in response.get_json()["error"]
-    expandir.assert_not_called()
+    erro = response.get_json()["error"]
+    assert str(MAX_TOTAL_SETS) in erro
+    # A mensagem tem de dizer o que reduzir, não só o número.
+    assert "Reduza" in erro
+    # Nada foi persistido.
+    persistir.assert_not_called()
 
 
 def test_endpoint_salva_progressao_e_devolve_201(client):
@@ -902,58 +906,12 @@ def _total_de_series_reais(rascunho):
     )
 
 
-@pytest.mark.parametrize(
-    "com_cardio,com_progressao",
-    [(False, False), (False, True), (True, False), (True, True)],
-)
-def test_projecao_do_teto_bate_exatamente_com_o_que_o_pipeline_grava(
-    com_cardio, com_progressao
-):
-    """
-    O pré-cheque e o pipeline TÊM de contar a mesma coisa. Contando de menos,
-    plano comum morria com 400 no meio do pipeline; contando de mais (somando
-    incremento em cardio, que o expansor não progride), plano legítimo era
-    recusado com um número que nunca existiu — invariante 12.
-    """
-    from backend.app import _series_projetadas
-
-    exercicios = [_exercicio(series=3), _exercicio(nome="Agachamento Livre",
-                                                   exercise_key="agachamento_livre",
-                                                   equipamento="Barra", series=4)]
-    if com_cardio:
-        exercicios.append(
-            _exercicio(
-                nome="Corrida", exercise_key="corrida", equipamento=None,
-                repeticoes=None, duracao_minutos=20, distancia_km=5, series=2,
-            )
-        )
-        exercicios.append(
-            _exercicio(
-                nome="Prancha", exercise_key="prancha", equipamento="Peso corporal",
-                repeticoes=None, duracao_minutos=1, series=3,
-            )
-        )
-    treinos = [
-        {
-            "nome": "Treino A", "dia_offset": 0, "duracao_minutos": None,
-            "incluir_aquecimento": True, "incluir_alongamento": True,
-            "exercicios": exercicios,
-        }
-    ]
-    progressao = _rascunho()["progressao"]
-    if com_progressao:
-        progressao["series"] = {
-            "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 8,
-        }
-    rascunho = _rascunho(treinos=treinos, progressao=progressao, duracao_semanas=8)
-
-    assert _series_projetadas(rascunho) == _total_de_series_reais(rascunho)
-
-
 def test_plano_com_muito_cardio_nao_e_recusado_por_teto_inflado(client):
     """
-    Cardio não ganha série no expansor. Somar o incremento nele fazia a
-    validação inventar milhares de séries e recusar um plano que cabe no teto.
+    Cardio não ganha série no expansor e o deload corta séries. Toda tentativa
+    de PROJETAR o teto antes de expandir divergiu do pipeline — para menos
+    (plano comum morrendo no meio) e para mais (plano legítimo recusado com um
+    número inventado). Agora quem conta é quem grava.
     """
     cardio = [
         _exercicio(
@@ -981,16 +939,35 @@ def test_plano_com_muito_cardio_nao_e_recusado_por_teto_inflado(client):
     progressao["series"] = {
         "ativa": True, "valor": 1, "semana_inicio": 2, "semana_fim": 10,
     }
+    progressao["deload"] = {
+        "ativa": True, "semana": 4, "fator_rm": 0.8, "fator_series": 0.8,
+    }
     rascunho = _rascunho(treinos=treinos, progressao=progressao, duracao_semanas=10)
 
-    # O plano grava 1.620 séries — cabe no teto de 2.000 com folga. Somando o
-    # incremento também no cardio, a projeção antiga chegava a 2.880 e recusava.
-    from backend.app import _series_projetadas
-
-    assert _series_projetadas(rascunho) == _total_de_series_reais(rascunho)
-    assert _series_projetadas(rascunho) < MAX_TOTAL_SETS
+    assert _total_de_series_reais(rascunho) < MAX_TOTAL_SETS
     response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
     assert response.status_code == 200, response.get_json()
+
+
+def test_mensagem_do_teto_traz_o_numero_real_do_pipeline(client):
+    """O número exibido tem de ser o que o pipeline grava, não uma estimativa."""
+    exercicios = [_exercicio(series=10) for _ in range(30)]
+    treinos = [
+        {
+            "nome": f"Treino {i}", "dia_offset": i, "duracao_minutos": None,
+            "incluir_aquecimento": False, "incluir_alongamento": False,
+            "exercicios": exercicios,
+        }
+        for i in range(7)
+    ]
+    rascunho = _rascunho(treinos=treinos, duracao_semanas=2)
+
+    response = _post_autenticado(client, "/api/manual-plan/preview", rascunho)
+
+    assert response.status_code == 400
+    erro = response.get_json()["error"]
+    assert str(MAX_TOTAL_SETS) in erro
+    assert "Reduza" in erro
 
 
 def test_semana_1_e_a_prescricao_do_aluno_tambem_com_aumento_de_series():
@@ -1084,3 +1061,57 @@ def test_rate_limit_conta_mesmo_quando_o_rascunho_e_invalido(client):
 
     assert primeira.status_code == 400
     assert segunda.status_code == 429
+
+
+def test_errar_o_formulario_nao_queima_a_cota_de_criacao(client):
+    """
+    Checar o balde de CRIAÇÃO antes da validação trancava por uma hora o aluno
+    que só tentou salvar um plano grande demais dez vezes seguidas — sem nunca
+    ter criado plano nenhum.
+    """
+    invalido = _rascunho()
+    invalido["duracao_semanas"] = 999
+
+    with mock.patch.object(app_module, "MANUAL_PLAN_RATE_LIMIT", 2), mock.patch.object(
+        app_module, "persistir_plano", return_value="plano-1"
+    ):
+        for _ in range(5):
+            recusado = _post_autenticado(client, "/api/manual-plan", invalido)
+            assert recusado.status_code == 400
+
+        # A cota de criação continua intacta.
+        assert _post_autenticado(client, "/api/manual-plan", _rascunho()).status_code == 201
+        assert _post_autenticado(client, "/api/manual-plan", _rascunho()).status_code == 201
+        assert _post_autenticado(client, "/api/manual-plan", _rascunho()).status_code == 429
+
+
+def test_balde_de_abuso_limita_payload_invalido_em_loop(client):
+    """Rascunho inválido também custa CPU: não pode ser ilimitado."""
+    invalido = _rascunho()
+    invalido["duracao_semanas"] = 999
+
+    with mock.patch.object(app_module, "MANUAL_PLAN_ABUSE_LIMIT", 3):
+        respostas = [
+            _post_autenticado(client, "/api/manual-plan", invalido).status_code
+            for _ in range(4)
+        ]
+
+    assert respostas[:3] == [400, 400, 400]
+    assert respostas[3] == 429
+
+
+def test_percentual_rm_fora_de_faixa_tem_mensagem_em_portugues(client):
+    exercicio = _exercicio(percentual_rm=150)
+    treinos = [
+        {
+            "nome": "Treino A", "dia_offset": 0, "duracao_minutos": None,
+            "incluir_aquecimento": False, "incluir_alongamento": False,
+            "exercicios": [exercicio],
+        }
+    ]
+    response = _post_autenticado(client, "/api/manual-plan", _rascunho(treinos=treinos))
+
+    assert response.status_code == 400
+    erro = response.get_json()["error"]
+    assert "intensidade em %RM" in erro
+    assert "percentual_rm" not in erro  # nome técnico não vai para a tela

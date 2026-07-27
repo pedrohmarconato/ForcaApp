@@ -535,8 +535,12 @@ def mapear_plano_ia(
                             "target_distance_m": distancia_alvo,
                         })
                     if len(sets) > MAX_TOTAL_SETS:
+                        # O total vai na mensagem porque é o único número REAL
+                        # do teto: quem conta séries é quem as grava. Toda
+                        # tentativa de projetar isso antes divergiu do pipeline.
                         raise ValueError(
-                            "Plano inválido: excede o teto de {} séries totais.".format(MAX_TOTAL_SETS)
+                            "Plano inválido: excede o teto de {} séries totais "
+                            "(o plano passa de {}).".format(MAX_TOTAL_SETS, len(sets))
                         )
                 if not isinstance(sessao.get("duracao_minutos"), int):
                     session_row["estimated_minutes"] = _estimar_minutos(
