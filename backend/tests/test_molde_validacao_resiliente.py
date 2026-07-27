@@ -491,3 +491,36 @@ def test_exercicio_de_carga_fora_do_catalogo_nao_e_promovido():
     exercicio_2, _ = _semana(mapeado, 2)
     assert exercicio_1["target_rm_percent"] == 70  # semana 1 = prescrito
     assert exercicio_2["target_rm_percent"] == 72  # %RM progride normalmente
+
+
+@pytest.mark.parametrize(
+    "repeticoes,metrica_esperada",
+    [
+        ("45s", "tempo"),
+        ("30 segundos", "tempo"),
+        ("20 min", "tempo"),
+        ("800m", "tempo_distancia"),
+        ("5 km", "tempo_distancia"),
+    ],
+)
+def test_duracao_no_campo_de_repeticoes_nao_vira_repeticao(repeticoes, metrica_esperada):
+    """
+    O modelo escreve a duração no campo errado ("repeticoes": "45s") e o
+    MOLDE_SCHEMA não proíbe. Contando isso como repetição explícita, uma
+    isometria de nome livre virava "3 séries de 45 repetições" e o motor de
+    adaptação passava a tratar 45 como volume.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Isometria de Ponte Lateral Adaptada", "ordem": 1,
+            "series": 3, "repeticoes": repeticoes, "prioridade": "acessorio",
+        },
+        [],
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+    exercicio, serie = _semana(mapeado, 1)
+
+    assert exercicio["metric"] == metrica_esperada
+    assert serie["target_reps_min"] is None and serie["target_reps_max"] is None
+    assert serie["target_duration_seconds"] is not None

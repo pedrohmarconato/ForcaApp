@@ -132,3 +132,47 @@ describe('ManualPlanEditorScreen — regressões da auditoria', () => {
     expect(regra!.semana_fim).toBeLessThanOrEqual(4);
   });
 });
+
+describe('ManualPlanEditorScreen — regressões da rodada 3', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await useManualPlanStore.getState().reset();
+    await useManualPlanStore.getState().initEmpty('user-1');
+  });
+
+  it('nomeia o exercício que impede salvar em vez de só desabilitar o botão', async () => {
+    // Antes, o Salvar ficava cinza para sempre e NENHUMA das três telas dizia
+    // qual treino ou exercício era o culpado.
+    useManualPlanStore.getState().addWorkout();
+    useManualPlanStore.getState().addExercise(0, {
+      exercise_key: null,
+      nome: 'Prancha Longa',
+      equipamento: null,
+      metrica: 'tempo',
+      series: 3,
+      repeticoes: null,
+      duracao_minutos: 200, // acima do teto de 180
+      distancia_km: null,
+      tempo_descanso: 60,
+      prioridade: 'acessorio',
+      percentual_rm: null,
+      observacoes: null,
+      tem_limitacao: false,
+    });
+
+    const screen = render(<ManualPlanEditorScreen />);
+
+    expect(await screen.findByText(/impede salvar/i)).toBeTruthy();
+    expect(screen.getByText(/Prancha Longa/)).toBeTruthy();
+  });
+
+  it('plano de 1 semana não oferece "Aumentar séries"', async () => {
+    // A janela nascia 2→2 num plano de 1 semana: o backend recusava, o Salvar
+    // continuava habilitado e os campos da tela não deixavam corrigir.
+    useManualPlanStore.getState().setDurationWeeks(1);
+    const screen = render(<ManualPlanEditorScreen />);
+
+    await screen.findByText('Monte do seu jeito');
+    expect(screen.queryByText('Aumentar séries')).toBeNull();
+  });
+});
