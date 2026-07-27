@@ -131,6 +131,52 @@ describe('ManualPlanEditorScreen — regressões da auditoria', () => {
     expect(regra!.semana_inicio).toBeLessThanOrEqual(regra!.semana_fim);
     expect(regra!.semana_fim).toBeLessThanOrEqual(4);
   });
+
+  // Apagar e digitar por cima é o gesto normal de quem troca um número. Com o
+  // campo controlado por String(numero) ele nunca fica vazio: o backspace vira
+  // `Number('') || 2` = semana 2, e a tecla seguinte é anexada a esse "2".
+  // Querendo 3→8 num plano de 12 semanas, o aluno recebia 12→12 — uma série a
+  // mais só na última semana, e o campo que ele nem tocou reescrito junto.
+  const digitarTecla = (input: any, texto: string) => {
+    fireEvent.changeText(input, '');
+    for (const tecla of texto) {
+      fireEvent.changeText(input, `${input.props.value ?? ''}${tecla}`);
+    }
+  };
+
+  it('trocar a semana inicial para 3 mantém a janela em 3→8, não 12→12', async () => {
+    useManualPlanStore.getState().setDurationWeeks(12);
+    useManualPlanStore.getState().setProgression({
+      series: { ativa: true, valor: 1, semana_inicio: 5, semana_fim: 8 },
+    });
+    const screen = render(<ManualPlanEditorScreen />);
+    await screen.findByText('Aumentar séries');
+
+    const antes = useManualPlanStore.getState().draft!.progressao.series!;
+    expect(antes.semana_fim).toBe(8);
+
+    digitarTecla(screen.getByLabelText('Começa na semana'), '3');
+
+    const regra = useManualPlanStore.getState().draft!.progressao.series!;
+    expect(regra.semana_inicio).toBe(3);
+    // O campo que o aluno não tocou continua onde estava.
+    expect(regra.semana_fim).toBe(8);
+  });
+
+  it('trocar a semana final para 6 não arrasta a inicial junto', async () => {
+    useManualPlanStore.getState().setDurationWeeks(12);
+    useManualPlanStore.getState().setProgression({
+      series: { ativa: true, valor: 1, semana_inicio: 5, semana_fim: 8 },
+    });
+    const screen = render(<ManualPlanEditorScreen />);
+    await screen.findByText('Aumentar séries');
+
+    digitarTecla(screen.getByLabelText('Termina na semana'), '6');
+
+    const regra = useManualPlanStore.getState().draft!.progressao.series!;
+    expect(regra.semana_fim).toBe(6);
+    expect(regra.semana_inicio).toBe(5);
+  });
 });
 
 describe('ManualPlanEditorScreen — regressões da rodada 3', () => {

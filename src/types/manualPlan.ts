@@ -239,10 +239,34 @@ export const hasRmExercise = (draft: ManualPlanDraft): boolean =>
     treino.exercicios.some((exercicio) => (exercicio.percentual_rm ?? 0) > 0),
   );
 
+/**
+ * Janela de "Aumentar séries" que o motor aceita.
+ *
+ * A semana 1 é a linha de base — a progressão manual começa na 2. O fim não
+ * pode passar da duração do plano nem vir antes do início. Antes isto era
+ * imposto calado dentro do onChange do campo, arrastando junto o campo que o
+ * aluno nem tinha tocado; agora é uma pergunta que a tela responde em voz alta.
+ */
+export const isValidSeriesWindow = (
+  regra: { ativa?: boolean; semana_inicio: number; semana_fim: number } | null | undefined,
+  duracaoSemanas: number,
+): boolean => {
+  if (!regra?.ativa) return true;
+  const { semana_inicio: inicio, semana_fim: fim } = regra;
+  return (
+    Number.isInteger(inicio) &&
+    Number.isInteger(fim) &&
+    inicio >= 2 &&
+    inicio <= fim &&
+    fim <= duracaoSemanas
+  );
+};
+
 export const isManualPlanSavable = (draft: ManualPlanDraft | null): boolean =>
   !!draft &&
   draft.nome.trim().length > 0 &&
   draft.treinos.length > 0 &&
+  isValidSeriesWindow(draft.progressao.series, draft.duracao_semanas) &&
   draft.treinos.every(
     (treino) =>
       treino.nome.trim().length > 0 &&
