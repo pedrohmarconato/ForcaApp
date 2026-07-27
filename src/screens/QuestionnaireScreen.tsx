@@ -70,7 +70,8 @@ const DAYS_OF_WEEK: DayOption[] = [
   { label: 'S', value: 'sat', full: 'Sábado' },
   { label: 'D', value: 'sun', full: 'Domingo' },
 ];
-const TIME_OPTIONS: TimeOption[] = [ { label: '30-45 min', value: 45 }, { label: '45-60 min', value: 60 }, { label: '60-90 min', value: 90 }, { label: '+90 min', value: 120 } ];
+
+import { TIME_OPTIONS } from '../constants/tempoTreino';
 
 const STORAGE_KEY_BASE = '@questionnaire_data';
 const API_BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1` : '';
