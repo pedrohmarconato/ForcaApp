@@ -25,6 +25,8 @@ import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import {
   formatWorkDuration,
+  isValidExerciseDistance,
+  isValidExerciseDuration,
   type ManualExerciseDraft,
   type ManualExercisePriority,
 } from '../types/manualPlan';
@@ -298,7 +300,12 @@ const ExercisePickerScreen = () => {
               keyboardType="decimal-pad"
               onChangeText={(value) => patchExercise({ duracao_minutos: numberOrNull(value) })}
             />
-            {exercise.duracao_minutos != null && exercise.duracao_minutos < 1 ? (
+            {!isValidExerciseDuration(exercise.duracao_minutos) ? (
+              <Notice
+                tone="danger"
+                title="A duração por série precisa ficar entre 15 segundos (0,25) e 180 minutos."
+              />
+            ) : exercise.duracao_minutos != null && exercise.duracao_minutos < 1 ? (
               <Text style={styles.hint}>
                 Equivale a {formatWorkDuration(exercise.duracao_minutos)} por série.
               </Text>
@@ -309,6 +316,12 @@ const ExercisePickerScreen = () => {
                 value={exercise.distancia_km == null ? '' : String(exercise.distancia_km)}
                 keyboardType="decimal-pad"
                 onChangeText={(value) => patchExercise({ distancia_km: numberOrNull(value) })}
+              />
+            ) : null}
+            {!isValidExerciseDistance(exercise.distancia_km) ? (
+              <Notice
+                tone="danger"
+                title="A distância por série precisa ficar entre 0,01 km (10 m) e 100 km."
               />
             ) : null}
           </>
