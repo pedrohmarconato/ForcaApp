@@ -50,14 +50,26 @@ const ManualPlanEditorScreen = () => {
   const save = useManualPlanStore((state) => state.save);
 
   useEffect(() => {
+    // `status === 'saved'` significa que o rascunho virou plano agora há pouco.
+    // Sem esta guarda o efeito re-disparava logo após o save e regravava um
+    // rascunho fantasma no aparelho, que reaparecia dias depois como se fosse
+    // trabalho em andamento do aluno.
+    if (status === 'saved' || status === 'saving') return;
     if (user?.id && (!draft || stateUserId !== user.id)) void initEmpty(user.id);
-  }, [draft, initEmpty, stateUserId, user?.id]);
+  }, [draft, initEmpty, stateUserId, status, user?.id]);
 
   if (!draft) {
     return (
       <Screen>
         <StackHeader title="Meu plano" onBack={() => navigation.goBack()} />
-        <EmptyState title="Preparando editor" description="Recuperando seu rascunho…" />
+        <EmptyState
+          title={status === 'saved' ? 'Plano criado' : 'Preparando editor'}
+          description={
+            status === 'saved'
+              ? 'Abrindo seu plano…'
+              : 'Recuperando seu rascunho…'
+          }
+        />
       </Screen>
     );
   }

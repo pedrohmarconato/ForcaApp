@@ -15,7 +15,12 @@ import {
   StackHeader,
   TextField,
 } from '../components/ui';
-import { searchCatalog, type CatalogEntry, type CatalogMetric } from '../services/exerciseCatalogService';
+import {
+  resolveExerciseName,
+  searchCatalog,
+  type CatalogEntry,
+  type CatalogMetric,
+} from '../services/exerciseCatalogService';
 import { useManualPlanStore } from '../store/manualPlanStore';
 import theme from '../theme/theme';
 import type { ManualExerciseDraft, ManualExercisePriority } from '../types/manualPlan';
@@ -71,6 +76,25 @@ const ExercisePickerScreen = () => {
   const [exercise, setExercise] = useState<ManualExerciseDraft | null>(
     existing ? { ...existing } : null,
   );
+  const [addError, setAddError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+
+  /**
+   * Antes de aceitar um nome como livre, pergunta ao servidor se ele casa com
+   * o catálogo. Os aliases não viajam no payload, então o app não tem como
+   * saber sozinho que "Bent Over Row" é "Remada Curvada com Barra" — e o
+   * servidor canoniza na gravação de qualquer jeito, descartando em silêncio a
+   * métrica que o aluno tivesse escolhido aqui. Offline, o nome livre continua
+   * valendo: nada é inventado.
+   */
+  const usarNomeDigitado = async () => {
+    const termo = query.trim();
+    if (!termo) return;
+    setResolving(true);
+    const canonico = await resolveExerciseName(termo);
+    setResolving(false);
+    setExercise(canonico ? newExercise(canonico) : newExercise(null, termo));
+  };
 
   const results = useMemo(
     () => searchCatalog(query, catalog, {
@@ -104,8 +128,17 @@ const ExercisePickerScreen = () => {
 
   const submit = () => {
     if (!exercise) return;
-    if (exerciseIndex == null) addExercise(workoutIndex, exercise);
-    else updateExercise(workoutIndex, exerciseIndex, exercise);
+    if (exerciseIndex == null) {
+      // O teto de 30 exercícios devolvia false e o picker fechava do mesmo
+      // jeito: o aluno preenchia tudo, voltava e não via exercício nenhum,
+      // sem nenhuma mensagem. Agora o motivo aparece na própria tela.
+      if (!addExercise(workoutIndex, exercise)) {
+        setAddError('Este treino já tem 30 exercícios. Remova um antes de adicionar outro.');
+        return;
+      }
+    } else {
+      updateExercise(workoutIndex, exerciseIndex, exercise);
+    }
     navigation.goBack();
   };
 
@@ -159,9 +192,9 @@ const ExercisePickerScreen = () => {
           {canUseFreeName ? (
             <ListRow
               title={`Usar “${query.trim()}”`}
-              subtitle="Nome livre"
+              subtitle={resolving ? 'Conferindo no catálogo…' : 'Nome livre'}
               showChevron
-              onPress={() => setExercise(newExercise(null, query))}
+              onPress={usarNomeDigitado}
               style={styles.freeRow}
             />
           ) : null}
@@ -191,6 +224,7 @@ const ExercisePickerScreen = () => {
     <Screen>
       <StackHeader title={exercise.nome} onBack={() => setExercise(null)} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {addError ? <Notice tone="danger" title={addError} /> : null}
         {isFree ? (
           <Notice
             tone="info"
