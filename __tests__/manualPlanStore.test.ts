@@ -289,7 +289,8 @@ describe('manualPlanStore', () => {
 
     mockedPost.mockResolvedValueOnce({ data: { plan_id: 'plan-user-1' } });
     await expect(useManualPlanStore.getState().save()).resolves.toBe('plan-user-1');
-    expect(storage.clearManualPlanDraft).toHaveBeenCalledWith('user-1');
+    // O escopo null é o rascunho de plano novo (a edição usa chave própria).
+    expect(storage.clearManualPlanDraft).toHaveBeenCalledWith('user-1', null);
     expect(useManualPlanStore.getState().draft).toBeNull();
   });
 });
@@ -381,5 +382,39 @@ describe('manualPlanStore — regressões da auditoria', () => {
     expect(useManualPlanStore.getState().addExercise(0, exercise('Ex 31'))).toBe(false);
     expect(useManualPlanStore.getState().draft?.treinos[0].exercicios).toHaveLength(30);
     expect(useManualPlanStore.getState().saveError).toContain('30 exercícios');
+  });
+});
+
+describe('manualPlanStore — escopo do rascunho', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await useManualPlanStore.getState().reset();
+    (storage.readManualPlanDraft as jest.Mock).mockResolvedValue({
+      draft: null,
+      hadStoredBytes: false,
+    });
+  });
+
+  it('editar o plano ativo não grava por cima do rascunho de plano novo', async () => {
+    // Com uma chave só, abrir "Editar plano" gravava o plano importado por
+    // cima do rascunho que o aluno estava montando — trabalho perdido, sem
+    // aviso e sem volta.
+    await useManualPlanStore.getState().initEmpty('user-1');
+    useManualPlanStore.getState().addWorkout();
+
+    const chavesDoRascunhoNovo = (storage.saveManualPlanDraft as jest.Mock).mock.calls.map(
+      (chamada) => chamada[2] ?? null,
+    );
+    expect(chavesDoRascunhoNovo.every((escopo) => escopo === null)).toBe(true);
+
+    (storage.saveManualPlanDraft as jest.Mock).mockClear();
+    useManualPlanStore.setState({ draftOrigin: 'existing', sourcePlanId: 'plano-antigo' });
+    useManualPlanStore.getState().addWorkout();
+
+    const escoposDaEdicao = (storage.saveManualPlanDraft as jest.Mock).mock.calls.map(
+      (chamada) => chamada[2],
+    );
+    expect(escoposDaEdicao).not.toHaveLength(0);
+    expect(escoposDaEdicao.every((escopo) => escopo === 'plan_plano-antigo')).toBe(true);
   });
 });

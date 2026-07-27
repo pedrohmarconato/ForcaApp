@@ -5,7 +5,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ManualPlanDraft } from '../types/manualPlan';
 
 const VERSION = 1;
-const keyFor = (userId: string): string => `@manual_plan_draft_${userId}`;
+
+/**
+ * Chave do rascunho, por usuário e por ESCOPO.
+ *
+ * "Editar plano atual" e "montar plano novo" são dois rascunhos diferentes. Com
+ * uma chave só, abrir a edição do plano ativo gravava o plano importado por
+ * cima do rascunho que o aluno estava montando — trabalho perdido sem aviso.
+ */
+const keyFor = (userId: string, scope?: string | null): string =>
+  scope ? `@manual_plan_draft_${userId}__${scope}` : `@manual_plan_draft_${userId}`;
 const keyQueues = new Map<string, Promise<void>>();
 
 const withKeyQueue = async <T>(key: string, task: () => Promise<T>): Promise<T> => {
@@ -99,8 +108,9 @@ export type ManualPlanDraftLoad = {
 export const saveManualPlanDraft = async (
   userId: string,
   draft: ManualPlanDraft,
+  scope?: string | null,
 ): Promise<void> => {
-  const key = keyFor(userId);
+  const key = keyFor(userId, scope);
   await withKeyQueue(key, () =>
     AsyncStorage.setItem(key, JSON.stringify({ version: VERSION, draft })),
   );
@@ -108,8 +118,9 @@ export const saveManualPlanDraft = async (
 
 export const readManualPlanDraft = async (
   userId: string,
+  scope?: string | null,
 ): Promise<ManualPlanDraftLoad> => {
-  const key = keyFor(userId);
+  const key = keyFor(userId, scope);
   return withKeyQueue(key, async () => {
     const raw = await AsyncStorage.getItem(key);
     return { draft: parseDraft(raw), hadStoredBytes: typeof raw === 'string' && raw.length > 0 };
@@ -118,9 +129,13 @@ export const readManualPlanDraft = async (
 
 export const loadManualPlanDraft = async (
   userId: string,
-): Promise<ManualPlanDraft | null> => (await readManualPlanDraft(userId)).draft;
+  scope?: string | null,
+): Promise<ManualPlanDraft | null> => (await readManualPlanDraft(userId, scope)).draft;
 
-export const clearManualPlanDraft = async (userId: string): Promise<void> => {
-  const key = keyFor(userId);
+export const clearManualPlanDraft = async (
+  userId: string,
+  scope?: string | null,
+): Promise<void> => {
+  const key = keyFor(userId, scope);
   await withKeyQueue(key, () => AsyncStorage.removeItem(key));
 };
