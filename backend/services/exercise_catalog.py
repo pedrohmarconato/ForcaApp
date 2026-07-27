@@ -433,13 +433,30 @@ def catalogo_para_prompt(
 # 9 séries de 5 min. Qualquer código que precise saber a métrica de um exercício
 # do molde tem de chamar `metrica_do_exercicio`.
 
+# "45s", "20 min", "5 km": número seguido de unidade de tempo/distância. É
+# prescrição de DURAÇÃO escrita no campo errado, não repetição — o modelo faz
+# isso, e o MOLDE_SCHEMA não proíbe (basta um entre reps/duração/distância).
+_UNIDADE_NAO_REPETICAO = re.compile(
+    r"^\s*\d+(?:[.,]\d+)?\s*(?:s|seg|segs|segundos?|min|mins|minutos?|h|horas?|m|km)\s*$",
+    re.IGNORECASE,
+)
+
+
 def _tem_repeticoes_explicitas(valor: Any) -> bool:
-    """True só quando o molde prescreveu repetições de verdade (com número)."""
+    """
+    True só quando o molde prescreveu repetições de verdade (com número).
+
+    Uma isometria de nome livre com `repeticoes: "45s"` virava "3 séries de 45
+    repetições": o número existe, mas o que ele descreve é tempo.
+    """
     if isinstance(valor, bool):
         return False
     if isinstance(valor, int):
         return valor >= 1
-    return any(int(n) >= 1 for n in re.findall(r"\d+", str(valor or "")))
+    texto = str(valor or "")
+    if _UNIDADE_NAO_REPETICAO.match(texto):
+        return False
+    return any(int(n) >= 1 for n in re.findall(r"\d+", texto))
 
 
 def _numero_positivo(valor: Any) -> bool:
@@ -467,10 +484,19 @@ def metrica_do_exercicio(exercicio: Dict[str, Any]) -> str:
     if declarada in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA):
         return declarada
 
-    if not _tem_repeticoes_explicitas(exercicio.get("repeticoes")):
-        tem_distancia = _numero_positivo(exercicio.get("distancia_km"))
-        tem_duracao = _numero_positivo(exercicio.get("duracao_minutos")) or bool(
-            re.findall(r"\d", str(exercicio.get("duracao_minutos") or ""))
+    repeticoes = exercicio.get("repeticoes")
+    if not _tem_repeticoes_explicitas(repeticoes):
+        # A prescrição pode ter vindo no campo errado ("repeticoes": "45s"):
+        # o mapper já sabe ler isso, e a métrica precisa concordar com ele.
+        unidade = _UNIDADE_NAO_REPETICAO.match(str(repeticoes or ""))
+        distancia_em_reps = bool(unidade) and unidade.group(0).strip().lower().endswith(
+            ("m", "km")
+        ) and not unidade.group(0).strip().lower().endswith(("min", "mins"))
+        tem_distancia = _numero_positivo(exercicio.get("distancia_km")) or distancia_em_reps
+        tem_duracao = (
+            _numero_positivo(exercicio.get("duracao_minutos"))
+            or bool(re.findall(r"\d", str(exercicio.get("duracao_minutos") or "")))
+            or (bool(unidade) and not distancia_em_reps)
         )
         if tem_distancia:
             return METRICA_TEMPO_DISTANCIA
