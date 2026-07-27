@@ -66,6 +66,8 @@ type ManualPlanState = {
   draftOrigin: DraftOrigin | null;
   sourcePlanId: string | null;
   progressionUnavailable: boolean;
+  /** Regras do plano original que o editor não representa (texto para a tela). */
+  progressionChanges: string[];
   initEmpty: (userId: string, options?: InitOptions) => Promise<void>;
   initFromQuestionnaire: (
     userId: string,
@@ -176,6 +178,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
     draftOrigin: null,
     sourcePlanId: null,
     progressionUnavailable: false,
+    progressionChanges: [],
 
     initEmpty: async (userId, options = {}) => {
       const epoch = ++operationEpoch;
@@ -190,6 +193,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         draftOrigin: 'empty',
         sourcePlanId: null,
         progressionUnavailable: false,
+        progressionChanges: [],
       });
       const carregado = options.forceNew
         ? { draft: null, hadStoredBytes: false }
@@ -229,6 +233,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         draftOrigin: 'onboarding',
         sourcePlanId: null,
         progressionUnavailable: false,
+        progressionChanges: [],
       });
       let stored: ManualPlanDraft | null = null;
       let hadStoredBytes = false;
@@ -282,6 +287,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         draftOrigin: 'existing',
         sourcePlanId: planId,
         progressionUnavailable: false,
+        progressionChanges: [],
       });
 
       try {
@@ -312,6 +318,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           draft: imported.draft,
           status: 'ready',
           progressionUnavailable: imported.progressionUnavailable,
+          progressionChanges: imported.progressionChanges,
           incluirCardio: true,
           incluirAlongamento: imported.draft.treinos.some(
             (workout) => workout.incluir_alongamento,
@@ -487,6 +494,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           draftOrigin: null,
           sourcePlanId: null,
           progressionUnavailable: false,
+          progressionChanges: [],
         });
         return planId;
       } catch (error) {
@@ -514,6 +522,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
         draftOrigin: null,
         sourcePlanId: null,
         progressionUnavailable: false,
+        progressionChanges: [],
       });
     },
   };
