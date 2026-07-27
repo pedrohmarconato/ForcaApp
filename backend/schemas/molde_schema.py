@@ -79,18 +79,23 @@ MOLDE_SCHEMA = {
                                             },
                                             "ordem": {"type": "integer", "minimum": 1},
                                             "equipamento": {"type": "string"},
+                                            # Piso em 0,25 min (15 s): isometria
+                                            # curta — prancha de 45 s = 0,75 —
+                                            # é prescrição legítima e o piso de
+                                            # 1 minuto a tornava inexprimível.
                                             "duracao_minutos": {
                                                 "type": "number",
-                                                "minimum": 1,
+                                                "minimum": 0.25,
                                                 "maximum": 180,
                                                 "description": (
                                                     "OBRIGATÓRIO em cardio e isometria (prancha): quanto tempo "
-                                                    "dura a série. Nesses exercícios NÃO use repeticoes."
+                                                    "dura a série, em minutos (0,75 = 45 s). Nesses exercícios "
+                                                    "NÃO use repeticoes."
                                                 ),
                                             },
                                             "distancia_km": {
                                                 "type": "number",
-                                                "minimum": 0.1,
+                                                "minimum": 0.01,
                                                 "maximum": 100,
                                                 "description": "Distância-alvo em km, quando a prescrição for por distância.",
                                             },
@@ -237,8 +242,8 @@ MOLDE_SCHEMA = {
                                                 ),
                                             },
                                             "ordem": {"type": "integer"},
-                                            "duracao_minutos": {"type": "number", "minimum": 1, "maximum": 180},
-                                            "distancia_km": {"type": "number", "minimum": 0.1, "maximum": 100},
+                                            "duracao_minutos": {"type": "number", "minimum": 0.25, "maximum": 180},
+                                            "distancia_km": {"type": "number", "minimum": 0.01, "maximum": 100},
                                             "series": {"type": "integer", "minimum": 1},
                                             "repeticoes": {"type": "string"},
                                             "percentual_rm": {"type": "number"},
