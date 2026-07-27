@@ -233,6 +233,67 @@ describe('manualPlanStore', () => {
     });
   });
 
+  it('retoma o rascunho da edição em vez de reimportar o plano por cima', async () => {
+    // initFromPlan GRAVA o rascunho em `plan_<id>` a cada mutação, mas nunca
+    // lia de volta: bastava o app ser fechado no meio da edição para o trabalho
+    // ser descartado e a tela reabrir com o plano original do servidor. No
+    // onboarding o rascunho já vence o prefill; aqui ele era ignorado.
+    (getPlanSessions as jest.Mock).mockResolvedValue([
+      { id: 'session-week-1', plan_id: 'plan-old', user_id: 'user-1', week_number: 1, order_in_week: 1 },
+    ]);
+    (getTrainingPlanMetadata as jest.Mock).mockResolvedValue({
+      id: 'plan-old',
+      name: 'Plano original',
+      duration_weeks: 8,
+      progression_rules: [],
+    });
+    (getSessionDetail as jest.Mock).mockResolvedValue({
+      id: 'session-week-1',
+      plan_id: 'plan-old',
+      user_id: 'user-1',
+      week_number: 1,
+      day_of_week: 'segunda',
+      order_in_week: 1,
+      title: 'Treino A',
+      session_type: 'Personalizado',
+      scheduled_date: '2026-07-20',
+      estimated_minutes: 45,
+      status: 'pending',
+      muscle_groups: ['Peito'],
+      planned_exercises: [],
+    });
+
+    const emAndamento = {
+      ...useManualPlanStore.getState().draft!,
+      nome: 'Plano original',
+      duracao_semanas: 8,
+      treinos: [
+        {
+          ...useManualPlanStore.getState().draft!.treinos[0],
+          nome: 'Peito/Tríceps',
+          duracao_minutos: 55,
+        },
+      ],
+    };
+    (storage.readManualPlanDraft as jest.Mock).mockImplementation(
+      async (_userId: string, scope?: string | null) =>
+        scope === 'plan_plan-old'
+          ? { draft: emAndamento, hadStoredBytes: true }
+          : { draft: null, hadStoredBytes: false },
+    );
+
+    await useManualPlanStore.getState().initFromPlan('user-1', 'plan-old');
+
+    expect(useManualPlanStore.getState().draft?.treinos[0]).toMatchObject({
+      nome: 'Peito/Tríceps',
+      duracao_minutos: 55,
+    });
+    expect(useManualPlanStore.getState()).toMatchObject({
+      draftOrigin: 'existing',
+      sourcePlanId: 'plan-old',
+    });
+  });
+
   it('retoma rascunho persistido no onboarding em vez de sobrescrever com o prefill', async () => {
     const persisted = {
       ...useManualPlanStore.getState().draft!,

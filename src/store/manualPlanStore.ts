@@ -318,22 +318,39 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           metadata,
           details as SessionDetail[],
         );
+
+        // Cada mutação da edição já era gravada em `plan_<id>`, mas nada lia de
+        // volta: fechar o app no meio da edição descartava tudo e a tela
+        // reabria com o plano do servidor, como se o aluno não tivesse mexido.
+        // A importação continua acontecendo porque é dela que vêm os avisos de
+        // progressão; o que o aluno já tinha digitado é que manda no rascunho.
+        let retomado: ManualPlanDraft | null = null;
+        try {
+          retomado = (await readManualPlanDraft(userId, `plan_${planId}`)).draft;
+        } catch {
+          // Storage ilegível não pode derrubar uma importação que deu certo.
+        }
+        const draftEmUso = retomado ?? imported.draft;
+
+        if (epoch !== operationEpoch) return;
         set({
-          draft: imported.draft,
+          draft: draftEmUso,
           status: 'ready',
           progressionUnavailable: imported.progressionUnavailable,
           progressionChanges: imported.progressionChanges,
           incluirCardio: true,
-          incluirAlongamento: imported.draft.treinos.some(
+          incluirAlongamento: draftEmUso.treinos.some(
             (workout) => workout.incluir_alongamento,
           ),
         });
-        try {
-          await saveManualPlanDraft(userId, imported.draft, `plan_${planId}`);
-        } catch {
-          // Storage local indisponível não bloqueia a edição — o rascunho vive
-          // em memória nesta sessão. Falhar aqui derrubaria uma importação que
-          // já deu certo e mandaria o aluno para a tela de erro.
+        if (!retomado) {
+          try {
+            await saveManualPlanDraft(userId, imported.draft, `plan_${planId}`);
+          } catch {
+            // Storage local indisponível não bloqueia a edição — o rascunho vive
+            // em memória nesta sessão. Falhar aqui derrubaria uma importação que
+            // já deu certo e mandaria o aluno para a tela de erro.
+          }
         }
 
         try {
