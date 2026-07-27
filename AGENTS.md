@@ -5,7 +5,7 @@ Leia antes de operar o banco ou o app. Detalhes completos em `docs/AMBIENTE_SUPA
 
 ## Ambiente Supabase — ATUALIZADO EM 22/07/2026 (homologação criada)
 
-- **PRODUÇÃO** (dados reais): `forcaapp-hml`, ref **`zanqygwsgxkyjiuhrzju`**, org `ltmhaqdcvidzsbfkxmii`, conta `pedrohmarconato@gmail.com`. Apesar do sufixo `-hml` no nome (herança histórica da decisão de 18/07), **este é o projeto vivo** — trate como produção.
+- **PRODUÇÃO** (dados reais): `forcaapp-prod`, ref **`zanqygwsgxkyjiuhrzju`**, org `ltmhaqdcvidzsbfkxmii`, conta `pedrohmarconato@gmail.com`. Chamava-se `forcaapp-hml` até 25/07/2026 (herança histórica da decisão de 18/07); o ref não mudou com a renomeação. Qualquer menção antiga a `forcaapp-hml` em commits, scripts ou docs é **este** projeto.
 - **HOMOLOGAÇÃO** (dados descartáveis): `forcaapp-staging`, ref **`mjdjtiujhwklchalquhc`**, mesma org/conta. Migrations vão **primeiro aqui** (via branch `staging`), só depois à produção. Topologia completa, fluxo e guardrails em `docs/AMBIENTE_HML.md`.
 - ⚠️ `supabase link` troca o projeto-alvo do diretório — **confirme o ref antes de qualquer `db push`**.
 - **NÃO existe outro projeto de produção.** Esqueça qualquer referência a "produção do Força com tabelas legadas `fato_registrotreino`/`dim_humor`" — essas tabelas **não existem** em projeto algum acessível (verificado em todos os schemas). O comentário em `supabase/migrations/0001_modelo_treino.sql` e o `docs/Supabase Snippet ...csv` aludem a um schema DW antigo que **não é** este projeto.
@@ -14,14 +14,14 @@ Leia antes de operar o banco ou o app. Detalhes completos em `docs/AMBIENTE_SUPA
 ## Autenticação (nunca cole secrets no chat/commits)
 
 - PAT do Supabase para a conta pedrohmarconato fica em `~/.supabase_pat` (chmod 600). Use via `export SUPABASE_ACCESS_TOKEN="$(cat ~/.supabase_pat)"`.
-- Ao rodar `supabase login` (browser), selecione a conta **`pedrohmarconato@gmail.com`** — o default do browser costuma cair na conta CarreraCampos, que **não tem acesso** ao forcaapp-hml.
+- Ao rodar `supabase login` (browser), selecione a conta **`pedrohmarconato@gmail.com`** — o default do browser costuma cair na conta CarreraCampos, que **não tem acesso** aos projetos do Forca.
 - Nunca imprima token/connection string/anon key. Variáveis de ambiente e arquivo `~/.supabase_pat` apenas.
 
 ## Estado das migrations
 
-- Aplicadas e registradas em forcaapp-hml: **0000 → 0009** (`supabase migration list`: local = remote).
-- Histórico reconciliado em 18/07/2026: 0007/0008 tinham sido aplicadas via SQL direto sem registro → registradas com `supabase migration repair --status applied 0007 0008`; a 0009 entrou pelo fluxo normal (`supabase db push`). **Nunca aplicar migration por SQL direto sem registrar** — quebra o `db push` seguinte.
-- Reaplicar 0002/0004→0009 lá é **no-op** (idempotentes).
+- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0014**.
+- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0015**. A 0015 recoloca `progression_rules` na RPC `save_training_plan` e só pode seguir para produção depois da validação completa em HML.
+- Histórico reconciliado em 18/07/2026: 0007/0008 tinham sido aplicadas via SQL direto sem registro → registradas com `supabase migration repair --status applied 0007 0008`; migrations seguintes entraram pelo fluxo normal (`supabase db push`). **Nunca aplicar migration por SQL direto sem registrar** — quebra o `db push` seguinte.
 
 ## Alinhamento DB × app — RESOLVIDO (18/07/2026)
 
@@ -32,6 +32,6 @@ Ver `docs/AMBIENTE_SUPABASE.md` para o histórico. Estado atual:
 
 ## Convenções do repo
 
-- Não há `npm run lint`; qualidade via `npx tsc --noEmit`, `npx jest --runInBand`, `python3 -m pytest backend/tests -q` (não dependem do banco).
+- Não há `npm run lint`; qualidade via `npx tsc --noEmit`, `npx jest`, `python3 -m pytest backend/tests -q` (não dependem do banco). A suíte Jest completa com `--runInBand` deixa handle aberto e pode sair 1 mesmo com todos os testes verdes; não use esse exit code como portão.
 - Frontend: Expo/React Native. Backend: Flask (proxy Claude + persiste plano via RPC `save_training_plan`).
 - Idioma de comunicação com o dono: pt-BR.

@@ -6,9 +6,13 @@ homologação em 23/07/2026 (plano fab9b0b0…, Haiku 4.5): tradução literal d
 inglês, estado da semana dentro do nome e ausência de grupo muscular.
 """
 
+import unittest.mock as mock
+
 import pytest
 
+import backend.services.exercise_catalog as exercise_catalog
 from backend.services.exercise_catalog import (
+    METRICAS_VALIDAS,
     carregar_catalogo,
     catalogo_para_prompt,
     normalizar,
@@ -67,6 +71,25 @@ class TestIntegridadeDoCatalogo:
         chaves = [ex.chave for ex in carregar_catalogo()]
         assert len(chaves) == len(set(chaves))
 
+    def test_catalogo_serializavel_expoe_106_itens_sem_aliases(self):
+        payload = exercise_catalog.catalogo_serializavel()
+
+        assert payload["versao"] == 2
+        assert len(payload["exercicios"]) == 106
+        assert len({item["chave"] for item in payload["exercicios"]}) == 106
+        for item in payload["exercicios"]:
+            assert set(item) == {
+                "chave",
+                "nome",
+                "grupo_muscular",
+                "equipamento",
+                "peso_corporal",
+                "incremento_kg",
+                "metrica",
+            }
+            assert item["metrica"] in METRICAS_VALIDAS
+            assert "aliases" not in item
+
     def test_nenhum_alias_aponta_para_dois_exercicios(self):
         """Ambiguidade de alias canonizaria errado para sempre — o índice recusa."""
         vistos = {}
@@ -77,6 +100,106 @@ class TestIntegridadeDoCatalogo:
                     f"alias '{forma}' colide entre '{vistos.get(n)}' e '{ex.chave}'"
                 )
                 vistos[n] = ex.chave
+
+
+def test_endpoint_catalogo_tem_etag_estavel_cache_privado_e_304():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        primeira = client.get(
+            "/api/exercise-catalog",
+            headers={"Authorization": "Bearer token-valido"},
+        )
+        segunda = client.get(
+            "/api/exercise-catalog",
+            headers={"Authorization": "Bearer token-valido"},
+        )
+        condicional = client.get(
+            "/api/exercise-catalog",
+            headers={
+                "Authorization": "Bearer token-valido",
+                "If-None-Match": primeira.headers["ETag"],
+            },
+        )
+
+    assert primeira.status_code == 200
+    assert len(primeira.get_json()["exercicios"]) == 106
+    assert primeira.headers["ETag"] == segunda.headers["ETag"]
+    assert "private" in primeira.headers["Cache-Control"]
+    assert "max-age=86400" in primeira.headers["Cache-Control"]
+    assert condicional.status_code == 304
+    assert condicional.data == b""
+    assert condicional.headers["ETag"] == primeira.headers["ETag"]
+
+
+def _resolve(client, corpo):
+    return client.post(
+        "/api/exercise-catalog/resolve",
+        json=corpo,
+        headers={"Authorization": "Bearer token-valido"},
+    )
+
+
+def test_resolve_exige_autenticacao():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        sem_token = client.post("/api/exercise-catalog/resolve", json={"nome": "Corrida"})
+    assert sem_token.status_code == 401
+
+
+def test_resolve_devolve_item_canonico_para_alias_que_nao_viaja_no_payload():
+    """
+    'Bent Over Row' só existe como alias no servidor. Sem esta rota o app dizia
+    'não está na nossa lista' e deixava o aluno escolher uma métrica que a
+    gravação sobrescrevia em silêncio.
+    """
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        casou = _resolve(client, {"nome": "Bent Over Row"})
+        cardio = _resolve(client, {"nome": "Corrida"})
+        livre = _resolve(client, {"nome": "Rosca escocesa no banco 45"})
+
+    assert casou.status_code == 200
+    item = casou.get_json()["exercicio"]
+    assert item["chave"] == "remada_curvada_barra"
+    assert item["nome"] == "Remada Curvada com Barra"
+    assert item["metrica"] == "carga_reps"
+    # Alias não pode vazar na resposta.
+    assert "aliases" not in item
+
+    assert cardio.get_json()["exercicio"]["metrica"] == "tempo_distancia"
+    # Nome realmente livre continua livre — nada é inventado.
+    assert livre.get_json()["exercicio"] is None
+
+
+def test_resolve_recusa_entrada_invalida():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        vazio = _resolve(client, {"nome": "   "})
+        gigante = _resolve(client, {"nome": "x" * 500})
+        tipo_errado = _resolve(client, {"nome": 42})
+        equipamento_errado = _resolve(client, {"nome": "Corrida", "equipamento": 7})
+
+    assert vazio.status_code == 400
+    assert gigante.status_code == 400
+    assert tipo_errado.status_code == 400
+    assert equipamento_errado.status_code == 400
 
 
 class TestTraducaoLiteralDoIngles:

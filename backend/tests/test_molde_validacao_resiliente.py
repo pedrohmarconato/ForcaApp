@@ -193,6 +193,183 @@ def test_no_op_do_dono_salva_na_primeira_chamada_sem_retry(monkeypatch):
     assert chamada.call_count == 1
 
 
+def test_molde_com_cardio_por_tempo_salva_sem_retry(monkeypatch):
+    """Modo de falha REAL do smoke de HML em 25/07/2026.
+
+    O aluno pediu cardio; o modelo obedeceu à instrução 7 do prompt (cardio se
+    prescreve por `duracao_minutos`, nunca por `repeticoes`) e o schema o
+    reprovava por exigir `repeticoes`. As duas tentativas queimavam e o aluno
+    via "Erro ao gerar plano".
+    """
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Caminhada", "ordem": 2, "series": 1, "duracao_minutos": 20,
+        "prioridade": "acessorio",
+    })
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-cardio")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ) as chamada, mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-cardio"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante", "incluirCardio": "sim"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-cardio",
+                access_token="fake-token",
+            )
+
+    visao = job.to_dict()
+    assert visao["status"] == "salvo", visao.get("error")
+    assert chamada.call_count == 1  # nenhuma geração extra paga
+
+    # O cardio chega ao banco medido por TEMPO, não por repetição.
+    mapeado = persistir.call_args.args[0]
+    caminhadas = [e for e in mapeado["exercises"] if e["name"] == "Caminhada"]
+    assert caminhadas, "o exercício de cardio sumiu do payload persistido"
+    assert {e["metric"] for e in caminhadas} == {"tempo_distancia"}
+    assert all(e["reps_raw"] is None for e in caminhadas)
+    ids = {e["id"] for e in caminhadas}
+    series_cardio = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series_cardio and all(s["target_duration_seconds"] == 1200 for s in series_cardio)
+    assert all(s["target_reps_min"] is None for s in series_cardio)
+
+
+def test_cardio_fora_do_catalogo_honra_a_duracao_em_vez_de_inventar_repeticoes(monkeypatch):
+    """Lacuna aberta pela própria relaxação do schema feita neste PR.
+
+    Sem `repeticoes` obrigatória, um nome que o catálogo NÃO reconhece
+    ("Sprint na Esteira") resolvia para `carga_reps`, o mapper caía no ramo de
+    carga e `_parse_reps(None)` devolvia a faixa padrão: a duração prescrita
+    sumia e nasciam 8–12 repetições que ninguém pediu.
+    """
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Sprint na Esteira", "ordem": 2, "series": 3, "duracao_minutos": 5,
+        "prioridade": "acessorio",
+    })
+    # O schema tem de continuar aceitando esse item (é o contrato deste PR).
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-sprint")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ), mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-sprint"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-sprint",
+                access_token="fake-token",
+            )
+
+    assert job.to_dict()["status"] == "salvo"
+    mapeado = persistir.call_args.args[0]
+    sprints = [e for e in mapeado["exercises"] if e["name"] == "Sprint na Esteira"]
+    assert sprints, "o exercício sumiu do payload persistido"
+    assert {e["metric"] for e in sprints} == {"tempo"}
+    assert all(e["exercise_key"] is None for e in sprints)  # segue fora do catálogo
+    ids = {e["id"] for e in sprints}
+    series = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series
+    assert all(s["target_duration_seconds"] == 300 for s in series)
+    assert all(s["target_reps_min"] is None and s["target_reps_max"] is None for s in series)
+
+
+def test_exercicio_de_carga_fora_do_catalogo_continua_com_repeticoes(monkeypatch):
+    """A promoção para tempo não pode capturar exercício de carga legítimo."""
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append({
+        "nome": "Movimento Proprietário XYZ", "ordem": 2, "series": 3,
+        "repeticoes": "8-12", "prioridade": "acessorio",
+    })
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-carga")
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        autospec=True,
+        side_effect=[_resposta(json.dumps(molde))],
+    ), mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-carga"
+    ) as persistir:
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
+                user_id="user-carga",
+                access_token="fake-token",
+            )
+
+    mapeado = persistir.call_args.args[0]
+    proprietarios = [
+        e for e in mapeado["exercises"] if e["name"] == "Movimento Proprietário XYZ"
+    ]
+    assert proprietarios
+    assert {e["metric"] for e in proprietarios} == {"carga_reps"}
+    ids = {e["id"] for e in proprietarios}
+    series = [s for s in mapeado["sets"] if s["exercise_id"] in ids]
+    assert series and all(s["target_reps_min"] == 8 for s in series)
+    assert all(s["target_duration_seconds"] is None for s in series)
+
+
+def test_pipeline_passa_apenas_restricoes_estruturadas_de_lesao_ao_mapper(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
+    monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
+    with jm._jobs_lock:
+        jm._jobs.clear()
+    job, _ = jm.criar_job(user_id="user-lesao")
+    diretrizes = {
+        "preferencias": [],
+        "restricoes": [
+            {"tipo": "lesao", "descricao": "Ombro", "grupo_afetado": "Ombros"},
+            {"tipo": "equipamento", "descricao": "Sem máquina"},
+        ],
+        "excecoes_estruturais": [],
+    }
+
+    with mock.patch(
+        "backend.utils.anthropic_retry.criar_mensagem_com_deadline",
+        return_value=_resposta(json.dumps(MOLDE_VALIDO)),
+    ), mock.patch("backend.app.mapear_plano_ia", wraps=__import__(
+        "backend.services.plan_mapper", fromlist=["mapear_plano_ia"]
+    ).mapear_plano_ia) as mapper, mock.patch(
+        "backend.app.persistir_plano", return_value="db-plan-lesao"
+    ):
+        with app.app_context():
+            _executar_geracao_molde(
+                job,
+                questionnaire_data={"nivelExperiencia": "iniciante"},
+                diretrizes=diretrizes,
+                user_id="user-lesao",
+                access_token="fake-token",
+            )
+
+    assert mapper.call_args.kwargs["restricoes_lesao"] == [diretrizes["restricoes"][0]]
+
+
 def test_parse_impossivel_tambem_ganha_retry(monkeypatch):
     job, chamada = _rodar_pipeline(
         monkeypatch,
@@ -200,3 +377,150 @@ def test_parse_impossivel_tambem_ganha_retry(monkeypatch):
     )
     assert job.to_dict()["status"] == "salvo"
     assert chamada.call_count == 2
+
+
+def _molde_com(exercicio, regras):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    sessao = molde["semanas_tipo"][0]["sessoes"][0]
+    sessao["exercicios"] = [exercicio]
+    molde["duracao_semanas"] = 8
+    molde["calendario"] = [molde["calendario"][0]] * 8
+    molde["progressao"] = {"regras": regras}
+    return molde
+
+
+# Regras a partir da semana 2 para que a semana 1 seja a linha de base e o
+# teste consiga comparar "o que foi prescrito" com "o que progrediu".
+_REGRAS_TUDO = [
+    {"tipo": "delta_series", "semana_inicio": 2, "semana_fim": 8, "valor": 1, "grupo_alvo": "todos"},
+    {"tipo": "delta_cardio_percentual", "semana_inicio": 2, "semana_fim": 8, "valor": 5, "alvo": "ambos"},
+    {"tipo": "delta_rm_percentual", "semana_inicio": 2, "semana_fim": 8, "valor": 2, "grupo_alvo": "todos"},
+]
+
+
+def _semana(mapeado, numero):
+    from backend.services.plan_mapper import mapear_plano_ia  # noqa: F401
+
+    sessoes = {s["id"] for s in mapeado["sessions"] if s["week_number"] == numero}
+    exercicio = next(e for e in mapeado["exercises"] if e["session_id"] in sessoes)
+    serie = next(s for s in mapeado["sets"] if s["exercise_id"] == exercicio["id"])
+    return exercicio, serie
+
+
+def _expandir_e_mapear(molde):
+    import datetime
+
+    from backend.services.plan_expander import expandir_plano
+    from backend.services.plan_mapper import mapear_plano_ia
+
+    plano = expandir_plano(molde, {"id": "u", "nivel": "iniciante"})
+    return mapear_plano_ia(
+        plano,
+        user_id="3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b",
+        start_date=datetime.date(2026, 7, 20),
+    )
+
+
+def test_expansor_e_mapper_concordam_sobre_o_que_e_exercicio_por_tempo():
+    """
+    O mapper promovia nome fora do catálogo com duração para métrica de tempo,
+    mas o expansor continuava tratando o mesmo exercício como carga: ele ganhava
+    séries e %RM na expansão e era gravado como cardio, com o %RM descartado e a
+    duração nunca alongada. Uma corrida de 5 min virava 9 séries de 5 min.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Sprint na Esteira", "ordem": 1, "series": 1,
+            "duracao_minutos": 5, "percentual_rm": 70, "prioridade": "acessorio",
+        },
+        _REGRAS_TUDO,
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+
+    exercicio_1, serie_1 = _semana(mapeado, 1)
+    exercicio_8, serie_8 = _semana(mapeado, 8)
+
+    assert exercicio_1["metric"] == "tempo"
+    # %RM não descreve exercício por tempo: o expansor não pode subi-lo.
+    assert exercicio_1["target_rm_percent"] is None
+    assert exercicio_8["target_rm_percent"] is None
+    # A duração progride de verdade (delta_cardio), não some.
+    assert serie_1["target_duration_seconds"] == 300
+    assert serie_8["target_duration_seconds"] > 300
+    assert serie_8["target_reps_min"] is None
+
+
+def test_prescricao_so_por_distancia_nao_vira_repeticao_inventada():
+    """
+    O MOLDE_SCHEMA aceita exercício só com `distancia_km`. Sem promoção por
+    distância, os 400 m — única prescrição do exercício — sumiam e nasciam 8–12
+    repetições que ninguém pediu.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Tiro na Pista de 400m", "ordem": 1, "series": 4,
+            "distancia_km": 0.4, "prioridade": "acessorio",
+        },
+        [],
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+    exercicio, serie = _semana(mapeado, 1)
+
+    assert exercicio["metric"] == "tempo_distancia"
+    assert serie["target_distance_m"] == 400
+    assert serie["target_reps_min"] is None and serie["target_reps_max"] is None
+    # O CHECK do banco exige reps OU duração: a duração default garante isso.
+    assert serie["target_duration_seconds"] is not None
+
+
+def test_exercicio_de_carga_fora_do_catalogo_nao_e_promovido():
+    molde = _molde_com(
+        {
+            "nome": "Movimento Proprietário XYZ", "ordem": 1, "series": 3,
+            "repeticoes": "8-12", "percentual_rm": 70, "prioridade": "primario",
+        },
+        _REGRAS_TUDO,
+    )
+    mapeado = _expandir_e_mapear(molde)
+    exercicio_1, serie_1 = _semana(mapeado, 1)
+
+    assert exercicio_1["metric"] == "carga_reps"
+    assert serie_1["target_reps_min"] == 8
+    exercicio_2, _ = _semana(mapeado, 2)
+    assert exercicio_1["target_rm_percent"] == 70  # semana 1 = prescrito
+    assert exercicio_2["target_rm_percent"] == 72  # %RM progride normalmente
+
+
+@pytest.mark.parametrize(
+    "repeticoes,metrica_esperada",
+    [
+        ("45s", "tempo"),
+        ("30 segundos", "tempo"),
+        ("20 min", "tempo"),
+        ("800m", "tempo_distancia"),
+        ("5 km", "tempo_distancia"),
+    ],
+)
+def test_duracao_no_campo_de_repeticoes_nao_vira_repeticao(repeticoes, metrica_esperada):
+    """
+    O modelo escreve a duração no campo errado ("repeticoes": "45s") e o
+    MOLDE_SCHEMA não proíbe. Contando isso como repetição explícita, uma
+    isometria de nome livre virava "3 séries de 45 repetições" e o motor de
+    adaptação passava a tratar 45 como volume.
+    """
+    molde = _molde_com(
+        {
+            "nome": "Isometria de Ponte Lateral Adaptada", "ordem": 1,
+            "series": 3, "repeticoes": repeticoes, "prioridade": "acessorio",
+        },
+        [],
+    )
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
+    mapeado = _expandir_e_mapear(molde)
+    exercicio, serie = _semana(mapeado, 1)
+
+    assert exercicio["metric"] == metrica_esperada
+    assert serie["target_reps_min"] is None and serie["target_reps_max"] is None
+    assert serie["target_duration_seconds"] is not None

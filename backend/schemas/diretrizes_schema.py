@@ -70,3 +70,31 @@ DIRETRIZES_SCHEMA = {
         }
     }
 }
+
+
+# ============================================================
+# Schema para `output_config.format` (structured outputs)
+# ============================================================
+# Derivado do DIRETRIZES_SCHEMA acima. Ver backend/schemas/schema_api.py.
+#
+# Um campo é PODADO na derivação: `excecoes_estruturais[].detalhes`, um objeto
+# de forma livre (sem `properties`). Structured outputs não expressa isso —
+# todo objeto precisa ter forma fechada. O campo continua válido no schema
+# local (nada quebra se vier de outra origem), o modelo é que deixa de
+# produzi-lo: com a API impondo o formato, o que não está no schema não é
+# gerado. A perda é pequena porque `descricao` — que é obrigatória — carrega o
+# mesmo conteúdo em texto, e é `descricao` que o prompt do molde lê.
+
+import copy as _copy
+
+from backend.schemas.schema_api import derivar_schema_api
+
+
+def _preparar_para_api(schema):
+    preparado = _copy.deepcopy(schema)
+    excecoes = preparado["properties"]["excecoes_estruturais"]["items"]["properties"]
+    excecoes.pop("detalhes", None)
+    return preparado
+
+
+DIRETRIZES_SCHEMA_API = derivar_schema_api(_preparar_para_api(DIRETRIZES_SCHEMA))

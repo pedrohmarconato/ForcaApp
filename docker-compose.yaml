@@ -26,6 +26,16 @@ services:
       CHAT_MODEL_NAME: ${CHAT_MODEL_NAME:-claude-haiku-4-5}
       PLAN_MODEL_NAME: ${PLAN_MODEL_NAME:-claude-opus-4-8}
       FORCA_USE_MOLDE_ARCHITECTURE: ${FORCA_USE_MOLDE_ARCHITECTURE:-false}
+      # Prompt do molde em system (estável) + user (dados do aluno), na ordem
+      # que o prompt caching exige. Default false = prompt de hoje, byte a byte.
+      FORCA_PROMPT_MOLDE_V2: ${FORCA_PROMPT_MOLDE_V2:-false}
+      # Schema via output_config.format em vez de colado no texto do prompt.
+      # -18% de tokens de entrada por geração e JSON com forma garantida.
+      FORCA_STRUCTURED_OUTPUT: ${FORCA_STRUCTURED_OUTPUT:-false}
+      # Esforço do modelo no molde (low|medium|high|xhigh|max). Vazio = default
+      # da API (high) = comportamento atual. É a alavanca de latência e custo —
+      # max_tokens é só um teto, não acelera nada.
+      PLAN_EFFORT: ${PLAN_EFFORT:-}
       ANTHROPIC_TIMEOUT_SECONDS: ${ANTHROPIC_TIMEOUT_SECONDS:-240}
       CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-10}
       CHAT_RATE_WINDOW_SECONDS: ${CHAT_RATE_WINDOW_SECONDS:-60}

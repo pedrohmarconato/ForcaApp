@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unicodedata
@@ -128,10 +129,19 @@ def separar_qualificador(nome: str) -> Tuple[str, Optional[str]]:
 
 
 @lru_cache(maxsize=1)
-def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
-    """Carrega e valida o catálogo do disco (uma vez por processo)."""
+def _carregar_documento() -> Dict[str, Any]:
+    """Lê o documento versionado uma vez por processo."""
     with open(_CAMINHO_CATALOGO, "r", encoding="utf-8") as fh:
         bruto = json.load(fh)
+    if not isinstance(bruto, dict) or not isinstance(bruto.get("versao"), int):
+        raise ValueError("Catálogo inválido: versão inteira ausente.")
+    return bruto
+
+
+@lru_cache(maxsize=1)
+def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
+    """Carrega e valida o catálogo do disco (uma vez por processo)."""
+    bruto = _carregar_documento()
 
     entradas: List[ExercicioCanonico] = []
     chaves_vistas = set()
@@ -158,6 +168,32 @@ def carregar_catalogo() -> Tuple[ExercicioCanonico, ...]:
     if not entradas:
         raise ValueError("Catálogo inválido: nenhum exercício carregado.")
     return tuple(entradas)
+
+
+def catalogo_serializavel() -> Dict[str, Any]:
+    """Catálogo completo para o app: versão + lista achatada, sem aliases."""
+    return {
+        "versao": _carregar_documento()["versao"],
+        "exercicios": [
+            {
+                "chave": ex.chave,
+                "nome": ex.nome,
+                "grupo_muscular": ex.grupo_muscular,
+                "equipamento": ex.equipamento,
+                "peso_corporal": ex.peso_corporal,
+                "incremento_kg": ex.incremento_kg,
+                "metrica": ex.metrica,
+            }
+            for ex in carregar_catalogo()
+        ],
+    }
+
+
+@lru_cache(maxsize=1)
+def etag_catalogo() -> str:
+    """ETag forte derivado da versão declarada e do conteúdo exato do arquivo."""
+    digest = hashlib.sha256(_CAMINHO_CATALOGO.read_bytes()).hexdigest()[:16]
+    return "catalogo-v{}-{}".format(_carregar_documento()["versao"], digest)
 
 
 @lru_cache(maxsize=1)
@@ -423,3 +459,111 @@ def catalogo_para_prompt(
         agrupado.setdefault(ex.grupo_muscular, []).append(ex.nome)
 
     return "\n".join(f"{grupo}: {' | '.join(nomes)}" for grupo, nomes in agrupado.items())
+
+
+# --- Decisão ÚNICA de métrica ------------------------------------------------
+# O mapper e o expansor precisam concordar sobre o que é exercício "por tempo".
+# Quando cada metade decidia sozinha, o mesmo exercício progredia como carga no
+# expansor (ganhando séries e %RM) e era gravado como cardio pelo mapper — que
+# então descartava o %RM e nunca alongava a duração. Uma corrida de 5 min virava
+# 9 séries de 5 min. Qualquer código que precise saber a métrica de um exercício
+# do molde tem de chamar `metrica_do_exercicio`.
+
+# "45s", "20 min", "5 km": número seguido de unidade de tempo/distância. É
+# prescrição de DURAÇÃO escrita no campo errado, não repetição — o modelo faz
+# isso, e o MOLDE_SCHEMA não proíbe (basta um entre reps/duração/distância).
+_UNIDADE_NAO_REPETICAO = re.compile(
+    r"^\s*\d+(?:[.,]\d+)?\s*(?:s|seg|segs|segundos?|min|mins|minutos?|h|horas?|m|km)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _tem_repeticoes_explicitas(valor: Any) -> bool:
+    """
+    True só quando o molde prescreveu repetições de verdade (com número).
+
+    Uma isometria de nome livre com `repeticoes: "45s"` virava "3 séries de 45
+    repetições": o número existe, mas o que ele descreve é tempo.
+    """
+    if isinstance(valor, bool):
+        return False
+    if isinstance(valor, int):
+        return valor >= 1
+    texto = str(valor or "")
+    if _UNIDADE_NAO_REPETICAO.match(texto):
+        return False
+    return any(int(n) >= 1 for n in re.findall(r"\d+", texto))
+
+
+def _numero_positivo(valor: Any) -> bool:
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool) and valor > 0
+
+
+def metrica_do_exercicio(exercicio: Dict[str, Any]) -> str:
+    """
+    Métrica de um exercício do molde, pela mesma regra em todo o pipeline.
+
+    Ordem de precedência:
+    1. Catálogo, quando o nome casa — é ele quem manda (invariante do produto).
+    2. `metrica` declarada, só para nome FORA do catálogo (o editor manual a
+       envia; o MOLDE_SCHEMA da IA sequer define o campo).
+    3. Prescrição: sem repetições e com duração ou distância legível, é
+       exercício por tempo. Sem isso, `_parse_reps` inventaria a faixa 8–12 e a
+       duração/distância prescrita seria descartada.
+    4. Carga × repetição.
+    """
+    canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
+    if canonico.chave is not None:
+        return canonico.metrica
+
+    declarada = exercicio.get("metrica")
+    if declarada in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA):
+        return declarada
+
+    repeticoes = exercicio.get("repeticoes")
+    if not _tem_repeticoes_explicitas(repeticoes):
+        # A prescrição pode ter vindo no campo errado ("repeticoes": "45s"):
+        # o mapper já sabe ler isso, e a métrica precisa concordar com ele.
+        unidade = _UNIDADE_NAO_REPETICAO.match(str(repeticoes or ""))
+        distancia_em_reps = bool(unidade) and unidade.group(0).strip().lower().endswith(
+            ("m", "km")
+        ) and not unidade.group(0).strip().lower().endswith(("min", "mins"))
+        tem_distancia = _numero_positivo(exercicio.get("distancia_km")) or distancia_em_reps
+        tem_duracao = (
+            _numero_positivo(exercicio.get("duracao_minutos"))
+            or bool(re.findall(r"\d", str(exercicio.get("duracao_minutos") or "")))
+            or (bool(unidade) and not distancia_em_reps)
+        )
+        if tem_distancia:
+            return METRICA_TEMPO_DISTANCIA
+        if tem_duracao:
+            return METRICA_TEMPO
+
+    return canonico.metrica
+
+
+def e_por_tempo(exercicio: Dict[str, Any]) -> bool:
+    """Exercício medido por duração (e distância), nunca por carga × repetição."""
+    return metrica_do_exercicio(exercicio) in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+
+
+def progride_por_series(exercicio: Dict[str, Any]) -> bool:
+    """
+    O exercício aceita `delta_series` (mais séries por semana)?
+
+    Cardio de deslocamento cresce por duração/distância: multiplicar SÉRIE de
+    uma corrida de 20 min produz 5 corridas de 28 min, que ninguém prescreveu.
+    Isometria (prancha, Abdômen) e HIIT curto, esses sim progridem por série —
+    congelá-los deixaria o exercício de core parado enquanto o resto do plano
+    progride. A fronteira é o vocabulário do próprio catálogo.
+    """
+    if exercicio.get("progressivel") is False:
+        return False
+    if not e_por_tempo(exercicio):
+        return True  # carga × repetição progride por série, sempre
+    canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
+    if canonico.chave is None:
+        # Nome livre medido por tempo: não sabemos se é uma prancha de 45 s ou
+        # um bloco de 20 min. Sem essa informação, não inventamos volume.
+        return False
+    return canonico.grupo_muscular not in ("Cardio", "Mobilidade")

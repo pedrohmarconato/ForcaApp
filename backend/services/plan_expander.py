@@ -17,6 +17,8 @@ from backend.schemas.molde_schema import MOLDE_SCHEMA
 from backend.services.exercise_catalog import (
     METRICA_TEMPO,
     METRICA_TEMPO_DISTANCIA,
+    e_por_tempo,
+    progride_por_series,
     resolver_exercicio,
 )
 
@@ -198,6 +200,8 @@ def _aplicar_progressao(
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
                         # Cardio não tem %RM: progride por tempo/distância.
+                        if not _progressivel(ex):
+                            continue
                         if _atinge_grupo(ex, grupo_alvo) and not _e_por_tempo(ex):
                             rm_atual = ex.get("percentual_rm")
                             if isinstance(rm_atual, (int, float)):
@@ -214,6 +218,15 @@ def _aplicar_progressao(
                 incremento = valor * semanas_decorridas
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
+                        # Multiplicar SÉRIE de cardio é sem sentido: uma corrida
+                        # de 20 min virava 5 corridas de 28 min e o aquecimento
+                        # de 5 min prometido pela UI virava 35. Cardio progride
+                        # por tempo/distância. Isometria CATALOGADA (prancha)
+                        # continua ganhando série: congelá-la deixaria o core
+                        # parado enquanto o resto do plano progride. A regra é
+                        # única e mora em exercise_catalog.progride_por_series.
+                        if not progride_por_series(ex):
+                            continue
                         if _atinge_grupo(ex, grupo_alvo):
                             series_atual = ex.get("series", 1)
                             if isinstance(series_atual, int):
@@ -230,6 +243,8 @@ def _aplicar_progressao(
                 fator_series = regra.get("fator_series", 0.8)
                 for sessao in sessoes:
                     for ex in sessao.get("exercicios", []):
+                        if not _progressivel(ex):
+                            continue
                         if _e_por_tempo(ex):
                             # Deload de cardio = menos tempo/distância.
                             duracao = ex.get("duracao_minutos")
@@ -247,10 +262,26 @@ def _aplicar_progressao(
                             ex["series"] = max(int(series_atual * fator_series), _PISO_SERIES)
 
 
+def _progressivel(exercicio: Dict[str, Any]) -> bool:
+    """
+    Exercício injetado pelo pipeline (aquecimento/alongamento dos toggles) não
+    progride: o aluno não pediu progressão para ele e a UI promete um valor
+    fixo. Qualquer outro exercício progride normalmente.
+    """
+    return exercicio.get("progressivel") is not False
+
+
 def _e_por_tempo(exercicio: Dict[str, Any]) -> bool:
-    """Cardio/isometria: medido por tempo (e distância), nunca por %RM."""
-    canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
-    return canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+    """
+    Cardio/isometria: medido por tempo (e distância), nunca por %RM.
+
+    Delega para a decisão ÚNICA de `exercise_catalog` — a mesma que o mapper
+    usa na gravação. Quando esta função olhava só o catálogo, um nome de fora
+    com duração prescrita progredia aqui como carga (ganhando séries e %RM) e
+    era gravado lá como cardio: uma corrida de 5 min virava 9 séries de 5 min e
+    o %RM que o expansor subiu era jogado fora na persistência.
+    """
+    return e_por_tempo(exercicio)
 
 
 def _aplicar_progressao_cardio(
@@ -269,7 +300,7 @@ def _aplicar_progressao_cardio(
     fator = min(1 + (valor / 100.0) * semanas_decorridas, _TETO_CARDIO_MULTIPLICADOR)
     for sessao in sessoes:
         for ex in sessao.get("exercicios", []):
-            if not _e_por_tempo(ex):
+            if not _e_por_tempo(ex) or not _progressivel(ex):
                 continue
             if alvo in ("duracao", "ambos"):
                 duracao = ex.get("duracao_minutos")

@@ -1,5 +1,10 @@
 # Modelo de dados — ForcaApp
 
+> **DOCUMENTO HISTÓRICO.** Este levantamento descreve a situação anterior às
+> migrations `0000`–`0015` e não representa o schema transacional atual. Para
+> mudanças novas, use as migrations em `supabase/migrations/` como fonte de
+> verdade. O texto abaixo foi preservado apenas como registro da decisão.
+
 **Status:** DECISÃO PENDENTE (decisão de arquitetura/produto).
 **Data do levantamento:** 17/07/2026.
 **Fonte única de verdade do banco:** `docs/Supabase Snippet Função e Trigger para Perfis de Usuários.csv` (dump de `information_schema.columns` do projeto Supabase do ForcaApp, schema `public`).

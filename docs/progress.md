@@ -718,8 +718,304 @@ gerado em produção (o smoke é infra-level, por decisão de custo — Opus).
 
 1. **Login real e primeira sessão em produção são do dono** — não executados aqui
    de propósito (geração de plano roda no Opus e custa; smoke ficou infra-level).
-2. `AGENTS.md` está **desatualizado** na seção de migrations (diz 0000→0009;
-   prod está em 0000→0014). Corrigir num passe curto.
+2. ~~`AGENTS.md` desatualizado na seção de migrations.~~ **Resolvido em
+   25/07/2026** no PR 1 do plano manual.
 3. Follow-ups anteriores seguem abertos: recordes no `SessionSummary`, decisão de
    produto sobre "Refazer questionário", rate limit em memória no backend
    (contadores zeram a cada restart e não são compartilhados entre workers).
+
+---
+
+## 25/07/2026 — Plano manual, PR 1 (correções de base)
+
+Branch local: `fix/plano-base-dia-progressao`, baseada em `b8c602b`.
+
+### Entregue no código
+
+- `dia_offset` do molde agora chega a `scheduled_date` e `day_of_week`; o mapper
+  mantém precedência do `dia_semana` legado e a trava contra data anterior ao
+  início do plano.
+- Sessão sem `duracao_minutos` recebe estimativa pelo volume mapeado, distinguindo
+  exercícios de carga/repetição dos prescritos por tempo.
+- Restrições estruturadas `tipo=lesao` chegam ao mapper e preenchem
+  `injury_flags` por chave canônica ou grupo muscular normalizado.
+- A migration `0015_progression_rules_na_rpc.sql` restaura a persistência de
+  `progression_rules` e repete as asserções cumulativas da 0014.
+- `AGENTS.md` deixou de recomendar Jest com `--runInBand`; `modelo-dados.md` foi
+  marcado explicitamente como histórico.
+
+### RED → GREEN e portões
+
+- RED dirigido: 7 falhas novas reproduziram dia ignorado, duração nula, lesões
+  descartadas, falta da 0015 e ausência das restrições no pipeline.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 59/59 suítes e 522/522 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 315/315 testes; 1 warning já
+  conhecido do urllib3/LibreSSL.
+- RPC da 0015 comparada com a 0014: somente `progression_rules` foi acrescentado
+  à lista de colunas e aos valores de `training_plans`.
+
+### Homologação
+
+- Ref conferido antes do push: `mjdjtiujhwklchalquhc` (`forcaapp-staging`).
+- `supabase db push` aplicou e registrou a 0015; `migration list` final mostrou
+  local=remote em 0000→0015. O aviso final de Docker afetou somente o cache local
+  do catálogo, não a migration nem suas asserções.
+- Branch rebaseada sobre `origin/main` (`bcdd4d6`, PR #42), que renomeou o projeto
+  de produção para `forcaapp-prod` — o `AGENTS.md` deste PR já usa o nome novo.
+- **PR #43** aberto (`fix/plano-base-dia-progressao` → `main`).
+- `migration list` reconferido nesta sessão com o PAT do dono: local=remote em
+  0000→0015. A RPC viva no staging contém `progression_rules`
+  (`pg_get_functiondef` → verdadeiro).
+- Backend HML no ar com este commit: clone da VPS em `fe4c482`, container
+  `forcaapp-hml-backend-1` recriado pelo timer, `plan_mapper.py` dentro da
+  imagem já com `_dia_da_sessao`, `/api/health` 200.
+
+### Smoke E2E em HML (25/07/2026) — plano real gerado e conferido no banco
+
+Usuário descartável `pedrohmarconato+smoke-pr1-1785031679@gmail.com`, plano
+`81ec15b5-d5bd-4b76-a354-67abdf368b63` (Haiku, 25 s do POST ao `salvo`):
+48 sessões, 228 exercícios.
+
+| Conferência no banco de staging | Resultado |
+|---|---|
+| `progression_rules` gravado (0015) | 5 regras |
+| `day_of_week` preenchido | 48/48 |
+| `estimated_minutes` preenchido | 48/48 |
+| `scheduled_date` coerente com `day_of_week` (semanas 2+) | 0 divergências |
+| Dias distintos respeitando a preferência | segunda, terça, quinta, sexta |
+| `injury_flags` nos exercícios afetados | 36 exercícios de Ombros marcados com "Tendinite no manguito rotador direito" |
+
+Duas ressalvas honestas sobre a cobertura deste smoke:
+
+1. O molde declarou `duracao_minutos: 60` em todas as sessões, então o
+   `estimated_minutes` gravado veio do molde — **o estimador
+   `_estimar_minutos` não foi exercitado E2E**, só nos testes unitários.
+2. O plano não sorteou `supino_reto_barra`, então o casamento de lesão por
+   **chave de exercício** também ficou só nos testes unitários; o casamento por
+   grupo muscular foi provado em produçãozinha (36 exercícios).
+
+### Achado alheio ao PR 1: cardio derruba a geração do plano (afeta produção)
+
+A primeira tentativa do smoke pedia cardio e o job morreu em
+`molde_validation`: `Molde inválido: 'repeticoes' is a required property`,
+depois das 2 tentativas (`MAX_TENTATIVAS_MOLDE = 2`).
+
+Causa: `backend/schemas/molde_schema.py` exige `repeticoes` em todo exercício
+(`required: ["nome", "ordem", "series", "repeticoes"]`, linhas 58 e 209)
+enquanto a instrução 7 do prompt do molde — e a descrição de `duracao_minutos`
+no próprio schema — mandam **não** usar `repeticoes` em cardio e isometria. O
+modelo obedece à instrução e o schema o reprova. O `normalizar_molde` não
+preenche o campo. Prova determinística, sem custo de IA:
+
+```python
+jsonschema.validate({"nome": "Esteira", "ordem": 1, "series": 1, "duracao_minutos": 20}, <item de exercicios>)
+# -> 'repeticoes' is a required property
+```
+
+Não é regressão deste PR — vem da leva de cardio (0014/PR #38) — mas está vivo
+em produção: qualquer aluno que peça cardio cai em erro de geração.
+
+**Corrigido no PR seguinte** (`fix/molde-cardio-sem-repeticoes`, empilhado sobre
+este) — ver seção abaixo.
+
+- O PR 2 começou após o OK do dono em 25/07/2026, preservando o portão entre
+  PRs e usando o topo homologado da pilha (#43 + #44) como base.
+
+---
+
+## 25/07/2026 — PR do cardio: `repeticoes` deixa de ser obrigatória
+
+Branch `fix/molde-cardio-sem-repeticoes`, empilhada sobre o PR #43.
+
+### O contrato que o schema passa a expressar
+
+Todo exercício precisa de **pelo menos um** alvo de prescrição: `repeticoes`
+(carga × repetição), `duracao_minutos` (cardio e isometria) ou `distancia_km`.
+Nos dois pontos do schema (`semanas_tipo` e `semanas_avulsas`), `repeticoes`
+saiu do `required` e entrou num `anyOf` com as outras duas. Exercício sem
+nenhum alvo continua sendo rejeitado — a validação afrouxou só onde era
+contraditória.
+
+### RED → GREEN
+
+- RED: 6 testes novos falham sem a correção (5 de schema + 1 de pipeline).
+  Conferido com `git stash` do schema: os mesmos 6 vermelhos, 29 verdes.
+- O teste de pipeline roda o caminho inteiro (resposta do modelo → validação →
+  normalização → expansão → mapeamento) e confere o payload que iria ao banco:
+  cardio com `metric=tempo_distancia`, `reps_raw` nulo,
+  `target_duration_seconds=1200` e alvos de repetição nulos. Uma única chamada
+  ao modelo — nenhuma geração extra paga.
+- Trava de regressão: `test_repeticoes_nao_e_exigida_incondicionalmente_em_lugar_nenhum`
+  varre o schema inteiro e falha se `repeticoes` voltar a um `required` fora de
+  um `anyOf`/`oneOf`.
+- `python3 -m pytest backend/tests -q`: 323/323. `npx tsc --noEmit`: 0 erros.
+
+Nota sobre a cobertura anterior: os testes de cardio já existentes
+(`test_cardio_prescricao.py`) sempre passavam a duração dentro de `repeticoes`
+("20min"), justamente o que a instrução 7 proíbe — por isso a suíte estava
+verde com o defeito vivo.
+
+### Smoke E2E em HML — o mesmo pedido que falhava agora passa
+
+Backend de homologação em `6ec7250` (container recriado pelo timer, schema com
+`anyOf` dentro da imagem). Mesmo questionário da tentativa que morreu de manhã,
+com `incluirCardio: "sim"`: plano `de64fbee-cead-4191-a4ff-038a72d53772`
+gerado e salvo em 26 s, usuário `pedrohmarconato+smoke-cardio-1785032280@gmail.com`.
+
+| Conferência no banco de staging | Resultado |
+|---|---|
+| Plano com cardio gerado sem `molde_validation` | 48 sessões, 120 exercícios |
+| Exercícios medidos por tempo/distância | 24 (Corrida, Bicicleta Ergométrica) |
+| Séries de cardio com duração/distância | 24/24 |
+| Séries de cardio que viraram repetição | 0 |
+| Cardio com %RM | 0 |
+
+Estado das branches ao fim do dia: `#43` (correções de base) e `#44` (cardio,
+empilhado no #43) abertos, ambos homologados em HML; produção segue em
+`0000→0014` e no build antigo, aguardando revisão do dono.
+
+---
+
+## 25/07/2026 — Plano manual, PR 2: catálogo de exercícios na API
+
+Branch `feat/catalogo-exercicios-api`, empilhada sobre o PR #44.
+
+### Entregue no código
+
+- `catalogo_serializavel()` expõe os 106 exercícios canônicos com versão 2 e
+  somente os sete campos consumidos pelo app; aliases continuam privados ao
+  resolvedor do backend.
+- `GET /api/exercise-catalog` exige JWT, devolve ETag forte derivado da versão +
+  hash do arquivo e `Cache-Control: private, max-age=86400`; `If-None-Match`
+  válido recebe 304 sem corpo. A rota não consome o rate limit da IA.
+- `exerciseCatalogService.ts` mantém cache AsyncStorage em
+  `@exercise_catalog_v<versao>`, guarda metadado/ETag e revalida em background.
+  Sem rede usa o último cache válido; sem rede e sem cache levanta
+  `ExerciseCatalogUnavailableError`, nunca retorna `[]` como falso "sem
+  resultados".
+- `searchCatalog` espelha a normalização do backend (sem acento, minúsculas),
+  filtra grupo/equipamento e respeita as opções de Cardio/Mobilidade sem mutar a
+  lista original.
+
+### RED → GREEN e portões locais
+
+- RED backend: `catalogo_serializavel` ausente e rota 404; 2 falhas, 60 testes
+  adjacentes verdes.
+- RED app: módulo `exerciseCatalogService` ausente.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 325/325 testes; 1 warning já
+  conhecido do urllib3/LibreSSL.
+- Nenhuma migration pertence a este PR.
+
+### Homologação HML
+
+- **PR #45** aberto em draft, empilhado sobre o #44
+  (`feat/catalogo-exercicios-api` → `fix/molde-cardio-sem-repeticoes`).
+- `git push origin feat/catalogo-exercicios-api:staging` publicou `328681f`; o
+  timer da VPS recriou o backend. Durante o deploy a rota passou de 404 (imagem
+  antiga) para 401 sem token, enquanto `/api/health` permaneceu 200.
+- Smoke autenticado com usuário descartável no Supabase staging:
+
+| Conferência | Resultado |
+|---|---|
+| JWT exigido | sem token → 401; com token → 200 |
+| Versão e tamanho | versão 2, 106 exercícios |
+| Chaves | 106 únicas |
+| Aliases no payload | 0 |
+| Métricas fora do enum | 0 |
+| Cache | `private, max-age=86400` |
+| ETag | presente |
+| Revalidação | `If-None-Match` → 304 sem corpo |
+
+- PWA Preview: deploy `dpl_9UTqMxhdu1M1f8JM5WMPCksxDb5J`, estado READY em
+  `https://forca-lyhm60eyw-pmarconatos-projects.vercel.app` (raiz HTTP 200).
+  `verify-web-bundle` passou: bundle Preview aponta para
+  `forca-api-hml.cadastrai.com` e não contém endereços de LAN.
+- O serviço do catálogo ainda não tem tela consumidora por desenho — a UI entra
+  no PR 4. Por isso a homologação deste PR validou o contrato HTTP real e o
+  cache/busca nos testes, sem inventar um fluxo visual inexistente.
+
+---
+
+## 26/07/2026 — Plano manual, PR 3: pipeline determinístico no backend
+
+Branch `feat/plano-manual-backend`, empilhada sobre o PR #45. Draft PR #46.
+
+### Entregue no código
+
+- `PLANO_MANUAL_SCHEMA` formaliza o rascunho do editor (1–52 semanas, até 7
+  treinos e 30 exercícios por treino), mantendo opcionais explícitos como
+  `dia_offset`, duração, distância e `%RM` anuláveis.
+- O campo opcional `metrica` fecha o contrato do seletor para nomes livres:
+  `carga_reps`, `tempo` ou `tempo_distancia`. Ele só vence quando o exercício
+  não casa com o catálogo; em item catalogado, a métrica canônica continua
+  autoritativa. O expansor também respeita essa escolha na progressão cardio.
+- `construir_molde_manual()` produz uma única semana `tipo_a`, repetida no
+  calendário, deriva grupos do catálogo e injeta Aquecimento Articular /
+  Alongamento Dinâmico como exercícios reais de Mobilidade quando os toggles
+  estão ligados. Repetições e duração ausentes recebem os mesmos defaults do
+  mapper; nenhum quilo é prescrito.
+- `POST /api/manual-plan` valida schema e invariantes cruzadas, rejeita dias
+  duplicados e mais de 2.000 sets **antes** de expandir, aplica limite próprio
+  de 10 criações/hora, usa o pipeline existente e grava com
+  `created_by='user'` pela mesma RPC transacional.
+- `POST /api/manual-plan/preview` não persiste e devolve as semanas 1, meio e
+  última a partir da expansão/mapeamento reais, inclusive minutos estimados.
+- Limitação marcada pelo aluno chega como `['limitacao_aluno']` no exercício;
+  nomes livres são preservados com `exercise_key`, grupo e equipamento nulos.
+- `scripts/exercicios_fora_do_catalogo.py` é somente leitura, pagina o
+  PostgREST, agrupa com a normalização canônica e conta ocorrências e usuários
+  distintos, com saída de tabela ou `--json`.
+
+### RED → GREEN e portões locais
+
+- RED inicial: 16 falhas reproduziram módulos/rotas ausentes,
+  `created_by='ai'` fixo e limitação manual descartada.
+- O primeiro smoke encontrou “1 séries” na prévia; um RED isolado registrou o
+  defeito antes da correção para “1 série”.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 60/60 suítes e 528/528 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
+  já conhecido do urllib3/LibreSSL.
+
+### Homologação HML
+
+- Backend publicado no branch `staging`: `328681f → 3e10c74`; o health ficou
+  200 durante a troca e `/api/manual-plan` passou de 404 para 401 quando o
+  container novo entrou. A correção de singular foi publicada em seguida no
+  commit `b764fbe` e confirmada por nova chamada autenticada no HML:
+  `1 série × 5 min`.
+- O contrato de métrica livre foi publicado depois em `bc70370`: smoke
+  autenticado com “Circuito de escada do professor” confirmou progressão de
+  1,05 km na semana 1 para 1,6 km na semana 12. A prévia que mostrava a duração
+  decimal como 948 s ganhou um RED específico e foi corrigida em `8b3a40f`
+  para exibir `15,8 min`; nova chamada autenticada confirmou no container
+  `2 séries × 15,8 min / 1,05 km` na semana 1 e `24 min / 1,6 km` na semana 12.
+- Smoke autenticado real com usuário descartável: preview HTTP 200; criação
+  HTTP 201; plano `f3c77ea9-fe21-4fbe-844b-1357352e8992` persistido.
+
+| Conferência no staging | Resultado |
+|---|---|
+| Plano | `created_by=user`, ativo, 12 semanas |
+| Progressão | deload da semana 4 persistido em `progression_rules` |
+| Agenda | rótulos segunda/quarta/sexta; semana 4 em 10/12/14-08 |
+| Sessão sem duração declarada | estimativa do servidor = 38 min |
+| Deload | Supino de segunda: 4 sets na semana 1 → 3 na semana 4 |
+| Aquecimento/alongamento | exercícios `tempo`, Mobilidade, `accessory`, 300 s |
+| Cardio | Caminhada `tempo_distancia`, 1.200 s e 2.000 m quando informado |
+| Limitação | somente o Supino marcado recebeu `['limitacao_aluno']` |
+| Nome livre | chave/grupo/equipamento nulos; reps 10–12 preservadas |
+| Curadoria | relatório encontrou “Rosca escocesa no banco 45”: 12 ocorrências, 1 usuário |
+
+Nota honesta sobre a primeira semana: o smoke ocorreu quando a data do backend
+já era domingo (26/07). A trava do mapper que proíbe agendar antes de
+`start_date` comprimiu seg/qua/sex da semana 1 para 26/07, mantendo os rótulos.
+As semanas seguintes preservaram os offsets (semana 4: segunda 10/08, quarta
+12/08, sexta 14/08). Esse é o comportamento deliberadamente mantido no PR 1,
+não uma regressão do editor.
+
+Não há migration nem artefato frontend neste PR; por isso não houve novo
+deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
+telas consumidoras entram no PR 4.
