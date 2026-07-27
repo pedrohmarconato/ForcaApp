@@ -138,3 +138,18 @@ describe('formatWorkDuration', () => {
     expect(formatWorkDuration(0)).toBeNull();
   });
 });
+
+describe('faixas de tempo do questionário', () => {
+  it('nenhuma faixa declara mais minutos do que o próprio rótulo promete', () => {
+    // O valor vira `tempo_medio_treino_min`, que o editor usa como estimativa
+    // de CADA treino e que segue para o `estimated_minutes` do plano. "+90 min"
+    // valia 120: meia hora que o aluno nunca disse, apresentada como escolha
+    // dele. Sem teto no rótulo, o piso é o único número honesto.
+    const { TIME_OPTIONS } = require('../src/constants/tempoTreino');
+    for (const opcao of TIME_OPTIONS) {
+      const numerosDoRotulo = (opcao.label.match(/\d+/g) ?? []).map(Number);
+      const maiorAnunciado = Math.max(...numerosDoRotulo);
+      expect(opcao.value).toBeLessThanOrEqual(maiorAnunciado);
+    }
+  });
+});

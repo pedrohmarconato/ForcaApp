@@ -245,7 +245,15 @@ const ExercisePickerScreen = () => {
           <Notice
             tone="info"
             title="Esse exercício ainda não está na nossa lista"
-            description="Ele vai funcionar normalmente; a sugestão de carga pelo histórico pode demorar mais a aparecer."
+            description={
+              catalogError
+                ? // Sem rede o app não consegue perguntar ao servidor se o nome
+                  // é conhecido. Se for, quem manda na métrica é o catálogo — e
+                  // uma prescrição de carga vira tempo na hora de salvar. Antes
+                  // isso acontecia sem nenhum aviso.
+                  'Sem conexão, não dá para conferir se ele já existe no catálogo. Se existir, a métrica do catálogo é a que vale, e a prescrição daqui pode ser ajustada ao salvar.'
+                : 'Ele vai funcionar normalmente; a sugestão de carga pelo histórico pode demorar mais a aparecer.'
+            }
           />
         ) : null}
 
