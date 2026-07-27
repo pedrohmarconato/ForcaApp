@@ -131,6 +131,21 @@ def _parse_reps(valor: Any) -> (int, int):
     return minimo, maximo
 
 
+def _tem_repeticoes_explicitas(valor: Any) -> bool:
+    """
+    True só quando o molde prescreveu repetições de verdade.
+
+    `_parse_reps` devolve a faixa padrão 8–12 para qualquer entrada ilegível,
+    inclusive `None`. Quem precisa decidir ENTRE reps e duração não pode usar
+    esse retorno como sinal — precisa saber se havia número.
+    """
+    if isinstance(valor, bool):
+        return False
+    if isinstance(valor, int):
+        return valor >= 1
+    return any(int(n) >= 1 for n in re.findall(r"\d+", str(valor or "")))
+
+
 def _parse_duracao_segundos(valor: Any) -> Optional[int]:
     """
     Duração prescrita para cardio/isometria: '20min' → 1200, '45s' → 45,
@@ -435,10 +450,32 @@ def mapear_plano_ia(
                     # grupo muscular e incremento de carga por exercício. Nome
                     # fora do catálogo passa intacto, com chave/grupo nulos.
                     canonico = resolver_exercicio(ex.get("nome"), ex.get("equipamento"))
+                    metrica = canonico.metrica
                     # Cardio/isometria não se mede em carga × repetição: a
                     # prescrição vira duração (e distância), e %RM/reps ficam
                     # NULOS em vez de virar lixo ("20min" → 20 repetições).
-                    eh_tempo = canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+                    eh_tempo = metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+                    # Complemento obrigatório da relaxação do MOLDE_SCHEMA feita
+                    # neste PR: sem `repeticoes` exigida, um nome FORA do
+                    # catálogo com duração prescrita caía no ramo de carga/reps,
+                    # onde a duração era descartada e `_parse_reps(None)`
+                    # inventava a faixa padrão 8–12 que ninguém prescreveu.
+                    # A prescrição do molde manda. Só vale para nome não
+                    # canonizado: item do catálogo mantém a métrica do catálogo.
+                    if (
+                        not eh_tempo
+                        and canonico.chave is None
+                        and not _tem_repeticoes_explicitas(ex.get("repeticoes"))
+                        and _parse_duracao_segundos(ex.get("duracao_minutos"))
+                    ):
+                        distancia_declarada = ex.get("distancia_km")
+                        metrica = (
+                            METRICA_TEMPO_DISTANCIA
+                            if isinstance(distancia_declarada, (int, float))
+                            and distancia_declarada > 0
+                            else METRICA_TEMPO
+                        )
+                        eh_tempo = True
                     if eh_tempo:
                         reps_min = reps_max = None
                         duracao_alvo = (
@@ -447,7 +484,7 @@ def mapear_plano_ia(
                             or _parse_duracao_segundos(ex.get("tempo"))
                         )
                         distancia_alvo = None
-                        if canonico.metrica == METRICA_TEMPO_DISTANCIA:
+                        if metrica == METRICA_TEMPO_DISTANCIA:
                             distancia_km = ex.get("distancia_km")
                             distancia_alvo = (
                                 float(distancia_km) * 1000
@@ -472,7 +509,7 @@ def mapear_plano_ia(
                         "exercise_order": ex.get("ordem") if isinstance(ex.get("ordem"), int) else posicao,
                         "name": canonico.nome,
                         "exercise_key": canonico.chave,
-                        "metric": canonico.metrica,
+                        "metric": metrica,
                         "name_original": canonico.nome_original if canonico.nome_original != canonico.nome else None,
                         "muscle_group": canonico.grupo_muscular,
                         "priority": _prioridade(ex),
