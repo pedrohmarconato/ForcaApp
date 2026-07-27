@@ -146,10 +146,18 @@ const removeCardioProgressionWhenUnused = (draft: ManualPlanDraft): void => {
 };
 
 export const useManualPlanStore = create<ManualPlanState>((set, get) => {
+  // "Editar plano atual" e "montar plano novo" são rascunhos distintos: com uma
+  // chave só, abrir a edição gravava o plano importado por cima do rascunho em
+  // andamento do aluno.
+  const escopoAtual = (): string | null => {
+    const { draftOrigin, sourcePlanId } = get();
+    return draftOrigin === 'existing' && sourcePlanId ? `plan_${sourcePlanId}` : null;
+  };
+
   const persist = (draft: ManualPlanDraft): void => {
     const { userId } = get();
     if (userId) {
-      void saveManualPlanDraft(userId, draft).catch(() => {
+      void saveManualPlanDraft(userId, draft, escopoAtual()).catch(() => {
         set({
           saveError: 'Não foi possível atualizar o rascunho local. Mantenha o app aberto.',
         });
@@ -320,7 +328,13 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
             (workout) => workout.incluir_alongamento,
           ),
         });
-        await saveManualPlanDraft(userId, imported.draft);
+        try {
+          await saveManualPlanDraft(userId, imported.draft, `plan_${planId}`);
+        } catch {
+          // Storage local indisponível não bloqueia a edição — o rascunho vive
+          // em memória nesta sessão. Falhar aqui derrubaria uma importação que
+          // já deu certo e mandaria o aluno para a tela de erro.
+        }
 
         try {
           const catalog = await getCatalog();
@@ -478,7 +492,7 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
           throw new Error('Resposta sem plan_id.');
         }
         try {
-          await clearManualPlanDraft(userId);
+          await clearManualPlanDraft(userId, escopoAtual());
         } catch {
           // O plano já foi persistido no servidor. Não transformar sucesso em
           // aparente falha (e induzir uma segunda criação); a limpeza é cache.
@@ -504,7 +518,9 @@ export const useManualPlanStore = create<ManualPlanState>((set, get) => {
     reset: async (options = {}) => {
       const userId = get().userId;
       ++operationEpoch;
-      if (options.clearPersisted && userId) await clearManualPlanDraft(userId);
+      if (options.clearPersisted && userId) {
+        await clearManualPlanDraft(userId, escopoAtual());
+      }
       set({
         userId: null,
         draft: null,
