@@ -96,24 +96,32 @@ def test_sem_structured_output_nao_manda_output_config(flags):
     assert "output_config" not in flags(v2=True)
 
 
+# O modelo precisa ser explícito em todo teste de effort: o gate por modelo
+# roda ANTES da checagem de valor, então chamar sem modelo faria estes testes
+# passarem pelo motivo errado (barrados pelo gate, não pela regra que testam).
+MODELO_COM_EFFORT = "claude-opus-4-8"
+
+
 def test_effort_convive_com_o_formato_no_mesmo_output_config(monkeypatch):
     monkeypatch.setenv("PLAN_EFFORT", "medium")
-    config = app._output_config_da_geracao({"format": {"type": "json_schema", "schema": {}}})
+    config = app._output_config_da_geracao(
+        {"format": {"type": "json_schema", "schema": {}}}, MODELO_COM_EFFORT
+    )
     assert config["effort"] == "medium"
     assert config["format"]["type"] == "json_schema"
 
 
 def test_effort_ausente_preserva_o_comportamento_atual(monkeypatch):
     monkeypatch.delenv("PLAN_EFFORT", raising=False)
-    assert "effort" not in app._output_config_da_geracao({"format": {}})
-    assert app._output_config_da_geracao(None) == {}
+    assert "effort" not in app._output_config_da_geracao({"format": {}}, MODELO_COM_EFFORT)
+    assert app._output_config_da_geracao(None, MODELO_COM_EFFORT) == {}
 
 
 def test_effort_invalido_e_ignorado_em_vez_de_virar_400(monkeypatch):
     """Um valor inválido aqui volta 400 da API, e o aluno lê 'falha na
     comunicação com o serviço de IA' — erro de operação virando erro de produto."""
     monkeypatch.setenv("PLAN_EFFORT", "altissimo")
-    assert app._output_config_da_geracao({"format": {}}) == {"format": {}}
+    assert app._output_config_da_geracao({"format": {}}, MODELO_COM_EFFORT) == {"format": {}}
 
 
 def test_structured_output_para_de_pedir_semanas_avulsas(flags):

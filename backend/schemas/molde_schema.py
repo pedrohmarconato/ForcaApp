@@ -21,8 +21,8 @@ MOLDE_SCHEMA = {
                 "descricao": {"type": "string"}
             }
         },
-        "duracao_semanas": {"type": "integer", "minimum": 1, "maximum": 52},
-        "frequencia_semanal": {"type": "integer", "minimum": 1, "maximum": 7},
+        "duracao_semanas": {"type": "integer", "minimum": 1, "maximum": 52, "description": "Duração total do plano em semanas, de 1 a 52 (use 12)."},
+        "frequencia_semanal": {"type": "integer", "minimum": 1, "maximum": 7, "description": "Sessões por semana, de 1 a 7."},
         "semanas_tipo": {
             "type": "array",
             "minItems": 1,
@@ -31,7 +31,13 @@ MOLDE_SCHEMA = {
                 "type": "object",
                 "required": ["id", "sessoes"],
                 "properties": {
-                    "id": {"type": "string", "pattern": "^tipo_[a-z]$", "description": "Identificador curto (ex: tipo_a)."},
+                    # O `pattern` também some no schema da API (restrição de
+                    # string não é expressável): a description carrega a forma.
+                    "id": {
+                        "type": "string",
+                        "pattern": "^tipo_[a-z]$",
+                        "description": "Identificador no formato tipo_<letra minúscula>: tipo_a, tipo_b, tipo_c.",
+                    },
                     "nome": {"type": "string", "description": "Nome descritivo (ex: 3 grupos/dia)."},
                     "sessoes": {
                         "type": "array",
@@ -43,11 +49,44 @@ MOLDE_SCHEMA = {
                             "properties": {
                                 "nome": {"type": "string", "description": "Nome da sessão (ex: Peito/Tríceps)."},
                                 "tipo": {"type": "string", "description": "Tipo de treino (ex: Hipertrofia)."},
-                                "duracao_minutos": {"type": "integer", "minimum": 15, "maximum": 180},
-                                "dia_offset": {"type": "integer", "minimum": 0, "maximum": 6, "description": "0=segunda ... 6=domingo."},
-                                "nivel_intensidade": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "duracao_minutos": {
+                                    "type": "integer",
+                                    "minimum": 15,
+                                    "maximum": 180,
+                                    "description": "Duração da sessão em minutos, de 15 a 180.",
+                                },
+                                "dia_offset": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 6,
+                                    "description": (
+                                        "Dia da semana: 0=segunda ... 6=domingo. Cada sessão da semana "
+                                        "precisa de um dia DIFERENTE. Omita o campo para deixar a "
+                                        "distribuição por nossa conta."
+                                    ),
+                                },
+                                "nivel_intensidade": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 10,
+                                    "description": "Intensidade percebida, de 1 a 10.",
+                                },
+                                # minItems=1 vive AQUI e não no schema da API de
+                                # propósito: restrição de array não é
+                                # expressável em structured outputs, e
+                                # `required` sozinho garante só a CHAVE. Uma
+                                # lista vazia satisfaz o obrigatório e chega ao
+                                # mapper como o mesmo muscle_group nulo que
+                                # deixava o replanejamento sem grupo para
+                                # redistribuir (migration 0013).
                                 "grupos_musculares": {
                                     "type": "array",
+                                    "minItems": 1,
+                                    "description": (
+                                        "Grupos trabalhados na sessão, com pelo menos um item. Em sessão "
+                                        "de cardio ou mobilidade use o próprio nome do estímulo "
+                                        "(ex: 'Cardio', 'Mobilidade') em vez de deixar a lista vazia."
+                                    ),
                                     "items": {"type": "object", "required": ["nome"], "properties": {"nome": {"type": "string"}}}
                                 },
                                 "exercicios": {
@@ -99,9 +138,25 @@ MOLDE_SCHEMA = {
                                                 "maximum": 100,
                                                 "description": "Distância-alvo em km, quando a prescrição for por distância.",
                                             },
-                                            "series": {"type": "integer", "minimum": 1, "maximum": 10},
+                                            # As faixas numéricas estão repetidas na `description` porque
+                                            # structured outputs NÃO expressa minimum/maximum: a derivação
+                                            # remove essas chaves, e com o schema fora do texto do prompt o
+                                            # modelo ficaria sem nenhuma pista da faixa que a validação local
+                                            # vai cobrar. `description` é preservada pela derivação — é o
+                                            # único canal que sobrou para o limite chegar ao modelo.
+                                            "series": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 10,
+                                                "description": "Número de séries, de 1 a 10.",
+                                            },
                                             "repeticoes": {"type": "string", "description": "Ex: '8-12', '10', 'AMRAP'."},
-                                            "percentual_rm": {"type": "number", "minimum": 0, "maximum": 100},
+                                            "percentual_rm": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "maximum": 100,
+                                                "description": "Percentual de 1RM, de 0 a 100. Não use em cardio nem isometria.",
+                                            },
                                             "tempo_descanso": {"description": "Ex: '60s', 90, '2min'."},
                                             "cadencia": {"type": "string", "description": "Ex: '2020', 'Explosiva'."},
                                             "metodo": {"type": "string", "description": "Ex: 'Drop-set', 'Rest-pause'."},
@@ -152,7 +207,7 @@ MOLDE_SCHEMA = {
                                     "tipo": {"const": "delta_rm_percentual"},
                                     "semana_inicio": {"type": "integer", "minimum": 1},
                                     "semana_fim": {"type": "integer", "minimum": 1},
-                                    "valor": {"type": "number", "minimum": 0.5, "maximum": 10.0},
+                                    "valor": {"type": "number", "minimum": 0.5, "maximum": 10.0, "description": "Pontos de %RM por semana, de 0.5 a 10."},
                                     "grupo_alvo": {"type": "string", "enum": ["todos", "primario", "secundario"]}
                                 }
                             },
@@ -163,7 +218,7 @@ MOLDE_SCHEMA = {
                                     "tipo": {"const": "delta_series"},
                                     "semana_inicio": {"type": "integer", "minimum": 1},
                                     "semana_fim": {"type": "integer", "minimum": 1},
-                                    "valor": {"type": "integer", "minimum": -2, "maximum": 3},
+                                    "valor": {"type": "integer", "minimum": -2, "maximum": 3, "description": "Séries a somar por semana, de -2 a 3."},
                                     "grupo_alvo": {"type": "string", "enum": ["todos", "primario", "secundario"]}
                                 }
                             },
@@ -178,7 +233,7 @@ MOLDE_SCHEMA = {
                                     "tipo": {"const": "delta_cardio_percentual"},
                                     "semana_inicio": {"type": "integer", "minimum": 1},
                                     "semana_fim": {"type": "integer", "minimum": 1},
-                                    "valor": {"type": "number", "minimum": 1.0, "maximum": 10.0},
+                                    "valor": {"type": "number", "minimum": 1.0, "maximum": 10.0, "description": "Aumento percentual do cardio por semana, de 1 a 10."},
                                     "alvo": {"type": "string", "enum": ["duracao", "distancia", "ambos"]}
                                 }
                             },
@@ -188,8 +243,8 @@ MOLDE_SCHEMA = {
                                 "properties": {
                                     "tipo": {"const": "deload_percentual"},
                                     "semana": {"type": "integer", "minimum": 1},
-                                    "fator_rm": {"type": "number", "minimum": 0.5, "maximum": 0.9},
-                                    "fator_series": {"type": "number", "minimum": 0.5, "maximum": 0.9}
+                                    "fator_rm": {"type": "number", "minimum": 0.5, "maximum": 0.9, "description": "Fator multiplicador do %RM no deload, de 0.5 a 0.9."},
+                                    "fator_series": {"type": "number", "minimum": 0.5, "maximum": 0.9, "description": "Fator multiplicador das séries no deload, de 0.5 a 0.9."}
                                 }
                             }
                         ]
@@ -292,9 +347,12 @@ MOLDE_SCHEMA = {
 #   1. `tempo_descanso: {}` (schema vazio, aceita qualquer coisa) vira um
 #      anyOf explícito. É o que o plan_mapper realmente consome:
 #      _parse_descanso_segundos aceita "60s", 90 e None.
-#   2. `semanas_avulsas` deixa de ser mapa `semana_N -> {...}` e vira array.
-#      molde_normalizer.normalizar_molde converte de volta antes da validação
-#      local, então nada a jusante enxerga a diferença.
+#   2. `semanas_avulsas` sai inteira do schema da API (ver _reduzir_opcionais):
+#      é mapa de chaves livres, que structured outputs não expressa, e sozinha
+#      custava 12 dos 44 opcionais. Com structured output LIGADO o modelo
+#      simplesmente não emite o campo. A conversão array -> mapa que
+#      molde_normalizer faz é reparo de FORMA para o modo SEM structured
+#      output, onde o modelo vê o schema no texto e às vezes devolve lista.
 
 import copy as _copy
 
@@ -386,8 +444,15 @@ def _reduzir_opcionais(schema):
     semana_tipo = props["semanas_tipo"]["items"]
     _exigir(semana_tipo, "nome")
 
+    # `dia_offset` fica FORA da lista de propósito. Obrigá-lo força o modelo a
+    # inventar um dia para cada sessão sem ver `minimum`/`maximum` (a API não
+    # aceita restrição numérica) e sem nenhuma regra de unicidade em lugar
+    # nenhum — schema local, expansor e planned_sessions passam batido. O
+    # resultado observado é a semana inteira empilhada num único dia, gravada
+    # em silêncio. Opcional, vale o fallback determinístico do mapper, que
+    # distribui as sessões por construção. Sobra folga no teto de 24.
     sessao = semana_tipo["properties"]["sessoes"]["items"]
-    _exigir(sessao, "duracao_minutos", "dia_offset", "grupos_musculares")
+    _exigir(sessao, "duracao_minutos", "grupos_musculares")
 
     exercicio = sessao["properties"]["exercicios"]["items"]
     _exigir(exercicio, "prioridade", "tempo_descanso")
@@ -418,12 +483,53 @@ def _podar_campos_inertes(schema):
     return schema
 
 
+_ALVOS_DE_PRESCRICAO = ("repeticoes", "duracao_minutos", "distancia_km")
+
+
+def _priorizar_alvos_de_prescricao(schema):
+    """Põe os alvos de prescrição logo depois de `nome` na ordem das
+    properties do exercício.
+
+    Não é cosmético. A gramática do structured output percorre as propriedades
+    na ordem em que estão declaradas, e o modelo decide sobre cada campo quando
+    passa por ele — sem poder voltar. Com `duracao_minutos` declarado antes de
+    `series`, o modelo se compromete com o alvo ANTES de ter estabelecido que
+    aquele item é um cardio, e para exercício de cardio ele simplesmente
+    fechava o objeto sem alvo nenhum.
+
+    Medido contra a API real, mesma entrada, 6 gerações: com a ordem original,
+    TODA geração saía com o exercício de cardio sem `duracao_minutos` — e o
+    retry dirigido reproduzia o mesmo erro mesmo recebendo a mensagem dizendo
+    exatamente qual campo faltava, o que queimava as duas tentativas e perdia a
+    geração. Com os alvos declarados primeiro, nenhuma geração saiu sem alvo.
+    Sem structured output o problema nunca aparecia, porque aí não há gramática
+    ordenando nada.
+
+    Isso importa porque o `anyOf` que exigia "pelo menos um alvo" foi removido
+    do schema da API (a API não o aceita ao lado de type/properties/required):
+    a ordem passou a ser o que resta para induzir o comportamento na origem.
+    """
+    exercicios = (
+        schema["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
+        ["properties"]["exercicios"]["items"]
+    )
+    props = exercicios["properties"]
+    primeiro = ["nome", *(_ALVOS_DE_PRESCRICAO)]
+    reordenado = {chave: props[chave] for chave in primeiro if chave in props}
+    for chave, valor in props.items():
+        if chave not in reordenado:
+            reordenado[chave] = valor
+    exercicios["properties"] = reordenado
+    return schema
+
+
 def _preparar_para_api(schema):
     preparado = _copy.deepcopy(schema)
     _tipar_tempo_descanso(preparado)
     _remover_anyof_de_refinamento(preparado)
     _reduzir_opcionais(preparado)
     _podar_campos_inertes(preparado)
+    _priorizar_alvos_de_prescricao(preparado)
     return preparado
 
 

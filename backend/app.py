@@ -1164,6 +1164,25 @@ _INSTRUCAO_EXCECOES_SEM_AVULSAS = (
     "(deload_percentual para semanas mais leves) ou em `observacoes` do exercício."
 )
 
+# Com structured output o schema sai do texto, e com ele sai o `anyOf` que
+# exigia um alvo de prescrição por exercício — a API não aceita esse
+# refinamento, e expressá-lo duplicando o objeto estoura a gramática. Sem nada
+# no lugar, o modelo fecha exercícios de isometria e mobilidade (Prancha,
+# Alongamento Dinâmico) sem alvo nenhum, o molde reprova na validação local e o
+# retry dirigido repete o mesmo erro — as duas tentativas queimam e a geração
+# paga é perdida. Medido contra a API real. Esta regra é o que substitui a
+# garantia que a gramática não consegue mais dar.
+_INSTRUCAO_ALVO_OBRIGATORIO = """
+REGRA DE FECHAMENTO (vale para TODO exercício, sem exceção): antes de fechar o
+objeto de um exercício, confira que ele tem PELO MENOS UM destes três campos
+preenchido:
+   - `repeticoes` — exercício de carga × repetição (musculação);
+   - `duracao_minutos` — cardio, isometria e mobilidade (prancha, alongamento,
+     caminhada, corrida, bike, remo). Prancha de 45 s = 0.75;
+   - `distancia_km` — quando a prescrição for por distância.
+Exercício sem nenhum dos três é inválido e invalida o molde inteiro. `series` e
+`tempo_descanso` NÃO contam como alvo de prescrição."""
+
 _INSTRUCOES_MOLDE = """INSTRUÇÕES:
 1. Crie entre 1 e 3 semanas-tipo (semanas_tipo). Cada uma é um modelo de semana
    com sessões e exercícios completos (sem progressão — a progressão vai nas regras).
@@ -1195,7 +1214,18 @@ _INSTRUCOES_MOLDE = """INSTRUÇÕES:
 _EFFORTS_VALIDOS = ("low", "medium", "high", "xhigh", "max")
 
 
-def _output_config_da_geracao(formato: dict = None) -> dict:
+def _modelo_suporta_effort(model_name) -> bool:
+    """Mesma família de gate do `_thinking_config_para_modelo`, pelo mesmo
+    motivo: `effort` é rejeitado com 400 na request INTEIRA pelos modelos que
+    não o suportam (Haiku 4.5 e Sonnet 4.5 entre eles), e o HML roda o molde em
+    Haiku por custo. Sem este gate, ligar PLAN_EFFORT lá derruba toda geração
+    de plano com "Falha na comunicação com o serviço de IA" — exatamente o que
+    derrubou o 1º smoke do HML quando o thinking foi mandado sem gate."""
+    base = (model_name or "").lower()
+    return "opus" in base or "fable" in base or "sonnet-5" in base
+
+
+def _output_config_da_geracao(formato: dict = None, model_name: str = None) -> dict:
     """Junta o formato de saída (structured outputs) e o nível de esforço.
 
     Os dois moram no MESMO parâmetro `output_config`, então mandá-los em dicts
@@ -1206,11 +1236,19 @@ def _output_config_da_geracao(formato: dict = None) -> dict:
     comportamento atual): mudar o esforço muda o plano gerado, e isso é decisão
     de produto, não efeito colateral de refatoração. Defina PLAN_EFFORT para
     experimentar.
+
+    `model_name` decide se o esforço pode ser enviado: structured outputs vale
+    em Haiku 4.5, mas `effort` não — são gates independentes.
     """
     config = dict(formato) if formato else {}
     effort = (os.environ.get("PLAN_EFFORT") or "").strip().lower()
     if effort:
-        if effort in _EFFORTS_VALIDOS:
+        if not _modelo_suporta_effort(model_name):
+            app_logger.warning(
+                f"PLAN_EFFORT={effort!r} ignorado: o modelo {model_name!r} rejeita `effort` "
+                "(a request voltaria 400 e o aluno veria falha de comunicação)."
+            )
+        elif effort in _EFFORTS_VALIDOS:
             config["effort"] = effort
         else:
             # Um valor inválido aqui é 400 na chamada, e a mensagem chega ao
@@ -1256,6 +1294,7 @@ def _montar_chamada_do_molde(questionnaire_str: str, diretrizes_str: str, catalo
     catalogo_bloco = f"CATÁLOGO DE EXERCÍCIOS (grupo: nomes permitidos):\n{catalogo_str}"
     instrucoes = (
         _INSTRUCOES_MOLDE.replace(_INSTRUCAO_EXCECOES_COM_AVULSAS, _INSTRUCAO_EXCECOES_SEM_AVULSAS)
+        + _INSTRUCAO_ALVO_OBRIGATORIO
         if FORCA_STRUCTURED_OUTPUT
         else _INSTRUCOES_MOLDE
     )
@@ -1293,6 +1332,69 @@ def _montar_chamada_do_molde(questionnaire_str: str, diretrizes_str: str, catalo
     ]
     saida["messages"] = [{"role": "user", "content": dados_do_aluno}]
     return saida
+
+
+def _caminho_legivel(erro) -> str:
+    partes = [str(p) for p in (erro.absolute_path or [])]
+    onde = ".".join(partes) if partes else "a raiz do molde"
+    nome = erro.instance.get("nome") if isinstance(erro.instance, dict) else None
+    return f"{onde} ('{nome}')" if isinstance(nome, str) and nome else onde
+
+
+def _detalhe_da_falha_de_schema(erro) -> str:
+    """Mensagem que alimenta o retry dirigido.
+
+    O jsonschema descreve toda falha de `anyOf`/`oneOf` como "... is not valid
+    under any of the given schemas", que não diz o que falta. Isso era tolerável
+    enquanto o schema inteiro ia colado no texto do prompt e o modelo podia
+    consultá-lo. Com structured outputs o schema saiu do texto, e mais: o
+    refinamento "pelo menos um alvo de prescrição" foi REMOVIDO do schema da API
+    (a API não aceita anyOf ao lado de type/properties/required). O modelo pode
+    então produzir um exercício sem alvo, reprovar aqui, e receber no retry uma
+    mensagem que não permite descobrir o que corrigir — com uma única tentativa
+    paga em Opus antes de a geração ser perdida.
+
+    A mensagem crua do jsonschema também não diz ONDE o problema está. Para
+    `maximum` isso é tolerável, porque o valor aparece no texto; para `minItems`
+    não é: "[] should be non-empty" pode ser `exercicios`, `sessoes`,
+    `calendario` ou `grupos_musculares`, e o modelo não tem como saber qual
+    corrigir. Por isso o caminho vai em TODA mensagem que tenha um.
+
+    Só reescrevemos o que é opaco. "12 is greater than the maximum of 10" já é
+    acionável e continua ali, apenas endereçada.
+    """
+    if getattr(erro, "validator", None) not in ("anyOf", "oneOf"):
+        onde = _caminho_legivel(erro)
+        return f"Em {onde}: {erro.message}" if erro.absolute_path else erro.message
+
+    ramos = [r for r in (getattr(erro, "validator_value", None) or []) if isinstance(r, dict)]
+    if not ramos:
+        return erro.message
+    onde = _caminho_legivel(erro)
+
+    # Ramos que só exigem um campo cada: é a forma "pelo menos um destes".
+    alternativas = [r["required"][0] for r in ramos if set(r) == {"required"} and len(r.get("required") or []) == 1]
+    if len(alternativas) == len(ramos):
+        return (
+            f"Em {onde}: faltou o alvo de prescrição. Todo exercício precisa de PELO MENOS UM "
+            f"destes campos: {', '.join(alternativas)}. Musculação usa `repeticoes`; cardio e "
+            f"isometria usam `duracao_minutos` (e `distancia_km` quando fizer sentido)."
+        )
+
+    # Ramos discriminados por `const` em `tipo`: vocabulário fechado.
+    opcoes = []
+    for ramo in ramos:
+        const = ((ramo.get("properties") or {}).get("tipo") or {}).get("const")
+        if const:
+            obrigatorios = ", ".join(ramo.get("required") or [])
+            opcoes.append(f"{const} (exige: {obrigatorios})")
+    if opcoes:
+        return (
+            f"Em {onde}: o objeto não casa com nenhuma das formas aceitas. Use exatamente uma "
+            f"destas: {'; '.join(opcoes)}."
+        )
+
+    return erro.message
 
 
 def _executar_geracao_molde(
@@ -1350,7 +1452,7 @@ def _executar_geracao_molde(
     # que modelos menores geram — o caso comum resolve sem geração extra.
     MAX_TENTATIVAS_MOLDE = 2
     mensagens = list(chamada["messages"])
-    output_config = _output_config_da_geracao(chamada.get("output_config"))
+    output_config = _output_config_da_geracao(chamada.get("output_config"), modelo_do_molde)
     molde = None
     falha = None  # (codigo, mensagem_usuario, detalhe_para_o_modelo)
 
@@ -1406,24 +1508,40 @@ def _executar_geracao_molde(
                 molde = candidato
                 break
             except _jsonschema.exceptions.ValidationError as e:
-                falha = ("molde_validation", f"Molde inválido: {e.message}", e.message)
+                detalhe = _detalhe_da_falha_de_schema(e)
+                falha = ("molde_validation", f"Molde inválido: {e.message}", detalhe)
 
         app_logger.warning(
             f"Job {job.job_id}: tentativa {tentativa}/{MAX_TENTATIVAS_MOLDE} do molde "
             f"reprovou ({falha[0]}): {falha[2]}"
         )
         if tentativa < MAX_TENTATIVAS_MOLDE:
+            correcao = (
+                "O molde retornado falhou na validação do schema: "
+                f"{falha[2]}\n"
+                "Corrija exatamente esse problema mantendo o restante do molde e "
+                "retorne SOMENTE o JSON completo corrigido, sem texto adicional."
+            )
+            # A 2ª tentativa desliga o structured output e devolve o schema
+            # COMPLETO ao texto. Não é desconfiança da gramática em geral: é que
+            # o refinamento "todo exercício precisa de um alvo de prescrição"
+            # não é expressável nela (a API rejeita anyOf com irmãos
+            # estruturais, e duplicar o objeto estoura a gramática), e medindo
+            # contra a API real o modelo reincidia no MESMO erro mesmo lendo a
+            # mensagem que dizia qual campo faltava — as duas tentativas
+            # queimavam juntas e o aluno ficava sem plano. Com o schema no
+            # texto, esse erro não aparece. A 1ª tentativa segue barata e
+            # rápida; esta é a rede.
+            if output_config and "format" in output_config:
+                output_config = {k: v for k, v in output_config.items() if k != "format"}
+                correcao += (
+                    "\n\nSCHEMA COMPLETO DO MOLDE (respeite inclusive os limites numéricos, "
+                    "que não estavam disponíveis na tentativa anterior):\n"
+                    f"{_json.dumps(MOLDE_SCHEMA, indent=2, ensure_ascii=False)}"
+                )
             mensagens = mensagens + [
                 {"role": "assistant", "content": resposta_texto},
-                {
-                    "role": "user",
-                    "content": (
-                        "O molde retornado falhou na validação do schema: "
-                        f"{falha[2]}\n"
-                        "Corrija exatamente esse problema mantendo o restante do molde e "
-                        "retorne SOMENTE o JSON completo corrigido, sem texto adicional."
-                    ),
-                },
+                {"role": "user", "content": correcao},
             ]
 
     if molde is None:

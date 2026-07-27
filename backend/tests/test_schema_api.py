@@ -105,16 +105,35 @@ def test_respeita_o_teto_de_parametros_opcionais(schema):
 
 
 def test_campos_que_sempre_deveriam_vir_sao_obrigatorios_para_a_api():
-    """Foi assim que se cortaram opcionais sem perder capacidade — e de quebra
-    `grupos_musculares` deixa de vir vazio, que é o que deixava muscle_group
-    nulo e o replanejamento semanal sem grupo (migration 0013)."""
+    """Foi assim que se cortaram opcionais sem perder capacidade.
+
+    `dia_offset` NÃO entra: obrigar o modelo a escolher o dia de cada sessão,
+    sem poder lhe dizer a faixa (a API não aceita minimum/maximum) e sem
+    nenhuma regra de unicidade em lugar nenhum, empilhava a semana inteira num
+    dia só — e isso passa em toda a validação e chega ao banco. Opcional, vale
+    o fallback determinístico do mapper.
+    """
     sessao = MOLDE_SCHEMA_API["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
-    assert {"duracao_minutos", "dia_offset", "grupos_musculares"} <= set(sessao["required"])
+    assert {"duracao_minutos", "grupos_musculares"} <= set(sessao["required"])
+    assert "dia_offset" not in sessao["required"]
     exercicio = sessao["properties"]["exercicios"]["items"]
     assert {"prioridade", "tempo_descanso"} <= set(exercicio["required"])
     # ...e nada disso vazou para o schema local, que segue aceitando ausência:
     sessao_local = MOLDE_SCHEMA["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
     assert "dia_offset" not in sessao_local["required"]
+
+
+def test_grupos_musculares_obrigatorio_exige_conteudo_no_schema_local():
+    """`required` na API garante a CHAVE; `minItems` garante o CONTEÚDO — e
+    `minItems` é justamente o que structured outputs não expressa. Sem a
+    restrição no schema local, `[]` satisfaz o obrigatório e o muscle_group
+    volta a chegar nulo (migration 0013), que é o problema que a mudança dizia
+    ter consertado."""
+    sessao_local = MOLDE_SCHEMA["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
+    assert sessao_local["properties"]["grupos_musculares"]["minItems"] == 1
+    # e a chave não pode ter vazado para o schema da API, que a rejeita:
+    sessao_api = MOLDE_SCHEMA_API["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
+    assert "minItems" not in sessao_api["properties"]["grupos_musculares"]
 
 
 def test_anyof_com_irmaos_estruturais_falha_alto():
