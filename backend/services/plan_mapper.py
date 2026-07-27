@@ -51,7 +51,8 @@ _SINONIMOS_GRUPO_MUSCULAR: Dict[str, tuple] = {
     "dorsal": ("Costas",),
     "latissimo": ("Costas",),
     "lombar": ("Lombar",),
-    "coluna": ("Lombar",),
+    "coluna lombar": ("Lombar",),
+    "coluna cervical": ("Trapézio",),
     "trapezio": ("Trapézio",),
     "pescoco": ("Trapézio",),
     "cervical": ("Trapézio",),
@@ -67,7 +68,7 @@ _SINONIMOS_GRUPO_MUSCULAR: Dict[str, tuple] = {
     "coxa": ("Quadríceps", "Posterior de Coxa"),
     "joelho": ("Quadríceps", "Posterior de Coxa"),
     "posterior de coxa": ("Posterior de Coxa",),
-    "posterior": ("Posterior de Coxa",),
+    "cadeia posterior": ("Posterior de Coxa", "Glúteos", "Lombar"),
     "isquiotibiais": ("Posterior de Coxa",),
     "gluteo": ("Glúteos",),
     "quadril": ("Glúteos", "Adutores"),
@@ -299,16 +300,31 @@ def _grupos_do_termo(termo: Any) -> set:
     bruto = normalizar(termo)
     if not bruto:
         return set()
-    candidatos = {bruto}
-    # Frase inteira ("dor no ombro direito") também casa pelos tokens.
-    candidatos.update(token for token in bruto.split() if len(token) > 2)
+    def grupos_de(chave: str) -> tuple:
+        singular = chave[:-1] if chave.endswith("s") else chave
+        return _SINONIMOS_GRUPO_MUSCULAR.get(chave) or _SINONIMOS_GRUPO_MUSCULAR.get(
+            singular
+        ) or ()
+
+    # 1. A frase inteira vence. "deltoide posterior" precisa casar com Ombros,
+    #    não somar "posterior" e marcar Posterior de Coxa junto.
+    exatos = grupos_de(bruto)
+    if exatos:
+        return set(exatos)
+
+    palavras = [token for token in bruto.split() if len(token) > 2]
+
+    # 2. Depois os bigramas, também mais específicos que a palavra solta
+    #    ("coluna cervical" é Trapézio, não Lombar + Trapézio).
+    for i in range(len(palavras) - 1):
+        grupos = grupos_de(" ".join(palavras[i : i + 2]))
+        if grupos:
+            return set(grupos)
+
+    # 3. Só então as palavras isoladas ("dor no ombro direito" → Ombros).
     atingidos: set = set()
-    for candidato in list(candidatos):
-        singular = candidato[:-1] if candidato.endswith("s") else candidato
-        for chave in (candidato, singular):
-            grupos = _SINONIMOS_GRUPO_MUSCULAR.get(chave)
-            if grupos:
-                atingidos.update(grupos)
+    for palavra in palavras:
+        atingidos.update(grupos_de(palavra))
     return atingidos
 
 
