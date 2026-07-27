@@ -365,6 +365,54 @@ def handle_exercise_catalog():
     return response
 
 
+# Tamanho máximo do nome a resolver: o catálogo mais longo tem ~40 caracteres.
+MAX_NOME_PARA_RESOLVER = 120
+
+
+@app.route('/api/exercise-catalog/resolve', methods=['POST'])
+@token_required
+def handle_exercise_catalog_resolve():
+    """
+    Resolve um nome livre contra o catálogo, sem expor os aliases.
+
+    O app não pode reproduzir o resolvedor: os sinônimos ficam de propósito
+    fora do payload do catálogo. Sem esta rota o editor afirmava "esse
+    exercício ainda não está na nossa lista" para nomes que o servidor
+    canoniza na gravação — e a métrica escolhida pelo aluno era sobrescrita
+    em silêncio. A resposta devolve SÓ o item que casou; nada de sinônimo.
+    """
+    from backend.services.exercise_catalog import resolver_exercicio
+
+    corpo = request.get_json(silent=True)
+    if not isinstance(corpo, dict):
+        return jsonify({"error": "Corpo JSON inválido. Esperado objeto."}), 400
+    nome = corpo.get("nome")
+    if not isinstance(nome, str) or not nome.strip():
+        return jsonify({"error": "Informe o nome do exercício."}), 400
+    if len(nome) > MAX_NOME_PARA_RESOLVER:
+        return jsonify({"error": "Nome de exercício longo demais."}), 400
+    equipamento = corpo.get("equipamento")
+    if equipamento is not None and (
+        not isinstance(equipamento, str) or len(equipamento) > MAX_NOME_PARA_RESOLVER
+    ):
+        return jsonify({"error": "Equipamento inválido."}), 400
+
+    canonico = resolver_exercicio(nome, equipamento)
+    if canonico.chave is None:
+        return jsonify({"exercicio": None}), 200
+    return jsonify({
+        "exercicio": {
+            "chave": canonico.chave,
+            "nome": canonico.nome,
+            "grupo_muscular": canonico.grupo_muscular,
+            "equipamento": canonico.equipamento,
+            "peso_corporal": canonico.peso_corporal,
+            "incremento_kg": canonico.incremento_kg,
+            "metrica": canonico.metrica,
+        }
+    }), 200
+
+
 @app.route('/api/generate-plan', methods=['POST'])
 @token_required
 def handle_generate_plan():

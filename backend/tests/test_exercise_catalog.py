@@ -136,6 +136,72 @@ def test_endpoint_catalogo_tem_etag_estavel_cache_privado_e_304():
     assert condicional.headers["ETag"] == primeira.headers["ETag"]
 
 
+def _resolve(client, corpo):
+    return client.post(
+        "/api/exercise-catalog/resolve",
+        json=corpo,
+        headers={"Authorization": "Bearer token-valido"},
+    )
+
+
+def test_resolve_exige_autenticacao():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        sem_token = client.post("/api/exercise-catalog/resolve", json={"nome": "Corrida"})
+    assert sem_token.status_code == 401
+
+
+def test_resolve_devolve_item_canonico_para_alias_que_nao_viaja_no_payload():
+    """
+    'Bent Over Row' só existe como alias no servidor. Sem esta rota o app dizia
+    'não está na nossa lista' e deixava o aluno escolher uma métrica que a
+    gravação sobrescrevia em silêncio.
+    """
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        casou = _resolve(client, {"nome": "Bent Over Row"})
+        cardio = _resolve(client, {"nome": "Corrida"})
+        livre = _resolve(client, {"nome": "Rosca escocesa no banco 45"})
+
+    assert casou.status_code == 200
+    item = casou.get_json()["exercicio"]
+    assert item["chave"] == "remada_curvada_barra"
+    assert item["nome"] == "Remada Curvada com Barra"
+    assert item["metrica"] == "carga_reps"
+    # Alias não pode vazar na resposta.
+    assert "aliases" not in item
+
+    assert cardio.get_json()["exercicio"]["metrica"] == "tempo_distancia"
+    # Nome realmente livre continua livre — nada é inventado.
+    assert livre.get_json()["exercicio"] is None
+
+
+def test_resolve_recusa_entrada_invalida():
+    from backend.app import app
+
+    app.config["TESTING"] = True
+    usuario = {"id": "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"}
+    with app.test_client() as client, mock.patch(
+        "backend.utils.auth.validate_token", return_value=usuario
+    ):
+        vazio = _resolve(client, {"nome": "   "})
+        gigante = _resolve(client, {"nome": "x" * 500})
+        tipo_errado = _resolve(client, {"nome": 42})
+        equipamento_errado = _resolve(client, {"nome": "Corrida", "equipamento": 7})
+
+    assert vazio.status_code == 400
+    assert gigante.status_code == 400
+    assert tipo_errado.status_code == 400
+    assert equipamento_errado.status_code == 400
+
+
 class TestTraducaoLiteralDoIngles:
     def test_linha_curvada_vira_remada_curvada(self):
         """'bent-over row' traduzido literalmente virava 'Linha Curvada'."""
