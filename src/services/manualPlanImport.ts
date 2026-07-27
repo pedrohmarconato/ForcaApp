@@ -16,6 +16,8 @@ export type ExistingManualPlanMetadata = {
   name: string;
   duration_weeks: number;
   progression_rules: unknown[] | null;
+  /** Molde que originou o plano; ver `sessaoDoMoldeDeclarouDuracao`. */
+  raw_plan?: unknown;
 };
 
 export type ManualPlanImportResult = {
@@ -131,6 +133,30 @@ const dayOffsetFromSession = (session: SessionDetail): number | null => {
 
 const sessionDurationFromPlan = (minutes: number | null): number | null =>
   integer(minutes) && minutes >= 15 && minutes <= 180 ? minutes : null;
+
+/**
+ * O aluno declarou a duração daquele treino, ou deixou o servidor estimar?
+ *
+ * `estimated_minutes` na sessão não distingue os dois casos: guarda o número
+ * final, venha de quem vier. Quem preserva a diferença é o molde — o builder só
+ * escreve `duracao_minutos` na sessão quando o aluno declarou um valor. Sem
+ * isso, o número calculado voltava para o campo como escolha do aluno e
+ * congelava: remover exercícios depois não recalculava mais nada.
+ *
+ * `undefined` = não deu para saber (plano de IA, molde ausente ou ilegível);
+ * nesse caso o chamador mantém o comportamento antigo.
+ */
+const sessaoDoMoldeDeclarouDuracao = (
+  rawPlan: unknown,
+  ordem: number,
+): boolean | undefined => {
+  if (!rawPlan || typeof rawPlan !== 'object') return undefined;
+  const sessoes = (rawPlan as { sessoes?: unknown }).sessoes;
+  if (!Array.isArray(sessoes)) return undefined;
+  const sessao = sessoes[ordem];
+  if (!sessao || typeof sessao !== 'object') return undefined;
+  return (sessao as { duracao_minutos?: unknown }).duracao_minutos != null;
+};
 
 const exerciseFromPlan = (exercise: PlannedExercise): ManualExerciseDraft => {
   const firstSet = exercise.planned_sets?.[0];
@@ -337,14 +363,18 @@ export const manualDraftFromExistingPlan = (
       nome: metadata.name,
       duracao_semanas: metadata.duration_weeks,
       progressao: progression,
-      treinos: weekOne.map((session) => {
+      treinos: weekOne.map((session, ordem) => {
         const exercises = session.planned_exercises ?? [];
+        const declarou = sessaoDoMoldeDeclarouDuracao(metadata.raw_plan, ordem);
         return {
           nome: session.title,
           dia_offset: dayOffsetFromSession(session),
           // O contrato manual aceita 15..180. Estimativas fora dessa faixa
           // voltam a null para o mesmo servidor recalculá-las pelo volume.
-          duracao_minutos: sessionDurationFromPlan(session.estimated_minutes),
+          // E o que o servidor estimou volta em branco: era estimativa dele,
+          // não escolha do aluno, e precisa continuar acompanhando o volume.
+          duracao_minutos:
+            declarou === false ? null : sessionDurationFromPlan(session.estimated_minutes),
           incluir_aquecimento: exercises.some((exercise) =>
             isInjectedBlock(exercise, WARMUP_KEY),
           ),

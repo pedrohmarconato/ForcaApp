@@ -385,3 +385,48 @@ describe('manualDraftFromExistingPlan — janela que não cabe no plano', () => 
     expect(progressionChanges.join(' ')).toContain('só uma semana');
   });
 });
+
+describe('estimativa deixada a cargo do servidor', () => {
+  it('volta em branco na edição em vez de virar número declarado pelo aluno', () => {
+    // O aluno deixa "Estimativa do treino" vazio confiando no placeholder "O
+    // servidor estima pelo volume". O servidor calcula (ex.: 36 min) e grava
+    // estimated_minutes. Ao reabrir para editar, esse 36 voltava para o campo
+    // como se ele tivesse digitado: tirar dois exercícios depois disso não
+    // recalculava mais nada, e o plano guardava 36 min para um treino de 19.
+    // O molde preserva a distinção — só grava duracao_minutos quando o aluno
+    // declarou um. É essa a fonte da verdade na volta.
+    const comMolde: ExistingManualPlanMetadata = {
+      ...metadata,
+      raw_plan: {
+        sessoes: [{ nome: 'Treino Push' }], // sem duracao_minutos: o aluno não declarou
+      },
+    };
+
+    const { draft } = manualDraftFromExistingPlan(comMolde, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.treinos[0].duracao_minutos).toBeNull();
+  });
+
+  it('estimativa que o aluno declarou continua voltando preenchida', () => {
+    const comMolde: ExistingManualPlanMetadata = {
+      ...metadata,
+      raw_plan: { sessoes: [{ nome: 'Treino Push', duracao_minutos: 55 }] },
+    };
+
+    const { draft } = manualDraftFromExistingPlan(comMolde, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.treinos[0].duracao_minutos).toBe(55);
+  });
+
+  it('plano sem molde legível mantém o comportamento antigo', () => {
+    const { draft } = manualDraftFromExistingPlan(metadata, [
+      sessionWithInjectedBlocks(),
+    ]);
+
+    expect(draft.treinos[0].duracao_minutos).toBe(55);
+  });
+});
