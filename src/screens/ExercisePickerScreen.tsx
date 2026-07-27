@@ -128,6 +128,11 @@ const ExercisePickerScreen = () => {
   };
 
   const selectMetric = (metrica: CatalogMetric) => {
+    // Trocar de métrica reseta a prescrição, o que é correto — os campos são
+    // outros. Mas tocar no botão que JÁ está aceso não é troca nenhuma: era
+    // mira errada numa linha de três botões, e devolvia a duração para 20 e
+    // zerava a distância que o aluno tinha acabado de digitar.
+    if (exercise?.metrica === metrica) return;
     patchExercise({
       metrica,
       repeticoes: metrica === 'carga_reps' ? '8-12' : null,
@@ -240,7 +245,15 @@ const ExercisePickerScreen = () => {
           <Notice
             tone="info"
             title="Esse exercício ainda não está na nossa lista"
-            description="Ele vai funcionar normalmente; a sugestão de carga pelo histórico pode demorar mais a aparecer."
+            description={
+              catalogError
+                ? // Sem rede o app não consegue perguntar ao servidor se o nome
+                  // é conhecido. Se for, quem manda na métrica é o catálogo — e
+                  // uma prescrição de carga vira tempo na hora de salvar. Antes
+                  // isso acontecia sem nenhum aviso.
+                  'Sem conexão, não dá para conferir se ele já existe no catálogo. Se existir, a métrica do catálogo é a que vale, e a prescrição daqui pode ser ajustada ao salvar.'
+                : 'Ele vai funcionar normalmente; a sugestão de carga pelo histórico pode demorar mais a aparecer.'
+            }
           />
         ) : null}
 
@@ -297,7 +310,15 @@ const ExercisePickerScreen = () => {
             maxLength={30}
             onChangeText={(value) => patchExercise({ repeticoes: value || null })}
           />
-        ) : (
+        ) : null}
+        {exercise.metrica === 'carga_reps' && !exercise.repeticoes ? (
+          // O motor precisa de um número e usa 8-12 quando o campo vem vazio.
+          // Isso acontecia sem a tela dizer nada: o aluno apagava de propósito
+          // para decidir na academia e o plano salvava 8-12 como se ele tivesse
+          // escolhido. O default continua; o que muda é ele ser anunciado.
+          <Text style={styles.hint}>Em branco, o plano fica com 8-12 repetições.</Text>
+        ) : null}
+        {exercise.metrica !== 'carga_reps' ? (
           <>
             <NumericField
               label="Duração por série (min)"
@@ -330,7 +351,7 @@ const ExercisePickerScreen = () => {
               />
             ) : null}
           </>
-        )}
+        ) : null}
 
         <Text style={styles.fieldLabel}>Descanso</Text>
         <View style={styles.optionsRow}>
