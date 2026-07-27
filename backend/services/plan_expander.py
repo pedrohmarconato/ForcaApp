@@ -17,6 +17,8 @@ from backend.schemas.molde_schema import MOLDE_SCHEMA
 from backend.services.exercise_catalog import (
     METRICA_TEMPO,
     METRICA_TEMPO_DISTANCIA,
+    e_por_tempo,
+    progride_por_series,
     resolver_exercicio,
 )
 
@@ -248,9 +250,16 @@ def _aplicar_progressao(
 
 
 def _e_por_tempo(exercicio: Dict[str, Any]) -> bool:
-    """Cardio/isometria: medido por tempo (e distância), nunca por %RM."""
-    canonico = resolver_exercicio(exercicio.get("nome"), exercicio.get("equipamento"))
-    return canonico.metrica in (METRICA_TEMPO, METRICA_TEMPO_DISTANCIA)
+    """
+    Cardio/isometria: medido por tempo (e distância), nunca por %RM.
+
+    Delega para a decisão ÚNICA de `exercise_catalog` — a mesma que o mapper
+    usa na gravação. Quando esta função olhava só o catálogo, um nome de fora
+    com duração prescrita progredia aqui como carga (ganhando séries e %RM) e
+    era gravado lá como cardio: uma corrida de 5 min virava 9 séries de 5 min e
+    o %RM que o expansor subiu era jogado fora na persistência.
+    """
+    return e_por_tempo(exercicio)
 
 
 def _aplicar_progressao_cardio(
