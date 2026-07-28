@@ -1,5 +1,6 @@
 // src/services/api/trainingPlanService.ts
 import apiClient, { ENDPOINTS } from './apiClient';
+import { AcompanhamentoPerdidoError } from './planJobErrors';
 import { logger } from '../../utils/logger';
 
 // Geração de plano via LLM pode levar minutos — timeout dedicado, maior que
@@ -11,6 +12,15 @@ import { logger } from '../../utils/logger';
 const GENERATE_PLAN_TIMEOUT_MS = 190000;
 const POLL_INTERVAL_MS = 5000;
 const POLL_MAX_ATTEMPTS = 60;
+
+// Rede de celular cai por dezenas de segundos e volta. Tolerar só 3 falhas
+// consecutivas (~15 s) descartava uma geração que o servidor estava
+// concluindo: em 27/07/2026 o plano foi salvo 11 s depois do app desistir,
+// ficou órfão no banco e o aluno voltou para o onboarding. A janela tolerada
+// agora passa de 1 minuto, e a espera cresce em vez de martelar o servidor
+// de 5 em 5 s enquanto a rede está fora.
+const MAX_CONSECUTIVE_FAILURES = 7;
+const POLL_BACKOFF_MS = [5000, 8000, 12000, 16000, 20000, 20000];
 
 export type Diretrizes = {
   preferencias: string[];
@@ -113,17 +123,23 @@ export const pollPlanJob = async (jobId: string): Promise<JobProgress> => {
 
 /**
  * Polling loop: espera o job terminar (salvo ou erro).
- * Tolera falhas de rede transitórias (até 3 consecutivas) e trata 404
- * (job perdido após restart do servidor) como fallback limpo.
+ * Tolera uma janela de rede ruim de mais de 1 minuto (backoff crescente entre
+ * as tentativas) e trata 404 (job perdido após restart do servidor) como
+ * fallback limpo.
+ *
+ * Desistir aqui NÃO significa que o plano não existe: o servidor segue
+ * gerando. Quem chama precisa procurar o plano salvo no banco antes de
+ * reportar falha ao aluno (ver PostQuestionnaireChat).
  */
 export const waitForPlanJob = async (
   jobId: string,
   onProgress?: (progress: JobProgress) => void,
 ): Promise<JobProgress> => {
   let consecutiveFailures = 0;
-  const MAX_CONSECUTIVE_FAILURES = 3;
 
   for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    let esperaMs = POLL_INTERVAL_MS;
+
     try {
       const progress = await pollPlanJob(jobId);
       consecutiveFailures = 0;
@@ -148,16 +164,17 @@ export const waitForPlanJob = async (
       }
 
       if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        throw new Error('Falha persistente ao verificar progresso do plano.');
+        throw new AcompanhamentoPerdidoError('Conexão instável: não consegui acompanhar a geração do plano.');
       }
 
-      logger.log(`[TrainingPlanService] Falha de rede no poll (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}), retentando...`);
+      esperaMs = POLL_BACKOFF_MS[Math.min(consecutiveFailures - 1, POLL_BACKOFF_MS.length - 1)];
+      logger.log(`[TrainingPlanService] Falha no poll (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}), nova tentativa em ${esperaMs / 1000}s...`);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, esperaMs));
   }
 
-  throw new Error('Timeout aguardando a geração do plano.');
+  throw new AcompanhamentoPerdidoError('Timeout aguardando a geração do plano.');
 };
 
 /**
