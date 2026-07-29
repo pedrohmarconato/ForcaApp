@@ -5,6 +5,7 @@
 // inventada — %RM e descanso só aparecem quando existem de fato.
 
 import React from 'react';
+import { View } from 'react-native';
 import { render } from '@testing-library/react-native';
 
 // O componente usa formatExerciseTarget, que vive no repositório junto do
@@ -70,6 +71,23 @@ describe('PlannedExerciseRow', () => {
     const { getByText } = render(<PlannedExerciseRow exercise={exercicioBase} index={0} />);
 
     expect(getByText('01')).toBeTruthy();
+  });
+
+  it('renderiza o bloco trailing quando fornecido (setas do modo reordenar)', () => {
+    const { getByTestId } = render(
+      <PlannedExerciseRow
+        exercise={exercicioBase}
+        trailing={<View testID="setas-reordenar" />}
+      />,
+    );
+
+    expect(getByTestId('setas-reordenar')).toBeTruthy();
+  });
+
+  it('sem trailing, a linha continua idêntica (sem controles)', () => {
+    const { queryByTestId } = render(<PlannedExerciseRow exercise={exercicioBase} />);
+
+    expect(queryByTestId('setas-reordenar')).toBeNull();
   });
 
   it('rotula prioridade principal e acessória, mas não a secundária', () => {

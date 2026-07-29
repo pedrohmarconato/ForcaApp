@@ -11,6 +11,15 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
 }));
 
+// Reordenação: WorkoutDetail passou a consultar o store da sessão ativa (guarda
+// de draft) e o planEditRepository (que carrega o cliente Supabase). Nenhum dos
+// dois importa para os cenários de erro de banco cobertos aqui.
+jest.mock('../src/store/activeSessionStore', () => ({
+  useActiveSessionStore: (selector: (s: unknown) => unknown) =>
+    selector({ draft: null, pendingCheckIn: null }),
+}));
+jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn() } }));
+
 const mockAuthState = {
   user: { id: 'user-123', email: 'pedro@exemplo.com' },
   profile: { full_name: 'Pedro Marconato' },

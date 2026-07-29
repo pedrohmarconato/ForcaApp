@@ -6,9 +6,10 @@
 // lista de exercícios idêntica e ação única no rodapé.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { Feather } from '@expo/vector-icons';
 
 import theme from '../theme/theme';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
@@ -17,10 +18,43 @@ import {
   SessionDetail,
   PlannedExercise,
 } from '../services/trainingRepository';
-import { Screen, Card, ScreenTitle } from '../components/ui/Surface';
+import { PlanEditError, reordenarExercicios } from '../services/planEditRepository';
+import { moveItem } from '../engine/planReorder';
+import { useActiveSessionStore } from '../store/activeSessionStore';
+import { Screen, Card, ScreenTitle, SectionHeader } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
+
+/** Seta do modo reordenar. Componente próprio para o Pressable não esconder o
+ *  estado desabilitado do leitor de tela. */
+const SetaReordenar = ({
+  direcao,
+  nome,
+  desabilitada,
+  onPress,
+}: {
+  direcao: 'cima' | 'baixo';
+  nome: string;
+  desabilitada: boolean;
+  onPress: () => void;
+}) => (
+  <Pressable
+    onPress={onPress}
+    disabled={desabilitada}
+    hitSlop={8}
+    accessibilityRole="button"
+    accessibilityState={{ disabled: desabilitada }}
+    accessibilityLabel={`Mover ${nome} para ${direcao}`}
+    style={[styles.arrowBtn, desabilitada && styles.arrowBtnDisabled]}
+  >
+    <Feather
+      name={direcao === 'cima' ? 'chevron-up' : 'chevron-down'}
+      size={18}
+      color={desabilitada ? theme.colors.text.quiet : theme.colors.text.primary}
+    />
+  </Pressable>
+);
 
 const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string } } }) => {
   const { sessionId } = route.params;
@@ -29,6 +63,20 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
   const [loading, setLoading] = useState(true);
   // Erro de banco ≠ "treino não encontrado": estados distintos (achado #9)
   const [loadError, setLoadError] = useState(false);
+
+  // Modo reordenar: rascunho local da ordem. null = modo normal. A ordem só é
+  // aplicada quando o servidor confirma (RPC transacional) — a UI nunca aplica
+  // localmente por conta própria.
+  const [ordemDraft, setOrdemDraft] = useState<PlannedExercise[] | null>(null);
+  const [salvandoOrdem, setSalvandoOrdem] = useState(false);
+  const [avisoOrdem, setAvisoOrdem] = useState<'falha' | 'desatualizado' | null>(null);
+
+  // Guarda além do status do banco: com execução desta sessão viva no aparelho
+  // (draft ou check-in pendente), reordenar geraria divergência silenciosa
+  // entre o rascunho da execução e o plano. A RPC revalida no servidor.
+  const draftAtivo = useActiveSessionStore(
+    (s) => s.draft?.plannedSessionId === sessionId || s.pendingCheckIn?.sessionId === sessionId,
+  );
 
   const fetchDetails = useCallback(async () => {
     setLoading(true);
@@ -89,8 +137,76 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
     ? new Date(`${session.scheduled_date}T12:00:00`).toLocaleDateString('pt-BR')
     : null;
 
+  const podeReordenar =
+    session.status === 'pending' && session.planned_exercises.length >= 2 && !draftAtivo;
+  const exercicios = ordemDraft ?? session.planned_exercises;
+
+  const iniciarReordenacao = () => {
+    setAvisoOrdem(null);
+    setOrdemDraft(session.planned_exercises);
+  };
+
+  const cancelarReordenacao = () => {
+    setOrdemDraft(null);
+    setAvisoOrdem(null);
+  };
+
+  const salvarReordenacao = async () => {
+    if (!ordemDraft) return;
+    const original = session.planned_exercises.map((e) => e.id);
+    const nova = ordemDraft.map((e) => e.id);
+    if (original.join('|') === nova.join('|')) {
+      cancelarReordenacao();
+      return;
+    }
+    setSalvandoOrdem(true);
+    setAvisoOrdem(null);
+    try {
+      await reordenarExercicios(session.id, nova);
+      setOrdemDraft(null);
+      await fetchDetails();
+    } catch (err) {
+      if (err instanceof PlanEditError && err.code === '40001') {
+        // O treino mudou fora desta tela: descarta o rascunho e recarrega.
+        setOrdemDraft(null);
+        setAvisoOrdem('desatualizado');
+        await fetchDetails();
+      } else {
+        console.error('Erro ao salvar a nova ordem:', err);
+        setAvisoOrdem('falha');
+      }
+    } finally {
+      setSalvandoOrdem(false);
+    }
+  };
+
+  const moverExercicio = (de: number, para: number) => {
+    setOrdemDraft((atual) => (atual ? moveItem(atual, de, para) : atual));
+  };
+
   const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
-    <PlannedExerciseRow exercise={item} index={index} />
+    <PlannedExerciseRow
+      exercise={item}
+      index={index}
+      trailing={
+        ordemDraft ? (
+          <View style={styles.arrows}>
+            <SetaReordenar
+              direcao="cima"
+              nome={item.name}
+              desabilitada={index === 0 || salvandoOrdem}
+              onPress={() => moverExercicio(index, index - 1)}
+            />
+            <SetaReordenar
+              direcao="baixo"
+              nome={item.name}
+              desabilitada={index === exercicios.length - 1 || salvandoOrdem}
+              onPress={() => moverExercicio(index, index + 1)}
+            />
+          </View>
+        ) : undefined
+      }
+    />
   );
 
   return (
@@ -118,11 +234,33 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
         </View>
       </Card>
 
-      <Text style={styles.listTitle}>Exercícios</Text>
+      <SectionHeader
+        title="Exercícios"
+        actionLabel={podeReordenar && !ordemDraft ? 'Reordenar' : undefined}
+        onActionPress={iniciarReordenacao}
+      />
+
+      {avisoOrdem === 'falha' ? (
+        <Notice
+          tone="danger"
+          title="Não foi possível salvar"
+          description="A nova ordem não foi aplicada. Verifique a conexão e tente novamente."
+          style={styles.reorderNotice}
+        />
+      ) : null}
+      {avisoOrdem === 'desatualizado' ? (
+        <Notice
+          tone="info"
+          title="Este treino mudou em outro lugar."
+          description="Recarregamos a lista com a ordem atual."
+          style={styles.reorderNotice}
+        />
+      ) : null}
 
       <FlatList
         style={styles.list}
-        data={session.planned_exercises}
+        data={exercicios}
+        extraData={ordemDraft}
         renderItem={renderExerciseItem}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
@@ -130,7 +268,25 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
       />
 
       <View style={styles.footer}>
-        {jaConcluido ? (
+        {ordemDraft ? (
+          <View style={styles.reorderFooter}>
+            <Button
+              label="Cancelar"
+              variant="ghost"
+              compact
+              disabled={salvandoOrdem}
+              onPress={cancelarReordenacao}
+              style={styles.reorderFooterBtn}
+            />
+            <Button
+              label="Salvar"
+              compact
+              loading={salvandoOrdem}
+              onPress={salvarReordenacao}
+              style={styles.reorderFooterBtn}
+            />
+          </View>
+        ) : jaConcluido ? (
           <Text style={styles.doneNote}>
             Treino concluído. Veja o registro no seu histórico (aba Perfil).
           </Text>
@@ -184,15 +340,32 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.xs,
   },
 
-  listTitle: {
-    marginBottom: theme.spacing.md,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
   list: { flex: 1 },
   listContent: { paddingBottom: theme.spacing.lg },
+
+  reorderNotice: { marginBottom: theme.spacing.md },
+  arrows: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  arrowBtn: {
+    width: theme.hitTarget.compact,
+    height: theme.hitTarget.compact,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border.subtle,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface.elevated,
+  },
+  arrowBtnDisabled: { opacity: 0.35 },
+  reorderFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: theme.spacing.md,
+  },
+  reorderFooterBtn: { flex: 1 },
 
   footer: {
     paddingTop: theme.spacing.md,

@@ -22,9 +22,11 @@ type PlannedExerciseRowProps = {
   exercise: PlannedExercise;
   /** Posição do exercício na sessão, exibida como índice discreto. */
   index?: number;
+  /** Bloco à direita (ex.: setas do modo reordenar). Ausente = linha atual. */
+  trailing?: React.ReactNode;
 };
 
-const PlannedExerciseRow = ({ exercise, index }: PlannedExerciseRowProps) => {
+const PlannedExerciseRow = ({ exercise, index, trailing }: PlannedExerciseRowProps) => {
   const meta = [
     // "0% RM" é ruído: a IA às vezes preenche zero. Só mostra o que informa.
     exercise.target_rm_percent != null && exercise.target_rm_percent > 0
@@ -50,6 +52,8 @@ const PlannedExerciseRow = ({ exercise, index }: PlannedExerciseRowProps) => {
         <Text style={styles.target}>{formatExerciseTarget(exercise)}</Text>
         {meta.length > 0 ? <Text style={styles.meta}>{meta.join(' · ')}</Text> : null}
       </View>
+
+      {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
     </View>
   );
 };
@@ -74,6 +78,7 @@ const styles = StyleSheet.create({
     letterSpacing: theme.typography.letterSpacing.wide,
   },
   body: { flex: 1, minWidth: 0 },
+  trailing: { justifyContent: 'center' },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
