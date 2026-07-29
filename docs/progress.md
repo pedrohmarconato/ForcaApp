@@ -1019,3 +1019,68 @@ não uma regressão do editor.
 Não há migration nem artefato frontend neste PR; por isso não houve novo
 deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
 telas consumidoras entram no PR 4.
+
+## Reordenação de treinos e exercícios (2026-07-29)
+
+O usuário agora PODE (nunca é obrigado a) reordenar, depois do plano criado:
+exercícios de uma sessão pendente (detalhe do treino → "Reordenar") e treinos
+da semana (aba Plano → "Reordenar" na visão de ciclo). UI com setas ↑/↓ e
+Salvar/Cancelar — sem dependência nova, sem drag-and-drop nesta fase.
+
+Decisões de semântica:
+- Reordenar treinos = FILA REAL: as pendentes da semana permutam
+  `scheduled_date` entre si (o conjunto de datas é preservado por construção);
+  `day_of_week` é recalculado e `order_in_week` virou campo derivado,
+  renumerado para a semana inteira pela data. Fixas
+  (completed/skipped/in_progress) nunca são tocadas.
+- O escopo é escolha do usuário final na hora de salvar (ReorderScopeSheet):
+  "Só nesta semana" ou "Nesta e nas próximas semanas". A propagação casa
+  treino a treino por TÍTULO e só entra em semana 100% pendente com a mesma
+  estrutura; semana inelegível é pulada e REPORTADA no aviso (nunca
+  silenciosa).
+- Toda escrita passa por RPC transacional (migrations 0016/0017, molde da
+  save_training_plan, mesmo advisory lock): ou aplica tudo, ou nada. Lista
+  divergente do estado vivo falha com 40001 e o app recarrega.
+- Guardas: só sessão `pending`; exercícios também exigem ausência de draft de
+  execução ativo no aparelho (activeSessionStore) — reordenar sob execução
+  aberta criaria divergência silenciosa com o rascunho.
+
+Limitações conscientes (documentadas, não resolvidas):
+- `training_plans.raw_plan` NÃO é atualizado pela reordenação. O round-trip do
+  editor manual (backend/services/manual_plan_builder.py) continua lendo a
+  ordem original do raw_plan; salvar por lá recria o plano com a ordem antiga.
+  Follow-up: editor manual passar a ler a ordem viva de planned_*.
+- Permutar pode mover uma pendente para um slot com data no passado; o
+  replanejador a tratará como perdida (comportamento coerente com fila real,
+  documentado em teste no weeklyReplanner.test.ts). O chip de dia no modo
+  edição mostra o dia previsto exatamente para essa consequência ser visível.
+- A guarda de draft do WorkoutDetail lê só o store em memória: após restart do
+  app no estado "aguardando check-in" (draft no disco, sessão ainda `pending`
+  no banco), reordenar passa e o rascunho retomado fica com a ordem antiga.
+  Sem perda de dados (set_logs referenciam planned_set por id) — só divergência
+  de exibição na execução retomada.
+
+### Rodada de review adversarial pré-merge (2026-07-29)
+
+Review de agente + confirmação de cada achado contra o código vivo. Corrigidos
+na própria branch (migration 0018 recria as RPCs — 0016/0017 já estavam
+aplicadas no staging e são imutáveis):
+- **A1 (ALTO)**: com datas EMPATADAS (clamp da semana 1 no plan_mapper agenda
+  várias sessões no mesmo dia), permutar datas era identidade e a renumeração
+  desempatava pelo order_in_week ANTIGO → reordenar era no-op confirmado como
+  sucesso. Fix: a posição escolhida desempata (`array_position(p_session_ids,
+  id)` na base, `array_position(v_title_order, title)` nas propagadas), e o
+  `previewSemana` espelha o mesmo critério.
+- **M1**: 55000/42501 caíam no aviso "verifique a conexão" com retry impossível.
+  Fix: `isPlanoDesatualizado` (40001/55000/42501) → descarta draft + recarrega.
+- **M2**: `getTodaySession`/`getUpcomingSessions` ganharam o desempate por
+  `order_in_week` — a fila real é (data, ordem), e a Home agora concorda com a
+  aba Plano em datas empatadas.
+- **B1-B3**: revoke de public nas três funções (0018) e — descoberto pelo
+  checklist no staging — também de `anon` (0019): os default privileges do
+  Supabase concedem EXECUTE direto a anon em toda função criada, então o
+  `revoke from public` do padrão da casa nunca cortou anon (vale para as RPCs
+  antigas também; follow-up de hardening geral). Exercícios agora exigem plano
+  ATIVO; UPDATE de exercise_order restrito a `id = any(p_exercise_ids)`;
+  advisory lock também na RPC de exercícios.
+- **B5**: guarda de toque duplo no sheet de escopo; JSDoc realocado.

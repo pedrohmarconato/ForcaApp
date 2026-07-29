@@ -29,6 +29,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// Reordenação: WorkoutDetail consulta o store da sessão ativa (guarda de
+// draft). O stub corta a cadeia store → sessionDraftStorage → AsyncStorage
+// nativo, irrelevante para o que esta suíte cobre.
+jest.mock('../src/store/activeSessionStore', () => ({
+  useActiveSessionStore: (selector: (s: unknown) => unknown) =>
+    selector({ draft: null, pendingCheckIn: null }),
+}));
+
 const mockSessaoBase = {
   id: 'sess-1',
   plan_id: 'plan-1',

@@ -7,7 +7,7 @@
 // rodapé. A busca de dados é a mesma da Fase 3.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
@@ -22,12 +22,26 @@ import {
   PlannedSession,
   PlannedExercise,
 } from '../services/trainingRepository';
+import {
+  EscopoReordenacao,
+  isPlanoDesatualizado,
+  reordenarSessoesDaSemana,
+} from '../services/planEditRepository';
+import {
+  moveItem,
+  pendentesOrdenadas,
+  podeReordenarSemana,
+  previewSemana,
+  resumoPropagacao,
+} from '../engine/planReorder';
 import { DIAS_DA_SEMANA } from '../utils/weekSummary';
 import { Screen, Card, ScreenTitle, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
+import { SetasReordenar } from '../components/session/ReorderControls';
+import ReorderScopeSheet from '../components/session/ReorderScopeSheet';
 
 /** Letra do dia (SEG..DOM) a partir do scheduled_date local; null sem data. */
 const diaDaSessao = (sessao: PlannedSession): string | null => {
@@ -58,6 +72,17 @@ const TrainingSessionScreen = () => {
   // contexto da semana, nunca derruba a sessão da vez.
   const [planSessions, setPlanSessions] = useState<PlannedSession[] | null>(null);
   const { user } = useAuth();
+
+  // Modo reordenar treinos: IDs das sessões PENDENTES da semana na ordem
+  // escolhida. null = modo normal. A permuta de datas só acontece quando a RPC
+  // confirma — o rascunho é apenas preview.
+  const [ordemSemanaDraft, setOrdemSemanaDraft] = useState<string[] | null>(null);
+  const [salvandoSemana, setSalvandoSemana] = useState(false);
+  const [avisoSemana, setAvisoSemana] = useState<'falha' | 'desatualizado' | null>(null);
+  // Sheet de escopo (Fase 3): a escolha "só esta semana / também as próximas"
+  // é do usuário final, na hora de salvar.
+  const [escopoSheetAberto, setEscopoSheetAberto] = useState(false);
+  const [resumoSemana, setResumoSemana] = useState<string | null>(null);
 
   const fetchCurrentTraining = useCallback(async () => {
     if (!user) return;
@@ -161,6 +186,75 @@ const TrainingSessionScreen = () => {
   const sessoesDaSemana =
     planSessions?.filter((s) => s.week_number === session.week_number) ?? [];
 
+  const editandoSemana = ordemSemanaDraft != null;
+  const podeReordenarTreinos = podeReordenarSemana(sessoesDaSemana);
+  const semanaExibida = ordemSemanaDraft
+    ? previewSemana(sessoesDaSemana, ordemSemanaDraft)
+    : sessoesDaSemana;
+
+  const iniciarReordenacaoSemana = () => {
+    setAvisoSemana(null);
+    setResumoSemana(null);
+    setOrdemSemanaDraft(pendentesOrdenadas(sessoesDaSemana).map((s) => s.id));
+  };
+
+  const cancelarReordenacaoSemana = () => {
+    setOrdemSemanaDraft(null);
+    setAvisoSemana(null);
+    setEscopoSheetAberto(false);
+  };
+
+  const moverSessao = (id: string, delta: -1 | 1) => {
+    setOrdemSemanaDraft((atual) => {
+      if (!atual) return atual;
+      const idx = atual.indexOf(id);
+      return moveItem(atual, idx, idx + delta);
+    });
+  };
+
+  // Salvar não grava direto: com mudança real, quem decide o escopo é o sheet.
+  const salvarReordenacaoSemana = () => {
+    if (!ordemSemanaDraft) return;
+    const original = pendentesOrdenadas(sessoesDaSemana).map((s) => s.id);
+    if (original.join('|') === ordemSemanaDraft.join('|')) {
+      cancelarReordenacaoSemana();
+      return;
+    }
+    setEscopoSheetAberto(true);
+  };
+
+  const aplicarReordenacaoSemana = async (escopo: EscopoReordenacao) => {
+    // salvandoSemana guarda contra toque duplo no sheet antes do re-render.
+    if (!ordemSemanaDraft || salvandoSemana) return;
+    setEscopoSheetAberto(false);
+    setSalvandoSemana(true);
+    setAvisoSemana(null);
+    try {
+      const resultado = await reordenarSessoesDaSemana({
+        planId: session.plan_id,
+        weekNumber: session.week_number,
+        orderedSessionIds: ordemSemanaDraft,
+        escopo,
+      });
+      setOrdemSemanaDraft(null);
+      setResumoSemana(resumoPropagacao(resultado));
+      // Refetch obrigatório: a fila real mudou — a "sessão da vez" pode ser outra.
+      await fetchCurrentTraining();
+    } catch (err) {
+      if (isPlanoDesatualizado(err)) {
+        // 40001/55000/42501: o plano mudou fora desta tela — recarrega.
+        setOrdemSemanaDraft(null);
+        setAvisoSemana('desatualizado');
+        await fetchCurrentTraining();
+      } else {
+        console.error('Erro ao salvar a nova ordem da semana:', err);
+        setAvisoSemana('falha');
+      }
+    } finally {
+      setSalvandoSemana(false);
+    }
+  };
+
   const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
     <PlannedExerciseRow exercise={item} index={index} />
   );
@@ -176,16 +270,77 @@ const TrainingSessionScreen = () => {
             <Text style={styles.cycleLabel}>
               Semana {session.week_number} de {totalSemanas}
             </Text>
-            <FModules
-              lit={Math.ceil((session.week_number / totalSemanas) * 3)}
-              accessibilityLabel={`Semana ${session.week_number} de ${totalSemanas}`}
-            />
+            {editandoSemana ? (
+              <View style={styles.cycleEditActions}>
+                <Button
+                  label="Cancelar"
+                  variant="ghost"
+                  compact
+                  disabled={salvandoSemana}
+                  onPress={cancelarReordenacaoSemana}
+                />
+                <Button
+                  label="Salvar"
+                  compact
+                  loading={salvandoSemana}
+                  onPress={salvarReordenacaoSemana}
+                />
+              </View>
+            ) : (
+              <View style={styles.cycleTopRight}>
+                {podeReordenarTreinos ? (
+                  <Pressable
+                    onPress={iniciarReordenacaoSemana}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                  >
+                    <Text style={styles.reorderAction}>Reordenar</Text>
+                  </Pressable>
+                ) : null}
+                <FModules
+                  lit={Math.ceil((session.week_number / totalSemanas) * 3)}
+                  accessibilityLabel={`Semana ${session.week_number} de ${totalSemanas}`}
+                />
+              </View>
+            )}
           </View>
-          {sessoesDaSemana.map((s) => {
+
+          {avisoSemana === 'falha' ? (
+            <Notice
+              tone="danger"
+              title="Não foi possível salvar"
+              description="A nova ordem não foi aplicada. Verifique a conexão e tente novamente."
+              style={styles.reorderNotice}
+            />
+          ) : null}
+          {avisoSemana === 'desatualizado' ? (
+            <Notice
+              tone="info"
+              title="Seu plano mudou em outro lugar."
+              description="Recarregamos a semana com a ordem atual."
+              style={styles.reorderNotice}
+            />
+          ) : null}
+          {resumoSemana ? (
+            <Notice
+              tone="info"
+              title="Ordem atualizada"
+              description={resumoSemana}
+              style={styles.reorderNotice}
+            />
+          ) : null}
+
+          {semanaExibida.map((s) => {
             const estado = estadoDaSessao(s, session.id);
+            const ehPendente = s.status === 'pending';
+            const idxPendente =
+              editandoSemana && ehPendente && ordemSemanaDraft
+                ? ordemSemanaDraft.indexOf(s.id)
+                : -1;
             return (
               <ListRow
                 key={s.id}
+                testID={`sessao-semana-${s.id}`}
                 title={s.title}
                 subtitle={
                   [
@@ -196,10 +351,30 @@ const TrainingSessionScreen = () => {
                     .join(' · ') || undefined
                 }
                 leading={<Chip label={diaDaSessao(s) ?? '—'} />}
-                trailingLabel={estado.rotulo || undefined}
+                trailingLabel={
+                  editandoSemana && ehPendente ? undefined : estado.rotulo || undefined
+                }
                 trailingAccent={estado.accent}
-                showChevron
-                onPress={() => navigation.navigate('WorkoutDetail', { sessionId: s.id })}
+                trailing={
+                  editandoSemana && ehPendente && ordemSemanaDraft ? (
+                    <SetasReordenar
+                      nome={s.title}
+                      podeSubir={idxPendente > 0 && !salvandoSemana}
+                      podeDescer={
+                        idxPendente < ordemSemanaDraft.length - 1 && !salvandoSemana
+                      }
+                      onSubir={() => moverSessao(s.id, -1)}
+                      onDescer={() => moverSessao(s.id, 1)}
+                    />
+                  ) : undefined
+                }
+                showChevron={!editandoSemana}
+                onPress={
+                  editandoSemana
+                    ? undefined
+                    : () => navigation.navigate('WorkoutDetail', { sessionId: s.id })
+                }
+                style={editandoSemana && !ehPendente ? styles.rowFixa : undefined}
               />
             );
           })}
@@ -245,6 +420,12 @@ const TrainingSessionScreen = () => {
           onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
         />
       </View>
+
+      <ReorderScopeSheet
+        visible={escopoSheetAberto}
+        onChoose={aplicarReordenacaoSemana}
+        onDismiss={() => setEscopoSheetAberto(false)}
+      />
     </Screen>
   );
 };
@@ -266,6 +447,25 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.sm,
     fontWeight: theme.typography.fontWeights.semiBold,
   },
+  cycleTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.lg,
+  },
+  cycleEditActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  // Mesma gramática do SectionHeader.actionLabel (ação textual discreta).
+  reorderAction: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+  },
+  reorderNotice: { marginBottom: theme.spacing.md },
+  // Fixas esmaecidas no modo edição: não participam da permuta.
+  rowFixa: { opacity: 0.55 },
 
   summary: { marginBottom: theme.spacing.xl },
   summaryTop: {

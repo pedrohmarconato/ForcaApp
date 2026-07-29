@@ -211,6 +211,26 @@ describe('planMissedRedistribution', () => {
     ]);
   });
 
+  it('reordenação da semana: pendente movida para slot no passado vira perdida', () => {
+    // Efeito documentado da feature "reordenar treinos" (fila real): se o
+    // usuário move uma sessão para um slot cuja data já passou, o replanejador
+    // a trata como perdida no ciclo seguinte — coerente com permutar datas de
+    // verdade. O chip de dia no modo edição torna a consequência visível.
+    const sessions = [
+      // Era a sessão de sexta; a reordenação lhe deu o slot de segunda (passado).
+      sess('movida', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
+      sess('qua', '2026-07-15', [ex('w1', 'peito', 'primary', 8)], { status: 'in_progress' }),
+      sess('sex', '2026-07-17', [ex('f1', 'peito', 'accessory', 4)]),
+    ];
+    const plan = planMissedRedistribution({
+      sessions,
+      todayISO: '2026-07-15',
+      currentSessionId: 'qua',
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.missedSessionIds).toEqual(['movida']);
+  });
+
   it('recuperação: não empilha o mesmo grupo em dias consecutivos', () => {
     // Falta de costas na segunda. Terça e quarta treinam costas em dias consecutivos
     // → nenhuma das duas pode receber; sexta (isolada) recebe até o teto.

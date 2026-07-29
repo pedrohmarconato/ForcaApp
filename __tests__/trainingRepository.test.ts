@@ -175,3 +175,46 @@ describe('formatExerciseTarget', () => {
     expect(formatExerciseTarget(amrap)).toBe('2 séries × AMRAP');
   });
 });
+
+// Fix M2 do review do PR #54: a fila real é (scheduled_date, order_in_week).
+// Sem o desempate, semanas com datas EMPATADAS (clamp da semana 1 no
+// plan_mapper) fazem a Home divergir da aba Plano.
+describe('fila real — desempate por order_in_week', () => {
+  const builderRastreado = (resultado: { data: unknown; error: unknown }) => {
+    const builder: any = {
+      select: () => builder,
+      eq: jest.fn(() => builder),
+      order: jest.fn(() => builder),
+      limit: () => builder,
+      single: () => Promise.resolve(resultado),
+      then: (resolve: any, reject: any) => Promise.resolve(resultado).then(resolve, reject),
+    };
+    return builder;
+  };
+
+  it('getTodaySession ordena a pendente por scheduled_date E order_in_week', async () => {
+    const emAndamento = builderRastreado({ data: [], error: null });
+    const pendente = builderRastreado({ data: [{ id: 's1' }], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(emAndamento)
+      .mockReturnValueOnce(pendente);
+
+    await getTodaySession('user-1');
+
+    expect(pendente.order).toHaveBeenCalledWith('scheduled_date', { ascending: true });
+    expect(pendente.order).toHaveBeenCalledWith('order_in_week', { ascending: true });
+  });
+
+  it('getUpcomingSessions ordena por scheduled_date E order_in_week', async () => {
+    const lista = builderRastreado({ data: [], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(lista);
+
+    await getUpcomingSessions('user-1', 3);
+
+    expect(lista.order).toHaveBeenCalledWith('scheduled_date', { ascending: true });
+    expect(lista.order).toHaveBeenCalledWith('order_in_week', { ascending: true });
+  });
+});
