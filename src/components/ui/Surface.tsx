@@ -157,6 +157,8 @@ type ListRowProps = {
   trailingLabel?: string;
   /** Destaca o estado em neon — reservado ao item corrente. */
   trailingAccent?: boolean;
+  /** Bloco de ação à direita (ex.: setas do modo reordenar). */
+  trailing?: React.ReactNode;
   onPress?: () => void;
   showChevron?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -169,6 +171,7 @@ export const ListRow = ({
   leading,
   trailingLabel,
   trailingAccent = false,
+  trailing,
   onPress,
   showChevron = false,
   style,
@@ -186,6 +189,7 @@ export const ListRow = ({
           {trailingLabel}
         </Text>
       ) : null}
+      {trailing ? <View style={styles.rowTrailing}>{trailing}</View> : null}
       {showChevron ? (
         <Feather name="chevron-right" size={16} color={theme.colors.text.quiet} />
       ) : null}
@@ -328,6 +332,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface.card,
   },
   rowLeading: { justifyContent: 'center' },
+  rowTrailing: { flexDirection: 'row', alignItems: 'center' },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: {
     color: theme.colors.text.primary,

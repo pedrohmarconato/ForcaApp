@@ -6,10 +6,9 @@
 // lista de exercícios idêntica e ação única no rodapé.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Feather } from '@expo/vector-icons';
 
 import theme from '../theme/theme';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
@@ -25,36 +24,7 @@ import { Screen, Card, ScreenTitle, SectionHeader } from '../components/ui/Surfa
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
-
-/** Seta do modo reordenar. Componente próprio para o Pressable não esconder o
- *  estado desabilitado do leitor de tela. */
-const SetaReordenar = ({
-  direcao,
-  nome,
-  desabilitada,
-  onPress,
-}: {
-  direcao: 'cima' | 'baixo';
-  nome: string;
-  desabilitada: boolean;
-  onPress: () => void;
-}) => (
-  <Pressable
-    onPress={onPress}
-    disabled={desabilitada}
-    hitSlop={8}
-    accessibilityRole="button"
-    accessibilityState={{ disabled: desabilitada }}
-    accessibilityLabel={`Mover ${nome} para ${direcao}`}
-    style={[styles.arrowBtn, desabilitada && styles.arrowBtnDisabled]}
-  >
-    <Feather
-      name={direcao === 'cima' ? 'chevron-up' : 'chevron-down'}
-      size={18}
-      color={desabilitada ? theme.colors.text.quiet : theme.colors.text.primary}
-    />
-  </Pressable>
-);
+import { SetasReordenar } from '../components/session/ReorderControls';
 
 const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string } } }) => {
   const { sessionId } = route.params;
@@ -190,20 +160,13 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
       index={index}
       trailing={
         ordemDraft ? (
-          <View style={styles.arrows}>
-            <SetaReordenar
-              direcao="cima"
-              nome={item.name}
-              desabilitada={index === 0 || salvandoOrdem}
-              onPress={() => moverExercicio(index, index - 1)}
-            />
-            <SetaReordenar
-              direcao="baixo"
-              nome={item.name}
-              desabilitada={index === exercicios.length - 1 || salvandoOrdem}
-              onPress={() => moverExercicio(index, index + 1)}
-            />
-          </View>
+          <SetasReordenar
+            nome={item.name}
+            podeSubir={index > 0 && !salvandoOrdem}
+            podeDescer={index < exercicios.length - 1 && !salvandoOrdem}
+            onSubir={() => moverExercicio(index, index - 1)}
+            onDescer={() => moverExercicio(index, index + 1)}
+          />
         ) : undefined
       }
     />
@@ -344,22 +307,6 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: theme.spacing.lg },
 
   reorderNotice: { marginBottom: theme.spacing.md },
-  arrows: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  arrowBtn: {
-    width: theme.hitTarget.compact,
-    height: theme.hitTarget.compact,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface.elevated,
-  },
-  arrowBtnDisabled: { opacity: 0.35 },
   reorderFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
