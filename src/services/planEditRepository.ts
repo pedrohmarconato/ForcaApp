@@ -33,6 +33,13 @@ export class PlanEditError extends Error {
   }
 }
 
+/** Erros em que RETRY jamais funciona — o estado mudou fora desta tela:
+ *  40001 lista divergente · 55000 sessão deixou de ser pendente ·
+ *  42501 sessão/plano sumiu ou foi arquivado. O tratamento certo é descartar
+ *  o rascunho e recarregar, nunca "verifique a conexão e tente novamente". */
+export const isPlanoDesatualizado = (err: unknown): boolean =>
+  err instanceof PlanEditError && ['40001', '55000', '42501'].includes(err.code ?? '');
+
 /** Lista de IDs precisa ter 2+ itens, todos preenchidos e sem repetição —
  *  qualquer coisa fora disso é bug de chamada, falha antes de tocar a rede. */
 const validarLista = (ids: string[], rotulo: string): void => {

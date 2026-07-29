@@ -17,7 +17,7 @@ import {
   SessionDetail,
   PlannedExercise,
 } from '../services/trainingRepository';
-import { PlanEditError, reordenarExercicios } from '../services/planEditRepository';
+import { isPlanoDesatualizado, reordenarExercicios } from '../services/planEditRepository';
 import { moveItem } from '../engine/planReorder';
 import { useActiveSessionStore } from '../store/activeSessionStore';
 import { Screen, Card, ScreenTitle, SectionHeader } from '../components/ui/Surface';
@@ -136,8 +136,9 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
       setOrdemDraft(null);
       await fetchDetails();
     } catch (err) {
-      if (err instanceof PlanEditError && err.code === '40001') {
-        // O treino mudou fora desta tela: descarta o rascunho e recarrega.
+      if (isPlanoDesatualizado(err)) {
+        // O treino mudou fora desta tela (40001/55000/42501): retry jamais
+        // funcionaria — descarta o rascunho e recarrega.
         setOrdemDraft(null);
         setAvisoOrdem('desatualizado');
         await fetchDetails();

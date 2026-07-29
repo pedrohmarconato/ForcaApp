@@ -24,7 +24,7 @@ import {
 } from '../services/trainingRepository';
 import {
   EscopoReordenacao,
-  PlanEditError,
+  isPlanoDesatualizado,
   reordenarSessoesDaSemana,
 } from '../services/planEditRepository';
 import {
@@ -224,7 +224,8 @@ const TrainingSessionScreen = () => {
   };
 
   const aplicarReordenacaoSemana = async (escopo: EscopoReordenacao) => {
-    if (!ordemSemanaDraft) return;
+    // salvandoSemana guarda contra toque duplo no sheet antes do re-render.
+    if (!ordemSemanaDraft || salvandoSemana) return;
     setEscopoSheetAberto(false);
     setSalvandoSemana(true);
     setAvisoSemana(null);
@@ -240,7 +241,8 @@ const TrainingSessionScreen = () => {
       // Refetch obrigatório: a fila real mudou — a "sessão da vez" pode ser outra.
       await fetchCurrentTraining();
     } catch (err) {
-      if (err instanceof PlanEditError && err.code === '40001') {
+      if (isPlanoDesatualizado(err)) {
+        // 40001/55000/42501: o plano mudou fora desta tela — recarrega.
         setOrdemSemanaDraft(null);
         setAvisoSemana('desatualizado');
         await fetchCurrentTraining();

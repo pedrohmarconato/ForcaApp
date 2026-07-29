@@ -119,6 +119,30 @@ describe('previewSemana', () => {
     expect(semanaBase.find((s) => s.id === 's4')!.scheduled_date).toBe('2026-08-08');
   });
 
+  it('datas EMPATADAS: a posição escolhida no draft desempata o preview (fix A1)', () => {
+    // Estado real da semana 1: o clamp do plan_mapper pode pôr várias sessões
+    // na MESMA data. Permutar datas iguais é identidade — a intenção do
+    // usuário precisa se materializar no desempate, senão a reordenação vira
+    // no-op silencioso.
+    const semana = [
+      sessao('a', { scheduled_date: '2026-08-03', order_in_week: 1 }),
+      sessao('b', { scheduled_date: '2026-08-03', order_in_week: 2 }),
+      sessao('c', { scheduled_date: '2026-08-03', order_in_week: 3 }),
+    ];
+    const preview = previewSemana(semana, ['c', 'a', 'b']);
+    expect(preview.map((s) => s.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('datas empatadas com fixa: pendentes na ordem do draft, fixa depois', () => {
+    const semana = [
+      sessao('a', { scheduled_date: '2026-08-03', order_in_week: 1 }),
+      sessao('f', { scheduled_date: '2026-08-03', order_in_week: 2, status: 'completed' }),
+      sessao('b', { scheduled_date: '2026-08-03', order_in_week: 3 }),
+    ];
+    const preview = previewSemana(semana, ['b', 'a']);
+    expect(preview.map((s) => s.id)).toEqual(['b', 'a', 'f']);
+  });
+
   it('semana com sessão concluída NO MEIO: slots contornam a fixa', () => {
     // Pendentes: seg e sex. Concluída: qua. Inverter as pendentes troca
     // seg↔sex; a qua fica exatamente onde está.

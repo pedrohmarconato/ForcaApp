@@ -104,7 +104,10 @@ export const getTodaySession = async (userId: string): Promise<PlannedSession | 
     .eq('user_id', userId)
     .eq('plan_id', planId)
     .eq('status', 'pending')
+    // Fila real = (data, order_in_week): sem o desempate, datas empatadas
+    // (clamp da semana 1) fariam a Home divergir da aba Plano.
     .order('scheduled_date', { ascending: true })
+    .order('order_in_week', { ascending: true })
     .limit(1);
   if (pendente.error) throw pendente.error;
   return pendente.data?.[0] ?? null;
@@ -145,6 +148,7 @@ export const getUpcomingSessions = async (
     .eq('plan_id', planId)
     .eq('status', 'pending')
     .order('scheduled_date', { ascending: true })
+    .order('order_in_week', { ascending: true })
     .limit(limit);
   if (error) throw error;
   return data ?? [];

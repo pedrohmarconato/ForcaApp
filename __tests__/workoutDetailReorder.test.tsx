@@ -229,6 +229,23 @@ describe('WorkoutDetail — edição da ordem', () => {
     await waitFor(() => expect(getSessionDetailMock).toHaveBeenCalledTimes(2));
   });
 
+  it('sessão que deixou de ser pendente (55000) recarrega e sai do modo — sem retry impossível', async () => {
+    // Fix M1 do review: 55000/42501 não são falha de rede — retry jamais
+    // funcionaria. Tratamento igual ao 40001: descarta o draft e recarrega.
+    reordenarMock.mockRejectedValueOnce(
+      new PlanEditError('sessão completed não pode ser reordenada', '55000'),
+    );
+    const utils = await renderTela();
+
+    fireEvent.press(utils.getByText('Reordenar'));
+    fireEvent.press(utils.getByLabelText('Mover Supino para cima'));
+    fireEvent.press(utils.getByText('Salvar'));
+
+    await waitFor(() => expect(getSessionDetailMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(utils.getByText(/mudou em outro lugar/)).toBeTruthy());
+    expect(utils.queryByText('Não foi possível salvar')).toBeNull();
+  });
+
   it('estado divergente (40001) recarrega a lista e sai do modo edição', async () => {
     reordenarMock.mockRejectedValueOnce(
       new PlanEditError('lista divergente do estado atual — recarregue', '40001'),

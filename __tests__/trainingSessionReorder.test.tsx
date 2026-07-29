@@ -299,6 +299,22 @@ describe('Aba Plano — edição da ordem da semana', () => {
     expect(getPlanSessionsMock).toHaveBeenCalledTimes(1);
   });
 
+  it('plano regenerado durante a edição (42501) recarrega e sai do modo — sem retry impossível', async () => {
+    reordenarMock.mockRejectedValueOnce(
+      new PlanEditError('plano inexistente, alheio ou não ativo', '42501'),
+    );
+    const utils = await renderTela();
+
+    fireEvent.press(utils.getByText('Reordenar'));
+    fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
+    fireEvent.press(utils.getByText('Salvar'));
+    fireEvent.press(utils.getByText('Só nesta semana'));
+
+    await waitFor(() => expect(getPlanSessionsMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(utils.getByText(/mudou em outro lugar/)).toBeTruthy());
+    expect(utils.queryByText('Não foi possível salvar')).toBeNull();
+  });
+
   it('estado divergente (40001) recarrega e sai do modo edição', async () => {
     reordenarMock.mockRejectedValueOnce(
       new PlanEditError('lista divergente do estado atual — recarregue', '40001'),

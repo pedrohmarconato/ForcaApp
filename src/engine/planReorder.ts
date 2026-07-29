@@ -49,12 +49,6 @@ export const podeReordenarSemana = (semana: PlannedSession[]): boolean => {
   return pendentes.length >= 2 && pendentes.every((s) => !!s.scheduled_date);
 };
 
-/**
- * Preview da semana com a nova ordem: a pendente na posição i de
- * `orderedPendingIds` recebe o slot i; fixas ficam intactas. Retorna a semana
- * inteira ordenada pela fila prevista — é o que a tela exibe no modo edição
- * (o chip do dia passa a mostrar o dia do slot, consequência real da permuta).
- */
 const listarSemanas = (semanas: number[]): string => {
   if (semanas.length <= 1) return String(semanas[0] ?? '');
   return `${semanas.slice(0, -1).join(', ')} e ${semanas[semanas.length - 1]}`;
@@ -86,12 +80,24 @@ export const resumoPropagacao = (resultado: ResultadoReordenacaoSemana): string 
   return partes.join(' ');
 };
 
+/**
+ * Preview da semana com a nova ordem: a pendente na posição i de
+ * `orderedPendingIds` recebe o slot i; fixas ficam intactas. Retorna a semana
+ * inteira ordenada pela fila prevista — é o que a tela exibe no modo edição
+ * (o chip do dia passa a mostrar o dia do slot, consequência real da permuta).
+ *
+ * Empate de datas (estado real: o clamp da semana 1 no plan_mapper agenda
+ * várias sessões no MESMO dia): permutar datas iguais é identidade, então a
+ * intenção do usuário se materializa no DESEMPATE — a posição no draft manda,
+ * espelhando o `array_position(p_session_ids, id)` da RPC (migration 0018).
+ */
 export const previewSemana = (
   semana: PlannedSession[],
   orderedPendingIds: string[],
 ): PlannedSession[] => {
   const slots = slotsPendentes(semana);
   const porId = new Map(semana.map((s) => [s.id, s]));
+  const rank = new Map(orderedPendingIds.map((id, i) => [id, i]));
   const previstas: PlannedSession[] = [];
   orderedPendingIds.forEach((id, i) => {
     const sessao = porId.get(id);
@@ -99,5 +105,13 @@ export const previewSemana = (
     previstas.push({ ...sessao, scheduled_date: slots[i] ?? sessao.scheduled_date });
   });
   const fixas = semana.filter((s) => s.status !== 'pending');
-  return [...previstas, ...fixas].sort(comparaFilaReal);
+  return [...previstas, ...fixas].sort((a, b) => {
+    const da = a.scheduled_date ?? '9999-12-31';
+    const db = b.scheduled_date ?? '9999-12-31';
+    if (da !== db) return da < db ? -1 : 1;
+    const ra = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const rb = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    if (ra !== rb) return ra - rb;
+    return comparaFilaReal(a, b);
+  });
 };
