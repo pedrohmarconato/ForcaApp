@@ -22,12 +22,17 @@ import {
   PlannedSession,
   PlannedExercise,
 } from '../services/trainingRepository';
-import { PlanEditError, reordenarSessoesDaSemana } from '../services/planEditRepository';
+import {
+  EscopoReordenacao,
+  PlanEditError,
+  reordenarSessoesDaSemana,
+} from '../services/planEditRepository';
 import {
   moveItem,
   pendentesOrdenadas,
   podeReordenarSemana,
   previewSemana,
+  resumoPropagacao,
 } from '../engine/planReorder';
 import { DIAS_DA_SEMANA } from '../utils/weekSummary';
 import { Screen, Card, ScreenTitle, ListRow } from '../components/ui/Surface';
@@ -36,6 +41,7 @@ import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
 import { SetasReordenar } from '../components/session/ReorderControls';
+import ReorderScopeSheet from '../components/session/ReorderScopeSheet';
 
 /** Letra do dia (SEG..DOM) a partir do scheduled_date local; null sem data. */
 const diaDaSessao = (sessao: PlannedSession): string | null => {
@@ -73,6 +79,10 @@ const TrainingSessionScreen = () => {
   const [ordemSemanaDraft, setOrdemSemanaDraft] = useState<string[] | null>(null);
   const [salvandoSemana, setSalvandoSemana] = useState(false);
   const [avisoSemana, setAvisoSemana] = useState<'falha' | 'desatualizado' | null>(null);
+  // Sheet de escopo (Fase 3): a escolha "só esta semana / também as próximas"
+  // é do usuário final, na hora de salvar.
+  const [escopoSheetAberto, setEscopoSheetAberto] = useState(false);
+  const [resumoSemana, setResumoSemana] = useState<string | null>(null);
 
   const fetchCurrentTraining = useCallback(async () => {
     if (!user) return;
@@ -184,12 +194,14 @@ const TrainingSessionScreen = () => {
 
   const iniciarReordenacaoSemana = () => {
     setAvisoSemana(null);
+    setResumoSemana(null);
     setOrdemSemanaDraft(pendentesOrdenadas(sessoesDaSemana).map((s) => s.id));
   };
 
   const cancelarReordenacaoSemana = () => {
     setOrdemSemanaDraft(null);
     setAvisoSemana(null);
+    setEscopoSheetAberto(false);
   };
 
   const moverSessao = (id: string, delta: -1 | 1) => {
@@ -200,23 +212,31 @@ const TrainingSessionScreen = () => {
     });
   };
 
-  const salvarReordenacaoSemana = async () => {
+  // Salvar não grava direto: com mudança real, quem decide o escopo é o sheet.
+  const salvarReordenacaoSemana = () => {
     if (!ordemSemanaDraft) return;
     const original = pendentesOrdenadas(sessoesDaSemana).map((s) => s.id);
     if (original.join('|') === ordemSemanaDraft.join('|')) {
       cancelarReordenacaoSemana();
       return;
     }
+    setEscopoSheetAberto(true);
+  };
+
+  const aplicarReordenacaoSemana = async (escopo: EscopoReordenacao) => {
+    if (!ordemSemanaDraft) return;
+    setEscopoSheetAberto(false);
     setSalvandoSemana(true);
     setAvisoSemana(null);
     try {
-      await reordenarSessoesDaSemana({
+      const resultado = await reordenarSessoesDaSemana({
         planId: session.plan_id,
         weekNumber: session.week_number,
         orderedSessionIds: ordemSemanaDraft,
-        escopo: 'semana',
+        escopo,
       });
       setOrdemSemanaDraft(null);
+      setResumoSemana(resumoPropagacao(resultado));
       // Refetch obrigatório: a fila real mudou — a "sessão da vez" pode ser outra.
       await fetchCurrentTraining();
     } catch (err) {
@@ -296,6 +316,14 @@ const TrainingSessionScreen = () => {
               tone="info"
               title="Seu plano mudou em outro lugar."
               description="Recarregamos a semana com a ordem atual."
+              style={styles.reorderNotice}
+            />
+          ) : null}
+          {resumoSemana ? (
+            <Notice
+              tone="info"
+              title="Ordem atualizada"
+              description={resumoSemana}
               style={styles.reorderNotice}
             />
           ) : null}
@@ -390,6 +418,12 @@ const TrainingSessionScreen = () => {
           onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
         />
       </View>
+
+      <ReorderScopeSheet
+        visible={escopoSheetAberto}
+        onChoose={aplicarReordenacaoSemana}
+        onDismiss={() => setEscopoSheetAberto(false)}
+      />
     </Screen>
   );
 };

@@ -1019,3 +1019,38 @@ não uma regressão do editor.
 Não há migration nem artefato frontend neste PR; por isso não houve novo
 deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
 telas consumidoras entram no PR 4.
+
+## Reordenação de treinos e exercícios (2026-07-29)
+
+O usuário agora PODE (nunca é obrigado a) reordenar, depois do plano criado:
+exercícios de uma sessão pendente (detalhe do treino → "Reordenar") e treinos
+da semana (aba Plano → "Reordenar" na visão de ciclo). UI com setas ↑/↓ e
+Salvar/Cancelar — sem dependência nova, sem drag-and-drop nesta fase.
+
+Decisões de semântica:
+- Reordenar treinos = FILA REAL: as pendentes da semana permutam
+  `scheduled_date` entre si (o conjunto de datas é preservado por construção);
+  `day_of_week` é recalculado e `order_in_week` virou campo derivado,
+  renumerado para a semana inteira pela data. Fixas
+  (completed/skipped/in_progress) nunca são tocadas.
+- O escopo é escolha do usuário final na hora de salvar (ReorderScopeSheet):
+  "Só nesta semana" ou "Nesta e nas próximas semanas". A propagação casa
+  treino a treino por TÍTULO e só entra em semana 100% pendente com a mesma
+  estrutura; semana inelegível é pulada e REPORTADA no aviso (nunca
+  silenciosa).
+- Toda escrita passa por RPC transacional (migrations 0016/0017, molde da
+  save_training_plan, mesmo advisory lock): ou aplica tudo, ou nada. Lista
+  divergente do estado vivo falha com 40001 e o app recarrega.
+- Guardas: só sessão `pending`; exercícios também exigem ausência de draft de
+  execução ativo no aparelho (activeSessionStore) — reordenar sob execução
+  aberta criaria divergência silenciosa com o rascunho.
+
+Limitações conscientes (documentadas, não resolvidas):
+- `training_plans.raw_plan` NÃO é atualizado pela reordenação. O round-trip do
+  editor manual (backend/services/manual_plan_builder.py) continua lendo a
+  ordem original do raw_plan; salvar por lá recria o plano com a ordem antiga.
+  Follow-up: editor manual passar a ler a ordem viva de planned_*.
+- Permutar pode mover uma pendente para um slot com data no passado; o
+  replanejador a tratará como perdida (comportamento coerente com fila real,
+  documentado em teste no weeklyReplanner.test.ts). O chip de dia no modo
+  edição mostra o dia previsto exatamente para essa consequência ser visível.

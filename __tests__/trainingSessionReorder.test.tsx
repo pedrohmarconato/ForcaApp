@@ -201,16 +201,17 @@ describe('Aba Plano — edição da ordem da semana', () => {
     ]);
   });
 
-  it('Salvar sem mudança sai do modo sem rede', async () => {
+  it('Salvar sem mudança sai do modo sem rede e sem abrir o sheet', async () => {
     const utils = await renderTela();
     fireEvent.press(utils.getByText('Reordenar'));
     fireEvent.press(utils.getByText('Salvar'));
 
     await waitFor(() => expect(utils.getByText('Reordenar')).toBeTruthy());
+    expect(utils.queryByText('Só nesta semana')).toBeNull();
     expect(reordenarMock).not.toHaveBeenCalled();
   });
 
-  it('Salvar envia a nova ordem (escopo semana) e refaz o fetch inteiro', async () => {
+  it('Salvar abre o sheet de escopo; "Só nesta semana" aplica e refaz o fetch', async () => {
     const utils = await renderTela();
     expect(getPlanSessionsMock).toHaveBeenCalledTimes(1);
     expect(getTodaySessionMock).toHaveBeenCalledTimes(1);
@@ -219,6 +220,12 @@ describe('Aba Plano — edição da ordem da semana', () => {
     fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
     fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
     fireEvent.press(utils.getByText('Salvar'));
+
+    // O sheet decide o escopo — nada vai à rede antes da escolha.
+    expect(utils.getByText('Só nesta semana')).toBeTruthy();
+    expect(reordenarMock).not.toHaveBeenCalled();
+
+    fireEvent.press(utils.getByText('Só nesta semana'));
 
     await waitFor(() =>
       expect(reordenarMock).toHaveBeenCalledWith({
@@ -234,6 +241,45 @@ describe('Aba Plano — edição da ordem da semana', () => {
     await waitFor(() => expect(utils.getByText('Reordenar')).toBeTruthy());
   });
 
+  it('fechar o sheet pelo fundo volta à edição sem salvar', async () => {
+    const utils = await renderTela();
+    fireEvent.press(utils.getByText('Reordenar'));
+    fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
+    fireEvent.press(utils.getByText('Salvar'));
+
+    fireEvent.press(utils.getByTestId('reorder-scope-backdrop'));
+
+    expect(reordenarMock).not.toHaveBeenCalled();
+    // Continua no modo edição, com o rascunho intacto.
+    expect(setasVisiveis(utils)).toEqual([
+      'Mover Sessão Alfa para cima',
+      'Mover Sessão Delta para cima',
+      'Mover Sessão Gama para cima',
+    ]);
+  });
+
+  it('"Nesta e nas próximas semanas" envia escopo futuras e resume a propagação', async () => {
+    reordenarMock.mockResolvedValueOnce({
+      appliedWeeks: [1, 2, 3],
+      skippedWeeks: [{ weekNumber: 5, reason: 'contagem_diferente' }],
+    });
+    const utils = await renderTela();
+
+    fireEvent.press(utils.getByText('Reordenar'));
+    fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
+    fireEvent.press(utils.getByText('Salvar'));
+    fireEvent.press(utils.getByText('Nesta e nas próximas semanas'));
+
+    await waitFor(() =>
+      expect(reordenarMock).toHaveBeenCalledWith(
+        expect.objectContaining({ escopo: 'futuras' }),
+      ),
+    );
+    // Propagação nunca é silenciosa: aplicadas e mantidas aparecem no aviso.
+    await waitFor(() => expect(utils.getByText(/semanas 1, 2 e 3/)).toBeTruthy());
+    expect(utils.getByText(/Semana 5 mantida/)).toBeTruthy();
+  });
+
   it('falha do serviço mostra aviso e preserva o rascunho', async () => {
     reordenarMock.mockRejectedValueOnce(new Error('network request failed'));
     const utils = await renderTela();
@@ -241,6 +287,7 @@ describe('Aba Plano — edição da ordem da semana', () => {
     fireEvent.press(utils.getByText('Reordenar'));
     fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
     fireEvent.press(utils.getByText('Salvar'));
+    fireEvent.press(utils.getByText('Só nesta semana'));
 
     await waitFor(() => expect(utils.getByText('Não foi possível salvar')).toBeTruthy());
     // Rascunho preservado: Delta continua acima de Gama.
@@ -261,6 +308,7 @@ describe('Aba Plano — edição da ordem da semana', () => {
     fireEvent.press(utils.getByText('Reordenar'));
     fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
     fireEvent.press(utils.getByText('Salvar'));
+    fireEvent.press(utils.getByText('Só nesta semana'));
 
     await waitFor(() => expect(getPlanSessionsMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(utils.getByText(/mudou em outro lugar/)).toBeTruthy());

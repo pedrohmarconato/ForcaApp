@@ -7,6 +7,7 @@
 // semântica da RPC reorder_week_sessions (migration 0017) para o preview local.
 
 import type { PlannedSession } from '../services/trainingRepository';
+import type { ResultadoReordenacaoSemana } from '../services/planEditRepository';
 
 /** Cópia do array com o item movido de `from` para `to`; índices fora do
  *  alcance devolvem o array original intacto (nunca lança). */
@@ -54,6 +55,37 @@ export const podeReordenarSemana = (semana: PlannedSession[]): boolean => {
  * inteira ordenada pela fila prevista — é o que a tela exibe no modo edição
  * (o chip do dia passa a mostrar o dia do slot, consequência real da permuta).
  */
+const listarSemanas = (semanas: number[]): string => {
+  if (semanas.length <= 1) return String(semanas[0] ?? '');
+  return `${semanas.slice(0, -1).join(', ')} e ${semanas[semanas.length - 1]}`;
+};
+
+/**
+ * Texto do aviso pós-propagação. Propagação nunca é silenciosa: semanas
+ * aplicadas e mantidas aparecem para o usuário. Retorna null quando não há
+ * nada a dizer (salvou só a própria semana, sem puladas).
+ */
+export const resumoPropagacao = (resultado: ResultadoReordenacaoSemana): string | null => {
+  const { appliedWeeks, skippedWeeks } = resultado;
+  if (skippedWeeks.length === 0 && appliedWeeks.length <= 1) return null;
+  const partes: string[] = [];
+  partes.push(
+    appliedWeeks.length === 1
+      ? `Nova ordem aplicada à semana ${listarSemanas(appliedWeeks)}.`
+      : `Nova ordem aplicada às semanas ${listarSemanas(appliedWeeks)}.`,
+  );
+  if (skippedWeeks.length === 1) {
+    partes.push(
+      `Semana ${skippedWeeks[0].weekNumber} mantida como estava (estrutura diferente).`,
+    );
+  } else if (skippedWeeks.length > 1) {
+    partes.push(
+      `Semanas ${listarSemanas(skippedWeeks.map((s) => s.weekNumber))} mantidas como estavam (estrutura diferente).`,
+    );
+  }
+  return partes.join(' ');
+};
+
 export const previewSemana = (
   semana: PlannedSession[],
   orderedPendingIds: string[],
