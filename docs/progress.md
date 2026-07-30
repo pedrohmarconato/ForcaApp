@@ -1084,3 +1084,270 @@ aplicadas no staging e são imutáveis):
   ATIVO; UPDATE de exercise_order restrito a `id = any(p_exercise_ids)`;
   advisory lock também na RPC de exercícios.
 - **B5**: guarda de toque duplo no sheet de escopo; JSDoc realocado.
+
+---
+
+## Flexibilidade do cardio e da execução — Fase 1: recusa declarada (30/07/2026)
+
+Origem: o dono perguntou como o cardio funciona hoje ("posso não fazer? tem onde
+marcar? posso pôr uma meta ou a IA já faz?"). O levantamento mostrou que a
+MEDIÇÃO do cardio é sólida (0014: métrica, duração, distância, esforço, pace
+gerado) mas a DECISÃO era inexistente: um sim/não no questionário, nenhuma meta,
+e no dia do treino nenhuma forma de dizer "não vou fazer isto".
+
+Três fases decididas com o dono: **(1) recusa declarada**, (2) dose de cardio
+como contrato validado, (3) metas de cardio (desempenho + consistência).
+
+### O que a Fase 1 entrega
+
+- **migration `0020_recusa_declarada.sql`**
+  - `planned_sessions` ganha `skip_reason`, `skip_note`, `skipped_at`,
+    `skip_source` ('user' | 'replan'), com constraint de coerência: dado de
+    recusa só existe em sessão `status='skipped'`.
+  - `exercise_skips` (nova): recusa de um exercício DENTRO de uma execução
+    (escopo `session_log`, não o plano — recusar hoje não apaga o exercício das
+    próximas semanas). RLS herdada do `session_log`, como `set_logs`.
+  - Vocabulário FECHADO de motivos em `_forca_motivo_recusa_valido`:
+    `sem_tempo`, `dor_ou_lesao`, `sem_equipamento`, `nao_gosto`, `cansaco`,
+    `outro`. É fechado porque o dado precisa AGREGAR ("recusou 3×"); a nota livre
+    (≤280) complementa e nunca substitui.
+  - 4 RPCs atômicas: `skip_session_exercise`, `unskip_session_exercise`,
+    `skip_planned_session`, `unskip_planned_session`. `revoke ... from public,
+    anon` + `grant` a `authenticated` (aprendizado da 0019: os default
+    privileges do Supabase dão EXECUTE a anon em toda função criada).
+- **App**: ação "Não vou fazer" por exercício na fila da sessão, "Não vou
+  treinar hoje" no detalhe do treino e dentro da execução (só enquanto nada foi
+  registrado), `SkipReasonSheet` com motivo obrigatório + nota opcional, e
+  desfazer nos dois níveis.
+- **Semântica**: recusa e corte por tempo convivem sob um único predicado
+  (`exercicioForaDeJogo`) — séries pendentes saem da conta, as JÁ FEITAS
+  continuam contando.
+- **Replanejador**: o que foi recusado por `dor_ou_lesao`/`nao_gosto`/
+  `sem_equipamento` deixa de poder RECEBER volume redistribuído (casamento por
+  nome normalizado, porque o id do exercício muda em cada sessão).
+  `sem_tempo`/`cansaco` são circunstância, não rejeição, e não bloqueiam.
+
+### Verificação
+
+- **611 testes / 67 suítes verdes**, **452 pytest**, `tsc --noEmit` limpo.
+- Testes novos partindo de reprodução vermelha (`recusaDeclarada.test.ts`,
+  `recusaDeclaradaFluxo.test.ts`), um por modo de falha provável: recusa que não
+  sai do `exerciciosEmJogo` (o player continuaria abrindo o exercício), séries
+  feitas apagadas do contador, aluno preso ao recusar tudo (`isSessionComplete`
+  exige `total > 0` → `sessionSemNadaAFazer` abre a saída), série ativa órfã,
+  rascunho legado lido como recusado, recusa perdida na retomada, rascunho local
+  ressuscitando sessão recusada, e volume recusado voltando pelo replan.
+- **Migration validada contra o banco de STAGING** com checklist de 14 itens e
+  dados sintéticos, tudo em `begin; … rollback;` — terminou em `CHECKLIST_OK` e
+  a contraprova confirmou que **nada persistiu** (tabela, colunas, RPCs e lixo
+  do checklist: 0). O checklist cobre errcodes (22023/42501/P0001/55000/23514),
+  idempotência do desfazer, fechamento do log aberto pela recusa da sessão,
+  `anon` sem EXECUTE e vazamento de RLS para outro usuário.
+
+### Ordem de deploy (importante)
+
+`getOpenSessionLog` passou a pedir `exercise_skips(...)` no mesmo select do
+`session_logs`. Em banco SEM a 0020 aplicada, esse select falha e a RETOMADA de
+sessão para de funcionar. **A migration entra antes do PWA**, nunca depois.
+
+### Limitações conscientes
+
+- Recusar a sessão NÃO redistribui o volume dela: a redistribuição da Fase 6 age
+  sobre sessões perdidas por decurso de data. Recusa declarada é perda
+  registrada, não compensada em silêncio — e o sheet diz isso ao aluno.
+- O bloqueio de receptor casa por NOME normalizado; variação de rótulo
+  ("Corrida" vs "Corrida leve") escapa.
+- A agregação "recusou o mesmo exercício N vezes" tem o dado (índice em
+  `exercise_skips (planned_exercise_id, created_at desc)`) mas ainda não tem
+  consumidor: propor substituição automática ficou como follow-up.
+- `unskip_planned_session` não reabre o `session_log` que a recusa fechou (log
+  sem série é inofensivo; reabrir reescreveria `finished_at` do servidor).
+
+### Rodada de review pré-merge (30/07/2026)
+
+Achados confirmados e corrigidos antes do merge:
+
+- o cache local agora grava um tombstone `finished` antes de tentar removê-lo;
+  se o `removeItem` falhar, uma retomada offline não adota o rascunho ativo;
+- sessão `completed`/`skipped` não entra em check-in por rota velha, e a 0020
+  recria `start_session` com a mesma guarda no banco — desfazer recusa continua
+  sendo uma transição explícita;
+- `skip_planned_session` e `finish_session` usam a mesma ordem de locks, e a
+  recusa da sessão é rejeitada se o log já tiver `set_logs`; trabalho registrado
+  não pode terminar sob status `skipped` numa corrida entre telas/dispositivos;
+- o `WITH CHECK` de `exercise_skips` passou a exigir log aberto e exercício da
+  mesma sessão planejada, não apenas a posse do log.
+
+A validação transacional em STAGING descrita acima foi feita antes desses
+ajustes de review. A migration 0020 continua **não aplicada** em staging e
+produção; os novos guardas devem fazer parte da validação/aplicação própria de
+migrations, sem antecipá-la neste merge.
+
+## Fase 2: dose de cardio declarada como contrato (30/07/2026)
+
+Antes: `inclui_cardio boolean` (0008) era TODA a voz do aluno sobre cardio.
+Dias, minutos e modalidade eram decisão exclusiva da IA; o único canal para
+pedir algo diferente era texto livre na conversa, que não é verificável depois.
+
+Decisão do dono: **contrato validado**, não preferência no prompt.
+
+### O que a Fase 2 entrega
+
+- **migration `0021_dose_cardio_declarada.sql`**: `cardio_dias_semana` (1–7),
+  `cardio_minutos_sessao` (5–180) e `cardio_modalidades text[]` em
+  `questionario_usuario`, com constraint de coerência (dose só existe com
+  `inclui_cardio = true`) e lista sem elemento nulo/em branco. O trigger
+  `snapshot_questionario` foi REESCRITO: ele lista colunas uma a uma, e sem isso
+  a dose sairia do histórico em silêncio.
+- **`backend/services/dose_cardio.py`**: lê a dose e valida o molde contra ela.
+  Duas linhas que não cruza: nunca reprova por impossibilidade (dose maior que o
+  número de sessões usa o alvo efetivo) e nunca levanta exceção (uma falha aqui
+  derrubaria a geração inteira).
+- **Cardápio do prompt filtrado**: `catalogo_para_prompt(modalidades_cardio=…)`
+  restringe o grupo Cardio ao que o aluno aceita — e ignora o filtro que
+  esvaziaria o grupo, como já fazia com equipamento.
+- **Bloco de contrato no prompt** (`_instrucao_dose_cardio`), na parte VOLÁTIL da
+  chamada (nunca no prefixo cacheado entre alunos). Os nomes de modalidade
+  passam pelo catálogo antes de entrar: dias/minutos são inteiros com constraint,
+  mas a lista de modalidades é texto do cliente — só nome que existe no catálogo
+  é escrito no prompt, então "modalidade" forjada não vira instrução.
+- **Reprovação no loop de retry**: violação de dose devolve `molde_dose_cardio`
+  com mensagem que nomeia semana-tipo, sessão, o número que veio e o alvo.
+  Diferente da falha de schema, ela NÃO desliga o structured output — o molde
+  estava bem formado, só desobedeceu o contrato.
+- **Questionário**: "sim" no cardio deixou de auto-avançar e passou a revelar a
+  dose no mesmo passo (dias limitados aos dias de treino, minutos, modalidades
+  opcionais). Marcar "não" LIMPA a dose — sem isso o payload violaria a
+  constraint de coerência e o questionário inteiro deixaria de salvar.
+
+### Verificação
+
+- **622 testes jest / 69 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `test_dose_cardio.py` (42 casos) cobre os modos de falha: dose impossível,
+  séries de cardio somando no total da sessão (HIIT 3×10 = 30 min), minutos fora
+  da faixa, modalidade não aceita, questionário antigo sem dose, cardio em plano
+  pedido sem cardio, mensagem opaca e entrada deformada.
+- `doseCardioQuestionario.test.tsx` cobre a tela, incluindo o "sim → preenche →
+  volta para não" que deixaria dose órfã no payload.
+- **Migration validada no STAGING** em `begin; … rollback;` com checklist de 8
+  itens: `CHECKLIST_OK`, e contraprova de que nada persistiu.
+- O checklist pegou um **erro real da migration**: `CHECK` com subquery é
+  recusado pelo Postgres (`0A000`). A validação de lista virou a função imutável
+  `_forca_lista_texto_util` — nenhum teste local pegaria isso.
+
+### Limitações conscientes
+
+- A lista de modalidades da tela (`src/constants/cardioModalidades.ts`) é
+  PARALELA ao catálogo do backend, porque o serviço de catálogo importa o cliente
+  Supabase e derrubaria o onboarding sem env. O drift é coberto por
+  `cardioModalidadesSincronizadas.test.ts`, que lê o JSON do backend e falha se
+  divergir.
+- A tolerância de minutos é ±25% (`TOLERANCIA_MINUTOS`) e o teto de violações na
+  mensagem é 4: mais que isso vira parede de texto e o modelo corrige só a
+  primeira.
+- A dose não é retroativa: quem já tem plano gerado não ganha cardio novo — a
+  dose vale a partir da próxima geração.
+
+### Review pré-merge da pilha
+
+- Modalidades agora são canonizadas pelo catálogo na entrada do contrato. Isso
+  evita que um alias válido (`run`) reprove `Corrida` por diferença textual e
+  deduplica aliases da mesma modalidade.
+- A mesma canonização protege todos os caminhos de prompt: JSON do questionário,
+  cardápio, bloco de contrato e mensagem de retry. Antes, texto forjado era
+  removido só do bloco dedicado, mas ainda aparecia no JSON e no retry.
+- `QuestionnairePayload` passou a declarar os três campos da 0021; a retomada de
+  rascunho incoerente ganhou contraprova de que cardio desligado envia a dose
+  inteira como `null`.
+- A suíte completa acima foi rodada depois de trazer a `main` para a branch.
+  A validação transacional em staging descrita acima antecede este review; a
+  migration 0021 permanece **não aplicada** em staging e produção.
+
+## Fase 3: metas de cardio — desempenho e consistência (30/07/2026)
+
+O cardio era MEDIDO com precisão desde a 0014 (duração, distância, esforço e
+pace como coluna gerada) e não aparecia em nenhum lugar do Progresso:
+constância, volume em kg e recordes de carga só falam de musculação, e o pace
+calculado no banco não tinha consumidor. Sem alvo, "melhorei?" não tinha resposta.
+
+Decisão do dono: **as duas** — desempenho e consistência.
+
+### O que a Fase 3 entrega
+
+- **migration `0022_metas_de_cardio.sql`**: tabela `cardio_goals` com os dois
+  tipos, coerência por tipo em constraint (desempenho exige modalidade +
+  distância + tempo e proíbe os campos de consistência; consistência exige ao
+  menos um eixo e proíbe os de desempenho), **uma meta ativa por tipo** (índice
+  único parcial) e `achieved_at` obrigatório em meta batida. Três RPCs:
+  `upsert_cardio_goal` (arquiva a anterior e insere na mesma transação, com
+  advisory lock por usuário+tipo), `archive_cardio_goal` e `achieve_cardio_goal`.
+- **`src/engine/cardioGoals.ts`** — motor puro. A regra que impede o número mais
+  enganoso da feature: **comparação só entre bases equivalentes**. Uma amostra só
+  conta se for da MESMA modalidade e tiver distância entre 95% e 110% da meta —
+  o tempo de 1 km não prova nada sobre 5 km, e "corrigir" por fórmula (Riegel)
+  seria estimar, não medir. A comparação final é por pace, então 5,1 km ainda
+  serve para uma meta de 5 km.
+- **`src/services/cardioGoalRepository.ts`**: metas ativas, CRUD via RPC e a
+  leitura das séries de cardio (filtro pela `metric` do exercício — a mesma fonte
+  que o mapper usou para gravar, então leitura e persistência não discordam).
+- **Seção "Cardio" na aba Progresso**, com os dois cartões e o sheet de
+  definição (tudo por chip: o aluno escolhe entre valores que as constraints
+  aceitam, então não existe estado inválido a validar).
+
+### A distinção que o motor mantém
+
+- **Desempenho sem amostra é `null`** → a tela diz "ainda sem registro
+  comparável" e explica o que falta. 0% ou "0:00 /km" seria afirmar um esforço
+  que nunca existiu.
+- **Consistência sem registro é ZERO** → aqui o zero é o fato (ele não fez
+  cardio nesta semana) e é justamente a informação útil.
+- Sessões são **dias distintos** com cardio: três séries de esteira no mesmo dia
+  são um treino, e contá-las como três bateria uma meta de "3× por semana" num dia.
+- A semana começa na SEGUNDA, pela mesma `inicioDaSemana` da constância e do
+  volume — duas convenções de semana fariam a aba discordar de si mesma.
+- Conquista é **ação do aluno** ("Bati esta meta"), como o resto do app: o cartão
+  mostra que o dado alcança o alvo, mas quem carimba é ele.
+
+### Verificação
+
+- **663 testes jest / 72 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `cardioGoals.test.ts` (21 casos) cobre: tempo de 1 km numa meta de 5 km, faixa
+  de distância equivalente, ausência de amostra, modalidade trocada, série sem
+  distância (fora do desempenho, dentro da consistência), semana anterior,
+  virada de semana no domingo, três séries no mesmo dia, eixo não declarado e
+  duração ausente/negativa.
+- `cardioGoalsSecao.test.tsx` (17 casos) cobre o que a TELA afirma, incluindo a
+  conversão km/min → metros/segundos e a falha de RPC que não pode sumir.
+- **Migration validada no STAGING** com checklist de 14 itens em
+  `begin; … rollback;`: `CHECKLIST_OK` e contraprova de que nada persistiu.
+- Um teste meu estava errado e o motor certo: eu esperava "faltam 150 s" (1950 −
+  1800), que compara 5,1 km com 5 km. O correto é medir na distância da META:
+  (382,35 − 360) s/km × 5 km ≈ 112 s. Corrigi o teste, com a conta escrita nele.
+
+### Limitações conscientes
+
+- `target_week` existe na tabela e ainda não tem consumidor na tela: prazo de
+  meta ficou modelado, não exibido.
+- A meta de desempenho ignora esforços fora da faixa 95–110% da distância. Quem
+  só corre 3 km numa meta de 5 km vê "sem registro comparável" — é honesto, mas
+  não sugere nada; sugerir a meta possível é follow-up.
+- Não há histórico de metas na tela (a tabela guarda arquivadas e batidas).
+- Nada recalcula/arquiva meta automaticamente ao fim do plano.
+
+### Review pré-merge da pilha
+
+- A leitura dos logs passou a exigir `muscle_group = 'Cardio'`, além da métrica
+  temporal. Antes, prancha, aquecimento e mobilidade também alimentavam minutos
+  e dias de consistência porque todos usam `metric = 'tempo'`.
+- O sheet de desempenho agora oferece somente modalidades do catálogo com
+  `tempo_distancia`; o teste de sincronia cobre esse subconjunto. Meta de Corda,
+  Escada ou HIIT exigia distância que a execução nunca registra.
+- Durações positivas menores que um minuto aparecem como `<1`, nunca zero, e um
+  déficit positivo subsegundo aparece como pelo menos 1 s. Zero continua
+  reservado ao fato zero.
+- Como o motor conta dias distintos, `weekly_sessions` passou a aceitar no
+  máximo 7, não 14. Um teste estático protege a constraint antes da aplicação.
+- `cardioGoalRepository.test.ts` cobre o filtro de grupo e a defesa local contra
+  linha não-cardio. A suíte completa acima foi rodada depois de trazer `main`.
+  A validação transacional em staging descrita acima antecede estes ajustes; a
+  migration 0022 permanece **não aplicada** em staging e produção.

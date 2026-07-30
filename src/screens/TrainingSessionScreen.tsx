@@ -56,7 +56,14 @@ const estadoDaSessao = (
   sessaoDaVezId: string | null,
 ): { rotulo: string; accent: boolean } => {
   if (sessao.status === 'completed') return { rotulo: 'Concluído', accent: true };
-  if (sessao.status === 'skipped') return { rotulo: 'Pulado', accent: false };
+  // "Recusado" e "Pulado" não são a mesma coisa: o primeiro foi uma decisão
+  // declarada pelo aluno (0020), o segundo é data vencida vista pelo
+  // replanejador. Mostrar tudo como "Pulado" apagava a diferença na tela.
+  if (sessao.status === 'skipped')
+    return {
+      rotulo: sessao.skip_source === 'user' ? 'Recusado' : 'Pulado',
+      accent: false,
+    };
   if (sessao.id === sessaoDaVezId)
     return { rotulo: sessao.status === 'in_progress' ? 'Em andamento' : 'A seguir', accent: true };
   return { rotulo: '', accent: false };

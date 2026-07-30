@@ -32,7 +32,13 @@ import {
   useActiveSessionStore,
   suggestionFor,
 } from '../store/activeSessionStore';
-import { sessionProgress, isSessionComplete } from '../engine/sessionModel';
+import {
+  sessionProgress,
+  isSessionComplete,
+  sessionSemNadaAFazer,
+  type DraftExercise,
+  type SkipReason,
+} from '../engine/sessionModel';
 import { montarResumoSessao, type ResumoSessao } from '../engine/sessionSummary';
 import Button from '../components/ui/Button';
 import { Notice, ProgressTrack } from '../components/ui/Feedback';
@@ -42,6 +48,7 @@ import SessionSummary from '../components/session/SessionSummary';
 import AdaptationSheet from '../components/session/AdaptationSheet';
 import CheckInSheet from '../components/session/CheckInSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
+import SkipReasonSheet from '../components/session/SkipReasonSheet';
 import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
@@ -84,9 +91,42 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const confirmReplan = useActiveSessionStore((s) => s.confirmReplan);
   const declineReplan = useActiveSessionStore((s) => s.declineReplan);
 
+  const skipExercise = useActiveSessionStore((s) => s.skipExercise);
+  const skipWholeSession = useActiveSessionStore((s) => s.skipWholeSession);
+
   // Toggle "menos tempo hoje" (Fase 6): input de minutos → recalcula a proposta.
   const [timeInputVisible, setTimeInputVisible] = useState(false);
   const [minutesText, setMinutesText] = useState('');
+
+  // Recusa declarada (0020): o sheet é da TELA, não da fila — um sheet por
+  // exercício abriria vários modais empilhados na mesma árvore.
+  const [recusa, setRecusa] = useState<
+    { escopo: 'exercicio'; exerciseId: string; nome: string } | { escopo: 'sessao' } | null
+  >(null);
+  const [recusaBusy, setRecusaBusy] = useState(false);
+
+  const onConfirmarRecusa = useCallback(
+    async (reason: SkipReason, note: string | null) => {
+      if (!recusa || recusaBusy) return;
+      setRecusaBusy(true);
+      try {
+        const ok =
+          recusa.escopo === 'sessao'
+            ? await skipWholeSession(reason, note)
+            : await skipExercise(recusa.exerciseId, reason, note);
+        if (!ok) {
+          // Falha do servidor NÃO fecha o sheet nem mente que aplicou: o aluno
+          // vê o motivo e pode tentar de novo com a escolha preservada.
+          Alert.alert('Não foi possível registrar', saveError ?? 'Tente novamente.');
+          return;
+        }
+        setRecusa(null);
+      } finally {
+        setRecusaBusy(false);
+      }
+    },
+    [recusa, recusaBusy, skipExercise, skipWholeSession, saveError],
+  );
 
   const iniciar = useCallback(async () => {
     if (!user) return;
@@ -345,14 +385,44 @@ const ActiveSessionScreen = ({ route }: Props) => {
             );
             return detalheEx ? formatExerciseTarget(detalheEx) : null;
           }}
+          onSolicitarRecusa={(ex: DraftExercise) =>
+            setRecusa({ escopo: 'exercicio', exerciseId: ex.exerciseId, nome: ex.name })
+          }
         />
 
-        <Button
-          label="Concluir treino"
-          onPress={onConcluirTreino}
-          disabled={progresso.done === 0}
-          style={styles.finishBtn}
-        />
+        {/* Recusar tudo, exercício por exercício, deixava a tela sem saída: o
+            "Concluir" exige série registrada e não havia nada registrado. Aqui o
+            caminho honesto aparece — o treino foi recusado, não concluído. */}
+        {sessionSemNadaAFazer(draft) ? (
+          <Button
+            label="Recusar o treino de hoje"
+            onPress={() => setRecusa({ escopo: 'sessao' })}
+            style={styles.finishBtn}
+            testID="recusar-treino-sem-nada"
+          />
+        ) : (
+          <Button
+            label="Concluir treino"
+            onPress={onConcluirTreino}
+            disabled={progresso.done === 0}
+            style={styles.finishBtn}
+          />
+        )}
+
+        {/* Nada registrado ainda: desistir do dia inteiro é uma decisão legítima
+            e fica como link discreto. Com séries feitas, o caminho é Concluir —
+            uma sessão 'skipped' com execução dentro seria contraditória. */}
+        {progresso.done === 0 && !sessionSemNadaAFazer(draft) ? (
+          <TouchableOpacity
+            style={styles.recusarSessao}
+            onPress={() => setRecusa({ escopo: 'sessao' })}
+            testID="recusar-treino-hoje"
+            accessibilityRole="button"
+            accessibilityLabel="Não vou treinar hoje"
+          >
+            <Text style={styles.recusarSessaoLabel}>Não vou treinar hoje</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
 
       <AdaptationSheet
@@ -378,6 +448,15 @@ const ActiveSessionScreen = ({ route }: Props) => {
           );
         }}
       />
+
+      <SkipReasonSheet
+        visible={recusa != null}
+        escopo={recusa?.escopo ?? 'exercicio'}
+        alvo={recusa?.escopo === 'exercicio' ? recusa.nome : draft.title}
+        busy={recusaBusy}
+        onConfirm={onConfirmarRecusa}
+        onDismiss={() => setRecusa(null)}
+      />
     </SafeAreaView>
   );
 };
@@ -400,6 +479,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   stateAction: { marginTop: theme.spacing.xl, alignSelf: 'stretch' },
+  recusarSessao: {
+    minHeight: theme.hitTarget.regular,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: theme.spacing.xs,
+  },
+  recusarSessaoLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    textDecorationLine: 'underline',
+  },
   doneTitle: {
     color: theme.colors.text.accent,
     fontFamily: theme.fonts.ui,

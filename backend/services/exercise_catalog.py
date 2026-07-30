@@ -414,6 +414,7 @@ def catalogo_para_prompt(
     equipamentos_disponiveis: Optional[List[str]] = None,
     incluir_cardio: bool = True,
     incluir_mobilidade: bool = True,
+    modalidades_cardio: Optional[List[str]] = None,
 ) -> str:
     """
     Lista compacta para injetar no prompt do molde: 'Grupo: Nome | Nome | ...'.
@@ -428,6 +429,11 @@ def catalogo_para_prompt(
     inclui_alongamento do questionário: quem optou por não incluir cardio ou
     alongamento não recebe esses nomes no cardápio do modelo (o grupo some do
     prompt). Musculação e peso corporal nunca são cortados por aqui.
+
+    modalidades_cardio (0021) restringe o grupo Cardio às modalidades que o aluno
+    declarou aceitar. Filtro que esvaziaria o grupo é IGNORADO — mesma regra do
+    filtro de equipamento: um nome que não reconhecemos não pode virar um plano
+    sem cardio para quem pediu cardio.
     """
     entradas = carregar_catalogo()
 
@@ -453,6 +459,18 @@ def catalogo_para_prompt(
         grupos_excluidos.add(GRUPO_MOBILIDADE)
     if grupos_excluidos:
         entradas = tuple(ex for ex in entradas if ex.grupo_muscular not in grupos_excluidos)
+
+    if incluir_cardio and modalidades_cardio:
+        aceitas = {normalizar(m) for m in modalidades_cardio if isinstance(m, str) and m.strip()}
+        if aceitas:
+            filtradas = tuple(
+                ex for ex in entradas
+                if ex.grupo_muscular != GRUPO_CARDIO or normalizar(ex.nome) in aceitas
+            )
+            # Só aplica se sobrou cardio: com a lista inteira fora do catálogo, o
+            # aluno receberia um plano sem cardio tendo pedido cardio.
+            if any(ex.grupo_muscular == GRUPO_CARDIO for ex in filtradas):
+                entradas = filtradas
 
     agrupado: Dict[str, List[str]] = {}
     for ex in entradas:

@@ -31,6 +31,13 @@ import {
   formatarDataCurta,
   formatarDuracao,
 } from '../utils/weekSummary';
+import {
+  getCardioLogs,
+  getMetasAtivas,
+  type CardioGoal,
+} from '../services/cardioGoalRepository';
+import type { CardioLog } from '../engine/cardioGoals';
+import CardioGoalsSection from '../components/progress/CardioGoalsSection';
 import { Screen, ScreenTitle, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
@@ -53,6 +60,11 @@ const ProgressScreen = () => {
   const [setLogs, setSetLogs] = useState<SetLogResumo[] | null>(null);
   const [erroSessoes, setErroSessoes] = useState(false);
   const [erroSetLogs, setErroSetLogs] = useState(false);
+  // Cardio (0022): metas ativas + séries de cardio. Falhar aqui não derruba o
+  // resto da aba — cada seção carrega e erra por conta própria.
+  const [cardioLogs, setCardioLogs] = useState<CardioLog[] | null>(null);
+  const [metasCardio, setMetasCardio] = useState<CardioGoal[] | null>(null);
+  const [erroCardio, setErroCardio] = useState(false);
   const geracaoRef = useRef(0);
 
   const carregar = useCallback(() => {
@@ -83,6 +95,20 @@ const ProgressScreen = () => {
           setSetLogs(null);
           setErroSetLogs(true);
         }
+      });
+    setErroCardio(false);
+    Promise.all([getCardioLogs(user.id), getMetasAtivas(user.id)])
+      .then(([logs, metas]) => {
+        if (geracao !== geracaoRef.current) return;
+        setCardioLogs(logs);
+        setMetasCardio(metas);
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar cardio do progresso:', err);
+        if (geracao !== geracaoRef.current) return;
+        setCardioLogs(null);
+        setMetasCardio(null);
+        setErroCardio(true);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
@@ -235,6 +261,14 @@ const ProgressScreen = () => {
           </Card>
         )}
       </View>
+
+      {/* --- Cardio: metas de desempenho e de rotina (0022) ------------- */}
+      <CardioGoalsSection
+        logs={cardioLogs}
+        metas={metasCardio}
+        erro={erroCardio}
+        onRecarregar={carregar}
+      />
 
       {/* --- Recordes ---------------------------------------------------- */}
       <View style={styles.section}>

@@ -95,6 +95,11 @@ const preencherFormularioValido = async (utils: Utils) => {
   fireEvent.press(getByLabelText('45-60 min'));
   await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
   fireEvent.press(getByLabelText('Sim')); // cardio
+  // Dose declarada (0021): "sim" revela dias + minutos e só então avança.
+  await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
+  fireEvent.press(getByLabelText('1 dia'));
+  fireEvent.press(getByLabelText('30 min'));
+  fireEvent.press(getByLabelText('Continuar'));
   await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
   fireEvent.press(getByLabelText('Sim')); // alongamento
   await waitFor(() => expect(utils.getByText('Alguma lesão ou restrição?')).toBeTruthy());
