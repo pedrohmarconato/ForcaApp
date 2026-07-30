@@ -19,8 +19,17 @@ Leia antes de operar o banco ou o app. Detalhes completos em `docs/AMBIENTE_SUPA
 
 ## Estado das migrations
 
-- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0014**.
-- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0015**. A 0015 recoloca `progression_rules` na RPC `save_training_plan` e só pode seguir para produção depois da validação completa em HML.
+- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0022**.
+- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0022**.
+- Os dois ambientes estão IGUAIS (conferido em 30/07/2026 por consulta a
+  `supabase_migrations.schema_migrations` nos dois refs, e por `md5(pg_get_functiondef(...))`
+  idêntico nas 14 funções do domínio). Esta seção já esteve defasada por dias — antes de
+  confiar nela, confirme no banco.
+- A 0020 (recusa declarada) **reescreve `start_session` e `finish_session`** além de criar
+  as RPCs de recusa: as duas passaram a barrar o estado `skipped` e usam a mesma ordem de
+  lock (planned_session → session_log). Regressão exercitada em staging com dados
+  sintéticos em `begin/rollback` (idempotência do start, mood inválido, finish repetido,
+  sessão concluída não reabre, recusa bloqueada com série já registrada).
 - Histórico reconciliado em 18/07/2026: 0007/0008 tinham sido aplicadas via SQL direto sem registro → registradas com `supabase migration repair --status applied 0007 0008`; migrations seguintes entraram pelo fluxo normal (`supabase db push`). **Nunca aplicar migration por SQL direto sem registrar** — quebra o `db push` seguinte.
 
 ## Alinhamento DB × app — RESOLVIDO (18/07/2026)
