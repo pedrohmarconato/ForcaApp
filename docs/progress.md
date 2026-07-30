@@ -1162,3 +1162,68 @@ sessão para de funcionar. **A migration entra antes do PWA**, nunca depois.
   consumidor: propor substituição automática ficou como follow-up.
 - `unskip_planned_session` não reabre o `session_log` que a recusa fechou (log
   sem série é inofensivo; reabrir reescreveria `finished_at` do servidor).
+
+## Fase 2: dose de cardio declarada como contrato (30/07/2026)
+
+Antes: `inclui_cardio boolean` (0008) era TODA a voz do aluno sobre cardio.
+Dias, minutos e modalidade eram decisão exclusiva da IA; o único canal para
+pedir algo diferente era texto livre na conversa, que não é verificável depois.
+
+Decisão do dono: **contrato validado**, não preferência no prompt.
+
+### O que a Fase 2 entrega
+
+- **migration `0021_dose_cardio_declarada.sql`**: `cardio_dias_semana` (1–7),
+  `cardio_minutos_sessao` (5–180) e `cardio_modalidades text[]` em
+  `questionario_usuario`, com constraint de coerência (dose só existe com
+  `inclui_cardio = true`) e lista sem elemento nulo/em branco. O trigger
+  `snapshot_questionario` foi REESCRITO: ele lista colunas uma a uma, e sem isso
+  a dose sairia do histórico em silêncio.
+- **`backend/services/dose_cardio.py`**: lê a dose e valida o molde contra ela.
+  Duas linhas que não cruza: nunca reprova por impossibilidade (dose maior que o
+  número de sessões usa o alvo efetivo) e nunca levanta exceção (uma falha aqui
+  derrubaria a geração inteira).
+- **Cardápio do prompt filtrado**: `catalogo_para_prompt(modalidades_cardio=…)`
+  restringe o grupo Cardio ao que o aluno aceita — e ignora o filtro que
+  esvaziaria o grupo, como já fazia com equipamento.
+- **Bloco de contrato no prompt** (`_instrucao_dose_cardio`), na parte VOLÁTIL da
+  chamada (nunca no prefixo cacheado entre alunos). Os nomes de modalidade
+  passam pelo catálogo antes de entrar: dias/minutos são inteiros com constraint,
+  mas a lista de modalidades é texto do cliente — só nome que existe no catálogo
+  é escrito no prompt, então "modalidade" forjada não vira instrução.
+- **Reprovação no loop de retry**: violação de dose devolve `molde_dose_cardio`
+  com mensagem que nomeia semana-tipo, sessão, o número que veio e o alvo.
+  Diferente da falha de schema, ela NÃO desliga o structured output — o molde
+  estava bem formado, só desobedeceu o contrato.
+- **Questionário**: "sim" no cardio deixou de auto-avançar e passou a revelar a
+  dose no mesmo passo (dias limitados aos dias de treino, minutos, modalidades
+  opcionais). Marcar "não" LIMPA a dose — sem isso o payload violaria a
+  constraint de coerência e o questionário inteiro deixaria de salvar.
+
+### Verificação
+
+- **618 testes jest / 69 suítes** e **491 pytest** verdes; `tsc --noEmit` limpo.
+- `test_dose_cardio.py` (39 casos) cobre os modos de falha: dose impossível,
+  séries de cardio somando no total da sessão (HIIT 3×10 = 30 min), minutos fora
+  da faixa, modalidade não aceita, questionário antigo sem dose, cardio em plano
+  pedido sem cardio, mensagem opaca e entrada deformada.
+- `doseCardioQuestionario.test.tsx` cobre a tela, incluindo o "sim → preenche →
+  volta para não" que deixaria dose órfã no payload.
+- **Migration validada no STAGING** em `begin; … rollback;` com checklist de 8
+  itens: `CHECKLIST_OK`, e contraprova de que nada persistiu.
+- O checklist pegou um **erro real da migration**: `CHECK` com subquery é
+  recusado pelo Postgres (`0A000`). A validação de lista virou a função imutável
+  `_forca_lista_texto_util` — nenhum teste local pegaria isso.
+
+### Limitações conscientes
+
+- A lista de modalidades da tela (`src/constants/cardioModalidades.ts`) é
+  PARALELA ao catálogo do backend, porque o serviço de catálogo importa o cliente
+  Supabase e derrubaria o onboarding sem env. O drift é coberto por
+  `cardioModalidadesSincronizadas.test.ts`, que lê o JSON do backend e falha se
+  divergir.
+- A tolerância de minutos é ±25% (`TOLERANCIA_MINUTOS`) e o teto de violações na
+  mensagem é 4: mais que isso vira parede de texto e o modelo corrige só a
+  primeira.
+- A dose não é retroativa: quem já tem plano gerado não ganha cardio novo — a
+  dose vale a partir da próxima geração.
