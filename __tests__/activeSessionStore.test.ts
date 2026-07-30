@@ -924,7 +924,27 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
     expect(await completing).toBe(true);
 
     expect(store().status).toBe('finished');
-    expect(saveDraft).not.toHaveBeenCalled();
+    // A conclusão grava apenas o tombstone `finished`; a gravação atrasada da
+    // série não pode recriar um rascunho ativo depois dele.
+    expect(saveDraft).toHaveBeenCalledTimes(1);
+    expect(saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plannedSessionId: 'sess-1',
+        sessionLogId: 'sl-1',
+        status: 'finished',
+      }),
+    );
+    expect(saveDraft).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        exercises: expect.arrayContaining([
+          expect.objectContaining({
+            sets: expect.arrayContaining([
+              expect.objectContaining({ setLogId: 'set-after-finish' }),
+            ]),
+          }),
+        ]),
+      }),
+    );
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
   });
 });

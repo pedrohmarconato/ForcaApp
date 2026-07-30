@@ -77,6 +77,43 @@ def _quer_cardio(valor: Any) -> bool:
     return str(valor).strip().lower() not in ("false", "nao", "não", "no", "n", "0")
 
 
+def canonicalizar_modalidades_cardio(valor: Any) -> Tuple[str, ...]:
+    """
+    Aceita somente modalidades que o catálogo resolve como Cardio e devolve os
+    nomes CANÔNICOS, sem duplicatas.
+
+    A canonização precisa acontecer na entrada do contrato, não apenas no bloco
+    dedicado do prompt: a mesma dose também aparece no JSON do questionário e
+    na mensagem de retry. Preservar o texto cru nesses caminhos permitiria
+    injeção; preservar um alias válido (``run``) faria ``Corrida`` reprovar por
+    mera diferença textual.
+    """
+    if not isinstance(valor, (list, tuple)):
+        return ()
+
+    from backend.services.exercise_catalog import GRUPO_CARDIO, resolver_exercicio
+
+    nomes: List[str] = []
+    chaves_vistas = set()
+    for item in valor:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            resultado = resolver_exercicio(item)
+        except Exception:  # catálogo indisponível não pode quebrar a geração
+            continue
+        if (
+            not resultado.casou
+            or resultado.grupo_muscular != GRUPO_CARDIO
+            or not resultado.chave
+            or resultado.chave in chaves_vistas
+        ):
+            continue
+        chaves_vistas.add(resultado.chave)
+        nomes.append(resultado.nome)
+    return tuple(nomes)
+
+
 def dose_declarada(questionario: Any) -> Optional[DoseCardio]:
     """
     Lê a dose do questionário. Devolve None quando não há NADA a validar
@@ -90,11 +127,7 @@ def dose_declarada(questionario: Any) -> Optional[DoseCardio]:
         # Recusa explícita também é contrato: o molde não pode trazer cardio.
         return DoseCardio(sem_cardio=True, dias_semana=None, minutos_sessao=None, modalidades=())
 
-    modalidades = tuple(
-        m.strip()
-        for m in (questionario.get("cardio_modalidades") or [])
-        if isinstance(m, str) and m.strip()
-    )
+    modalidades = canonicalizar_modalidades_cardio(questionario.get("cardio_modalidades"))
     dose = DoseCardio(
         sem_cardio=False,
         dias_semana=_inteiro_na_faixa(questionario.get("cardio_dias_semana"), 1, 7),
@@ -104,21 +137,26 @@ def dose_declarada(questionario: Any) -> Optional[DoseCardio]:
     return dose if dose.tem_alvo else None
 
 
-def _e_cardio(nome: Any) -> bool:
+def _nome_cardio_canonico(nome: Any) -> Optional[str]:
     """
-    O exercício é cardio? Resolve pelo CATÁLOGO (grupo "Cardio"), nunca por
-    palpite no nome: o catálogo é a mesma fonte que o mapper usa para decidir a
-    métrica, então validação e persistência concordam por construção.
+    Nome canônico quando o exercício é Cardio, ou None. Resolve pelo CATÁLOGO,
+    nunca por palpite no nome: validação e persistência concordam por construção.
     """
     from backend.services.exercise_catalog import GRUPO_CARDIO, resolver_exercicio
 
     if not isinstance(nome, str) or not nome.strip():
-        return False
+        return None
     try:
         resultado = resolver_exercicio(nome)
     except Exception:  # catálogo indisponível não pode reprovar molde
-        return False
-    return bool(resultado.casou) and resultado.grupo_muscular == GRUPO_CARDIO
+        return None
+    if resultado.casou and resultado.grupo_muscular == GRUPO_CARDIO:
+        return resultado.nome
+    return None
+
+
+def _e_cardio(nome: Any) -> bool:
+    return _nome_cardio_canonico(nome) is not None
 
 
 def _minutos_do_exercicio(exercicio: Dict[str, Any]) -> Optional[float]:
@@ -200,7 +238,7 @@ def _validar(molde: Any, questionario: Any) -> Optional[str]:
         return None
 
     violacoes: List[str] = []
-    permitidas_norm = {m.strip().lower() for m in dose.modalidades}
+    permitidas = set(dose.modalidades)
 
     for indice_semana, semana in enumerate(semanas):
         id_semana = semana.get("id")
@@ -228,11 +266,11 @@ def _validar(molde: Any, questionario: Any) -> Optional[str]:
                 )
                 continue
 
-            if permitidas_norm:
+            if permitidas:
                 fora = [
                     str(e.get("nome"))
                     for e in cardios
-                    if str(e.get("nome") or "").strip().lower() not in permitidas_norm
+                    if _nome_cardio_canonico(e.get("nome")) not in permitidas
                 ]
                 if fora:
                     violacoes.append(

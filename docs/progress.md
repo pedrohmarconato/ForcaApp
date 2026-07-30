@@ -1129,7 +1129,7 @@ como contrato validado, (3) metas de cardio (desempenho + consistência).
 
 ### Verificação
 
-- **608 testes / 67 suítes verdes**, `tsc --noEmit` limpo.
+- **611 testes / 67 suítes verdes**, **452 pytest**, `tsc --noEmit` limpo.
 - Testes novos partindo de reprodução vermelha (`recusaDeclarada.test.ts`,
   `recusaDeclaradaFluxo.test.ts`), um por modo de falha provável: recusa que não
   sai do `exerciciosEmJogo` (o player continuaria abrindo o exercício), séries
@@ -1162,6 +1162,26 @@ sessão para de funcionar. **A migration entra antes do PWA**, nunca depois.
   consumidor: propor substituição automática ficou como follow-up.
 - `unskip_planned_session` não reabre o `session_log` que a recusa fechou (log
   sem série é inofensivo; reabrir reescreveria `finished_at` do servidor).
+
+### Rodada de review pré-merge (30/07/2026)
+
+Achados confirmados e corrigidos antes do merge:
+
+- o cache local agora grava um tombstone `finished` antes de tentar removê-lo;
+  se o `removeItem` falhar, uma retomada offline não adota o rascunho ativo;
+- sessão `completed`/`skipped` não entra em check-in por rota velha, e a 0020
+  recria `start_session` com a mesma guarda no banco — desfazer recusa continua
+  sendo uma transição explícita;
+- `skip_planned_session` e `finish_session` usam a mesma ordem de locks, e a
+  recusa da sessão é rejeitada se o log já tiver `set_logs`; trabalho registrado
+  não pode terminar sob status `skipped` numa corrida entre telas/dispositivos;
+- o `WITH CHECK` de `exercise_skips` passou a exigir log aberto e exercício da
+  mesma sessão planejada, não apenas a posse do log.
+
+A validação transacional em STAGING descrita acima foi feita antes desses
+ajustes de review. A migration 0020 continua **não aplicada** em staging e
+produção; os novos guardas devem fazer parte da validação/aplicação própria de
+migrations, sem antecipá-la neste merge.
 
 ## Fase 2: dose de cardio declarada como contrato (30/07/2026)
 
@@ -1202,8 +1222,8 @@ Decisão do dono: **contrato validado**, não preferência no prompt.
 
 ### Verificação
 
-- **618 testes jest / 69 suítes** e **491 pytest** verdes; `tsc --noEmit` limpo.
-- `test_dose_cardio.py` (39 casos) cobre os modos de falha: dose impossível,
+- **622 testes jest / 69 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `test_dose_cardio.py` (42 casos) cobre os modos de falha: dose impossível,
   séries de cardio somando no total da sessão (HIIT 3×10 = 30 min), minutos fora
   da faixa, modalidade não aceita, questionário antigo sem dose, cardio em plano
   pedido sem cardio, mensagem opaca e entrada deformada.
@@ -1227,6 +1247,21 @@ Decisão do dono: **contrato validado**, não preferência no prompt.
   primeira.
 - A dose não é retroativa: quem já tem plano gerado não ganha cardio novo — a
   dose vale a partir da próxima geração.
+
+### Review pré-merge da pilha
+
+- Modalidades agora são canonizadas pelo catálogo na entrada do contrato. Isso
+  evita que um alias válido (`run`) reprove `Corrida` por diferença textual e
+  deduplica aliases da mesma modalidade.
+- A mesma canonização protege todos os caminhos de prompt: JSON do questionário,
+  cardápio, bloco de contrato e mensagem de retry. Antes, texto forjado era
+  removido só do bloco dedicado, mas ainda aparecia no JSON e no retry.
+- `QuestionnairePayload` passou a declarar os três campos da 0021; a retomada de
+  rascunho incoerente ganhou contraprova de que cardio desligado envia a dose
+  inteira como `null`.
+- A suíte completa acima foi rodada depois de trazer a `main` para a branch.
+  A validação transacional em staging descrita acima antecede este review; a
+  migration 0021 permanece **não aplicada** em staging e produção.
 
 ## Fase 3: metas de cardio — desempenho e consistência (30/07/2026)
 

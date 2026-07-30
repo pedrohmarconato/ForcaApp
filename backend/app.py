@@ -244,6 +244,26 @@ def _sanitize_chat_messages(raw_messages):
     return sanitized
 
 
+def _questionario_para_prompt(questionnaire_data):
+    """Remove texto livre de ``cardio_modalidades`` de qualquer prompt.
+
+    O cliente normal envia nomes canônicos, mas a linha pertence ao usuário e
+    pode conter valor legado ou forjado. Alias reconhecido vira nome canônico;
+    qualquer outro texto vira ``null``. O objeto original não é alterado.
+    """
+    if not isinstance(questionnaire_data, dict):
+        return questionnaire_data
+    if "cardio_modalidades" not in questionnaire_data:
+        return questionnaire_data
+
+    from backend.services.dose_cardio import canonicalizar_modalidades_cardio
+
+    seguro = dict(questionnaire_data)
+    modalidades = canonicalizar_modalidades_cardio(seguro.get("cardio_modalidades"))
+    seguro["cardio_modalidades"] = list(modalidades) if modalidades else None
+    return seguro
+
+
 def _build_chat_system_prompt(questionnaire_data):
     """
     Monta a mensagem de sistema APENAS com o questionário (limitado em tamanho).
@@ -254,7 +274,12 @@ def _build_chat_system_prompt(questionnaire_data):
     import json
 
     try:
-        questionnaire_str = json.dumps(questionnaire_data, indent=2, ensure_ascii=False, default=str)
+        questionnaire_str = json.dumps(
+            _questionario_para_prompt(questionnaire_data),
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     except (TypeError, ValueError):
         questionnaire_str = "(dados do questionário indisponíveis)"
 
@@ -1018,7 +1043,12 @@ def handle_consolidate_chat():
     import json as _json
 
     try:
-        questionnaire_str = _json.dumps(questionnaire_data, indent=2, ensure_ascii=False, default=str)
+        questionnaire_str = _json.dumps(
+            _questionario_para_prompt(questionnaire_data),
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     except (TypeError, ValueError):
         questionnaire_str = "(questionário indisponível)"
 
@@ -1141,7 +1171,8 @@ def _catalogo_para_questionario(questionnaire_data) -> str:
             "false", "nao", "não", "no", "n", "0",
         )
 
-    q = questionnaire_data if isinstance(questionnaire_data, dict) else {}
+    q = _questionario_para_prompt(questionnaire_data)
+    q = q if isinstance(q, dict) else {}
     modalidades = q.get("cardio_modalidades")
     return catalogo_para_prompt(
         incluir_cardio=_quer_incluir(q.get("inclui_cardio")),
@@ -1273,14 +1304,11 @@ def _instrucao_dose_cardio(questionnaire_data) -> str:
     Fazê-la valer só como dado deixaria o modelo livre para ignorá-la, que é
     exatamente o que acontecia quando o único sinal era `inclui_cardio`.
 
-    Por que os NOMES passam pelo catálogo antes de entrar aqui: dias e minutos
-    são inteiros com constraint no banco (não há texto a injetar), mas
-    `cardio_modalidades` é uma lista de strings que chega do cliente. Só nomes
-    que existem no catálogo são escritos no prompt — assim uma "modalidade"
-    forjada com texto de instrução não tem como virar instrução.
+    Os nomes já chegam canonizados por ``dose_declarada``: a mesma limpeza é
+    aplicada ao JSON do questionário, ao cardápio e ao retry, não só a este
+    bloco dedicado.
     """
     from backend.services.dose_cardio import dose_declarada
-    from backend.services.exercise_catalog import GRUPO_CARDIO, resolver_exercicio
 
     dose = dose_declarada(questionnaire_data)
     if dose is None:
@@ -1305,18 +1333,9 @@ def _instrucao_dose_cardio(questionnaire_data) -> str:
             f"`duracao_minutos`, mesmo quando também houver `distancia_km`."
         )
     if dose.modalidades:
-        nomes_validos = []
-        for nome in dose.modalidades:
-            try:
-                resultado = resolver_exercicio(nome)
-            except Exception:
-                continue
-            if resultado.casou and resultado.grupo_muscular == GRUPO_CARDIO:
-                nomes_validos.append(resultado.nome)
-        if nomes_validos:
-            partes.append(
-                f"- Use SOMENTE estas modalidades de cardio: {', '.join(nomes_validos)}."
-            )
+        partes.append(
+            f"- Use SOMENTE estas modalidades de cardio: {', '.join(dose.modalidades)}."
+        )
 
     if not partes:
         return ""
@@ -1513,7 +1532,12 @@ def _executar_geracao_molde(
     )
 
     try:
-        questionnaire_str = _json.dumps(questionnaire_data, indent=2, ensure_ascii=False, default=str)
+        questionnaire_str = _json.dumps(
+            _questionario_para_prompt(questionnaire_data),
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     except (TypeError, ValueError):
         questionnaire_str = "(questionário indisponível)"
 

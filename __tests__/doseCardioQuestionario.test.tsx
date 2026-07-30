@@ -219,4 +219,38 @@ describe('a dose chega ao payload', () => {
       cardio_modalidades: null,
     });
   });
+
+  it('retomada de rascunho incoerente também não reenvia dose com cardio desligado', async () => {
+    const secureStorageMock = jest.requireMock('../src/services/auth/secureStorage');
+    (secureStorageMock.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify({
+      nome: 'Pedro Marconato',
+      data_nascimento: '1990-03-05',
+      genero: 'male',
+      peso_kg: 82.5,
+      altura_cm: 181,
+      experiencia_treino: 'intermediate',
+      objetivo: 'muscle_gain',
+      dias_treino: ['mon', 'wed', 'fri'],
+      tempo_medio_treino_min: 60,
+      inclui_cardio: false,
+      cardio_dias_semana: 3,
+      cardio_minutos_sessao: 45,
+      cardio_modalidades: ['Corrida'],
+      inclui_alongamento: false,
+      tem_lesoes: false,
+      lesoes_detalhes: null,
+    }));
+
+    const utils = render(<QuestionnaireScreen />);
+    await utils.findByText('Alguma lesão ou restrição?');
+    fireEvent.press(utils.getByLabelText('Gerar treino direto'));
+    await waitFor(() => expect(mockSaveQuestionnaire).toHaveBeenCalled());
+
+    expect(mockSaveQuestionnaire.mock.calls[0][0]).toMatchObject({
+      inclui_cardio: false,
+      cardio_dias_semana: null,
+      cardio_minutos_sessao: null,
+      cardio_modalidades: null,
+    });
+  });
 });
