@@ -53,7 +53,7 @@ import {
   unskipSessionExercise,
   skipPlannedSession,
 } from '../src/services/sessionExecutionRepository';
-import { loadDraft, clearDraft } from '../src/services/sessionDraftStorage';
+import { saveDraft, loadDraft, clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import { sessionProgress } from '../src/engine/sessionModel';
 import { planMissedRedistribution } from '../src/engine/weeklyReplanner';
@@ -337,6 +337,38 @@ describe('modo de falha 3: sessão recusada com rascunho vivo', () => {
     expect(store().draft).toBeNull();
     expect(store().status).toBe('finished');
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
+  });
+
+  it('grava tombstone antes de remover: falha no remove não deixa cache ativo', async () => {
+    await abrirSessao();
+    mock(skipPlannedSession).mockResolvedValue(undefined);
+    mock(saveDraft).mockClear();
+    mock(clearDraft).mockRejectedValue(new Error('removeItem falhou'));
+
+    const ok = await store().skipWholeSession('sem_tempo', null);
+
+    expect(ok).toBe(true);
+    expect(saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plannedSessionId: 'sess-1',
+        sessionLogId: 'sl-1',
+        status: 'finished',
+      }),
+    );
+    expect(store().status).toBe('finished');
+    expect(store().draft).toBeNull();
+  });
+
+  it('rota velha não reinicia sessão já recusada no detalhe autoritativo', async () => {
+    const detail = { ...makeDetail(), status: 'skipped' as const, skip_source: 'user' as const };
+    mock(loadDraft).mockResolvedValue(null);
+
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail });
+
+    expect(store().status).toBe('finished');
+    expect(store().draft).toBeNull();
+    expect(getOpenSessionLog).not.toHaveBeenCalled();
+    expect(startSessionLog).not.toHaveBeenCalled();
   });
 
   it('falha do servidor mantém a sessão viva (nada de tela vazia sem lastro)', async () => {

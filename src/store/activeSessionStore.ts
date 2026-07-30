@@ -311,6 +311,27 @@ const seedLastLoads = async (
   }
 };
 
+/**
+ * Aposenta o cache local de uma execução que o servidor já encerrou.
+ *
+ * O tombstone vem ANTES da remoção: se `removeItem` falhar, uma retomada offline
+ * encontra `status='finished'`, não o último rascunho ativo. As duas operações
+ * continuam best-effort — uma falha total do armazenamento não pode desfazer a
+ * decisão já confirmada pelo servidor.
+ */
+const retireLocalDraft = async (draft: SessionDraft): Promise<void> => {
+  try {
+    await saveDraft({ ...draft, status: 'finished' });
+  } catch (e) {
+    console.warn('[activeSession] tombstone do rascunho não persistido (não-fatal):', e);
+  }
+  try {
+    await clearDraft(draft.userId, draft.plannedSessionId, draft.sessionLogId);
+  } catch (e) {
+    console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+  }
+};
+
 /** Reaplica no rascunho as séries já gravadas no servidor (retomada). */
 const applyServerSetLogs = (
   draft: SessionDraft,
@@ -434,6 +455,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       // uso: um rascunho anterior à Fase 5 não tem `hasInjury` e adotá-lo cru desligaria
       // silenciosamente o guardrail de lesão (HIGH do review).
       const local = local0 ? reconcileInjuryFlags(local0, detail) : null;
+      // Uma rota antiga/deep link não pode reabrir implicitamente uma sessão que
+      // o servidor já marcou como concluída ou recusada. Desfazer recusa é uma RPC
+      // explícita; `start_session` não é atalho para essa transição.
+      if (detail.status === 'completed' || detail.status === 'skipped') {
+        set({
+          draft: null,
+          status: 'finished',
+          pendingCheckIn: null,
+          pendingReplan: null,
+          pendingAdaptation: null,
+        });
+        if (local) await retireLocalDraft(local);
+        return;
+      }
       if (
         local &&
         local.plannedSessionId === sessionId &&
@@ -463,14 +498,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           // de limpar: clearDraft é best-effort e NÃO pode ressuscitar um draft já
           // provado finalizado (senão gravaríamos em log fechado — F6).
           set({ draft: null, status: 'finished' });
-          try {
-            await clearDraft(userId, sessionId, local.sessionLogId);
-          } catch (e) {
-            console.warn(
-              '[activeSession] rascunho não removido (não-fatal):',
-              e,
-            );
-          }
+          await retireLocalDraft(local);
           return;
         }
 
@@ -934,8 +962,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // por (log, série) (F9) — não colide entre sessões distintas.
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    const uid = draft.userId;
-    const plannedSessionId = draft.plannedSessionId;
     const lockKey = `${sid}:${serie.plannedSetId}`;
     // Reentrância (duplo-toque / duas instâncias): uma gravação por série por vez (F2).
     if (inFlight.has(lockKey)) return false;
@@ -1104,14 +1130,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             status: 'finished',
             saveError: null,
           });
-          try {
-            await clearDraft(uid, plannedSessionId, sid);
-          } catch (storageError) {
-            console.warn(
-              '[activeSession] rascunho não removido (não-fatal):',
-              storageError,
-            );
-          }
+          await retireLocalDraft(atual);
         } else {
           set({ saveError: errMsg(e) });
         }
@@ -1271,12 +1290,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       pendingAdaptation: null,
       saveError: null,
     });
-    // O rascunho local precisa MORRER: sobrevivendo, a próxima abertura o
-    // adotaria e a sessão recusada voltaria a parecer ativa no aparelho.
-    try {
-      await clearDraft(uid, plannedSessionId, draft?.sessionLogId ?? null);
-    } catch (e) {
-      console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+    // O rascunho local precisa MORRER. O tombstone impede ressurreição offline
+    // mesmo se a remoção do AsyncStorage falhar depois da recusa no servidor.
+    if (draft) {
+      await retireLocalDraft(draft);
+    } else {
+      try {
+        await clearDraft(uid, plannedSessionId, null);
+      } catch (e) {
+        console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+      }
     }
     return true;
   },
@@ -1290,8 +1313,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // CAS: fixa a sessão desta conclusão ANTES do await (F7).
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    const uid = draft.userId;
-    const plannedSessionId = draft.plannedSessionId;
     try {
       // RPC atômica e IDEMPOTENTE (0004): finaliza, ou é sucesso se já estava finalizada
       // (dela); só inexistente/alheia levanta erro — sem "concluído" falso (F4/F6).
@@ -1317,11 +1338,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     });
     // Só limpa o rascunho DEPOIS de finalizar de verdade, e só porque o draft atual
     // AINDA é esta sessão (não por userId cego — evita apagar a sessão trocada).
-    try {
-      await clearDraft(uid, plannedSessionId, sid);
-    } catch (e) {
-      console.warn('[activeSession] rascunho não removido (não-fatal):', e);
-    }
+    await retireLocalDraft(atual);
     return true;
   },
 
