@@ -87,9 +87,17 @@ const preencherTudo = async (utils: Utils) => {
   fireEvent.press(getByLabelText('Continuar'));
   // 8 — tempo (auto)
   fireEvent.press(getByLabelText('45-60 min'));
-  // 9 — cardio (auto) — um único par Sim/Não por passo
+  // 9 — cardio: "Sim" NÃO avança sozinho (0021) — revela a dose declarada, que
+  // faz parte da resposta. Dias e minutos são obrigatórios; modalidade é
+  // opcional (o catálogo pode nem estar disponível).
   await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
   fireEvent.press(getByLabelText('Sim'));
+  await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
+  // Só 1 dia de treino foi marcado acima, e a tela NÃO oferece mais dias de
+  // cardio do que dias de treino — dose impossível seria cobrada do molde.
+  fireEvent.press(getByLabelText('1 dia'));
+  fireEvent.press(getByLabelText('30 min'));
+  fireEvent.press(getByLabelText('Continuar'));
   // 10 — alongamento (auto)
   await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
   fireEvent.press(getByLabelText('Sim'));
@@ -254,6 +262,13 @@ describe('QuestionnaireScreen — submissão', () => {
         tem_lesoes: false,
         lesoes_detalhes: null,
         tempo_medio_treino_min: 60,
+        // Dose declarada (0021): é o que a validação do molde vai cobrar.
+        cardio_dias_semana: 1,
+        cardio_minutos_sessao: 30,
+        // Nenhuma modalidade escolhida (o catálogo não está disponível no teste)
+        // → null, nunca lista vazia: array vazio filtraria o cardápio por
+        // "nada" e o aluno receberia plano sem cardio tendo pedido cardio.
+        cardio_modalidades: null,
       }),
     );
 

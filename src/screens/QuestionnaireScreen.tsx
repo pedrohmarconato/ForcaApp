@@ -37,6 +37,7 @@ import { probeSessionValidity } from '../services/auth/sessionProbe';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
+import { CARDIO_MODALIDADES } from '../constants/cardioModalidades';
 import { resetPostQuestionnaireChatState } from '../services/postQuestionnaireChatStorage';
 import theme from '../theme/theme';
 import { easeImpulso } from '../utils/motion';
@@ -112,6 +113,13 @@ const QuestionnaireScreen = () => {
   const [descricaoLesao, setDescricaoLesao] = useState('');
   const [trainingDays, setTrainingDays] = useState<{ [key: string]: boolean }>({});
   const [includeCardio, setIncludeCardio] = useState<boolean | null>(null);
+  // Dose de cardio declarada (0021): dias, minutos e modalidades aceitas. Só
+  // existe com includeCardio === true — a constraint
+  // questionario_cardio_dose_coerente recusa dose com cardio desligado, então
+  // desmarcar TEM de limpar (ver definirIncluiCardio).
+  const [cardioDias, setCardioDias] = useState<number | null>(null);
+  const [cardioMinutos, setCardioMinutos] = useState<number | null>(null);
+  const [cardioModalidades, setCardioModalidades] = useState<string[]>([]);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
 
@@ -217,6 +225,15 @@ const QuestionnaireScreen = () => {
           setLesoes(data.lesoes_detalhes || data.lesoes || '');
           if (data.dias_treino && Array.isArray(data.dias_treino)) { const daysObj: { [key: string]: boolean } = {}; data.dias_treino.forEach((day: string) => { daysObj[day] = true; }); setTrainingDays(daysObj); }
           setIncludeCardio(data.inclui_cardio !== undefined ? data.inclui_cardio : null);
+          setCardioDias(typeof data.cardio_dias_semana === 'number' ? data.cardio_dias_semana : null);
+          setCardioMinutos(
+            typeof data.cardio_minutos_sessao === 'number' ? data.cardio_minutos_sessao : null,
+          );
+          setCardioModalidades(
+            Array.isArray(data.cardio_modalidades)
+              ? data.cardio_modalidades.filter((m: unknown) => typeof m === 'string')
+              : [],
+          );
           setIncludeStretching(data.inclui_alongamento !== undefined ? data.inclui_alongamento : null);
           setAverageTrainingTime(data.tempo_medio_treino_min || null);
         } else {
@@ -243,6 +260,27 @@ const QuestionnaireScreen = () => {
 
   // --- Handlers ---
   const toggleTrainingDay = (dayValue: string) => { setTrainingDays(prev => ({ ...prev, [dayValue]: !prev[dayValue] })); };
+
+  /**
+   * Liga/desliga o cardio. Desligar LIMPA a dose: o banco recusa dose com
+   * cardio desligado (questionario_cardio_dose_coerente), e sem limpar aqui o
+   * aluno que marca "sim", preenche e volta para "não" veria o questionário
+   * inteiro falhar no salvamento por um dado que ele já tinha descartado.
+   */
+  const definirIncluiCardio = (valor: boolean) => {
+    setIncludeCardio(valor);
+    if (!valor) {
+      setCardioDias(null);
+      setCardioMinutos(null);
+      setCardioModalidades([]);
+    }
+  };
+
+  const alternarModalidade = (nome: string) => {
+    setCardioModalidades((atual) =>
+      atual.includes(nome) ? atual.filter((m) => m !== nome) : [...atual, nome],
+    );
+  };
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
   // Um bloco só conta como respondido quando passa na MESMA validação que
   // habilita o envio — os gates dos passos usam exatamente estas regras (a
@@ -265,7 +303,11 @@ const QuestionnaireScreen = () => {
       !!objetivo,
       getSelectedDays().length > 0,
       averageTrainingTime !== null,
-      includeCardio !== null,
+      // Cardio: com "sim", a DOSE faz parte da resposta — é o que transforma a
+      // preferência em contrato validado no molde. Modalidade segue opcional
+      // (vazio = qualquer uma).
+      includeCardio !== null &&
+        (includeCardio === false || (cardioDias !== null && cardioMinutos !== null)),
       includeStretching !== null,
       temLesoes !== null &&
         (!temLesoes || lesoes.trim() !== '' || descricaoLesao.trim() !== ''),
@@ -342,7 +384,14 @@ const QuestionnaireScreen = () => {
     const pesoNum = parseFloat(peso) || null;
     const alturaNum = parseInt(altura, 10) || null;
     const lesoesDetalhes = temLesoes ? `${lesoes}${descricaoLesao ? ` (${descricaoLesao})` : ''}`.trim() || null : null;
-    const formDataForApi = { usuario_id: userId, data_nascimento: formattedDate, genero: genero, peso_kg: pesoNum, altura_cm: alturaNum, experiencia_treino: experienciaTreino, objetivo: objetivo, tem_lesoes: temLesoes, lesoes_detalhes: lesoesDetalhes, dias_treino: getSelectedDays(), inclui_cardio: includeCardio, inclui_alongamento: includeStretching, tempo_medio_treino_min: averageTrainingTime };
+    const formDataForApi = { usuario_id: userId, data_nascimento: formattedDate, genero: genero, peso_kg: pesoNum, altura_cm: alturaNum, experiencia_treino: experienciaTreino, objetivo: objetivo, tem_lesoes: temLesoes, lesoes_detalhes: lesoesDetalhes, dias_treino: getSelectedDays(), inclui_cardio: includeCardio, inclui_alongamento: includeStretching, tempo_medio_treino_min: averageTrainingTime,
+      // Defesa em profundidade: mesmo que um estado sobreviva a desmarcar o
+      // cardio, a dose NÃO viaja sem cardio — o banco recusaria o INSERT inteiro
+      // (questionario_cardio_dose_coerente) e o questionário não salvaria.
+      cardio_dias_semana: includeCardio === true ? cardioDias : null,
+      cardio_minutos_sessao: includeCardio === true ? cardioMinutos : null,
+      cardio_modalidades:
+        includeCardio === true && cardioModalidades.length > 0 ? cardioModalidades : null };
     const formDataForStorage = { ...formDataForApi, nome: nome }; // Inclui o nome para o storage local
 
     try {
@@ -581,7 +630,94 @@ const QuestionnaireScreen = () => {
     },
     {
       titulo: 'Incluir cardio no plano?',
-      corpo: renderYesNo(includeCardio, setIncludeCardio),
+      dica: 'Com "sim", você define a dose — e o plano é reprovado se não seguir.',
+      corpo: (
+        <>
+          <View style={styles.pair}>
+            {/* "Sim" NÃO auto-avança: a dose aparece logo abaixo e o avanço
+                automático levaria o aluno embora antes de ele responder. */}
+            <OptionButton
+              label="Sim"
+              centered
+              selected={includeCardio === true}
+              onPress={() => definirIncluiCardio(true)}
+              style={styles.pairItem}
+            />
+            <OptionButton
+              label="Não"
+              centered
+              selected={includeCardio === false}
+              onPress={() => selecionarEAvancar(() => definirIncluiCardio(false))}
+              style={styles.pairItem}
+            />
+          </View>
+
+          {includeCardio === true && (
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>Quantos dias por semana?</Text>
+                <View style={styles.doseLinha}>
+                  {Array.from(
+                    // Nunca oferece mais dias de cardio do que dias de treino:
+                    // uma dose impossível de cumprir seria cobrada do molde e
+                    // travaria a geração nas duas tentativas.
+                    { length: Math.max(1, Math.min(getSelectedDays().length || 3, 7)) },
+                    (_, i) => i + 1,
+                  ).map((dias) => (
+                    <OptionButton
+                      key={dias}
+                      // Label descritivo em vez de só o número: o OptionButton
+                      // deriva o accessibilityLabel do label, e "3" sozinho não
+                      // diz nada num leitor de tela.
+                      label={dias === 1 ? '1 dia' : `${dias} dias`}
+                      centered
+                      selected={cardioDias === dias}
+                      onPress={() => setCardioDias(dias)}
+                      style={styles.doseChip}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Quantos minutos por vez?</Text>
+                <View style={styles.doseLinha}>
+                  {[10, 15, 20, 30, 45, 60].map((min) => (
+                    <OptionButton
+                      key={min}
+                      label={`${min} min`}
+                      centered
+                      selected={cardioMinutos === min}
+                      onPress={() => setCardioMinutos(min)}
+                      style={styles.doseChip}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Prefere alguma modalidade? (opcional)</Text>
+                  <View style={styles.doseLinha}>
+                    {CARDIO_MODALIDADES.map((nome) => (
+                      <OptionButton
+                        key={nome}
+                        label={nome}
+                        selected={cardioModalidades.includes(nome)}
+                        onPress={() => alternarModalidade(nome)}
+                        style={styles.doseChipLargo}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.doseNota}>
+                    Sem escolher nenhuma, o plano pode usar qualquer uma.
+                  </Text>
+              </View>
+
+              {botaoContinuar(blocos[8])}
+            </>
+          )}
+        </>
+      ),
     },
     {
       titulo: 'Incluir alongamentos no plano?',
@@ -798,6 +934,17 @@ const styles = StyleSheet.create({
   pair: { flexDirection: 'row', gap: theme.spacing.md },
   pairItem: { flex: 1 },
   field: { marginTop: theme.spacing.lg },
+  // Dose de cardio: chips que quebram linha (wrap) — a lista de modalidades tem
+  // 9 itens e uma linha só empurraria metade fora da tela.
+  doseLinha: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  doseChip: { minWidth: 84, flexGrow: 0 },
+  doseChipLargo: { flexGrow: 0 },
+  doseNota: {
+    marginTop: theme.spacing.xs,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+  },
   label: {
     marginBottom: theme.spacing.xs,
     color: theme.colors.text.quiet,
