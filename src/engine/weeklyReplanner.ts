@@ -272,10 +272,27 @@ export const planMissedRedistribution = (params: {
    * volume que nunca será executado). Excluídos também não contam no teto do grupo.
    */
   excludedReceiverExerciseIds?: string[];
+  /**
+   * Exercícios RECUSADOS pelo aluno por um motivo que é sobre o exercício em si
+   * (dor, rejeição, equipamento — migration 0020). Empurrar de volta na mesma
+   * semana o que ele acabou de dispensar transformaria a recusa em nada.
+   *
+   * Casa por NOME NORMALIZADO, não por id: o mesmo exercício tem id diferente em
+   * cada sessão do plano, e é justamente na sessão de OUTRO dia que a
+   * redistribuição tentaria colocá-lo. Variação de rótulo ("Corrida" vs
+   * "Corrida leve") escapa — limitação conhecida do casamento por nome.
+   */
+  blockedExerciseNames?: string[];
   config?: ReplanConfig;
 }): MissedRedistributionPlan | null => {
   const cfg = params.config ?? REPLAN_CONFIG;
-  const excludedReceivers = new Set(params.excludedReceiverExerciseIds ?? []);
+  const excludedIds = new Set(params.excludedReceiverExerciseIds ?? []);
+  const blockedNames = new Set((params.blockedExerciseNames ?? []).map(normalizeName));
+  // Predicado ÚNICO para "não pode receber volume": as três decisões de receptor
+  // (teto, elegibilidade, escolha) passam por aqui. Quando a checagem ficava
+  // repetida, acrescentar um critério novo significava lembrar de três lugares.
+  const naoPodeReceber = (ex: ReplanExercise): boolean =>
+    excludedIds.has(ex.id) || blockedNames.has(normalizeName(ex.name));
   const today = dayIndex(params.todayISO);
   if (today == null) return null;
 
@@ -322,7 +339,7 @@ export const planMissedRedistribution = (params: {
   const capacity = new Map<string, number>();
   const capKey = (sessionId: string, groupKey: string) => `${sessionId}::${groupKey}`;
   for (const t of targets) {
-    const receivable = t.exercises.filter((ex) => !excludedReceivers.has(ex.id));
+    const receivable = t.exercises.filter((ex) => !naoPodeReceber(ex));
     for (const vol of groupVolumes(receivable)) {
       if (vol.key === '__sem_grupo__') continue;
       const cap = Math.floor(cfg.redistributionCapPct * vol.originalSets) - vol.priorReplanSets;
@@ -333,7 +350,7 @@ export const planMissedRedistribution = (params: {
   // Exercício receptor por (receptora, grupo): o de maior prioridade, depois ordem.
   const receiverExercise = (target: ReplanSession, groupKey: string): ReplanExercise | null => {
     const candidates = target.exercises
-      .filter((ex) => !excludedReceivers.has(ex.id))
+      .filter((ex) => !naoPodeReceber(ex))
       .filter((ex) => ex.muscleGroup != null && normalizeName(ex.muscleGroup) === groupKey)
       .sort(
         (a, b) =>
@@ -450,6 +467,8 @@ export const replanByRules = (params: {
   currentSessionId: string;
   availableMinutes?: number | null;
   completedSetsBySession?: Record<string, number>;
+  /** Nomes recusados pelo aluno por motivo que é sobre o exercício (0020). */
+  blockedExerciseNames?: string[];
   config?: ReplanConfig;
 }): WeeklyReplanProposal => {
   const cfg = params.config ?? REPLAN_CONFIG;
@@ -471,6 +490,7 @@ export const replanByRules = (params: {
     todayISO: params.todayISO,
     currentSessionId: params.currentSessionId,
     excludedReceiverExerciseIds: timeCut?.cutExercises.map((c) => c.exerciseId),
+    blockedExerciseNames: params.blockedExerciseNames,
     config: cfg,
   });
   return {

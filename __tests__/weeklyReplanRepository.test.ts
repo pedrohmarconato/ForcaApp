@@ -262,8 +262,13 @@ it('aplica confirmado: insere copiando o alvo, snapshot MERGE antes do skip, ski
 
   // ordem: inserir → snapshot → skip (snapshot ANTES do skip)
   expect(ordem).toEqual(['planned_sets', 'session_logs', 'planned_sessions']);
-  // skip: restrito ao dono e a quem AINDA está pendente
-  expect(skipB.update.mock.calls[0][0]).toEqual({ status: 'skipped' });
+  // skip: restrito ao dono e a quem AINDA está pendente, com AUTORIA (0020) —
+  // 'replan' é o que impede a tela de oferecer "voltar a treinar hoje" numa
+  // sessão que ficou para trás por data vencida.
+  const skipPayload = skipB.update.mock.calls[0][0];
+  expect(skipPayload).toMatchObject({ status: 'skipped', skip_source: 'replan' });
+  expect(typeof skipPayload.skipped_at).toBe('string');
+  expect(Number.isNaN(Date.parse(skipPayload.skipped_at))).toBe(false);
   expect(skipB.in).toHaveBeenCalledWith('id', ['seg']);
   expect(skipB.eq).toHaveBeenCalledWith('status', 'pending');
   expect(skipB.eq).toHaveBeenCalledWith('user_id', 'user-1');

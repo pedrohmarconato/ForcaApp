@@ -18,13 +18,19 @@ import {
   PlannedExercise,
 } from '../services/trainingRepository';
 import { isPlanoDesatualizado, reordenarExercicios } from '../services/planEditRepository';
+import {
+  skipPlannedSession,
+  unskipPlannedSession,
+} from '../services/sessionExecutionRepository';
 import { moveItem } from '../engine/planReorder';
+import { SKIP_REASON_LABELS, isSkipReason, type SkipReason } from '../engine/sessionModel';
 import { useActiveSessionStore } from '../store/activeSessionStore';
 import { Screen, Card, ScreenTitle, SectionHeader } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
 import { SetasReordenar } from '../components/session/ReorderControls';
+import SkipReasonSheet from '../components/session/SkipReasonSheet';
 
 const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string } } }) => {
   const { sessionId } = route.params;
@@ -40,6 +46,12 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
   const [ordemDraft, setOrdemDraft] = useState<PlannedExercise[] | null>(null);
   const [salvandoOrdem, setSalvandoOrdem] = useState(false);
   const [avisoOrdem, setAvisoOrdem] = useState<'falha' | 'desatualizado' | null>(null);
+
+  // Recusa da sessão ANTES de começar (0020): quem já sabe que não vai treinar
+  // não precisa entrar no treino para dizer isso.
+  const [recusaVisible, setRecusaVisible] = useState(false);
+  const [recusaBusy, setRecusaBusy] = useState(false);
+  const [recusaErro, setRecusaErro] = useState<string | null>(null);
 
   // Guarda além do status do banco: com execução desta sessão viva no aparelho
   // (draft ou check-in pendente), reordenar geraria divergência silenciosa
@@ -102,6 +114,11 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
 
   const jaConcluido = session.status === 'completed';
   const emAndamento = session.status === 'in_progress';
+  const recusado = session.status === 'skipped';
+  // Só o que o ALUNO recusou volta atrás por aqui: sessão marcada pelo
+  // replanejador tem data vencida, e voltar a 'pending' a reagendaria no passado.
+  const recusadoPeloAluno = recusado && session.skip_source === 'user';
+  const motivoRecusa = isSkipReason(session.skip_reason) ? session.skip_reason : null;
   const ctaLabel = emAndamento ? 'Retomar treino' : 'Iniciar treino';
   const dataFormatada = session.scheduled_date
     ? new Date(`${session.scheduled_date}T12:00:00`).toLocaleDateString('pt-BR')
@@ -254,14 +271,95 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
           <Text style={styles.doneNote}>
             Treino concluído. Veja o registro no seu histórico (aba Perfil).
           </Text>
+        ) : recusado ? (
+          <View>
+            <Text style={styles.doneNote}>
+              {motivoRecusa
+                ? `Treino recusado — ${SKIP_REASON_LABELS[motivoRecusa].toLowerCase()}.`
+                : 'Treino não realizado.'}
+              {session.skip_note ? ` "${session.skip_note}"` : ''}
+            </Text>
+            {recusadoPeloAluno ? (
+              <Button
+                label="Voltar a treinar hoje"
+                variant="outline"
+                onPress={async () => {
+                  if (recusaBusy) return;
+                  setRecusaBusy(true);
+                  setRecusaErro(null);
+                  try {
+                    await unskipPlannedSession(session.id);
+                    await fetchDetails();
+                  } catch (e) {
+                    setRecusaErro(
+                      e instanceof Error ? e.message : 'Não foi possível desfazer.',
+                    );
+                  } finally {
+                    setRecusaBusy(false);
+                  }
+                }}
+                disabled={recusaBusy}
+                testID="desfazer-recusa-sessao"
+              />
+            ) : null}
+          </View>
         ) : (
-          <Button
-            label={ctaLabel}
-            icon="arrow-right"
-            onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
-          />
+          <View>
+            <Button
+              label={ctaLabel}
+              icon="arrow-right"
+              onPress={() => navigation.navigate('ActiveSession', { sessionId: session.id })}
+            />
+            <Button
+              label="Não vou treinar hoje"
+              variant="outline"
+              onPress={() => {
+                setRecusaErro(null);
+                setRecusaVisible(true);
+              }}
+              style={styles.recusarBtn}
+              testID="recusar-sessao"
+            />
+          </View>
         )}
+        {recusaErro ? (
+          <Notice
+            tone="warning"
+            title="Não foi possível registrar"
+            description={recusaErro}
+            style={styles.recusarAviso}
+          />
+        ) : null}
       </View>
+
+      <SkipReasonSheet
+        visible={recusaVisible}
+        escopo="sessao"
+        alvo={session.title}
+        busy={recusaBusy}
+        onConfirm={async (reason: SkipReason, note: string | null) => {
+          if (recusaBusy) return;
+          setRecusaBusy(true);
+          setRecusaErro(null);
+          try {
+            await skipPlannedSession({
+              plannedSessionId: session.id,
+              reason,
+              note,
+            });
+            setRecusaVisible(false);
+            // Relê do servidor: o status vem de lá, nunca de suposição da tela.
+            await fetchDetails();
+          } catch (e) {
+            setRecusaErro(
+              e instanceof Error ? e.message : 'Não foi possível registrar a recusa.',
+            );
+          } finally {
+            setRecusaBusy(false);
+          }
+        }}
+        onDismiss={() => setRecusaVisible(false)}
+      />
     </Screen>
   );
 };
@@ -327,6 +425,8 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.base,
     textAlign: 'center',
   },
+  recusarBtn: { marginTop: theme.spacing.sm },
+  recusarAviso: { marginTop: theme.spacing.md },
 });
 
 export default WorkoutDetailScreen;

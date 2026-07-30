@@ -15,6 +15,8 @@ import {
   formatPace,
   formatDuration,
   formatDistance,
+  exercicioForaDeJogo,
+  SKIP_REASON_LABELS,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
@@ -26,6 +28,11 @@ type Props = {
   draft: SessionDraft;
   /** Meta do exercício vinda do plano (ex.: "4 séries × 8-10 · 80% RM · descanso 90s"). */
   metaFor: (exercise: DraftExercise) => string | null;
+  /**
+   * Abre o sheet de recusa para este exercício (a tela é dona do sheet). Sem o
+   * callback, a fila não oferece a ação — é como as telas antigas a renderizam.
+   */
+  onSolicitarRecusa?: (exercise: DraftExercise) => void;
 };
 
 export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
@@ -50,22 +57,32 @@ export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
   return `${set.actualReps} reps ${exercise.isBodyweight ? '· ' : '× '}${carga}${folego}`;
 };
 
-const SessionQueue = ({ draft, metaFor }: Props) => {
+const SessionQueue = ({ draft, metaFor, onSolicitarRecusa }: Props) => {
   const activateSet = useActiveSessionStore((s) => s.activateSet);
+  const unskipExercise = useActiveSessionStore((s) => s.unskipExercise);
 
   return (
     <View>
       {draft.exercises.map((ex, idxEx) => {
-        const cortado = ex.cutByReplan === true;
-        const series = cortado ? ex.sets.filter((s) => s.status === 'done') : ex.sets;
+        const recusado = ex.skippedByUser === true;
+        const foraDeJogo = exercicioForaDeJogo(ex);
+        // Fora de jogo mostra só o que foi realmente feito: listar séries que
+        // não serão executadas convida a tocá-las e reabrir o exercício.
+        const series = foraDeJogo ? ex.sets.filter((s) => s.status === 'done') : ex.sets;
         const meta = metaFor(ex);
         return (
           <View key={ex.exerciseId} style={styles.block}>
             <View style={styles.headerRow}>
               <Text style={styles.order}>{String(idxEx + 1).padStart(2, '0')}</Text>
               <View style={styles.headerText}>
-                <Text style={[styles.name, cortado && styles.nameCut]}>{ex.name}</Text>
-                {cortado ? (
+                <Text style={[styles.name, foraDeJogo && styles.nameCut]}>{ex.name}</Text>
+                {recusado ? (
+                  <Text style={styles.cutNote}>
+                    {`Você não vai fazer hoje — ${(
+                      ex.skipReason ? SKIP_REASON_LABELS[ex.skipReason] : 'motivo não registrado'
+                    ).toLowerCase()}. O exercício segue nas próximas semanas.`}
+                  </Text>
+                ) : ex.cutByReplan === true ? (
                   <Text style={styles.cutNote}>
                     Cortado por tempo — confirmado por você. As séries não feitas não
                     contam hoje.
@@ -74,6 +91,29 @@ const SessionQueue = ({ draft, metaFor }: Props) => {
                   <Text style={styles.meta}>{meta}</Text>
                 ) : null}
               </View>
+              {/* Recusar só faz sentido no que ainda está em jogo; desfazer, só
+                  no que ELE recusou (corte por tempo é decisão de outro nível). */}
+              {recusado ? (
+                <TouchableOpacity
+                  style={styles.acao}
+                  onPress={() => unskipExercise(ex.exerciseId)}
+                  testID={`unskip-${ex.exerciseId}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Voltar a fazer ${ex.name}`}
+                >
+                  <Text style={styles.acaoLabel}>Voltar a fazer</Text>
+                </TouchableOpacity>
+              ) : onSolicitarRecusa && !foraDeJogo ? (
+                <TouchableOpacity
+                  style={styles.acao}
+                  onPress={() => onSolicitarRecusa(ex)}
+                  testID={`skip-${ex.exerciseId}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Não vou fazer ${ex.name}`}
+                >
+                  <Text style={styles.acaoLabel}>Não vou fazer</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
 
             {series.map((s) => {
@@ -159,6 +199,18 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.xs,
     fontStyle: 'italic',
+  },
+  acao: {
+    minHeight: theme.hitTarget.compact,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.sm,
+  },
+  acaoLabel: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    textDecorationLine: 'underline',
   },
 
   row: {
