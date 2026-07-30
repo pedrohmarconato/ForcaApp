@@ -8,8 +8,8 @@
 // calcular o outcome é Fase 4; decidir o ajuste é Fase 5.
 
 import { supabase } from '../config/supabaseClient';
-import type { Outcome } from '../engine/sessionModel';
-import { exerciseIdentity, toNum } from '../engine/sessionModel';
+import type { Outcome, SkipReason } from '../engine/sessionModel';
+import { exerciseIdentity, isSkipReason, toNum } from '../engine/sessionModel';
 import type { SetLogResumo } from '../engine/progressStats';
 
 export type ServerSetLog = {
@@ -38,6 +38,18 @@ export type OpenSessionLog = {
   adherenceSnapshot: unknown;
   /** Check-in pré-treino gravado no start_session (null em sessões pré-0011). */
   mood: 'cansado' | 'normal' | 'com_energia' | null;
+  /**
+   * Recusas declaradas nesta execução (0020). Vem do SERVIDOR porque o rascunho
+   * local não é autoritativo: recusar e fechar o app antes de o rascunho gravar
+   * traria de volta, na retomada, um exercício que o aluno dispensou.
+   */
+  exerciseSkips: ServerExerciseSkip[];
+};
+
+export type ServerExerciseSkip = {
+  plannedExerciseId: string;
+  reason: SkipReason;
+  note: string | null;
 };
 
 type RequestErrorKind = 'transport' | 'server';
@@ -155,7 +167,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at, actual_duration_seconds, actual_distance_m, perceived_effort)',
+        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at, actual_duration_seconds, actual_distance_m, perceived_effort), exercise_skips(planned_exercise_id, reason, note)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -194,6 +206,21 @@ export const getOpenSessionLog = async (
       String(a.completed_at).localeCompare(String(b.completed_at)),
     ) as ServerSetLog[];
 
+  // Motivo desconhecido (linha gravada por versão mais nova do app) é
+  // DESCARTADO, não coagido para 'outro': inventar o motivo estragaria a
+  // agregação por motivo, que é a razão de o vocabulário ser fechado.
+  const exerciseSkips = ((row.exercise_skips ?? []) as any[]).flatMap((s) =>
+    typeof s?.planned_exercise_id === 'string' && isSkipReason(s?.reason)
+      ? [
+          {
+            plannedExerciseId: s.planned_exercise_id,
+            reason: s.reason,
+            note: typeof s.note === 'string' && s.note.length > 0 ? s.note : null,
+          } as ServerExerciseSkip,
+        ]
+      : [],
+  );
+
   return {
     sessionLogId: row.id as string,
     startedAt: row.started_at as string,
@@ -204,7 +231,104 @@ export const getOpenSessionLog = async (
       row.mood === 'cansado' || row.mood === 'normal' || row.mood === 'com_energia'
         ? row.mood
         : null,
+    exerciseSkips,
   };
+};
+
+/**
+ * Recusa um exercício da execução em aberto via RPC `skip_session_exercise`
+ * (0020). Erro propaga: a recusa não pode aparecer aplicada na tela se o banco
+ * a rejeitou — o exercício voltaria a ser exigido na próxima retomada.
+ *
+ * Idempotente por (session_log, exercício): repetir troca o motivo, não empilha.
+ */
+export const skipSessionExercise = async (params: {
+  sessionLogId: string;
+  plannedExerciseId: string;
+  reason: SkipReason;
+  note?: string | null;
+}): Promise<ServerExerciseSkip> => {
+  let response: any;
+  try {
+    response = await supabase.rpc('skip_session_exercise', {
+      p_session_log_id: params.sessionLogId,
+      p_planned_exercise_id: params.plannedExerciseId,
+      p_reason: params.reason,
+      p_note: params.note ?? null,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  const { data, error, status } = response;
+  if (error) throwResponseError(error, status);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.planned_exercise_id) {
+    throw new Error('skip_session_exercise não retornou a recusa.');
+  }
+  return {
+    plannedExerciseId: row.planned_exercise_id as string,
+    reason: (isSkipReason(row.reason) ? row.reason : params.reason) as SkipReason,
+    note: typeof row.note === 'string' && row.note.length > 0 ? row.note : null,
+  };
+};
+
+/** Desfaz a recusa de um exercício. Sem recusa registrada, devolve false. */
+export const unskipSessionExercise = async (params: {
+  sessionLogId: string;
+  plannedExerciseId: string;
+}): Promise<boolean> => {
+  let response: any;
+  try {
+    response = await supabase.rpc('unskip_session_exercise', {
+      p_session_log_id: params.sessionLogId,
+      p_planned_exercise_id: params.plannedExerciseId,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  const { data, error, status } = response;
+  if (error) throwResponseError(error, status);
+  return data === true;
+};
+
+/**
+ * Recusa a sessão inteira ("não vou treinar hoje") via `skip_planned_session`.
+ * A RPC fecha a execução em aberto, se houver, e registra motivo + autoria.
+ */
+export const skipPlannedSession = async (params: {
+  plannedSessionId: string;
+  reason: SkipReason;
+  note?: string | null;
+}): Promise<void> => {
+  let response: any;
+  try {
+    response = await supabase.rpc('skip_planned_session', {
+      p_planned_session_id: params.plannedSessionId,
+      p_reason: params.reason,
+      p_note: params.note ?? null,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
+};
+
+/**
+ * Desfaz a recusa da sessão. Só o que o ALUNO recusou volta (55000 quando a
+ * marcação é do replanejador — reagendar uma data vencida é outro problema).
+ */
+export const unskipPlannedSession = async (
+  plannedSessionId: string,
+): Promise<void> => {
+  let response: any;
+  try {
+    response = await supabase.rpc('unskip_planned_session', {
+      p_planned_session_id: plannedSessionId,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
 };
 
 /**

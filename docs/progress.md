@@ -1084,3 +1084,81 @@ aplicadas no staging e são imutáveis):
   ATIVO; UPDATE de exercise_order restrito a `id = any(p_exercise_ids)`;
   advisory lock também na RPC de exercícios.
 - **B5**: guarda de toque duplo no sheet de escopo; JSDoc realocado.
+
+---
+
+## Flexibilidade do cardio e da execução — Fase 1: recusa declarada (30/07/2026)
+
+Origem: o dono perguntou como o cardio funciona hoje ("posso não fazer? tem onde
+marcar? posso pôr uma meta ou a IA já faz?"). O levantamento mostrou que a
+MEDIÇÃO do cardio é sólida (0014: métrica, duração, distância, esforço, pace
+gerado) mas a DECISÃO era inexistente: um sim/não no questionário, nenhuma meta,
+e no dia do treino nenhuma forma de dizer "não vou fazer isto".
+
+Três fases decididas com o dono: **(1) recusa declarada**, (2) dose de cardio
+como contrato validado, (3) metas de cardio (desempenho + consistência).
+
+### O que a Fase 1 entrega
+
+- **migration `0020_recusa_declarada.sql`**
+  - `planned_sessions` ganha `skip_reason`, `skip_note`, `skipped_at`,
+    `skip_source` ('user' | 'replan'), com constraint de coerência: dado de
+    recusa só existe em sessão `status='skipped'`.
+  - `exercise_skips` (nova): recusa de um exercício DENTRO de uma execução
+    (escopo `session_log`, não o plano — recusar hoje não apaga o exercício das
+    próximas semanas). RLS herdada do `session_log`, como `set_logs`.
+  - Vocabulário FECHADO de motivos em `_forca_motivo_recusa_valido`:
+    `sem_tempo`, `dor_ou_lesao`, `sem_equipamento`, `nao_gosto`, `cansaco`,
+    `outro`. É fechado porque o dado precisa AGREGAR ("recusou 3×"); a nota livre
+    (≤280) complementa e nunca substitui.
+  - 4 RPCs atômicas: `skip_session_exercise`, `unskip_session_exercise`,
+    `skip_planned_session`, `unskip_planned_session`. `revoke ... from public,
+    anon` + `grant` a `authenticated` (aprendizado da 0019: os default
+    privileges do Supabase dão EXECUTE a anon em toda função criada).
+- **App**: ação "Não vou fazer" por exercício na fila da sessão, "Não vou
+  treinar hoje" no detalhe do treino e dentro da execução (só enquanto nada foi
+  registrado), `SkipReasonSheet` com motivo obrigatório + nota opcional, e
+  desfazer nos dois níveis.
+- **Semântica**: recusa e corte por tempo convivem sob um único predicado
+  (`exercicioForaDeJogo`) — séries pendentes saem da conta, as JÁ FEITAS
+  continuam contando.
+- **Replanejador**: o que foi recusado por `dor_ou_lesao`/`nao_gosto`/
+  `sem_equipamento` deixa de poder RECEBER volume redistribuído (casamento por
+  nome normalizado, porque o id do exercício muda em cada sessão).
+  `sem_tempo`/`cansaco` são circunstância, não rejeição, e não bloqueiam.
+
+### Verificação
+
+- **608 testes / 67 suítes verdes**, `tsc --noEmit` limpo.
+- Testes novos partindo de reprodução vermelha (`recusaDeclarada.test.ts`,
+  `recusaDeclaradaFluxo.test.ts`), um por modo de falha provável: recusa que não
+  sai do `exerciciosEmJogo` (o player continuaria abrindo o exercício), séries
+  feitas apagadas do contador, aluno preso ao recusar tudo (`isSessionComplete`
+  exige `total > 0` → `sessionSemNadaAFazer` abre a saída), série ativa órfã,
+  rascunho legado lido como recusado, recusa perdida na retomada, rascunho local
+  ressuscitando sessão recusada, e volume recusado voltando pelo replan.
+- **Migration validada contra o banco de STAGING** com checklist de 14 itens e
+  dados sintéticos, tudo em `begin; … rollback;` — terminou em `CHECKLIST_OK` e
+  a contraprova confirmou que **nada persistiu** (tabela, colunas, RPCs e lixo
+  do checklist: 0). O checklist cobre errcodes (22023/42501/P0001/55000/23514),
+  idempotência do desfazer, fechamento do log aberto pela recusa da sessão,
+  `anon` sem EXECUTE e vazamento de RLS para outro usuário.
+
+### Ordem de deploy (importante)
+
+`getOpenSessionLog` passou a pedir `exercise_skips(...)` no mesmo select do
+`session_logs`. Em banco SEM a 0020 aplicada, esse select falha e a RETOMADA de
+sessão para de funcionar. **A migration entra antes do PWA**, nunca depois.
+
+### Limitações conscientes
+
+- Recusar a sessão NÃO redistribui o volume dela: a redistribuição da Fase 6 age
+  sobre sessões perdidas por decurso de data. Recusa declarada é perda
+  registrada, não compensada em silêncio — e o sheet diz isso ao aluno.
+- O bloqueio de receptor casa por NOME normalizado; variação de rótulo
+  ("Corrida" vs "Corrida leve") escapa.
+- A agregação "recusou o mesmo exercício N vezes" tem o dado (índice em
+  `exercise_skips (planned_exercise_id, created_at desc)`) mas ainda não tem
+  consumidor: propor substituição automática ficou como follow-up.
+- `unskip_planned_session` não reabre o `session_log` que a recusa fechou (log
+  sem série é inofensivo; reabrir reescreveria `finished_at` do servidor).

@@ -335,7 +335,11 @@ export const applyConfirmedReplan = async (params: {
   if (missedIds.length > 0) {
     const skipRes = await supabase
       .from('planned_sessions')
-      .update({ status: 'skipped' })
+      // skip_source='replan' (0020): distingue "o replanejador viu a data
+      // vencida" de "o aluno declarou que não faria". Sem a autoria, a tela
+      // ofereceria "voltar a treinar hoje" numa sessão de data passada — e a
+      // agenda voltaria a apontar para o passado.
+      .update({ status: 'skipped', skip_source: 'replan', skipped_at: new Date().toISOString() })
       .in('id', missedIds)
       .eq('user_id', context.userId)
       .eq('status', 'pending');

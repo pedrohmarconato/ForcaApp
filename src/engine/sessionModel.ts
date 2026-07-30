@@ -16,6 +16,61 @@ export type ExerciseMetric = 'carga_reps' | 'tempo' | 'tempo_distancia';
 /** Equivalente do RIR para cardio: o quanto o esforço pesou. */
 export type PerceivedEffort = 'leve' | 'moderado' | 'forte';
 
+/**
+ * Motivo de uma recusa declarada (migration 0020). Vocabulário FECHADO e igual
+ * ao de `_forca_motivo_recusa_valido` no banco — um motivo que só existe aqui
+ * vira 22023 no meio da gravação. É fechado porque este dado precisa agregar
+ * ("recusou o mesmo exercício 3×") e alimentar decisão; texto livre não agrega.
+ */
+export type SkipReason =
+  | 'sem_tempo'
+  | 'dor_ou_lesao'
+  | 'sem_equipamento'
+  | 'nao_gosto'
+  | 'cansaco'
+  | 'outro';
+
+export const SKIP_REASONS: readonly SkipReason[] = [
+  'sem_tempo',
+  'dor_ou_lesao',
+  'sem_equipamento',
+  'nao_gosto',
+  'cansaco',
+  'outro',
+] as const;
+
+/** Rótulos do sheet de recusa. Ordem = a que aparece na tela. */
+export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
+  sem_tempo: 'Sem tempo hoje',
+  dor_ou_lesao: 'Dor ou lesão',
+  sem_equipamento: 'Equipamento indisponível',
+  nao_gosto: 'Não gosto deste exercício',
+  cansaco: 'Cansaço',
+  outro: 'Outro motivo',
+};
+
+/** Motivo válido? Guarda de fronteira antes de chamar a RPC. */
+export const isSkipReason = (v: unknown): v is SkipReason =>
+  typeof v === 'string' && (SKIP_REASONS as readonly string[]).includes(v);
+
+/**
+ * Motivos que representam uma escolha do aluno sobre o EXERCÍCIO em si, não
+ * sobre as circunstâncias do dia. Empurrar de volta na mesma semana o que foi
+ * recusado por dor ou por rejeição é insistir no que ele acabou de dispensar;
+ * "sem tempo"/"cansaço" são circunstância e não bloqueiam o exercício.
+ */
+export const RECUSA_BLOQUEIA_REDISTRIBUICAO: readonly SkipReason[] = [
+  'dor_ou_lesao',
+  'nao_gosto',
+  'sem_equipamento',
+] as const;
+
+/** A recusa deste motivo impede que o exercício receba volume redistribuído? */
+export const recusaBloqueiaRedistribuicao = (
+  reason: SkipReason | null | undefined,
+): boolean =>
+  reason != null && (RECUSA_BLOQUEIA_REDISTRIBUICAO as readonly string[]).includes(reason);
+
 export type DraftSet = {
   plannedSetId: string;
   setOrder: number;
@@ -63,6 +118,12 @@ export type DraftExercise = {
   // Cortado pela escada de tempo confirmada (Fase 6). Séries pendentes dele não
   // contam no progresso/conclusão; as já feitas permanecem no histórico.
   cutByReplan?: boolean;
+  // Recusado pelo ALUNO nesta execução (migration 0020). Efeito igual ao do
+  // corte por tempo nas séries pendentes, origem diferente: aqui é decisão
+  // declarada, com motivo. Ausente em rascunho anterior à 0020 → não recusado.
+  skippedByUser?: boolean;
+  skipReason?: SkipReason | null;
+  skipNote?: string | null;
   loadIncrementKg: number;
   restSeconds: number | null;
   priority: 'primary' | 'secondary' | 'accessory';
@@ -366,6 +427,11 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
     ...ex,
     // Rascunho anterior à Fase 6 não tem o campo → default seguro (não cortado).
     cutByReplan: ex.cutByReplan === true,
+    // Idem para a recusa (0020): ausência NUNCA é lida como recusado, senão um
+    // rascunho antigo apareceria com exercícios dispensados que ninguém dispensou.
+    skippedByUser: ex.skippedByUser === true,
+    skipReason: isSkipReason(ex.skipReason) ? ex.skipReason : null,
+    skipNote: typeof ex.skipNote === 'string' && ex.skipNote.trim() ? ex.skipNote : null,
     order: toNum(ex.order) ?? 0,
     loadIncrementKg: toNum(ex.loadIncrementKg) ?? 2.5,
     restSeconds: ex.restSeconds == null ? null : toNum(ex.restSeconds),
@@ -421,16 +487,74 @@ export const reconcileInjuryFlags = (
 };
 
 /**
+ * O exercício saiu do caminho da sessão? Duas origens, mesmo efeito nas séries
+ * pendentes: o corte da escada de tempo (Fase 6, decisão do sistema) e a recusa
+ * declarada do aluno (0020, decisão dele). Toda pergunta de "isto ainda conta?"
+ * passa por aqui — quando a checagem ficava solta em cada chamador, um deles
+ * ficava para trás e o player abria um exercício que o contador já ignorava.
+ */
+export const exercicioForaDeJogo = (
+  ex: Pick<DraftExercise, 'cutByReplan' | 'skippedByUser'>,
+): boolean => ex.cutByReplan === true || ex.skippedByUser === true;
+
+/**
+ * Marca o exercício como recusado pelo aluno.
+ *
+ * A série que estava ATIVA volta a pendente (o player não pode seguir com o
+ * card de medição aberto em cima do que acabou de ser dispensado), mas nada que
+ * o aluno digitou é apagado: desfazer a recusa devolve reps e carga intactas.
+ * Séries já concluídas não são tocadas — histórico não se reescreve.
+ */
+export const applyExerciseSkipToDraft = (
+  draft: SessionDraft,
+  exerciseId: string,
+  reason: SkipReason,
+  note?: string | null,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) =>
+    ex.exerciseId !== exerciseId
+      ? ex
+      : {
+          ...ex,
+          skippedByUser: true,
+          skipReason: reason,
+          skipNote: note?.trim() ? note.trim() : null,
+          sets: ex.sets.map((s) =>
+            s.status === 'active' ? { ...s, status: 'pending', activatedAt: null } : s,
+          ),
+        },
+  ),
+});
+
+/**
+ * Desfaz a recusa. NÃO ressuscita exercício cortado pela escada de tempo: o
+ * corte é decisão de outro nível (o replan confirmado) e continua valendo.
+ */
+export const removeExerciseSkipFromDraft = (
+  draft: SessionDraft,
+  exerciseId: string,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) =>
+    ex.exerciseId !== exerciseId
+      ? ex
+      : { ...ex, skippedByUser: false, skipReason: null, skipNote: null },
+  ),
+});
+
+/**
  * Total de séries e quantas já foram concluídas (para cabeçalho de progresso).
- * Exercício cortado pela escada de tempo (Fase 6): as séries PENDENTES dele saem
- * da conta (não seguram o "Concluir treino"); as já feitas continuam contando.
+ * Exercício fora de jogo (cortado pelo tempo ou recusado): as séries PENDENTES
+ * dele saem da conta (não seguram o "Concluir treino"); as já feitas continuam
+ * contando — recusar depois de duas séries não apaga trabalho real.
  */
 export const sessionProgress = (draft: SessionDraft): { done: number; total: number } => {
   let done = 0;
   let total = 0;
   for (const ex of draft.exercises) {
     for (const s of ex.sets) {
-      if (ex.cutByReplan === true && s.status !== 'done') continue;
+      if (exercicioForaDeJogo(ex) && s.status !== 'done') continue;
       total += 1;
       if (s.status === 'done') done += 1;
     }
@@ -442,4 +566,32 @@ export const sessionProgress = (draft: SessionDraft): { done: number; total: num
 export const isSessionComplete = (draft: SessionDraft): boolean => {
   const { done, total } = sessionProgress(draft);
   return total > 0 && done === total;
+};
+
+/**
+ * Nomes dos exercícios recusados por um motivo que é sobre o EXERCÍCIO (dor,
+ * rejeição, equipamento). Alimenta o bloqueio de receptores da redistribuição:
+ * sem isto, recusar a Corrida por dor no joelho hoje resultava em séries de
+ * Corrida acrescentadas na sessão de quinta.
+ *
+ * "Sem tempo" e "cansaço" NÃO entram: são circunstância do dia, não rejeição do
+ * exercício — refazê-lo em outro dia é exatamente o que o aluno espera.
+ */
+export const nomesBloqueadosPorRecusa = (draft: SessionDraft): string[] =>
+  draft.exercises
+    .filter((ex) => ex.skippedByUser === true && recusaBloqueiaRedistribuicao(ex.skipReason))
+    .map((ex) => ex.name);
+
+/**
+ * Não sobrou nada a fazer NEM nada feito — o aluno recusou (ou o tempo cortou)
+ * tudo antes de registrar qualquer série.
+ *
+ * Existe porque `isSessionComplete` exige `total > 0`: sem esta distinção, quem
+ * recusa o treino inteiro exercício por exercício fica com uma tela que nunca
+ * habilita "Concluir" e nenhuma saída. Aqui a tela oferece recusar a SESSÃO —
+ * que é o que de fato aconteceu — em vez de fingir um treino concluído.
+ */
+export const sessionSemNadaAFazer = (draft: SessionDraft): boolean => {
+  const { done, total } = sessionProgress(draft);
+  return total === 0 && done === 0;
 };

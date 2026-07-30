@@ -18,10 +18,14 @@ import {
   suggestLoad,
   canCompleteSet,
   reconcileInjuryFlags,
+  applyExerciseSkipToDraft,
+  removeExerciseSkipFromDraft,
+  nomesBloqueadosPorRecusa,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
   type PerceivedEffort,
+  type SkipReason,
 } from '../engine/sessionModel';
 import {
   startSessionLog,
@@ -30,6 +34,9 @@ import {
   getOpenSessionLog,
   getLastLoadByExercise,
   updateSetLogAdaptation,
+  skipSessionExercise,
+  unskipSessionExercise,
+  skipPlannedSession,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
   type OpenSessionLog,
@@ -138,6 +145,18 @@ interface ActiveSessionState {
   ) => void;
   completeSet: (exerciseId: string, setOrder: number) => Promise<boolean>;
   resolveAdaptation: (adjustment: Adjustment) => Promise<void>;
+  /**
+   * Recusa declarada de um exercício (0020). Grava PRIMEIRO no servidor: uma
+   * recusa que só existe na tela volta a ser exigida na próxima retomada.
+   */
+  skipExercise: (
+    exerciseId: string,
+    reason: SkipReason,
+    note?: string | null,
+  ) => Promise<boolean>;
+  unskipExercise: (exerciseId: string) => Promise<boolean>;
+  /** "Não vou treinar hoje": recusa a sessão inteira e encerra a tela. */
+  skipWholeSession: (reason: SkipReason, note?: string | null) => Promise<boolean>;
   finishSession: () => Promise<boolean>;
   clearError: () => void;
   reset: () => void;
@@ -370,9 +389,22 @@ const applyServerSetLogs = (
     parseReplanSnapshot(aberta.adherenceSnapshot),
     draft.plannedSessionId,
   );
-  return corte
+  const comCorte = corte
     ? applyTimeCutToDraft(reaplicado, corte.cutExercises.map((c) => c.exerciseId))
     : reaplicado;
+
+  // Recusas declaradas (0020) vêm do SERVIDOR e são reaplicadas aqui — o único
+  // ponto por onde as duas retomadas passam. Aplicá-las em cada chamador
+  // deixaria um dos caminhos para trás, e o exercício recusado voltaria a ser
+  // exigido só em um deles (a diferença mais difícil de notar em teste manual).
+  // `?? []` não é decoração: o campo é novo, e um OpenSessionLog vindo de
+  // versão anterior do repositório (ou de um mock) faria a retomada INTEIRA
+  // estourar num reduce de undefined — o treino não abriria.
+  return (aberta.exerciseSkips ?? []).reduce(
+    (acc, skip) =>
+      applyExerciseSkipToDraft(acc, skip.plannedExerciseId, skip.reason, skip.note),
+    comCorte,
+  );
 };
 
 export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
@@ -563,6 +595,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         currentSessionId: atual.plannedSessionId,
         availableMinutes: minutosEfetivos,
         completedSetsBySession: context.completedSetsBySession,
+        // O que ele recusou por dor/rejeição/equipamento não volta pela porta da
+        // redistribuição (0020).
+        blockedExerciseNames: nomesBloqueadosPorRecusa(atual),
       });
       // Guarda mesmo sem mudanças: o contexto serve ao "menos tempo hoje".
       set({
@@ -596,6 +631,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       currentSessionId: draft.plannedSessionId,
       availableMinutes: minutosEfetivos,
       completedSetsBySession: pr.context.completedSetsBySession,
+      blockedExerciseNames: nomesBloqueadosPorRecusa(draft),
     });
     // Redistribuição já recusada nesta visita não volta pela porta do recálculo.
     if (pr.redistributionDismissed) {
@@ -1122,6 +1158,127 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
       }
     }
+  },
+
+  skipExercise: async (exerciseId, reason, note) => {
+    const draft = get().draft;
+    if (!draft || !draft.sessionLogId) {
+      set({ saveError: 'Sessão não iniciada corretamente.' });
+      return false;
+    }
+    const alvo = draft.exercises.find((ex) => ex.exerciseId === exerciseId);
+    if (!alvo) return false;
+    // Já recusado: nada a fazer (guarda de toque duplo no sheet).
+    if (alvo.skippedByUser === true && alvo.skipReason === reason) return true;
+
+    const epoch = operationEpoch;
+    const sid = draft.sessionLogId;
+    try {
+      // Servidor PRIMEIRO: aplicar na tela antes de gravar deixaria a recusa
+      // sumir na retomada (o rascunho local não é autoritativo) — o aluno
+      // reencontraria o exercício que dispensou sem entender por quê.
+      await skipSessionExercise({
+        sessionLogId: sid,
+        plannedExerciseId: exerciseId,
+        reason,
+        note: note ?? null,
+      });
+    } catch (e) {
+      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
+        set({ saveError: errMsg(e) });
+      }
+      return false;
+    }
+
+    const atual = get().draft;
+    if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
+    const novo = applyExerciseSkipToDraft(atual, exerciseId, reason, note ?? null);
+    set({
+      draft: novo,
+      saveError: null,
+      // Uma adaptação pendente do exercício recusado não faz mais sentido: o
+      // sheet pediria decisão de carga para o que acabou de ser dispensado.
+      pendingAdaptation:
+        get().pendingAdaptation?.exerciseId === exerciseId
+          ? null
+          : get().pendingAdaptation,
+    });
+    try {
+      await saveDraft(novo);
+    } catch (e) {
+      console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+    }
+    return true;
+  },
+
+  unskipExercise: async (exerciseId) => {
+    const draft = get().draft;
+    if (!draft || !draft.sessionLogId) {
+      set({ saveError: 'Sessão não iniciada corretamente.' });
+      return false;
+    }
+    const epoch = operationEpoch;
+    const sid = draft.sessionLogId;
+    try {
+      await unskipSessionExercise({ sessionLogId: sid, plannedExerciseId: exerciseId });
+    } catch (e) {
+      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
+        set({ saveError: errMsg(e) });
+      }
+      return false;
+    }
+
+    const atual = get().draft;
+    if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
+    const novo = removeExerciseSkipFromDraft(atual, exerciseId);
+    set({ draft: novo, saveError: null });
+    try {
+      await saveDraft(novo);
+    } catch (e) {
+      console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+    }
+    return true;
+  },
+
+  skipWholeSession: async (reason, note) => {
+    const draft = get().draft;
+    const pendente = get().pendingCheckIn;
+    // Vale antes de começar (recusar no check-in) e durante a execução: nos dois
+    // casos existe uma sessão PLANEJADA a recusar, com ou sem session_log.
+    const plannedSessionId = draft?.plannedSessionId ?? pendente?.sessionId ?? null;
+    const uid = draft?.userId ?? pendente?.draft.userId ?? null;
+    if (!plannedSessionId || !uid) {
+      set({ saveError: 'Sessão não identificada.' });
+      return false;
+    }
+    const epoch = operationEpoch;
+    try {
+      // A RPC fecha o session_log em aberto: sem isso a sessão ficaria recusada
+      // com log aberto e o próximo start_session reaproveitaria aquele log,
+      // devolvendo o aluno para dentro do treino que ele acabou de recusar.
+      await skipPlannedSession({ plannedSessionId, reason, note: note ?? null });
+    } catch (e) {
+      if (operationEpoch === epoch) set({ saveError: errMsg(e) });
+      return false;
+    }
+    if (operationEpoch !== epoch) return true;
+
+    set({
+      draft: null,
+      status: 'finished',
+      pendingCheckIn: null,
+      pendingReplan: null,
+      pendingAdaptation: null,
+      saveError: null,
+    });
+    // O rascunho local precisa MORRER: sobrevivendo, a próxima abertura o
+    // adotaria e a sessão recusada voltaria a parecer ativa no aparelho.
+    try {
+      await clearDraft(uid, plannedSessionId, draft?.sessionLogId ?? null);
+    } catch (e) {
+      console.warn('[activeSession] rascunho não removido (não-fatal):', e);
+    }
+    return true;
   },
 
   finishSession: async () => {

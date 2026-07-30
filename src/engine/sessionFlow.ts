@@ -7,11 +7,15 @@
 // aluno só percebia lendo o nome. Estas funções são puras para que a UI possa
 // dizer "exercício 3 de 7" e "supino concluído" sem inventar estado.
 
-import type { SessionDraft, DraftExercise } from './sessionModel';
+import { exercicioForaDeJogo, type SessionDraft, type DraftExercise } from './sessionModel';
 
-/** Exercícios que ainda contam no treino (os cortados pelo replan saem). */
+/**
+ * Exercícios que ainda contam no treino. Saem os cortados pela escada de tempo
+ * e os recusados pelo aluno (0020) — a mesma pergunta que o contador de
+ * progresso faz, respondida pelo mesmo helper.
+ */
 export const exerciciosEmJogo = (draft: SessionDraft): DraftExercise[] =>
-  draft.exercises.filter((ex) => !ex.cutByReplan);
+  draft.exercises.filter((ex) => !exercicioForaDeJogo(ex));
 
 /**
  * Posição do exercício no treino, 1-based, ignorando os cortados.

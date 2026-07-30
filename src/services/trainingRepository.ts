@@ -58,6 +58,13 @@ export type PlannedSession = {
   estimated_minutes: number | null;
   status: 'pending' | 'in_progress' | 'completed' | 'skipped';
   muscle_groups: string[];
+  // Recusa declarada (0020). Opcionais porque um banco sem a migration
+  // simplesmente não devolve as colunas — a tela cai no caso "sem motivo
+  // registrado" em vez de quebrar.
+  skip_reason?: string | null;
+  skip_note?: string | null;
+  skipped_at?: string | null;
+  skip_source?: 'user' | 'replan' | null;
 };
 
 export type SessionDetail = PlannedSession & { planned_exercises: PlannedExercise[] };
