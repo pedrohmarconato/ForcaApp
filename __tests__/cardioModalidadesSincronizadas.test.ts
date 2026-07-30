@@ -11,11 +11,14 @@
 import fs from 'fs';
 import path from 'path';
 
-import { CARDIO_MODALIDADES } from '../src/constants/cardioModalidades';
+import {
+  CARDIO_MODALIDADES,
+  CARDIO_MODALIDADES_COM_DISTANCIA,
+} from '../src/constants/cardioModalidades';
 
-type EntradaCatalogo = { nome?: unknown; grupo_muscular?: unknown };
+type EntradaCatalogo = { nome?: unknown; grupo_muscular?: unknown; metrica?: unknown };
 
-const carregarCardioDoBackend = (): string[] => {
+const carregarEntradasDoBackend = (): EntradaCatalogo[] => {
   const arquivo = path.join(__dirname, '..', 'backend', 'data', 'catalogo_exercicios.json');
   const documento = JSON.parse(fs.readFileSync(arquivo, 'utf8')) as unknown;
   const lista: unknown = Array.isArray(documento)
@@ -24,10 +27,13 @@ const carregarCardioDoBackend = (): string[] => {
   if (!Array.isArray(lista)) {
     throw new Error('catalogo_exercicios.json não tem lista de exercícios reconhecível');
   }
-  return (lista as EntradaCatalogo[])
+  return lista as EntradaCatalogo[];
+};
+
+const carregarCardioDoBackend = (): string[] =>
+  carregarEntradasDoBackend()
     .filter((e) => e?.grupo_muscular === 'Cardio' && typeof e.nome === 'string')
     .map((e) => e.nome as string);
-};
 
 describe('modalidades de cardio da tela × catálogo do backend', () => {
   it('a lista da tela é exatamente o grupo Cardio do catálogo', () => {
@@ -49,5 +55,18 @@ describe('modalidades de cardio da tela × catálogo do backend', () => {
     const esquecidas = carregarCardioDoBackend().filter((nome) => !daTela.has(nome));
 
     expect(esquecidas).toEqual([]);
+  });
+
+  it('desempenho oferece exatamente o cardio que registra distância', () => {
+    const comDistancia = carregarEntradasDoBackend()
+      .filter(
+        (e) =>
+          e?.grupo_muscular === 'Cardio' &&
+          e?.metrica === 'tempo_distancia' &&
+          typeof e.nome === 'string',
+      )
+      .map((e) => e.nome as string);
+
+    expect([...CARDIO_MODALIDADES_COM_DISTANCIA].sort()).toEqual(comDistancia.sort());
   });
 });

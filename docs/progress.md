@@ -1262,3 +1262,92 @@ Decisão do dono: **contrato validado**, não preferência no prompt.
 - A suíte completa acima foi rodada depois de trazer a `main` para a branch.
   A validação transacional em staging descrita acima antecede este review; a
   migration 0021 permanece **não aplicada** em staging e produção.
+
+## Fase 3: metas de cardio — desempenho e consistência (30/07/2026)
+
+O cardio era MEDIDO com precisão desde a 0014 (duração, distância, esforço e
+pace como coluna gerada) e não aparecia em nenhum lugar do Progresso:
+constância, volume em kg e recordes de carga só falam de musculação, e o pace
+calculado no banco não tinha consumidor. Sem alvo, "melhorei?" não tinha resposta.
+
+Decisão do dono: **as duas** — desempenho e consistência.
+
+### O que a Fase 3 entrega
+
+- **migration `0022_metas_de_cardio.sql`**: tabela `cardio_goals` com os dois
+  tipos, coerência por tipo em constraint (desempenho exige modalidade +
+  distância + tempo e proíbe os campos de consistência; consistência exige ao
+  menos um eixo e proíbe os de desempenho), **uma meta ativa por tipo** (índice
+  único parcial) e `achieved_at` obrigatório em meta batida. Três RPCs:
+  `upsert_cardio_goal` (arquiva a anterior e insere na mesma transação, com
+  advisory lock por usuário+tipo), `archive_cardio_goal` e `achieve_cardio_goal`.
+- **`src/engine/cardioGoals.ts`** — motor puro. A regra que impede o número mais
+  enganoso da feature: **comparação só entre bases equivalentes**. Uma amostra só
+  conta se for da MESMA modalidade e tiver distância entre 95% e 110% da meta —
+  o tempo de 1 km não prova nada sobre 5 km, e "corrigir" por fórmula (Riegel)
+  seria estimar, não medir. A comparação final é por pace, então 5,1 km ainda
+  serve para uma meta de 5 km.
+- **`src/services/cardioGoalRepository.ts`**: metas ativas, CRUD via RPC e a
+  leitura das séries de cardio (filtro pela `metric` do exercício — a mesma fonte
+  que o mapper usou para gravar, então leitura e persistência não discordam).
+- **Seção "Cardio" na aba Progresso**, com os dois cartões e o sheet de
+  definição (tudo por chip: o aluno escolhe entre valores que as constraints
+  aceitam, então não existe estado inválido a validar).
+
+### A distinção que o motor mantém
+
+- **Desempenho sem amostra é `null`** → a tela diz "ainda sem registro
+  comparável" e explica o que falta. 0% ou "0:00 /km" seria afirmar um esforço
+  que nunca existiu.
+- **Consistência sem registro é ZERO** → aqui o zero é o fato (ele não fez
+  cardio nesta semana) e é justamente a informação útil.
+- Sessões são **dias distintos** com cardio: três séries de esteira no mesmo dia
+  são um treino, e contá-las como três bateria uma meta de "3× por semana" num dia.
+- A semana começa na SEGUNDA, pela mesma `inicioDaSemana` da constância e do
+  volume — duas convenções de semana fariam a aba discordar de si mesma.
+- Conquista é **ação do aluno** ("Bati esta meta"), como o resto do app: o cartão
+  mostra que o dado alcança o alvo, mas quem carimba é ele.
+
+### Verificação
+
+- **663 testes jest / 72 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `cardioGoals.test.ts` (21 casos) cobre: tempo de 1 km numa meta de 5 km, faixa
+  de distância equivalente, ausência de amostra, modalidade trocada, série sem
+  distância (fora do desempenho, dentro da consistência), semana anterior,
+  virada de semana no domingo, três séries no mesmo dia, eixo não declarado e
+  duração ausente/negativa.
+- `cardioGoalsSecao.test.tsx` (17 casos) cobre o que a TELA afirma, incluindo a
+  conversão km/min → metros/segundos e a falha de RPC que não pode sumir.
+- **Migration validada no STAGING** com checklist de 14 itens em
+  `begin; … rollback;`: `CHECKLIST_OK` e contraprova de que nada persistiu.
+- Um teste meu estava errado e o motor certo: eu esperava "faltam 150 s" (1950 −
+  1800), que compara 5,1 km com 5 km. O correto é medir na distância da META:
+  (382,35 − 360) s/km × 5 km ≈ 112 s. Corrigi o teste, com a conta escrita nele.
+
+### Limitações conscientes
+
+- `target_week` existe na tabela e ainda não tem consumidor na tela: prazo de
+  meta ficou modelado, não exibido.
+- A meta de desempenho ignora esforços fora da faixa 95–110% da distância. Quem
+  só corre 3 km numa meta de 5 km vê "sem registro comparável" — é honesto, mas
+  não sugere nada; sugerir a meta possível é follow-up.
+- Não há histórico de metas na tela (a tabela guarda arquivadas e batidas).
+- Nada recalcula/arquiva meta automaticamente ao fim do plano.
+
+### Review pré-merge da pilha
+
+- A leitura dos logs passou a exigir `muscle_group = 'Cardio'`, além da métrica
+  temporal. Antes, prancha, aquecimento e mobilidade também alimentavam minutos
+  e dias de consistência porque todos usam `metric = 'tempo'`.
+- O sheet de desempenho agora oferece somente modalidades do catálogo com
+  `tempo_distancia`; o teste de sincronia cobre esse subconjunto. Meta de Corda,
+  Escada ou HIIT exigia distância que a execução nunca registra.
+- Durações positivas menores que um minuto aparecem como `<1`, nunca zero, e um
+  déficit positivo subsegundo aparece como pelo menos 1 s. Zero continua
+  reservado ao fato zero.
+- Como o motor conta dias distintos, `weekly_sessions` passou a aceitar no
+  máximo 7, não 14. Um teste estático protege a constraint antes da aplicação.
+- `cardioGoalRepository.test.ts` cobre o filtro de grupo e a defesa local contra
+  linha não-cardio. A suíte completa acima foi rodada depois de trazer `main`.
+  A validação transacional em staging descrita acima antecede estes ajustes; a
+  migration 0022 permanece **não aplicada** em staging e produção.

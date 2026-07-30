@@ -33,3 +33,15 @@ export const CARDIO_MODALIDADES = [
 ] as const;
 
 export type CardioModalidade = (typeof CARDIO_MODALIDADES)[number];
+
+// Meta de desempenho exige distância real. Modalidade com métrica `tempo` não
+// oferece esse campo na execução e criaria uma meta impossível de medir.
+// O teste de sincronia também compara este subconjunto ao catálogo do backend.
+export const CARDIO_MODALIDADES_COM_DISTANCIA: readonly CardioModalidade[] = [
+  'Caminhada',
+  'Corrida',
+  'Bicicleta Ergométrica',
+  'Elíptico',
+  'Remo Ergômetro',
+  'Cardio Contínuo (LISS)',
+];
