@@ -29,6 +29,9 @@ const payload: QuestionnairePayload = {
   lesoes_detalhes: 'joelho (leve)',
   dias_treino: ['mon', 'wed', 'fri'],
   inclui_cardio: true,
+  cardio_dias_semana: 2,
+  cardio_minutos_sessao: 30,
+  cardio_modalidades: ['Corrida'],
   inclui_alongamento: false,
   tempo_medio_treino_min: 60,
 };
@@ -46,7 +49,7 @@ it('grava como UPSERT na tabela certa, com o payload ÍNTEGRO e conflito na PK',
   expect(fromMock).toHaveBeenCalledWith('questionario_usuario');
   expect(upsertMock).toHaveBeenCalledTimes(1);
   const [linha, opts] = upsertMock.mock.calls[0];
-  // payload segue inteiro (13 campos da 0008), sem campo inventado nem perdido
+  // payload segue inteiro (0008 + dose da 0021), sem campo inventado nem perdido
   expect(linha).toEqual(payload);
   // resolução pela PK: re-submissão vira UPDATE, não 409
   expect(opts).toEqual({ onConflict: 'usuario_id' });

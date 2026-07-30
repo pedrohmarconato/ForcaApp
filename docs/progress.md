@@ -1222,8 +1222,8 @@ Decisão do dono: **contrato validado**, não preferência no prompt.
 
 ### Verificação
 
-- **618 testes jest / 69 suítes** e **491 pytest** verdes; `tsc --noEmit` limpo.
-- `test_dose_cardio.py` (39 casos) cobre os modos de falha: dose impossível,
+- **622 testes jest / 69 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `test_dose_cardio.py` (42 casos) cobre os modos de falha: dose impossível,
   séries de cardio somando no total da sessão (HIIT 3×10 = 30 min), minutos fora
   da faixa, modalidade não aceita, questionário antigo sem dose, cardio em plano
   pedido sem cardio, mensagem opaca e entrada deformada.
@@ -1247,3 +1247,18 @@ Decisão do dono: **contrato validado**, não preferência no prompt.
   primeira.
 - A dose não é retroativa: quem já tem plano gerado não ganha cardio novo — a
   dose vale a partir da próxima geração.
+
+### Review pré-merge da pilha
+
+- Modalidades agora são canonizadas pelo catálogo na entrada do contrato. Isso
+  evita que um alias válido (`run`) reprove `Corrida` por diferença textual e
+  deduplica aliases da mesma modalidade.
+- A mesma canonização protege todos os caminhos de prompt: JSON do questionário,
+  cardápio, bloco de contrato e mensagem de retry. Antes, texto forjado era
+  removido só do bloco dedicado, mas ainda aparecia no JSON e no retry.
+- `QuestionnairePayload` passou a declarar os três campos da 0021; a retomada de
+  rascunho incoerente ganhou contraprova de que cardio desligado envia a dose
+  inteira como `null`.
+- A suíte completa acima foi rodada depois de trazer a `main` para a branch.
+  A validação transacional em staging descrita acima antecede este review; a
+  migration 0021 permanece **não aplicada** em staging e produção.
