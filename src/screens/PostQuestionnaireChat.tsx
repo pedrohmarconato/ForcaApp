@@ -23,8 +23,11 @@ import { Feather } from '@expo/vector-icons';
 
 // Serviços e Contextos
 import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeService';
-import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress } from '../services/api/trainingPlanService';
+import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress, Diretrizes } from '../services/api/trainingPlanService';
 import { getActivePlanId } from '../services/trainingRepository';
+import { recuperarPlanoSalvo, RECUPERACAO_TENTATIVAS } from '../services/planRecovery';
+import { AcompanhamentoPerdidoError } from '../services/api/planJobErrors';
+import { classifyApiError } from '../services/api/apiErrors';
 import { STORAGE_KEY_CHAT_PREFIX, STORAGE_KEY_CHAT_STATE_PREFIX } from '../services/postQuestionnaireChatStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
@@ -104,6 +107,9 @@ const PostQuestionnaireChat = () => {
     // onboarding_completed virar true (que troca o navigator na hora).
     const [readyPlanId, setReadyPlanId] = useState<string | null>(null);
     const [isEnteringApp, setIsEnteringApp] = useState(false);
+    // Houve conversa, mas a consolidação falhou: o plano saiu sem os ajustes
+    // pedidos e o aluno precisa saber disso na revelação.
+    const [ajustesNaoAplicados, setAjustesNaoAplicados] = useState(false);
     // Guarda o disparo do declínio por skipChat para evitar duplicação em
     // re-renders do init. completeOnboardingAndGeneratePlan já se protege com
     // isGeneratingPlan, mas o disparo do declínio precisa da própria guarda.
@@ -163,8 +169,13 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
   isGeneratingPlanRef.current = true;
   setIsGeneratingPlan(true);
   setChatError(null);
+  setAjustesNaoAplicados(false);
   setJobStage('consolidando');
   setJobProgressText('Consolidando suas preferências...');
+
+  // O job pode existir no servidor mesmo quando o app perde a resposta: um
+  // POST que deu timeout pode ter criado o job do mesmo jeito.
+  let jobPodeExistir = false;
 
   try {
     const currentAdjustments = [...adjustmentsRef.current];
@@ -173,18 +184,40 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
       .filter(msg => msg.role !== 'system')
       .map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.parts[0]?.text ?? '' }));
 
-    let diretrizes;
-    try {
-      diretrizes = await consolidateChat(historyForApi, currentQuestionnaireData);
-      console.log(`[Chat ${userId}] Diretrizes consolidadas:`, JSON.stringify(diretrizes).substring(0, 200));
-    } catch (consolidateError: any) {
-      console.log(`[Chat ${userId}] Consolidação falhou, usando diretrizes vazias:`, consolidateError?.message);
-      diretrizes = { preferencias: currentAdjustments, restricoes: [], excecoes_estruturais: [] };
+    const diretrizesDoQuestionario = () => {
+      const base: Diretrizes = { preferencias: currentAdjustments, restricoes: [], excecoes_estruturais: [] };
       if (currentAdjustments.length > 0) {
-        diretrizes.observacoes_gerais = currentAdjustments.join('; ');
+        base.observacoes_gerais = currentAdjustments.join('; ');
+      }
+      return base;
+    };
+
+    // Sem nenhuma fala do aluno não há conversa a consolidar — e o backend
+    // rejeita esse histórico com 400 (exige ao menos uma mensagem 'user').
+    // Quem toca em "Gerar treino direto" caía nesse 400 a cada geração.
+    const alunoFalouNoChat = historyForApi.some(
+      msg => msg.role === 'user' && msg.content.trim().length > 0,
+    );
+
+    let diretrizes: Diretrizes;
+    if (!alunoFalouNoChat) {
+      console.log(`[Chat ${userId}] Sem conversa do aluno — diretrizes vêm do questionário.`);
+      diretrizes = diretrizesDoQuestionario();
+    } else {
+      try {
+        diretrizes = await consolidateChat(historyForApi, currentQuestionnaireData);
+        console.log(`[Chat ${userId}] Diretrizes consolidadas:`, JSON.stringify(diretrizes).substring(0, 200));
+      } catch (consolidateError: any) {
+        // Houve conversa e ela não foi consolidada: o plano vai sair sem os
+        // ajustes pedidos. Silenciar isso entregava um plano que ignorava o
+        // que o aluno escreveu, sem ele saber.
+        console.log(`[Chat ${userId}] Consolidação falhou, usando diretrizes do questionário:`, consolidateError?.message);
+        diretrizes = diretrizesDoQuestionario();
+        setAjustesNaoAplicados(true);
       }
     }
 
+    jobPodeExistir = true;
     const jobId = await startPlanJob(currentQuestionnaireData, diretrizes);
     console.log(`[Chat ${userId}] Job iniciado: ${jobId}`);
 
@@ -205,6 +238,36 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     }
   } catch (error: any) {
     console.error(`[Chat ${userId}] Erro ao gerar plano:`, error);
+
+    // Perder o acompanhamento não é o mesmo que a geração ter falhado: o job
+    // segue no servidor e grava o plano. Procurar no banco antes de reportar
+    // erro evita cobrar do aluno outra geração no Opus por um plano que já
+    // existe — e evita deixá-lo preso no onboarding (incidente 27/07/2026).
+    //
+    // Só vale ESPERAR pelo plano quando a geração pode estar viva: polling
+    // perdido, timeout ou queda de rede. Se o servidor reportou o erro, ou se
+    // algo quebrou antes do job existir, uma única consulta basta — segurar a
+    // tela por um minuto para confirmar uma falha conhecida é castigo.
+    const tipoDeFalha = classifyApiError(error);
+    const geracaoPodeSeguir =
+      error instanceof AcompanhamentoPerdidoError ||
+      (jobPodeExistir && (tipoDeFalha.kind === 'timeout' || tipoDeFalha.kind === 'network'));
+
+    if (geracaoPodeSeguir) {
+      setJobProgressText('Conexão instável. Verificando se seu plano foi salvo...');
+    }
+    const planoRecuperado = await recuperarPlanoSalvo(
+      userId,
+      geracaoPodeSeguir ? RECUPERACAO_TENTATIVAS : 1,
+    );
+
+    if (planoRecuperado) {
+      console.log(`[Chat ${userId}] Plano recuperado do banco: ${planoRecuperado}`);
+      setJobStage('salvo');
+      setReadyPlanId(planoRecuperado);
+      return;
+    }
+
     setChatError(`Erro ao gerar plano: ${error.message || 'Tente novamente.'}`);
   } finally {
     isGeneratingPlanRef.current = false;
@@ -1012,6 +1075,14 @@ const handleEnterApp = useCallback(async () => {
                             sessão na hora, sem quebrar o plano.
                         </Text>
                     </View>
+                    {ajustesNaoAplicados ? (
+                        <Notice
+                            tone="warning"
+                            title="Os ajustes da conversa não entraram neste plano."
+                            description="O plano saiu a partir do seu questionário. Você pode pedir mudanças em qualquer treino depois."
+                            style={styles.aviso}
+                        />
+                    ) : null}
                     {chatError ? <Notice tone="danger" title={chatError} style={styles.aviso} /> : null}
                     <Button
                         label="Começar"
