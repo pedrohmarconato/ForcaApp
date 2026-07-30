@@ -59,11 +59,9 @@ export const getMetasAtivas = async (userId: string): Promise<CardioGoal[]> => {
  * Séries de CARDIO de sessões concluídas, no formato que o motor de metas
  * consome.
  *
- * O filtro de cardio é a MÉTRICA do exercício (`metric`, 0014), não o nome: é a
- * mesma fonte que o mapper usou para gravar, então a leitura não pode discordar
- * do que foi persistido. `tempo` puro (prancha, corda) entra também — conta
- * minutos na consistência e é descartado na meta por distância, que exige
- * distância registrada.
+ * Cardio é identificado pelo `muscle_group = 'Cardio'` canônico gravado pelo
+ * mapper. Métrica sozinha NÃO basta: `tempo` também mede prancha, aquecimento e
+ * mobilidade, que não podem inflar minutos nem dias de cardio.
  */
 export const getCardioLogs = async (userId: string): Promise<CardioLog[]> => {
   const linhas: any[] = [];
@@ -72,11 +70,12 @@ export const getCardioLogs = async (userId: string): Promise<CardioLog[]> => {
     const { data, error } = await supabase
       .from('set_logs')
       .select(
-        'actual_duration_seconds, actual_distance_m, completed_at, session_logs!inner(user_id, finished_at), planned_sets!inner(planned_exercises!inner(name, exercise_key, metric))',
+        'actual_duration_seconds, actual_distance_m, completed_at, session_logs!inner(user_id, finished_at), planned_sets!inner(planned_exercises!inner(name, exercise_key, metric, muscle_group))',
       )
       .eq('session_logs.user_id', userId)
       .not('session_logs.finished_at', 'is', null)
       .in('planned_sets.planned_exercises.metric', ['tempo', 'tempo_distancia'])
+      .eq('planned_sets.planned_exercises.muscle_group', 'Cardio')
       .not('actual_duration_seconds', 'is', null)
       .order('completed_at', { ascending: false })
       .range(inicio, inicio + PAGINA - 1);
@@ -91,7 +90,9 @@ export const getCardioLogs = async (userId: string): Promise<CardioLog[]> => {
   for (const linha of linhas) {
     const exercicio = linha?.planned_sets?.planned_exercises;
     const nome: string | undefined = exercicio?.name;
-    if (!nome || !linha?.completed_at) continue;
+    // Defesa local além do filtro PostgREST: um mock, cache ou resposta
+    // deformada não transforma prancha/mobilidade em cardio.
+    if (!nome || exercicio?.muscle_group !== 'Cardio' || !linha?.completed_at) continue;
     logs.push({
       identity: exerciseIdentity({ exerciseKey: exercicio?.exercise_key ?? null, name: nome }),
       name: nome,

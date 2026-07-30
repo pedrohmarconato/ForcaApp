@@ -199,6 +199,16 @@ describe('meta de consistência', () => {
     expect(getByText('0 de 3 dias com cardio')).toBeTruthy();
   });
 
+  it('registro positivo abaixo de um minuto aparece como menor que um, não zero', () => {
+    const agora = new Date();
+    const { getByText } = renderSecao({
+      logs: [log('Cardio Intervalado (HIIT)', 20, null, agora.toISOString())],
+      metas: [metaConsistencia()],
+    });
+
+    expect(getByText('<1 de 120 min')).toBeTruthy();
+  });
+
   it('eixo não declarado não vira barra', () => {
     const { queryByLabelText, getByText } = renderSecao({
       logs: [],
@@ -211,6 +221,16 @@ describe('meta de consistência', () => {
 });
 
 describe('definir meta pelo sheet', () => {
+  it('desempenho só oferece modalidades que registram distância', () => {
+    const { getByTestId, getByLabelText, queryByLabelText } = renderSecao();
+
+    fireEvent.press(getByTestId('definir-meta-desempenho'));
+
+    expect(getByLabelText('Corrida')).toBeTruthy();
+    expect(queryByLabelText('Pular Corda')).toBeNull();
+    expect(queryByLabelText('Cardio Intervalado (HIIT)')).toBeNull();
+  });
+
   it('modo de falha 2: km e minutos chegam ao banco em metros e segundos', async () => {
     const { getByTestId, getByLabelText } = renderSecao();
 

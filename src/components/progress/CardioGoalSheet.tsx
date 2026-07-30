@@ -20,7 +20,7 @@ import {
 import theme from '../../theme/theme';
 import Button from '../ui/Button';
 import { OptionButton } from '../ui/Controls';
-import { CARDIO_MODALIDADES } from '../../constants/cardioModalidades';
+import { CARDIO_MODALIDADES_COM_DISTANCIA } from '../../constants/cardioModalidades';
 import type { CardioGoalKind } from '../../services/cardioGoalRepository';
 
 export type NovaMeta =
@@ -116,7 +116,7 @@ const CardioGoalSheet = ({ visible, kind, onConfirm, onDismiss, busy = false }: 
               <>
                 <Text style={styles.label}>Modalidade</Text>
                 <View style={styles.linha}>
-                  {CARDIO_MODALIDADES.map((nome) => (
+                  {CARDIO_MODALIDADES_COM_DISTANCIA.map((nome) => (
                     <OptionButton
                       key={nome}
                       label={nome}

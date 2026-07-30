@@ -41,6 +41,15 @@ type Props = {
   onRecarregar: () => void;
 };
 
+const formatarMinutos = (valor: number): string => {
+  if (valor === 0) return '0';
+  if (valor < 1) return '<1';
+  const arredondado = Math.round(valor * 10) / 10;
+  return Number.isInteger(arredondado)
+    ? String(arredondado)
+    : arredondado.toFixed(1).replace('.', ',');
+};
+
 const CardioGoalsSection = ({ logs, metas, erro, onRecarregar }: Props) => {
   const [sheetKind, setSheetKind] = useState<CardioGoalKind | null>(null);
   const [busy, setBusy] = useState(false);
@@ -225,7 +234,7 @@ const CardioGoalsSection = ({ logs, metas, erro, onRecarregar }: Props) => {
                 {progConsistencia.metaMinutos != null ? (
                   <>
                     <Text style={styles.detalhe}>
-                      {`${progConsistencia.minutos} de ${progConsistencia.metaMinutos} min`}
+                      {`${formatarMinutos(progConsistencia.minutos)} de ${progConsistencia.metaMinutos} min`}
                     </Text>
                     <ProgressTrack
                       ratio={progConsistencia.fracaoMinutos ?? 0}

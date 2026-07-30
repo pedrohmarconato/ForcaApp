@@ -57,7 +57,9 @@ create table if not exists public.cardio_goals (
     or (
       (weekly_minutes is not null or weekly_sessions is not null)
       and (weekly_minutes is null or weekly_minutes between 5 and 1200)
-      and (weekly_sessions is null or weekly_sessions between 1 and 14)
+      -- O motor conta DIAS distintos dentro de uma semana; acima de 7 seria
+      -- uma meta impossível por definição, mesmo com múltiplas séries no dia.
+      and (weekly_sessions is null or weekly_sessions between 1 and 7)
       and modality is null
       and target_distance_m is null
       and target_duration_seconds is null

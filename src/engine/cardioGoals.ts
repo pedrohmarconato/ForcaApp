@@ -130,6 +130,7 @@ export const progressoDesempenho = (
     };
   }
 
+  const atingida = melhor.pace <= paceAlvo;
   const falta = Math.max(0, melhor.pace - paceAlvo) * (alvoDistancia / 1000);
   return {
     melhorDurationSeconds: melhor.duracao,
@@ -139,16 +140,18 @@ export const progressoDesempenho = (
     amostras,
     // Arredondado ao segundo: exibir "faltam 149,7 s" é precisão que a medição
     // (relógio na mão) não tem.
-    faltaSegundos: Math.round(falta),
+    // Uma diferença positiva subsegundo não pode virar "faltam 0:00". A
+    // medição não sustenta decimal, então o menor déficit exibível é 1 s.
+    faltaSegundos: atingida ? 0 : Math.max(1, Math.round(falta)),
     // Pace é inverso de desempenho: quanto menor, melhor. A fração é
     // alvo/atual, limitada a 1 — passar do alvo não é 130% da meta, é meta batida.
     fracao: Math.min(1, paceAlvo / melhor.pace),
-    atingida: melhor.pace <= paceAlvo,
+    atingida,
   };
 };
 
 export type ProgressoConsistencia = {
-  /** Minutos de cardio na semana de referência. Zero é fato, não ausência. */
+  /** Minutos de cardio na semana. Pode ser fracionário; zero é fato. */
   minutos: number;
   /** DIAS distintos com cardio na semana — série não é sessão. */
   sessoes: number;
@@ -202,7 +205,9 @@ export const progressoConsistencia = (
     if (dia) dias.add(dia);
   }
 
-  const minutos = Math.round(segundos / 60);
+  // Não arredonda aqui: 20 s de HIIT são > 0. Arredondar para inteiro faria a
+  // tela afirmar "0 min" apesar de existir uma amostra positiva.
+  const minutos = segundos / 60;
   const sessoes = dias.size;
   const metaMinutos = numeroPositivo(meta.weeklyMinutes);
   const metaSessoes = numeroPositivo(meta.weeklySessions);

@@ -1310,13 +1310,13 @@ Decisão do dono: **as duas** — desempenho e consistência.
 
 ### Verificação
 
-- **652 testes jest / 71 suítes** e **491 pytest** verdes; `tsc --noEmit` limpo.
-- `cardioGoals.test.ts` (19 casos) cobre: tempo de 1 km numa meta de 5 km, faixa
+- **663 testes jest / 72 suítes** e **494 pytest** verdes; `tsc --noEmit` limpo.
+- `cardioGoals.test.ts` (21 casos) cobre: tempo de 1 km numa meta de 5 km, faixa
   de distância equivalente, ausência de amostra, modalidade trocada, série sem
   distância (fora do desempenho, dentro da consistência), semana anterior,
   virada de semana no domingo, três séries no mesmo dia, eixo não declarado e
   duração ausente/negativa.
-- `cardioGoalsSecao.test.tsx` (15 casos) cobre o que a TELA afirma, incluindo a
+- `cardioGoalsSecao.test.tsx` (17 casos) cobre o que a TELA afirma, incluindo a
   conversão km/min → metros/segundos e a falha de RPC que não pode sumir.
 - **Migration validada no STAGING** com checklist de 14 itens em
   `begin; … rollback;`: `CHECKLIST_OK` e contraprova de que nada persistiu.
@@ -1333,3 +1333,21 @@ Decisão do dono: **as duas** — desempenho e consistência.
   não sugere nada; sugerir a meta possível é follow-up.
 - Não há histórico de metas na tela (a tabela guarda arquivadas e batidas).
 - Nada recalcula/arquiva meta automaticamente ao fim do plano.
+
+### Review pré-merge da pilha
+
+- A leitura dos logs passou a exigir `muscle_group = 'Cardio'`, além da métrica
+  temporal. Antes, prancha, aquecimento e mobilidade também alimentavam minutos
+  e dias de consistência porque todos usam `metric = 'tempo'`.
+- O sheet de desempenho agora oferece somente modalidades do catálogo com
+  `tempo_distancia`; o teste de sincronia cobre esse subconjunto. Meta de Corda,
+  Escada ou HIIT exigia distância que a execução nunca registra.
+- Durações positivas menores que um minuto aparecem como `<1`, nunca zero, e um
+  déficit positivo subsegundo aparece como pelo menos 1 s. Zero continua
+  reservado ao fato zero.
+- Como o motor conta dias distintos, `weekly_sessions` passou a aceitar no
+  máximo 7, não 14. Um teste estático protege a constraint antes da aplicação.
+- `cardioGoalRepository.test.ts` cobre o filtro de grupo e a defesa local contra
+  linha não-cardio. A suíte completa acima foi rodada depois de trazer `main`.
+  A validação transacional em staging descrita acima antecede estes ajustes; a
+  migration 0022 permanece **não aplicada** em staging e produção.

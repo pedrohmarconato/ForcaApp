@@ -126,6 +126,17 @@ describe('meta de desempenho', () => {
     expect(p.fracao).toBe(1);
   });
 
+  it('déficit positivo subsegundo não aparece como zero', () => {
+    const p = progressoDesempenho(
+      // 1801 s em 5002 m normaliza para ~1800,28 s nos 5 km da meta.
+      [log('Corrida', 1801, 5002, '2026-07-28T10:00:00Z')],
+      META_5K,
+    );
+
+    expect(p.atingida).toBe(false);
+    expect(p.faltaSegundos).toBe(1);
+  });
+
   it('a fração nunca passa de 1 nem fica negativa', () => {
     const rapido = progressoDesempenho(
       [log('Corrida', 1200, 5000, '2026-07-28T10:00:00Z')],
@@ -243,6 +254,17 @@ describe('meta de consistência', () => {
     expect(p.fracaoMinutos).toBe(0);
     expect(p.fracaoSessoes).toBe(0);
     expect(p.atingida).toBe(false);
+  });
+
+  it('duração positiva menor que um minuto nunca vira zero', () => {
+    const p = progressoConsistencia(
+      [log('Cardio Intervalado (HIIT)', 20, null, '2026-07-28T10:00:00')],
+      { weeklyMinutes: 60, weeklySessions: null },
+      REFERENCIA,
+    );
+
+    expect(p.minutos).toBeCloseTo(1 / 3, 5);
+    expect(p.fracaoMinutos).toBeGreaterThan(0);
   });
 
   it('eixo não declarado devolve null (a tela não mostra barra sem meta)', () => {
