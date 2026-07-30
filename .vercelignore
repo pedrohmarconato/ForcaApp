@@ -1,0 +1,8 @@
+# O `vercel deploy` sobe o diretório de trabalho, não o git: sem esta lista o
+# `.env` local (que tem ANTHROPIC_API_KEY) iria junto para o build.
+.env
+.env.*
+!.env.example
+
+# Backend Python — não entra no bundle web.
+backend/
