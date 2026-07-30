@@ -29,6 +29,8 @@ import {
   type SessionDraft,
 } from '../src/engine/sessionModel';
 import { exerciciosEmJogo, posicaoDoExercicio } from '../src/engine/sessionFlow';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const serie = (setOrder: number, status: DraftSet['status']): DraftSet =>
   ({
@@ -93,6 +95,19 @@ describe('vocabulário de motivos', () => {
       'sem_equipamento',
       'sem_tempo',
     ].concat('outro').sort());
+  });
+});
+
+describe('invariantes da migration 0020', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/0020_recusa_declarada.sql'),
+    'utf8',
+  );
+
+  it('barra ressurreição, recusa com séries e vínculo exercício/log divergente', () => {
+    expect(sql).toMatch(/v_sessao\.status not in \('pending', 'in_progress'\)/);
+    expect(sql).toMatch(/from public\.set_logs sl where sl\.session_log_id = v_log\.id/);
+    expect(sql).toMatch(/pe\.session_id = l\.planned_session_id/);
   });
 });
 

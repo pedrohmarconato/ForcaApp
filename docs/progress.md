@@ -1129,7 +1129,7 @@ como contrato validado, (3) metas de cardio (desempenho + consistência).
 
 ### Verificação
 
-- **608 testes / 67 suítes verdes**, `tsc --noEmit` limpo.
+- **611 testes / 67 suítes verdes**, **452 pytest**, `tsc --noEmit` limpo.
 - Testes novos partindo de reprodução vermelha (`recusaDeclarada.test.ts`,
   `recusaDeclaradaFluxo.test.ts`), um por modo de falha provável: recusa que não
   sai do `exerciciosEmJogo` (o player continuaria abrindo o exercício), séries
@@ -1162,3 +1162,23 @@ sessão para de funcionar. **A migration entra antes do PWA**, nunca depois.
   consumidor: propor substituição automática ficou como follow-up.
 - `unskip_planned_session` não reabre o `session_log` que a recusa fechou (log
   sem série é inofensivo; reabrir reescreveria `finished_at` do servidor).
+
+### Rodada de review pré-merge (30/07/2026)
+
+Achados confirmados e corrigidos antes do merge:
+
+- o cache local agora grava um tombstone `finished` antes de tentar removê-lo;
+  se o `removeItem` falhar, uma retomada offline não adota o rascunho ativo;
+- sessão `completed`/`skipped` não entra em check-in por rota velha, e a 0020
+  recria `start_session` com a mesma guarda no banco — desfazer recusa continua
+  sendo uma transição explícita;
+- `skip_planned_session` e `finish_session` usam a mesma ordem de locks, e a
+  recusa da sessão é rejeitada se o log já tiver `set_logs`; trabalho registrado
+  não pode terminar sob status `skipped` numa corrida entre telas/dispositivos;
+- o `WITH CHECK` de `exercise_skips` passou a exigir log aberto e exercício da
+  mesma sessão planejada, não apenas a posse do log.
+
+A validação transacional em STAGING descrita acima foi feita antes desses
+ajustes de review. A migration 0020 continua **não aplicada** em staging e
+produção; os novos guardas devem fazer parte da validação/aplicação própria de
+migrations, sem antecipá-la neste merge.

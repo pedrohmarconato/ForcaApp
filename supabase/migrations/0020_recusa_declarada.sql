@@ -173,13 +173,151 @@ create policy "own exercise skips" on public.exercise_skips
   ) with check (
     exists (
       select 1 from public.session_logs l
-      where l.id = session_log_id and l.user_id = auth.uid()
+      join public.planned_exercises pe
+        on pe.id = planned_exercise_id
+       and pe.session_id = l.planned_session_id
+      where l.id = session_log_id
+        and l.user_id = auth.uid()
+        and l.finished_at is null
     )
   );
 
 -- ============================================================
 -- 3. RPCs — recusar e desfazer
 -- ============================================================
+
+/*
+ * A 0020 introduz uma nova transição terminal (`skipped`) que `start_session`
+ * não conhecia. Recriamos a RPC para impedir que uma rota velha ou outro
+ * aparelho ressuscite a sessão sem passar por `unskip_planned_session`.
+ *
+ * A ordem de lock comum é planned_session -> session_log. `finish_session` é
+ * recriada logo abaixo com a mesma ordem, evitando a inversão com a recusa.
+ */
+create or replace function public.start_session(
+  p_planned_session_id uuid,
+  p_mood text default null,
+  p_available_minutes integer default null
+)
+returns public.session_logs
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_sessao public.planned_sessions;
+  v_log    public.session_logs;
+begin
+  if auth.uid() is null then
+    raise exception 'autenticação obrigatória' using errcode = '42501';
+  end if;
+  if p_mood is not null and p_mood not in ('cansado', 'normal', 'com_energia') then
+    raise exception 'mood inválido: %', p_mood using errcode = '22023';
+  end if;
+
+  select * into v_sessao
+    from public.planned_sessions
+   where id = p_planned_session_id
+     and user_id = auth.uid()
+   for update;
+  if not found then
+    raise exception 'planned_session % inexistente ou alheia', p_planned_session_id
+      using errcode = '42501';
+  end if;
+  if v_sessao.status not in ('pending', 'in_progress') then
+    raise exception 'sessão % não pode ser iniciada com status %',
+      p_planned_session_id, v_sessao.status using errcode = '55000';
+  end if;
+
+  insert into public.session_logs (planned_session_id, user_id, mood, available_minutes)
+  values (p_planned_session_id, auth.uid(), p_mood, p_available_minutes)
+  on conflict (planned_session_id) where finished_at is null
+  do nothing
+  returning * into v_log;
+
+  if v_log.id is null then
+    select * into v_log
+      from public.session_logs
+     where planned_session_id = p_planned_session_id
+       and user_id = auth.uid()
+       and finished_at is null
+     order by started_at desc
+     limit 1
+     for update;
+  end if;
+
+  if v_log.id is null then
+    raise exception 'não foi possível abrir a sessão %', p_planned_session_id
+      using errcode = '55000';
+  end if;
+
+  update public.planned_sessions
+     set status = 'in_progress'
+   where id = p_planned_session_id;
+
+  return v_log;
+end;
+$$;
+
+/*
+ * Mesma semântica idempotente da 0004, agora com a mesma ordem de lock da
+ * recusa. Se a sessão foi recusada, um finish atrasado não a converte em
+ * concluída; se o log já foi fechado pela recusa, retorna sem efeito.
+ */
+create or replace function public.finish_session(p_session_log_id uuid)
+returns void
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_log    public.session_logs;
+  v_sessao public.planned_sessions;
+begin
+  if auth.uid() is null then
+    raise exception 'autenticação obrigatória' using errcode = '42501';
+  end if;
+
+  select * into v_log
+    from public.session_logs
+   where id = p_session_log_id
+     and user_id = auth.uid();
+  if not found then
+    raise exception 'session_log % inexistente ou alheio', p_session_log_id
+      using errcode = 'P0002';
+  end if;
+
+  select * into v_sessao
+    from public.planned_sessions
+   where id = v_log.planned_session_id
+     and user_id = auth.uid()
+   for update;
+  if not found then
+    raise exception 'sessão do log % inexistente ou alheia', p_session_log_id
+      using errcode = 'P0002';
+  end if;
+
+  select * into v_log
+    from public.session_logs
+   where id = p_session_log_id
+     and user_id = auth.uid()
+   for update;
+  if v_log.finished_at is not null then
+    return;
+  end if;
+  if v_sessao.status = 'skipped' then
+    raise exception 'sessão recusada não pode ser concluída' using errcode = '55000';
+  end if;
+
+  update public.session_logs
+     set finished_at = now()
+   where id = p_session_log_id;
+
+  update public.planned_sessions
+     set status = 'completed'
+   where id = v_log.planned_session_id;
+end;
+$$;
 
 /*
  * Recusa um exercício da execução em aberto. As séries já registradas dele
@@ -326,6 +464,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_sessao public.planned_sessions;
+  v_log    public.session_logs;
   v_row    public.planned_sessions;
   v_note   text := nullif(btrim(coalesce(p_note, '')), '');
 begin
@@ -353,11 +492,30 @@ begin
     raise exception 'sessão concluída não pode ser recusada' using errcode = '55000';
   end if;
 
-  update public.session_logs
-     set finished_at = now()
+  select * into v_log
+    from public.session_logs
    where planned_session_id = p_planned_session_id
      and user_id = auth.uid()
-     and finished_at is null;
+     and finished_at is null
+   order by started_at desc
+   limit 1
+   for update;
+
+  -- A UI só oferece recusa da sessão antes da primeira série, mas o banco é a
+  -- fronteira autoritativa (duas telas/dispositivos podem correr). Trabalho já
+  -- registrado continua válido e não pode virar uma sessão `skipped`.
+  if v_log.id is not null and exists (
+    select 1 from public.set_logs sl where sl.session_log_id = v_log.id
+  ) then
+    raise exception 'sessão com séries registradas deve ser concluída, não recusada'
+      using errcode = '55000';
+  end if;
+
+  if v_log.id is not null then
+    update public.session_logs
+       set finished_at = now()
+     where id = v_log.id;
+  end if;
 
   update public.planned_sessions
      set status      = 'skipped',
@@ -432,12 +590,16 @@ $$;
 -- Os default privileges do Supabase concedem EXECUTE a anon/authenticated na
 -- criação de QUALQUER função: `revoke from public` não corta anon.
 revoke all on function public._forca_motivo_recusa_valido(text) from public, anon;
+revoke all on function public.start_session(uuid, text, integer) from public, anon;
+revoke all on function public.finish_session(uuid) from public, anon;
 revoke all on function public.skip_session_exercise(uuid, uuid, text, text) from public, anon;
 revoke all on function public.unskip_session_exercise(uuid, uuid) from public, anon;
 revoke all on function public.skip_planned_session(uuid, text, text) from public, anon;
 revoke all on function public.unskip_planned_session(uuid) from public, anon;
 
 grant execute on function public._forca_motivo_recusa_valido(text) to authenticated;
+grant execute on function public.start_session(uuid, text, integer) to authenticated;
+grant execute on function public.finish_session(uuid) to authenticated;
 grant execute on function public.skip_session_exercise(uuid, uuid, text, text) to authenticated;
 grant execute on function public.unskip_session_exercise(uuid, uuid) to authenticated;
 grant execute on function public.skip_planned_session(uuid, text, text) to authenticated;
@@ -475,8 +637,10 @@ begin
     raise exception 'asserção falhou: RLS desligada em exercise_skips';
   end if;
 
-  -- anon sem EXECUTE nas RPCs novas (o furo que a 0019 revelou).
+  -- anon sem EXECUTE nas RPCs criadas ou recriadas (o furo que a 0019 revelou).
   foreach v_fn in array array[
+    'public.start_session(uuid, text, integer)',
+    'public.finish_session(uuid)',
     'public.skip_session_exercise(uuid, uuid, text, text)',
     'public.unskip_session_exercise(uuid, uuid)',
     'public.skip_planned_session(uuid, text, text)',
