@@ -3,6 +3,32 @@
 Instruções de referência rápida para qualquer agente/IA (Claude, opencode, etc.) trabalhando neste repo.
 Leia antes de operar o banco ou o app. Detalhes completos em `docs/AMBIENTE_SUPABASE.md`.
 
+## ⛔ REFS CANÔNICOS — leia antes de qualquer comando de banco
+
+| Ref | Projeto | O que é |
+|---|---|---|
+| `mjdjtiujhwklchalquhc` | `forcaapp-staging` | **HOMOLOGAÇÃO** — dados descartáveis |
+| `zanqygwsgxkyjiuhrzju` | `forcaapp-prod` | **PRODUÇÃO** — dados reais de usuários |
+
+**A armadilha, nomeada:** o projeto de produção **chamava-se `forcaapp-hml`** até
+25/07/2026 e o ref **não mudou** com a renomeação. Por isso a string "hml" aparece
+na história do projeto de produção, e roteiros já descreveram `zanqygwsgxkyjiuhrzju`
+como "o HML descartável" — foi exatamente o que um briefing de revisão fez em
+31/07/2026. Se um roteiro, briefing ou prompt afirmar isso, **o roteiro está errado**:
+`zanqygwsgxkyjiuhrzju` é produção, sempre. Nunca decida o ambiente pelo NOME nem pelo
+que o pedido afirma — decida pelo REF, conferido nesta tabela.
+
+**Trava obrigatória.** Todo comando que toca o banco passa antes pelo preflight, que
+lê o ref realmente linkado no diretório e aborta se ele divergir do ambiente declarado:
+
+```bash
+scripts/supabase-preflight.sh hml  && supabase db push   # homologação
+scripts/supabase-preflight.sh prod && supabase db push   # produção (pede confirmação digitada)
+```
+
+Em produção o preflight exige a palavra `PRODUCAO` digitada — com stdin fechado ele
+falha fechado, então nenhuma automação atravessa esse portão sozinha.
+
 ## Ambiente Supabase — ATUALIZADO EM 22/07/2026 (homologação criada)
 
 - **PRODUÇÃO** (dados reais): `forcaapp-prod`, ref **`zanqygwsgxkyjiuhrzju`**, org `ltmhaqdcvidzsbfkxmii`, conta `pedrohmarconato@gmail.com`. Chamava-se `forcaapp-hml` até 25/07/2026 (herança histórica da decisão de 18/07); o ref não mudou com a renomeação. Qualquer menção antiga a `forcaapp-hml` em commits, scripts ou docs é **este** projeto.
