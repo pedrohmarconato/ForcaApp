@@ -24,6 +24,7 @@ try:
         get_plan_model_name, get_anthropic_timeout_seconds,
     )
     from backend.utils.anthropic_retry import criar_mensagem_com_deadline
+    from backend.services import ai_quota
     from backend.services.plan_mapper import MAX_TOTAL_SETS, mapear_plano_ia
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
@@ -36,7 +37,9 @@ try:
     from backend.services.job_manager import (
         JobStatus, PlanJob, criar_job, obter_job, executar_job,
     )
-    from backend.schemas.diretrizes_schema import DIRETRIZES_SCHEMA
+    from backend.schemas.diretrizes_schema import (
+        DIRETRIZES_SCHEMA, podar_chaves_desconhecidas,
+    )
     from backend.schemas.plano_manual_schema import PLANO_MANUAL_SCHEMA
 except ImportError as e:
     print(f"ERRO FATAL: Falha ao importar módulos necessários: {e}")
@@ -135,6 +138,61 @@ def _rate_limit_hit(bucket_name, key, limit, window_seconds):
         return False
 
 
+# --- Quota diária persistente e teto de custo (RATE-01) ---
+# O bucket acima é a barreira de burst: em memória, por processo, janela curta.
+# Estes helpers falam com a tabela/RPC da migration 0024, que é o que sobrevive
+# a restart, vale entre réplicas e limita o gasto do dia em dólares.
+
+def _caracteres_do_prompt(system_prompt, messages) -> int:
+    """Tamanho aproximado do prompt, só para dimensionar a reserva."""
+    total = len(system_prompt or "")
+    for item in messages or []:
+        conteudo = item.get("content") if isinstance(item, dict) else None
+        if isinstance(conteudo, str):
+            total += len(conteudo)
+    return total
+
+
+def _reservar_quota_ia(rota, modelo, caracteres_prompt, max_tokens_saida, user_id):
+    """
+    Reserva o custo de pior caso ANTES da chamada paga.
+
+    Devolve o valor reservado (float) quando pode seguir, ou uma tupla
+    (resposta Flask, status) quando a rota deve parar aqui. Falha FECHADA:
+    sem contabilidade não há teto, e todas as rotas que chamam isto já
+    dependem do Supabase para concluir o próprio trabalho.
+    """
+    custo = ai_quota.custo_estimado_usd(modelo, caracteres_prompt, max_tokens_saida)
+    try:
+        ai_quota.reservar(g.access_token, rota, custo)
+    except ai_quota.QuotaExcedida as excedida:
+        app_logger.warning(
+            f"Quota diária de IA excedida ({excedida.motivo}) para usuário {user_id}: "
+            f"{excedida.chamadas_dia} chamadas, US$ {excedida.custo_dia_usd:.2f}."
+        )
+        return jsonify({
+            "error": "Limite diário de uso da IA atingido. Tente novamente amanhã.",
+        }), 429
+    except ai_quota.QuotaIndisponivel as indisponivel:
+        app_logger.error(
+            f"Quota de IA indisponível para usuário {user_id}: {indisponivel}"
+        )
+        return jsonify({
+            "error": "Serviço de IA indisponível no momento. Tente novamente em instantes.",
+        }), 503
+    return custo
+
+
+def _acertar_quota_ia(rota, modelo, reservado, usage):
+    """Troca a reserva de pior caso pelo custo real. Best-effort por projeto."""
+    if not isinstance(reservado, (int, float)):
+        return
+    try:
+        ai_quota.acertar_custo_real(g.access_token, rota, modelo, float(reservado), usage)
+    except Exception as exc:  # nunca derruba a resposta por causa do acerto
+        app_logger.warning(f"Falha ao acertar o custo real da quota ({rota}): {exc}")
+
+
 # --- CORS restrito por variável de ambiente ---
 # Lista de origens separadas por vírgula em CORS_ORIGINS.
 # O app React Native não depende de CORS (não envia Origin de browser);
@@ -156,6 +214,22 @@ app_logger = WrapperLogger("FlaskAPI")
 app_logger.warning(
     "Rate limit em memória: contadores zeram a cada restart e NÃO são "
     "compartilhados entre workers. Configure um backend compartilhado para produção."
+)
+
+# MUD-01 do review de 31/07/2026: o revisor não conseguiu confirmar quais
+# flags e modelos estavam ativos no runtime — o briefing dizia uma coisa, o
+# Compose outra, a doc de HML uma terceira. Sem isto, saber o que está no ar
+# exige ler o `.env` da VPS, que é justamente o arquivo que não se deve abrir
+# à toa. Só valores NÃO secretos, e só no log de startup: nada disto vira
+# endpoint público.
+app_logger.info(
+    "Configuração ativa | modelos: plano={} chat={} geral={} | flags: "
+    "USE_MOLDE_ARCHITECTURE={} PROMPT_MOLDE_V2={} STRUCTURED_OUTPUT={} | "
+    "quota diária: {} chamadas / US$ {:.2f}".format(
+        get_plan_model_name(), get_chat_model_name(), get_model_name(),
+        FORCA_USE_MOLDE_ARCHITECTURE, FORCA_PROMPT_MOLDE_V2, FORCA_STRUCTURED_OUTPUT,
+        ai_quota.AI_DAILY_CALL_LIMIT, ai_quota.AI_DAILY_USD_LIMIT,
+    )
 )
 
 # Instancia o treinador (pode ser otimizado com padrões como Singleton ou Factory se necessário)
@@ -180,6 +254,11 @@ ALLOWED_CHAT_ROLES = {"user", "assistant"}
 MAX_QUESTIONNAIRE_JSON_BYTES = 32 * 1024  # 32 KB serializado
 MAX_ADJUSTMENTS_ITEMS = 10
 MAX_ADJUSTMENT_LENGTH = 1000
+# VALID-01: o teto de 256 KiB do MAX_CONTENT_LENGTH é do CORPO inteiro, não de
+# cada campo. Sem um limite por campo, /api/consolidate-chat e
+# /api/generate-plan aceitavam qualquer dict e o serializavam inteiro dentro do
+# prompt pago — só /api/chat media o questionário.
+MAX_DIRETRIZES_JSON_BYTES = 16 * 1024  # 16 KB serializado
 # O consumidor real do chat é o app, com timeout de 30s (apiClient). O backend
 # esperar 120s só acumulava threads pagando respostas que ninguém veria
 # (achado #2 do review do PR #19): o orçamento fica ABAIXO dos 30s do app.
@@ -188,6 +267,15 @@ CHAT_ANTHROPIC_TIMEOUT_SECONDS = 25.0
 # Janela de saída do chat: Haiku 4.5 é barato (~$0.004/1K output), então
 # usamos uma janela confortável. Só custa o que for efetivamente gerado.
 CHAT_MAX_TOKENS = 4096
+
+# Janela de saída da consolidação. Era um literal na montagem dos kwargs; virou
+# constante porque a reserva de quota precisa do MESMO valor — os dois
+# divergindo silenciosamente dariam uma reserva que não cobre o gasto.
+CONSOLIDATE_MAX_TOKENS = 2048
+
+# Janela de saída do molde. Mesmo motivo: o valor é o teto que a reserva de
+# quota precisa cobrir, então não pode viver solto dentro do laço.
+MOLDE_MAX_TOKENS = 32768
 
 
 def _get_chat_anthropic_client():
@@ -295,6 +383,27 @@ def _build_chat_system_prompt(questionnaire_data):
     )
 
 
+def _validar_tamanho_serializado(nome_campo, valor, limite_bytes):
+    """
+    Mede o campo COMO ELE VAI PARAR NO PROMPT (JSON serializado em UTF-8) e o
+    recusa acima do limite.
+
+    Medir a forma serializada, e não `len()` do dict, é o ponto: são os bytes
+    do prompt que viram tokens cobrados.
+
+    Devolve None quando está dentro do limite, ou a mensagem de erro.
+    """
+    import json
+
+    try:
+        tamanho = len(json.dumps(valor, default=str).encode("utf-8"))
+    except (TypeError, ValueError):
+        return f"Campo '{nome_campo}' não serializável."
+    if tamanho > limite_bytes:
+        return f"Campo '{nome_campo}' excede o limite de tamanho."
+    return None
+
+
 def _validate_context_fields(data):
     """
     Valida os campos que alimentam o prompt de sistema.
@@ -394,6 +503,19 @@ def handle_chat():
 
     app_logger.info(f"Chat: usuário {user_id} enviou {len(messages)} mensagens.")
 
+    # Quota diária persistente (RATE-01): o bucket em memória acima é a
+    # barreira de burst; esta é a que sobrevive a restart e limita o gasto.
+    modelo_chat = get_chat_model_name()
+    reservado = _reservar_quota_ia(
+        rota="chat",
+        modelo=modelo_chat,
+        caracteres_prompt=_caracteres_do_prompt(system_prompt, messages),
+        max_tokens_saida=CHAT_MAX_TOKENS,
+        user_id=user_id,
+    )
+    if isinstance(reservado, tuple):  # (resposta, status) de quota excedida/indisponível
+        return reservado
+
     try:
         client = _get_chat_anthropic_client()
         # Retry seletivo com deadline absoluto (achado #1 do review): re-tenta
@@ -401,7 +523,7 @@ def handle_chat():
         response = criar_mensagem_com_deadline(
             client,
             min(get_anthropic_timeout_seconds(), CHAT_ANTHROPIC_TIMEOUT_SECONDS),
-            model=get_chat_model_name(),
+            model=modelo_chat,
             max_tokens=CHAT_MAX_TOKENS,
             system=system_prompt,
             messages=messages,
@@ -409,6 +531,8 @@ def handle_chat():
     except Exception as e:
         app_logger.error(f"Erro ao chamar a API Claude no chat para usuário {user_id}: {e}", exc_info=True)
         return jsonify({"error": "Erro ao comunicar com o serviço de IA."}), 502
+
+    _acertar_quota_ia("chat", modelo_chat, reservado, getattr(response, "usage", None))
 
     reply = ""
     if getattr(response, "content", None):
@@ -861,14 +985,33 @@ def handle_generate_plan():
         app_logger.warning("Dados do questionário ausentes ou inválidos na requisição.")
         return jsonify({"error": "Dados do questionário ('questionnaireData') ausentes ou inválidos."}), 400
 
+    # VALID-01: esta rota serializa o questionário inteiro dentro do prompt do
+    # molde, e só /api/chat media o campo. Sem isto, um payload autenticado de
+    # ~256 KiB entrava no prompt pago.
+    erro_tamanho = _validar_tamanho_serializado(
+        "questionnaireData", questionnaire_data, MAX_QUESTIONNAIRE_JSON_BYTES
+    )
+    if erro_tamanho:
+        app_logger.warning(f"generate-plan: {erro_tamanho} (usuário {user_id})")
+        return jsonify({"error": erro_tamanho}), 400
+
     # --- Modo novo: job assíncrono com molde+expansor ---
     if FORCA_USE_MOLDE_ARCHITECTURE:
         diretrizes = data.get('diretrizes') or {}
         if not isinstance(diretrizes, dict):
             return jsonify({"error": "Campo 'diretrizes' inválido."}), 400
 
+        erro_tamanho = _validar_tamanho_serializado(
+            "diretrizes", diretrizes, MAX_DIRETRIZES_JSON_BYTES
+        )
+        if erro_tamanho:
+            app_logger.warning(f"generate-plan: {erro_tamanho} (usuário {user_id})")
+            return jsonify({"error": erro_tamanho}), 400
+
         try:
             import jsonschema
+            # SEM poda: aqui a origem é o cliente, e recusar o desconhecido é
+            # o ponto. A poda existe só para a saída do modelo (consolidação).
             jsonschema.validate(instance=diretrizes, schema=DIRETRIZES_SCHEMA)
         except jsonschema.exceptions.ValidationError as e:
             return jsonify({"error": f"Diretrizes inválidas: {e.message}"}), 400
@@ -900,11 +1043,23 @@ def handle_generate_plan():
         }), 202
 
     # --- Modo antigo: síncrono (comportamento original) ---
+    # VALID-01: no modo legado o campo ia cru para dentro de `conversa_chat`,
+    # que é texto do prompt pago. O /api/chat já saneava a mesma coisa desde o
+    # review anterior; aqui não. Reusa o MESMO saneamento em vez de duplicar
+    # os limites, que divergiriam com o tempo.
+    #
+    # Vem ANTES do check do treinador de propósito, seguindo o que esta rota já
+    # faz no topo ("Validação de entrada ANTES de qualquer dependência
+    # interna"): um payload inválido merece 400, não o 503 de indisponibilidade.
+    _contexto_legado, erro_contexto = _validate_context_fields(data)
+    if erro_contexto:
+        app_logger.warning(f"generate-plan (legado): {erro_contexto} (usuário {user_id})")
+        return jsonify({"error": erro_contexto}), 400
+    _questionario_legado, adjustments = _contexto_legado
+
     if treinador is None:
         app_logger.error("Tentativa de acesso a /api/generate-plan, mas o TreinadorEspecialista não está disponível.")
         return jsonify({"error": "Serviço de geração de planos temporariamente indisponível."}), 503
-
-    adjustments = data.get('adjustments', [])
 
     try:
         dados_usuario_para_wrapper = {
@@ -1040,6 +1195,15 @@ def handle_consolidate_chat():
     if not isinstance(questionnaire_data, dict):
         return jsonify({"error": "Campo 'questionnaireData' inválido."}), 400
 
+    # VALID-01: esta rota serializava o questionário inteiro no prompt sem
+    # medir nada — o único teto era o do corpo da requisição (256 KiB).
+    erro_tamanho = _validar_tamanho_serializado(
+        "questionnaireData", questionnaire_data, MAX_QUESTIONNAIRE_JSON_BYTES
+    )
+    if erro_tamanho:
+        app_logger.warning(f"consolidate-chat: {erro_tamanho} (usuário {user_id})")
+        return jsonify({"error": erro_tamanho}), 400
+
     import json as _json
 
     try:
@@ -1081,9 +1245,10 @@ def handle_consolidate_chat():
 
     app_logger.info(f"Consolidate-chat: usuário {user_id}, {len(messages)} mensagens.")
 
+    modelo_consolidacao = get_chat_model_name()
     kwargs_consolidacao = {
-        "model": get_chat_model_name(),
-        "max_tokens": 2048,
+        "model": modelo_consolidacao,
+        "max_tokens": CONSOLIDATE_MAX_TOKENS,
         "system": system_prompt,
         "messages": messages,
     }
@@ -1093,12 +1258,26 @@ def handle_consolidate_chat():
 
         kwargs_consolidacao["output_config"] = formato_json_schema(DIRETRIZES_SCHEMA_API)
 
+    reservado = _reservar_quota_ia(
+        rota="consolidate",
+        modelo=modelo_consolidacao,
+        caracteres_prompt=_caracteres_do_prompt(system_prompt, messages),
+        max_tokens_saida=CONSOLIDATE_MAX_TOKENS,
+        user_id=user_id,
+    )
+    if isinstance(reservado, tuple):
+        return reservado
+
     try:
         client = _get_chat_anthropic_client()
         response = client.messages.create(**kwargs_consolidacao)
     except Exception as e:
         app_logger.error(f"Erro ao consolidar chat para usuário {user_id}: {e}", exc_info=True)
         return jsonify({"error": "Erro ao comunicar com o serviço de IA."}), 502
+
+    _acertar_quota_ia(
+        "consolidate", modelo_consolidacao, reservado, getattr(response, "usage", None)
+    )
 
     reply = ""
     if getattr(response, "content", None):
@@ -1124,6 +1303,13 @@ def handle_consolidate_chat():
     if not isinstance(diretrizes, dict):
         app_logger.error(f"Consolidate-chat: falha ao extrair JSON das diretrizes para {user_id}.")
         return jsonify({"error": "Não foi possível consolidar as diretrizes."}), 502
+
+    # O schema passou a fechar propriedades extras (VALID-01). Aqui a origem é
+    # o MODELO, não o cliente: uma chave a mais é ruído, não ataque, e esta
+    # rota não tem retry — reprovar por isso trocaria um campo ignorável por um
+    # 502. Poda antes de validar; a validação de ENTRADA, essa sim, continua
+    # recusando o desconhecido sem poda nenhuma.
+    diretrizes = podar_chaves_desconhecidas(diretrizes)
 
     try:
         import jsonschema
@@ -1573,7 +1759,7 @@ def _executar_geracao_molde(
 
         kwargs_molde = {
             "model": modelo_do_molde,
-            "max_tokens": 32768,
+            "max_tokens": MOLDE_MAX_TOKENS,
             "messages": mensagens,
         }
         if chamada.get("system"):
@@ -1583,12 +1769,49 @@ def _executar_geracao_molde(
         if thinking_config:
             kwargs_molde["thinking"] = thinking_config
 
+        # Quota por TENTATIVA, não por requisição (RATE-01): a segunda volta
+        # deste laço é outra geração Opus cobrada por inteiro. Aqui não há
+        # contexto de request Flask — o job roda em thread própria — então a
+        # RPC é chamada direto com o access_token que veio por parâmetro.
+        custo_reservado = ai_quota.custo_estimado_usd(
+            modelo_do_molde,
+            _caracteres_do_prompt(chamada.get("system"), mensagens),
+            MOLDE_MAX_TOKENS,
+        )
+        try:
+            ai_quota.reservar(access_token, "plan", custo_reservado)
+        except ai_quota.QuotaExcedida as excedida:
+            app_logger.warning(
+                f"Job {job.job_id}: quota diária de IA excedida ({excedida.motivo}) "
+                f"para usuário {user_id} na tentativa {tentativa}."
+            )
+            job.set_error(
+                "quota_diaria_excedida",
+                "Limite diário de uso da IA atingido. Tente novamente amanhã.",
+            )
+            return
+        except ai_quota.QuotaIndisponivel as indisponivel:
+            app_logger.error(f"Job {job.job_id}: quota de IA indisponível — {indisponivel}")
+            job.set_error(
+                "quota_indisponivel",
+                "Serviço de IA indisponível no momento. Tente novamente em instantes.",
+            )
+            return
+
         try:
             response = criar_mensagem_com_deadline(client, 240.0, **kwargs_molde)
         except Exception:
             app_logger.exception(f"Job {job.job_id}: falha na chamada do molde para usuário {user_id}.")
             job.set_error("molde_api_error", "Falha na comunicação com o serviço de IA. Tente novamente.")
             return
+
+        # A reserva usou o pior caso (saída no teto). O gasto real quase sempre
+        # é menor; devolver a diferença evita que duas gerações honestas
+        # consumam a quota de cinco.
+        ai_quota.acertar_custo_real(
+            access_token, "plan", modelo_do_molde, custo_reservado,
+            getattr(response, "usage", None),
+        )
 
         resposta_texto = None
         if getattr(response, "content", None):

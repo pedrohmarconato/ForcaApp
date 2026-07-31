@@ -25,3 +25,34 @@ def _restaura_os_environ():
     yield
     os.environ.clear()
     os.environ.update(snapshot)
+
+
+@pytest.fixture(autouse=True)
+def _quota_ia_neutra(request, monkeypatch):
+    """
+    Neutraliza a quota diária de IA (migration 0024) por padrão.
+
+    Toda rota paga agora reserva quota antes de chamar o modelo, e a reserva
+    falha FECHADA — sem Supabase alcançável ela devolve 503. Sem este fixture
+    a suíte inteira tentaria resolver `teste.supabase.co` e as rotas pagas
+    responderiam 503 em vez do que o teste realmente quer verificar.
+
+    Um teste que QUER exercitar a quota marca `@pytest.mark.quota_real` e
+    mocka `ai_quota._chamar_rpc` do seu jeito.
+    """
+    if request.node.get_closest_marker("quota_real"):
+        return
+
+    from backend.services import ai_quota
+
+    def _rpc_permissiva(access_token, payload):
+        return {"permitido": True, "chamadas_dia": 1, "custo_dia_usd": 0.0}
+
+    monkeypatch.setattr(ai_quota, "_chamar_rpc", _rpc_permissiva)
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "quota_real: o teste exercita a quota de IA e mocka a RPC por conta própria",
+    )
