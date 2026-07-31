@@ -21,7 +21,12 @@ yarn-error.log*
 .yarn/
 .yarnrc
 .npm/
-package-lock.json
+# DEP-01 (review de 31/07/2026): o package-lock.json passou a ser VERSIONADO.
+# Enquanto ele era ignorado, cada build da Vercel reresolvia a árvore de
+# dependências e dois deploys do mesmo commit podiam instalar versões
+# diferentes — sem nada revisável no repositório mostrando a mudança.
+# Continuamos ignorando o yarn.lock: um único gerenciador manda no lock, e
+# dois lockfiles no repo divergem em silêncio.
 yarn.lock
 
 # -------------------------------------------------
