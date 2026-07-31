@@ -416,6 +416,81 @@ def _exigir(no, *campos):
     return no
 
 
+def _nulificar(no, *campos):
+    """Troca "campo opcional" por "campo obrigatório que aceita null".
+
+    Para a gramática são coisas MUITO diferentes: um campo opcional obriga a
+    gramática a aceitar a chave presente ou ausente em qualquer posição — com N
+    opcionais no mesmo objeto o número de sequências válidas cresce como N!.
+    Obrigatório-que-aceita-null tem UMA sequência: a chave sempre vem, o que
+    varia é o valor.
+
+    Para quem consome, `null` é idêntico a ausente: `_remover_metadados_nulos`
+    (molde_normalizer) tira essas chaves antes da validação local, então o
+    molde que chega ao schema local e ao expansor é byte a byte o de antes.
+    """
+    props = no.get("properties", {})
+    for campo in campos:
+        sub = props.get(campo)
+        if sub is None:
+            continue
+        ramo = {chave: valor for chave, valor in sub.items() if chave != "description"}
+        nulavel = {"anyOf": [ramo, {"type": "null"}]}
+        descricao = sub.get("description")
+        nulavel["description"] = (
+            f"{descricao} Use null quando não se aplicar."
+            if descricao
+            else "Use null quando não se aplicar."
+        )
+        props[campo] = nulavel
+    return _exigir(no, *campos)
+
+
+# Metadados do exercício que o modelo preenche em MINORIA dos casos. São os
+# campos que viram `required` + `null` — nunca os alvos de prescrição, cuja
+# ausência é o que distingue cardio de série com carga.
+CAMPOS_NULAVEIS_DO_EXERCICIO = ("equipamento", "percentual_rm", "cadencia", "metodo", "observacoes")
+
+
+def _nulificar_metadados_do_exercicio(schema):
+    """Quarto limite da API — e o único que não avisa antes de estourar:
+
+        400 — Grammar compilation timed out.
+
+    Produção, 31/07/2026 01:41 UTC, job 7d4d46e7 (request_id
+    req_011CdZHUknvQeuFkvrydAjYP): 113 s de espera e a geração perdida. O aluno
+    leu "Falha na comunicação com o serviço de IA" — o defeito estava aqui.
+
+    O objeto `exercicio` é o mais aninhado do molde (array de semanas → array de
+    sessões → array de exercícios) e concentrava 8 dos 13 campos como opcionais.
+    Tempo de compilação medido contra a API real (mesmo modelo de produção,
+    `max_tokens=8`, uma chamada por variante, cache frio):
+
+        2 opcionais → 11,4 s      6 opcionais → 43,7 s
+        4 opcionais → 18,9 s      8 opcionais → 72,1 s   (o que estava no ar)
+                                  9 opcionais → 140,9 s + o 400 de produção
+
+    Ou seja: o schema que rodava vivia a um campo de distância do estouro, e
+    qual lado da linha ele cai depende da carga da API na hora — por isso a
+    mesma geração às vezes passava (e, com a gramática já em cache do lado da
+    API, respondia em 2,6 s) e às vezes morria.
+
+    Com os 5 metadados nulificados sobram 3 opcionais no exercício — os alvos
+    de prescrição, que PRECISAM continuar opcionais — e a compilação a frio cai
+    para 16,1 s, medida na mesma bateria.
+
+    Duas alternativas foram medidas e descartadas: mover os metadados para um
+    sub-objeto `extras` (71,1 s — a combinatória só muda de endereço) e
+    nulificar TODOS os 8, alvos inclusive (a API recusa na hora com "The
+    compiled grammar is too large").
+    """
+    exercicio = (
+        schema["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"]["items"]
+        ["properties"]["exercicios"]["items"]
+    )
+    return _nulificar(exercicio, *CAMPOS_NULAVEIS_DO_EXERCICIO)
+
+
 def _reduzir_opcionais(schema):
     """A API limita o schema a 24 parâmetros OPCIONAIS (o molde tinha 44):
 
@@ -528,6 +603,7 @@ def _preparar_para_api(schema):
     _tipar_tempo_descanso(preparado)
     _remover_anyof_de_refinamento(preparado)
     _reduzir_opcionais(preparado)
+    _nulificar_metadados_do_exercicio(preparado)
     _podar_campos_inertes(preparado)
     _priorizar_alvos_de_prescricao(preparado)
     return preparado

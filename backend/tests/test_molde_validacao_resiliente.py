@@ -30,7 +30,7 @@ if REPO_ROOT not in sys.path:
 
 from backend.app import _executar_geracao_molde, app  # noqa: E402
 import backend.services.job_manager as jm  # noqa: E402
-from backend.schemas.molde_schema import MOLDE_SCHEMA  # noqa: E402
+from backend.schemas.molde_schema import CAMPOS_NULAVEIS_DO_EXERCICIO, MOLDE_SCHEMA  # noqa: E402
 from backend.services.molde_normalizer import (  # noqa: E402
     extrair_molde_do_texto,
     normalizar_molde,
@@ -111,6 +111,73 @@ def test_deload_e_regras_validas_sao_preservados():
 
 def test_normalizador_tolera_molde_sem_progressao():
     assert normalizar_molde({"qualquer": 1}) == {"qualquer": 1}
+
+
+# ---- metadados em null (o preço de tirá-los de "opcional" no schema da API) ----
+
+def _molde_com_metadados_nulos():
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    exercicio = molde["semanas_tipo"][0]["sessoes"][0]["exercicios"][0]
+    for campo in CAMPOS_NULAVEIS_DO_EXERCICIO:
+        exercicio[campo] = None
+    return molde
+
+
+def test_metadado_nulo_reprovaria_no_schema_local():
+    """O modo de falha que a nulificação criaria se ninguém a normalizasse:
+    a API passa a EXIGIR `cadencia`, o modelo manda `null`, e o schema local —
+    que tipa cadência como string — reprova a geração inteira."""
+    with pytest.raises(jsonschema.exceptions.ValidationError):
+        jsonschema.validate(instance=_molde_com_metadados_nulos(), schema=MOLDE_SCHEMA)
+
+
+def test_metadados_nulos_sao_removidos_e_o_molde_volta_a_valer():
+    molde = normalizar_molde(_molde_com_metadados_nulos())
+
+    exercicio = molde["semanas_tipo"][0]["sessoes"][0]["exercicios"][0]
+    for campo in CAMPOS_NULAVEIS_DO_EXERCICIO:
+        assert campo not in exercicio, campo
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)  # não levanta
+    # e o que o modelo REALMENTE disse continua de pé:
+    assert exercicio["repeticoes"] == "10" and exercicio["series"] == 3
+
+
+def test_metadado_preenchido_nao_e_tocado():
+    """A remoção é de `null`, não do campo: apagar um valor real seria perder
+    prescrição (o método 'Drop-set' some do treino do aluno em silêncio)."""
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    exercicio = molde["semanas_tipo"][0]["sessoes"][0]["exercicios"][0]
+    exercicio.update({"metodo": "Drop-set", "cadencia": None, "percentual_rm": 75})
+
+    exercicio = normalizar_molde(molde)["semanas_tipo"][0]["sessoes"][0]["exercicios"][0]
+
+    assert exercicio["metodo"] == "Drop-set"
+    assert exercicio["percentual_rm"] == 75
+    assert "cadencia" not in exercicio
+
+
+def test_metadados_nulos_tambem_saem_das_semanas_avulsas():
+    """As avulsas não estão no schema da API, mas chegam pelo modo SEM
+    structured output e por moldes já gravados — o normalizador é o mesmo."""
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_avulsas"] = {
+        "semana_4": {
+            "semana": 4,
+            "sessoes": [{
+                "nome": "Deload", "tipo": "Deload",
+                "exercicios": [{
+                    "nome": "Supino", "ordem": 1, "series": 2, "repeticoes": "8",
+                    "cadencia": None, "observacoes": None,
+                }],
+            }],
+        }
+    }
+
+    molde = normalizar_molde(molde)
+
+    exercicio = molde["semanas_avulsas"]["semana_4"]["sessoes"][0]["exercicios"][0]
+    assert "cadencia" not in exercicio and "observacoes" not in exercicio
+    jsonschema.validate(instance=molde, schema=MOLDE_SCHEMA)
 
 
 def test_extrair_molde_do_texto():
