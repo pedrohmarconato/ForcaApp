@@ -10,7 +10,12 @@ import json
 import re
 from typing import Optional
 
+from backend.schemas.molde_schema import CAMPOS_NULAVEIS_DO_EXERCICIO
+
 _TIPOS_DELTA = ("delta_rm_percentual", "delta_series")
+
+# Sentinela: distingue "chave ausente" de "chave presente valendo None".
+_AUSENTE = object()
 
 
 def extrair_molde_do_texto(texto: str) -> Optional[dict]:
@@ -88,13 +93,49 @@ def _remover_grupos_musculares_vazios(molde: dict) -> None:
                 sessao.pop("grupos_musculares")
 
 
+def _sessoes(molde: dict):
+    """Todas as sessões do molde — semanas-tipo e semanas avulsas."""
+    avulsas = molde.get("semanas_avulsas")
+    semanas = list(molde.get("semanas_tipo") or [])
+    semanas.extend(avulsas.values() if isinstance(avulsas, dict) else avulsas or [])
+    for semana in semanas:
+        if not isinstance(semana, dict):
+            continue
+        for sessao in (semana.get("sessoes") or []):
+            if isinstance(sessao, dict):
+                yield sessao
+
+
+def _remover_metadados_nulos(molde: dict) -> None:
+    """Tira os metadados do exercício que vieram `null`.
+
+    Esses campos são obrigatórios no schema da API DE PROPÓSITO: opcional é o
+    que fazia a gramática explodir (ver `_nulificar_metadados_do_exercicio` em
+    molde_schema). O preço combinado é que o modelo agora escreve
+    `"cadencia": null` onde antes omitia a chave — e `null` reprovaria no schema
+    local, que tipa cadência como string.
+
+    Mesma família do delta zero e do `grupos_musculares: []`: reparo de FORMA,
+    nunca de conteúdo. `null` aqui significa exatamente "não se aplica", que é o
+    que a ausência da chave sempre significou para o expansor e para o mapper.
+    """
+    for sessao in _sessoes(molde):
+        for exercicio in (sessao.get("exercicios") or []):
+            if not isinstance(exercicio, dict):
+                continue
+            for campo in CAMPOS_NULAVEIS_DO_EXERCICIO:
+                if exercicio.get(campo, _AUSENTE) is None:
+                    exercicio.pop(campo)
+
+
 def normalizar_molde(molde: dict) -> dict:
     """Remove no-ops que reprovariam no schema sem mudar a semântica do plano.
 
     Hoje: regras de progressão delta_* com valor == 0, `semanas_avulsas` em
-    array (formato que o modelo às vezes devolve) e `grupos_musculares: []`
+    array (formato que o modelo às vezes devolve), `grupos_musculares: []`
     (lista vazia que o schema da API não consegue proibir e que é idêntica a
-    ausência para todo mundo a jusante). A remoção do delta zero é segura
+    ausência para todo mundo a jusante) e os metadados do exercício em `null`
+    (que a API agora exige presentes). A remoção do delta zero é segura
     por construção — o expansor sem a regra produz o mesmo resultado que teria
     com um delta de zero. Qualquer outro problema segue para a validação de
     schema (e para o retry dirigido) — este módulo NUNCA inventa ou corrige
@@ -102,6 +143,7 @@ def normalizar_molde(molde: dict) -> dict:
     """
     _semanas_avulsas_para_mapa(molde)
     _remover_grupos_musculares_vazios(molde)
+    _remover_metadados_nulos(molde)
 
     progressao = molde.get("progressao")
     if isinstance(progressao, dict) and isinstance(progressao.get("regras"), list):
