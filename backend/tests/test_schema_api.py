@@ -24,7 +24,11 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from backend.schemas.diretrizes_schema import DIRETRIZES_SCHEMA, DIRETRIZES_SCHEMA_API  # noqa: E402
-from backend.schemas.molde_schema import MOLDE_SCHEMA, MOLDE_SCHEMA_API  # noqa: E402
+from backend.schemas.molde_schema import (  # noqa: E402
+    CAMPOS_NULAVEIS_DO_EXERCICIO,
+    MOLDE_SCHEMA,
+    MOLDE_SCHEMA_API,
+)
 from backend.schemas.schema_api import (  # noqa: E402
     SchemaNaoExpressavel,
     chaves_proibidas_restantes,
@@ -102,6 +106,77 @@ def test_respeita_o_teto_de_parametros_opcionais(schema):
     """
     opcionais = _contar_opcionais(schema)
     assert len(opcionais) <= LIMITE_PARAMETROS_OPCIONAIS, opcionais
+
+
+# O teto de 24 é o que a API AVISA. O que ela não avisa é que o custo de
+# compilar a gramática cresce com o número de opcionais no MESMO objeto — e o
+# estouro chega como "Grammar compilation timed out" depois de dois minutos de
+# espera, com a geração do aluno perdida (produção, 31/07/2026, job 7d4d46e7).
+# Medido contra a API real, no objeto `exercicio`: 4 opcionais → 18,9 s;
+# 6 → 43,7 s; 8 → 72,1 s; 9 → 140,9 s e o 400. O limite abaixo é o último
+# degrau com folga confortável.
+LIMITE_OPCIONAIS_POR_OBJETO = 4
+
+
+def _opcionais_por_objeto(no, caminho="$", acc=None):
+    acc = acc if acc is not None else {}
+    if isinstance(no, dict):
+        props = no.get("properties") or {}
+        obrigatorios = set(no.get("required") or [])
+        opcionais = [nome for nome in props if nome not in obrigatorios]
+        if opcionais:
+            acc[caminho] = opcionais
+        for nome, sub in props.items():
+            _opcionais_por_objeto(sub, f"{caminho}.{nome}", acc)
+        for chave in ("items", "additionalProperties"):
+            if isinstance(no.get(chave), dict):
+                _opcionais_por_objeto(no[chave], f"{caminho}[{chave}]", acc)
+        for chave in ("anyOf", "allOf"):
+            for i, ramo in enumerate(no.get(chave) or []):
+                _opcionais_por_objeto(ramo, f"{caminho}.{chave}[{i}]", acc)
+    return acc
+
+
+@pytest.mark.parametrize("schema", [MOLDE_SCHEMA_API, DIRETRIZES_SCHEMA_API], ids=["molde", "diretrizes"])
+def test_nenhum_objeto_concentra_opcionais_demais(schema):
+    """Reproduz o modo de falha de 31/07: o objeto mais aninhado do molde
+    concentrava 8 opcionais e a compilação da gramática estourava o tempo da
+    API. Contar o TOTAL (teste acima) não pega isso — 8 opcionais num objeto
+    custam muito mais que 8 espalhados por oito objetos."""
+    excedentes = {
+        caminho: opcionais
+        for caminho, opcionais in _opcionais_por_objeto(schema).items()
+        if len(opcionais) > LIMITE_OPCIONAIS_POR_OBJETO
+    }
+    assert excedentes == {}, excedentes
+
+
+def test_metadados_do_exercicio_sao_obrigatorios_aceitando_null():
+    """A troca que derrubou a compilação de 72,1 s para 16,1 s.
+
+    `null` precisa estar em TODOS eles: obrigar a chave sem deixar o modelo
+    dizer "não se aplica" o forçaria a inventar cadência para agachamento e
+    %RM para corrida — inventado passa em toda validação e chega ao aluno.
+    """
+    exercicio = MOLDE_SCHEMA_API["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"][
+        "items"
+    ]["properties"]["exercicios"]["items"]
+    for campo in CAMPOS_NULAVEIS_DO_EXERCICIO:
+        assert campo in exercicio["required"], campo
+        tipos = {ramo.get("type") for ramo in exercicio["properties"][campo]["anyOf"]}
+        assert "null" in tipos, campo
+
+
+def test_alvos_de_prescricao_continuam_opcionais():
+    """O contrapeso do teste acima: `repeticoes`, `duracao_minutos` e
+    `distancia_km` NÃO podem ser nulificados junto. A ausência deles é o que
+    distingue cardio de série com carga, e a API recusa o schema inteiro
+    ("The compiled grammar is too large") quando os oito viram nuláveis."""
+    exercicio = MOLDE_SCHEMA_API["properties"]["semanas_tipo"]["items"]["properties"]["sessoes"][
+        "items"
+    ]["properties"]["exercicios"]["items"]
+    for alvo in ("repeticoes", "duracao_minutos", "distancia_km"):
+        assert alvo not in exercicio["required"], alvo
 
 
 def test_campos_que_sempre_deveriam_vir_sao_obrigatorios_para_a_api():
