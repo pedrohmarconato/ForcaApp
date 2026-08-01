@@ -31,7 +31,8 @@ export type AcaoDoLobby =
   | 'confirmarSessao'
   | 'materializar'
   | 'pronto'
-  | 'sair';
+  | 'sair'
+  | 'rotacionar';
 
 export type ErroDoLobby = {
   motivo: repo.JointErrorMotivo;
@@ -53,6 +54,7 @@ export type UseJointSession = {
   confirmarSessao: (plannedSessionId: string) => Promise<void>;
   materializarCopia: () => Promise<string | null>;
   definirPronto: (pronto: boolean) => Promise<void>;
+  rotacionarConvite: () => Promise<void>;
   sair: () => Promise<boolean>;
 };
 
@@ -274,6 +276,15 @@ export const useJointSession = (
     [executar, jointSessionId],
   );
 
+  /**
+   * Gera um convite novo sem sair do lobby. `create_joint_session` é idempotente
+   * e ROTACIONA o código quando o anterior expirou (C1b do Sprint 01) — por isso
+   * é ela, e não uma RPC nova.
+   */
+  const rotacionarConvite = useCallback(async () => {
+    await executar('rotacionar', () => repo.createJointSession());
+  }, [executar]);
+
   /** Saída EXPLÍCITA. Devolve true só quando o servidor confirmou. */
   const sair = useCallback(async (): Promise<boolean> => {
     if (!jointSessionId) return true;
@@ -291,6 +302,7 @@ export const useJointSession = (
 
   return {
     state, parceiro, convite, carregando, erro, conexao, presenca, emCurso,
-    recarregar, escolherModo, confirmarSessao, materializarCopia, definirPronto, sair,
+    recarregar, escolherModo, confirmarSessao, materializarCopia, definirPronto,
+    rotacionarConvite, sair,
   };
 };

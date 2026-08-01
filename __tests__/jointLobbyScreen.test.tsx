@@ -57,6 +57,7 @@ const montarHook = (over: any = {}) => ({
   materializarCopia: jest.fn().mockResolvedValue('copia-1'),
   definirPronto: jest.fn().mockResolvedValue(undefined),
   sair: jest.fn().mockResolvedValue(true),
+  rotacionarConvite: jest.fn().mockResolvedValue(undefined),
   ...over,
 });
 
@@ -154,6 +155,47 @@ describe('incompatibilidade — a saída depende do papel', () => {
     );
     expect(getByText(/Peito/)).toBeTruthy();
     expect(queryByText(/parceiro tem|grupos do parceiro/i)).toBeNull();
+  });
+});
+
+describe('F3 — lobby frio do anfitrião tem o convite INTEIRO', () => {
+  const comConvite = (minutos = 12) => montarHook({
+    state: { ...montarHook().state, guestUserId: null, status: 'inviting' },
+    convite: {
+      inviteCode: 'ABC234',
+      inviteExpiresAt: new Date(T0 + minutos * 60_000).toISOString(),
+    },
+    rotacionarConvite: jest.fn().mockResolvedValue(undefined),
+  });
+
+  it('mostra código, link, relógio, compartilhar e rotacionar', () => {
+    const { getByTestId } = renderizar(comConvite(), HOST);
+    expect(getByTestId('codigo-lobby').props.children).toBe('ABC234');
+    expect(getByTestId('link-lobby').props.children).toBe('forcaapp://treino-conjunto/ABC234');
+    expect(getByTestId('expiracao-lobby')).toBeTruthy();
+    expect(getByTestId('compartilhar-lobby')).toBeTruthy();
+    expect(getByTestId('rotacionar-lobby')).toBeTruthy();
+  });
+
+  it('convite expirado bloqueia compartilhar e mantém a rotação', () => {
+    const { getByTestId, getByText } = renderizar(comConvite(-1), HOST);
+    expect(getByText('expirado')).toBeTruthy();
+    expect(getByTestId('compartilhar-lobby').props.accessibilityState)
+      .toMatchObject({ disabled: true });
+    expect(getByTestId('rotacionar-lobby').props.accessibilityState)
+      .toMatchObject({ disabled: false });
+  });
+
+  it('rotacionar chama a ação do hook', () => {
+    const hook = comConvite();
+    const { getByTestId } = renderizar(hook, HOST);
+    fireEvent.press(getByTestId('rotacionar-lobby'));
+    expect(hook.rotacionarConvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('o convidado NÃO vê o cartão de convite', () => {
+    const { queryByTestId } = renderizar(comConvite(), GUEST);
+    expect(queryByTestId('convite-lobby')).toBeNull();
   });
 });
 

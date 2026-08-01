@@ -17,6 +17,8 @@ import {
   JOINT_MODE_LABELS,
   type JointMode,
 } from '../../engine/jointSessionModel';
+export { JointInviteCard, tempoRestante } from './JointInviteCard';
+
 import type {
   ConexaoLocal,
   Incompatibilidade,

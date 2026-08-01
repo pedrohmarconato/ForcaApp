@@ -14,6 +14,7 @@ import { join } from 'path';
 
 const ARQUIVOS = [
   'src/components/joint/index.tsx',
+  'src/components/joint/JointInviteCard.tsx',
   'src/screens/JointInviteScreen.tsx',
   'src/screens/JointJoinScreen.tsx',
   'src/screens/JointLobbyScreen.tsx',
@@ -82,6 +83,6 @@ describe('acessibilidade e idioma', () => {
 describe('o diretório joint não cresce sem teste', () => {
   it('todo componente novo entra na lista verificada', () => {
     const arquivos = readdirSync(join(process.cwd(), 'src/components/joint'));
-    expect(arquivos).toEqual(['index.tsx']);
+    expect(arquivos.sort()).toEqual(['JointInviteCard.tsx', 'index.tsx']);
   });
 });

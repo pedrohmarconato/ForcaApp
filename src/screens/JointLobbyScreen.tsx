@@ -18,8 +18,11 @@ import { Button } from '../components/ui';
 import { Card, Screen, ScreenTitle, SectionHeader } from '../components/ui/Surface';
 import { EmptyState, Notice } from '../components/ui/Feedback';
 import { StackHeader } from '../components/ui/Controls';
+import { Share } from 'react-native';
+import { buildInviteLink } from '../navigation/inviteLink';
 import {
   JointIncompatibilidade,
+  JointInviteCard,
   JointModePicker,
   JointMuscleGroupPicker,
   JointPartnerRow,
@@ -58,6 +61,8 @@ export type JointLobbyScreenProps = {
   /** Falha ao carregar o próprio plano — a lista de sessões fica vazia. */
   erroPlano?: string | null;
   onRecarregarPlano?: () => void;
+  /** Relógio injetável: a expiração do convite é testada sem esperar. */
+  agora?: () => number;
 };
 
 const confirmarPadrao = (titulo: string, mensagem: string, onSim: () => void) =>
@@ -75,6 +80,7 @@ export const JointLobbyView = ({
   anunciar = (t) => AccessibilityInfo.announceForAccessibility?.(t),
   erroPlano = null,
   onRecarregarPlano,
+  agora = () => Date.now(),
 }: JointLobbyScreenProps) => {
   const { jointSessionId } = route.params;
   const j = useJointSession(jointSessionId, meuUserId);
@@ -220,15 +226,28 @@ export const JointLobbyView = ({
           <Card testID="pendencia">
             <SectionHeader title="O que falta" />
             <Notice tone="info" title={ROTULO_PENDENCIA[pendencia]} />
-            {!state?.guestUserId && j.convite ? (
-              <Notice
-                tone="info"
-                title={`Código: ${j.convite.inviteCode}`}
-                description="Compartilhe com quem vai treinar com você."
-                testID="codigo-lobby"
-              />
-            ) : null}
           </Card>
+
+          {/* F3: o lobby frio precisa do convite INTEIRO — código, link, relógio,
+              compartilhar e rotacionar. Mostrar só o código deixava o anfitrião
+              sem como enviar nada depois de reabrir o app. */}
+          {/* Só o ANFITRIÃO vê o convite: o hook já o busca só para ele, mas a
+              condição diz isso na tela em vez de depender de o hook ter
+              recusado a leitura. */}
+          {state?.hostUserId === meuUserId && !state?.guestUserId && j.convite ? (
+            <JointInviteCard
+              inviteCode={j.convite.inviteCode}
+              inviteExpiresAt={j.convite.inviteExpiresAt}
+              agoraMs={agora()}
+              emCurso={j.emCurso != null}
+              onCompartilhar={() => {
+                void Share.share({
+                  message: `Treine comigo no Força: ${buildInviteLink(j.convite!.inviteCode)}`,
+                }).catch(() => anunciar('Não foi possível abrir o compartilhamento.'));
+              }}
+              onRotacionar={() => { void j.rotacionarConvite(); }}
+            />
+          ) : null}
 
           <JointModePicker
             modo={state?.mode ?? null}
