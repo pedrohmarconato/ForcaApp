@@ -66,6 +66,17 @@ export type JointLobbyScreenProps = {
   agora?: () => number;
 };
 
+/**
+ * O que conta como "o usuário pediu para sair".
+ *
+ * `GO_BACK` e `POP` vêm do header, do back de hardware e do gesto. `RESET`,
+ * `REPLACE` e `NAVIGATE` vêm de logout, deep link e troca de árvore — remoções
+ * técnicas, que não podem encerrar a dupla.
+ */
+const SAIDAS_EXPLICITAS = new Set(['GO_BACK', 'POP', 'POP_TO_TOP']);
+export const ehSaidaExplicita = (tipo: unknown): boolean =>
+  typeof tipo === 'string' && SAIDAS_EXPLICITAS.has(tipo);
+
 const confirmarPadrao = (titulo: string, mensagem: string, onSim: () => void) =>
   Alert.alert(titulo, mensagem, [
     { text: 'Ficar no treino', style: 'cancel' },
@@ -166,6 +177,12 @@ export const JointLobbyView = ({
   useEffect(() => {
     const remover = (navigation as any).addListener?.('beforeRemove', (e: any) => {
       if (saindoRef.current) return;
+      // F20: NEM TODA REMOÇÃO É DECISÃO DO USUÁRIO. `RESET`, `REPLACE` e
+      // navegações de logout ou troca técnica de rota removem a tela sem que
+      // ninguém tenha pedido para encerrar o treino — confirmar e chamar R13
+      // ali cancelaria a dupla pelas costas dos dois. Só saída explícita
+      // (voltar/pop/gesto) atravessa a máquina de saída.
+      if (!ehSaidaExplicita(e?.data?.action?.type)) return;
       e.preventDefault?.();
       encerrar(() => (navigation as any).dispatch?.(e.data.action));
     });

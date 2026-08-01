@@ -6,7 +6,7 @@
 // existia. Este componente é o que fecha B4/B6 de verdade, e é ele que aparece
 // na evidência, porque a evidência agora renderiza os componentes reais.
 
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import theme from '../../theme/theme';
 import { Button } from '../ui';
@@ -51,11 +51,33 @@ export const JointInviteCard = ({
   inviteExpiresAt: string;
   agoraMs: number;
   emCurso: boolean;
-  onCompartilhar: () => void;
+  onCompartilhar: () => void | Promise<void>;
   onRotacionar: () => void;
 }) => {
   const restante = tempoRestante(inviteExpiresAt, agoraMs);
   const expirado = restante === 'expirado';
+
+  // F21: o single-flight vive AQUI, e não em cada tela que usa o cartão. O
+  // lobby frio chamava `Share.share` direto e dois toques abriam duas folhas —
+  // a trava tinha ficado só na tela de convite.
+  const compartilhando = useRef(false);
+  const [enviando, setEnviando] = useState(false);
+
+  const compartilhar = useCallback(async () => {
+    if (compartilhando.current) return;
+    compartilhando.current = true;
+    setEnviando(true);
+    try {
+      await onCompartilhar();
+    } catch {
+      // O cartão cuida da TRAVA, não da mensagem: quem chama decide o que
+      // dizer. Deixar a exceção escapar daqui travaria o botão para sempre e
+      // ainda produziria rejeição não tratada.
+    } finally {
+      compartilhando.current = false;
+      setEnviando(false);
+    }
+  }, [onCompartilhar]);
   return (
     <Card testID="convite-lobby">
       <SectionHeader title="Código do convite" />
@@ -65,8 +87,9 @@ export const JointInviteCard = ({
       <View style={layout.coluna}>
         <Button
           label="Compartilhar"
-          disabled={emCurso || expirado}
-          onPress={onCompartilhar}
+          disabled={emCurso || expirado || enviando}
+          loading={enviando}
+          onPress={compartilhar}
           testID="compartilhar-lobby"
         />
         <Button

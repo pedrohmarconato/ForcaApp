@@ -59,7 +59,14 @@ const recarregarRef: { fn: null | (() => Promise<void>) } = { fn: null };
 const Sonda = () => {
   const j = useJointSession('js-1', HOST, { agora: () => T0 });
   recarregarRef.fn = j.recarregar;
-  return <Text testID="grupo">{j.state?.muscleGroup ?? 'nenhum'}</Text>;
+  return (
+    <>
+      <Text testID="grupo">{j.state?.muscleGroup ?? 'nenhum'}</Text>
+      <Text testID="erro">{j.erro?.mensagem ?? 'sem-erro'}</Text>
+      <Text testID="carregando">{String(j.carregando)}</Text>
+      <Text testID="parceiro">{j.parceiro?.displayName ?? 'sem-parceiro'}</Text>
+    </>
+  );
 };
 
 beforeEach(() => {
@@ -110,6 +117,79 @@ describe('F16 — respostas fora de ordem na mesma sessão', () => {
 
     // A tela NÃO pode ter voltado no tempo.
     expect(tela.getByTestId('grupo').props.children).toBe('Costas');
+  });
+
+  // F22: rejeitar meia resposta é quase não rejeitar. Uma resposta atrasada não
+  // pode mexer em erro, loading, parceiro nem convite — e o erro dela também
+  // não pode vencer um sucesso mais recente.
+  it('resposta ANTIGA não apaga o erro que chegou depois', async () => {
+    let liberarAntigo: (v: any) => void = () => {};
+    (repo.getJointSessionSnapshot as jest.Mock)
+      .mockImplementationOnce(() => new Promise((r) => { liberarAntigo = r; }));
+
+    const tela = render(<Sonda />);
+    await waitFor(() => expect(canais.length).toBe(1));
+
+    // Um erro NOVO chega enquanto o snapshot antigo ainda não voltou.
+    (repo.getJointSessionSnapshot as jest.Mock)
+      .mockRejectedValueOnce(new Error('falhou agora'));
+    await act(async () => { await recarregarRef.fn!(); });
+    await waitFor(() => expect(tela.getByTestId('erro').props.children).toBe('falhou agora'));
+
+    // Agora o snapshot ANTIGO resolve com sucesso: não pode limpar o erro.
+    await act(async () => {
+      liberarAntigo(estado('Peito'));
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(tela.getByTestId('erro').props.children).toBe('falhou agora');
+  });
+
+  it('ERRO antigo não apaga o sucesso que chegou depois', async () => {
+    let falharAntigo: (e: any) => void = () => {};
+    (repo.getJointSessionSnapshot as jest.Mock)
+      .mockImplementationOnce(() => new Promise((_r, rej) => { falharAntigo = rej; }));
+
+    const tela = render(<Sonda />);
+    await waitFor(() => expect(canais.length).toBe(1));
+
+    // Sucesso mais NOVO.
+    (repo.getJointSessionSnapshot as jest.Mock).mockResolvedValueOnce(estado('Costas'));
+    await act(async () => { await recarregarRef.fn!(); });
+    await waitFor(() => expect(tela.getByTestId('grupo').props.children).toBe('Costas'));
+
+    // O erro ATRASADO chega depois e deve ser descartado inteiro.
+    await act(async () => {
+      falharAntigo(new Error('erro velho'));
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(tela.getByTestId('erro').props.children).toBe('sem-erro');
+    expect(tela.getByTestId('grupo').props.children).toBe('Costas');
+  });
+
+  it('resposta antiga não mexe em loading nem no parceiro', async () => {
+    let liberarAntigo: (v: any) => void = () => {};
+    (repo.getJointSessionSnapshot as jest.Mock)
+      .mockImplementationOnce(() => new Promise((r) => { liberarAntigo = r; }));
+    (repo.getJointPartnerProfile as jest.Mock).mockResolvedValue({
+      userId: 'u-guest', displayName: 'ANTIGO', avatarUrl: null,
+    });
+
+    const tela = render(<Sonda />);
+    await waitFor(() => expect(canais.length).toBe(1));
+
+    (repo.getJointSessionSnapshot as jest.Mock).mockResolvedValueOnce(estado('Costas'));
+    (repo.getJointPartnerProfile as jest.Mock).mockResolvedValue({
+      userId: 'u-guest', displayName: 'NOVO', avatarUrl: null,
+    });
+    await act(async () => { await recarregarRef.fn!(); });
+    await waitFor(() => expect(tela.getByTestId('parceiro').props.children).toBe('NOVO'));
+
+    await act(async () => {
+      liberarAntigo(estado('Peito'));
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    });
+    expect(tela.getByTestId('parceiro').props.children).toBe('NOVO');
+    expect(tela.getByTestId('carregando').props.children).toBe('false');
   });
 
   it('snapshot mais NOVO continua sendo aplicado', async () => {

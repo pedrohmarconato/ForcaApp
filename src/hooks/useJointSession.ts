@@ -118,13 +118,22 @@ export const useJointSession = (
     return selo.current;
   }, []);
 
-  /** Aplica só se este selo ainda for o mais novo já visto. */
+  /**
+   * Este selo ainda é o mais novo? Devolve o veredito SEM aplicar nada.
+   *
+   * F22: antes o selo protegia só o `setState`, e a resposta antiga continuava
+   * executando `setErro(null)`, `setCarregando(false)` e sobrescrevendo
+   * parceiro/convite. Rejeitar meia resposta é quase não rejeitar: agora quem
+   * chega atrasado é descartado INTEIRO, inclusive o erro do `catch`.
+   */
+  const seloAindaVale = useCallback((meuSelo: number) => meuSelo >= ultimoAplicado.current, []);
+
   const aplicarEstado = useCallback((meuSelo: number, proximo: JointSessionState | null) => {
-    if (meuSelo < ultimoAplicado.current) return false;
+    if (!seloAindaVale(meuSelo)) return false;
     ultimoAplicado.current = meuSelo;
     setState(proximo);
     return true;
-  }, []);
+  }, [seloAindaVale]);
 
   const aplicar = useCallback((minhaGeracao: number, fn: () => void) => {
     if (!vivo.current || minhaGeracao !== geracao.current) return;
@@ -142,6 +151,9 @@ export const useJointSession = (
       const meuSelo = proximoSelo();
       try {
         const s = await repo.getJointSessionSnapshot(jointSessionId);
+        // Resposta atrasada: descartada por inteiro, sem tocar erro, loading,
+        // parceiro nem convite.
+        if (!seloAindaVale(meuSelo)) return;
         aplicar(minhaGeracao, () => {
           aplicarEstado(meuSelo, s);
           setErro(null);
@@ -153,7 +165,7 @@ export const useJointSession = (
         if (s.guestUserId) {
           try {
             const p = await repo.getJointPartnerProfile(jointSessionId);
-            aplicar(minhaGeracao, () => setParceiro(p));
+            if (seloAindaVale(meuSelo)) aplicar(minhaGeracao, () => setParceiro(p));
           } catch {
             /* nome do parceiro é secundário; a tela tem fallback */
           }
@@ -162,21 +174,25 @@ export const useJointSession = (
         if (s.hostUserId === meuUserId && s.status === 'inviting') {
           try {
             const c = await repo.getJointInviteForHost(jointSessionId);
-            aplicar(minhaGeracao, () => setConvite(c));
+            if (seloAindaVale(meuSelo)) aplicar(minhaGeracao, () => setConvite(c));
           } catch {
             /* sem convite recuperado, a tela pede para gerar outro */
           }
-        } else {
+        } else if (seloAindaVale(meuSelo)) {
           aplicar(minhaGeracao, () => setConvite(null));
         }
       } catch (e) {
+        // O erro de uma resposta velha também não vence: sem esta guarda, uma
+        // falha antiga apagaria o sucesso recente.
+        if (!seloAindaVale(meuSelo)) return;
+        ultimoAplicado.current = meuSelo;
         aplicar(minhaGeracao, () => {
           setErro(mensagemDe(e));
           setCarregando(false);
         });
       }
     },
-    [aplicar, aplicarEstado, jointSessionId, meuUserId, proximoSelo],
+    [aplicar, aplicarEstado, jointSessionId, meuUserId, proximoSelo, seloAindaVale],
   );
 
   // ------------------------------------------------------------------
