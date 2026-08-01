@@ -53,6 +53,12 @@ const estadoBase = (over: any = {}) => ({
 /** Um canal por instância — como em dois aparelhos de verdade. */
 const canais: any[] = [];
 
+/** Sonda com relógio e timers injetados, para o TTL ser cruzado sem esperar. */
+const SondaComRelogio = ({ agora, setInterval: si, clearInterval: ci }: any) => {
+  const j = useJointSession('js-1', HOST, { agora, setInterval: si, clearInterval: ci, ttlMs: 60_000 });
+  return <Text testID={`presenca-${HOST}`}>{j.presenca}</Text>;
+};
+
 const Sonda = ({ userId }: { userId: string }) => {
   const j = useJointSession('js-1', userId, { agora: () => T0, ttlMs: 60_000 });
   const pend = pendenciaAtual(j.state, userId);
@@ -63,6 +69,9 @@ const Sonda = ({ userId }: { userId: string }) => {
       <Text testID={`presenca-${userId}`}>{j.presenca}</Text>
       <Text testID={`ready-${userId}`}>
         {String(j.state?.participants.find((p) => p.userId === userId)?.ready ?? false)}
+      </Text>
+      <Text testID={`ready-remoto-${userId}`}>
+        {String(j.state?.participants.find((p) => p.userId !== userId)?.ready ?? false)}
       </Text>
     </>
   );
@@ -102,15 +111,26 @@ describe('T1 — papéis opostos, mesma verdade', () => {
 });
 
 describe('T2 — ação de um chega ao outro', () => {
-  it('o ready do host aparece na tela do convidado', async () => {
+  it('CONTROLE: antes do evento, o convidado vê o host NÃO pronto', async () => {
     const { b } = await montarDupla();
+    expect(b.getByTestId(`ready-remoto-${GUEST}`).props.children).toBe('false');
+  });
+
+  it('o ready REMOTO do host aparece na tela do convidado', async () => {
+    const { b } = await montarDupla();
+    expect(b.getByTestId(`ready-remoto-${GUEST}`).props.children).toBe('false');
+
     servidor.state = estadoBase({
-      participants: [parte(HOST, 'host', { ready: true, readyAt: 'x' }), parte(GUEST, 'guest')],
+      participants: [parte(HOST, 'host', { ready: true }), parte(GUEST, 'guest')],
     });
     await act(async () => { canais[1].handlers.onState(servidor.state); });
+
+    // O que importa é o estado do PARCEIRO na minha tela — não o meu.
+    await waitFor(() =>
+      expect(b.getByTestId(`ready-remoto-${GUEST}`).props.children).toBe('true'));
+    expect(b.getByTestId(`ready-${GUEST}`).props.children).toBe('false');
     await waitFor(() =>
       expect(b.getByTestId(`pend-${GUEST}`).props.children).toBe('minha_prontidao'));
-    expect(b.getByTestId(`ready-${GUEST}`).props.children).toBe('false');
   });
 });
 
@@ -142,15 +162,44 @@ describe('T4 — conexão local × presença do parceiro', () => {
     expect(b.getByTestId(`conexao-${GUEST}`).props.children).toBe('conectado');
   });
 
-  it('ausência do parceiro vem do TTL, não do canal', async () => {
+  it('presente → TTL cruzado → ausente → presença fresca → presente, e limpa no unmount', async () => {
+    // A rodada 2 já montava o parceiro vencido: provava a leitura, não a
+    // TRAVESSIA do TTL. Aqui o relógio anda e o timer é quem descobre.
+    const timers: { fn: () => void; ms: number }[] = [];
+    let agoraMs = T0;
+
+    const tela = render(
+      <SondaComRelogio
+        agora={() => agoraMs}
+        setInterval={(fn: any, ms: number) => { timers.push({ fn, ms }); return timers.length; }}
+        clearInterval={(h: any) => { timers.splice(h - 1, 1); }}
+      />,
+    );
+    await waitFor(() => expect(canais.length).toBe(1));
+
+    // 1. presente
+    await waitFor(() => expect(tela.getByTestId(`presenca-${HOST}`).props.children).toBe('presente'));
+    expect(timers.length).toBeGreaterThan(0);
+
+    // 2. o relógio CRUZA o TTL, sem evento nenhum chegar
+    agoraMs = T0 + 61_000;
+    await act(async () => { timers.forEach((t) => t.fn()); });
+    await waitFor(() => expect(tela.getByTestId(`presenca-${HOST}`).props.children).toBe('ausente'));
+
+    // 3. presença fresca do parceiro restaura
     servidor.state = estadoBase({
       participants: [
         parte(HOST, 'host'),
-        parte(GUEST, 'guest', { lastSeenAt: new Date(T0 - 300_000).toISOString() }),
+        parte(GUEST, 'guest', { lastSeenAt: new Date(agoraMs).toISOString() }),
       ],
     });
-    const a = render(<Sonda userId={HOST} />);
-    await waitFor(() => expect(a.getByTestId(`presenca-${HOST}`).props.children).toBe('ausente'));
+    await act(async () => { canais[0].handlers.onState(servidor.state); });
+    await waitFor(() => expect(tela.getByTestId(`presenca-${HOST}`).props.children).toBe('presente'));
+
+    // 4. o timer some no unmount
+    const antes = timers.length;
+    tela.unmount();
+    expect(timers.length).toBe(antes - 1);
   });
 });
 

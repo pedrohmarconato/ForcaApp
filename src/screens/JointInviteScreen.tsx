@@ -53,6 +53,8 @@ const JointInviteScreen = ({ navigation, agora = () => Date.now() }: JointInvite
   const [emCurso, setEmCurso] = useState(false);
   // Trava de reentrada: dois toques com a Promise pendente viram UMA chamada.
   const chamando = useRef(false);
+  const compartilhando = useRef(false);
+  const [enviando, setEnviando] = useState(false);
 
   const gerar = useCallback(async () => {
     if (chamando.current) return;
@@ -74,6 +76,12 @@ const JointInviteScreen = ({ navigation, agora = () => Date.now() }: JointInvite
 
   const compartilhar = useCallback(async () => {
     if (!convite) return;
+    // Single-flight próprio: sem ele, dois toques com a Promise pendente abriam
+    // DUAS folhas de compartilhamento — e a segunda costuma aparecer depois de
+    // o usuário já ter enviado pela primeira.
+    if (compartilhando.current) return;
+    compartilhando.current = true;
+    setEnviando(true);
     try {
       const r = await Share.share({
         message: `Treine comigo no Força: ${buildInviteLink(convite.inviteCode)}`,
@@ -82,6 +90,9 @@ const JointInviteScreen = ({ navigation, agora = () => Date.now() }: JointInvite
       if ((r as any)?.action === Share.dismissedAction) return;
     } catch (e) {
       setErro('Não foi possível abrir o compartilhamento.');
+    } finally {
+      compartilhando.current = false;
+      setEnviando(false);
     }
   }, [convite]);
 
@@ -124,7 +135,8 @@ const JointInviteScreen = ({ navigation, agora = () => Date.now() }: JointInvite
             <Button
               label="Compartilhar"
               onPress={compartilhar}
-              disabled={emCurso || expirado}
+              disabled={emCurso || expirado || enviando}
+              loading={enviando}
               testID="compartilhar"
             />
             <Button

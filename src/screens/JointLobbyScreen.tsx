@@ -40,6 +40,7 @@ import {
   sessoesElegiveis,
   situacaoDoLobby,
   type SessaoElegivel,
+  type SituacaoDoLobby,
 } from '../engine/jointLobbyModel';
 import { parceiroDe, participanteDe, type JointMode } from '../engine/jointSessionModel';
 import { useJointSession } from '../hooks/useJointSession';
@@ -89,6 +90,8 @@ export const JointLobbyView = ({
   const [modoPreparado, setModoPreparado] = useState<JointMode | null>(null);
   // Trava de saída: uma vez autorizada, o `beforeRemove` deixa passar.
   const saindoRef = useRef(false);
+  // O anfitrião pediu para trocar o grupo: o seletor reabre com nada marcado.
+  const [trocandoGrupo, setTrocandoGrupo] = useState(false);
 
   const situacao = situacaoDoLobby({
     carregando: j.carregando,
@@ -103,22 +106,52 @@ export const JointLobbyView = ({
     if (j.erro) anunciar(j.erro.mensagem);
   }, [j.erro, anunciar]);
 
-  const sair = useCallback(() => {
-    confirmar(
-      'Encerrar o treino conjunto?',
-      'Sair encerra o treino para você e para o seu parceiro.',
-      () => {
-        void j.sair().then((ok) => {
-          // Só sai depois do sucesso. Se a RPC falhar, permanece no lobby com o
-          // erro anunciado — sair de qualquer jeito deixaria a dupla num estado
-          // que ninguém consegue ver.
-          if (ok) navigation.goBack();
-        });
-      },
-    );
-  }, [confirmar, j, navigation]);
+  // ------------------------------------------------------------------
+  // UMA máquina de saída — F11
+  // ------------------------------------------------------------------
+  //
+  // Antes havia dois caminhos: o header chamava `sair()` + `goBack()` sem armar
+  // a liberação, e o `beforeRemove` interceptava e pedia confirmação e R13 DE
+  // NOVO. Header, back de hardware e gesto passam agora pela mesma função, e a
+  // liberação é armada ANTES de despachar a ação original.
+  //
+  // E encerrar a dupla só faz sentido enquanto ela existe: em terminal ou
+  // `not_found` a saída é livre — pedir confirmação ali prenderia o usuário
+  // numa tela morta, e o R13 falharia de qualquer jeito.
+  const situacaoRef = useRef<SituacaoDoLobby>('carregando');
 
-  // Back de hardware passa pela MESMA confirmação.
+  const encerrar = useCallback(
+    (despachar: () => void) => {
+      const atual = situacaoRef.current;
+      const dupleViva = atual === 'lobby' || atual === 'iniciado';
+      if (!dupleViva) {
+        saindoRef.current = true;
+        despachar();
+        return;
+      }
+      confirmar(
+        'Encerrar o treino conjunto?',
+        'Sair encerra o treino para você e para o seu parceiro.',
+        () => {
+          void j.sair().then((ok) => {
+            // Só sai depois do sucesso. Falhou, permanece no lobby com o erro
+            // anunciado — sair assim mesmo deixaria a dupla num estado que
+            // ninguém consegue ver.
+            if (!ok) return;
+            saindoRef.current = true;
+            despachar();
+          });
+        },
+      );
+    },
+    [confirmar, j],
+  );
+
+  const sair = useCallback(() => {
+    encerrar(() => navigation.goBack());
+  }, [encerrar, navigation]);
+
+  // Back de hardware: mesma máquina.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       sair();
@@ -127,27 +160,17 @@ export const JointLobbyView = ({
     return () => sub.remove();
   }, [sair]);
 
-  // GESTO e pop nativos não passam pelo header nem pelo BackHandler: sem
-  // `beforeRemove`, um swipe removia a tela sem confirmação e sem encerrar a
-  // dupla. `saindoRef` libera a saída UMA vez, depois de o R13 ter sucesso.
+  // Gesto e pop nativos não passam pelo header nem pelo BackHandler. Quando a
+  // saída já foi autorizada (`saindoRef`), este ouvinte deixa passar — é o que
+  // evita a segunda confirmação.
   useEffect(() => {
     const remover = (navigation as any).addListener?.('beforeRemove', (e: any) => {
-      if (saindoRef.current) return;            // já autorizado: deixa sair
+      if (saindoRef.current) return;
       e.preventDefault?.();
-      confirmar(
-        'Encerrar o treino conjunto?',
-        'Sair encerra o treino para você e para o seu parceiro.',
-        () => {
-          void j.sair().then((ok) => {
-            if (!ok) return;                     // falhou: permanece no lobby
-            saindoRef.current = true;
-            (navigation as any).dispatch?.(e.data.action);
-          });
-        },
-      );
+      encerrar(() => (navigation as any).dispatch?.(e.data.action));
     });
     return () => remover?.();
-  }, [confirmar, j, navigation]);
+  }, [encerrar, navigation]);
 
   const state = j.state;
   const permissoes = permissoesDe(state, meuUserId);
@@ -155,6 +178,15 @@ export const JointLobbyView = ({
   const eu = state ? participanteDe(state, meuUserId) : null;
   const parceiro = state ? parceiroDe(state, meuUserId) : null;
   const grupoDaSessao = state?.muscleGroup ?? grupoEscolhido;
+
+  // F14: quem RECEBE a estrutura não tem picker nem pode materializar antes de
+  // o dono confirmar a fonte. Dizer "Escolha o seu treino" ali manda o usuário
+  // procurar um controle que não existe.
+  const esperandoFonte =
+    permissoes.podeMaterializarCopia && !parceiro?.plannedSessionId;
+  const rotuloDaPendencia = esperandoFonte
+    ? `Aguarde ${j.parceiro?.displayName ?? 'quem convidou'} escolher o treino`
+    : ROTULO_PENDENCIA[pendencia];
 
   const elegiveis = useMemo(
     () => sessoesElegiveis(minhasSessoes, grupoDaSessao ?? null, jointSessionId),
@@ -164,6 +196,8 @@ export const JointLobbyView = ({
     () => incompatibilidadeDe(state, meuUserId, minhasSessoes),
     [state, meuUserId, minhasSessoes],
   );
+
+  situacaoRef.current = situacao;
 
   if (situacao !== 'lobby' && situacao !== 'iniciado') {
     const acao = ACAO_DA_SITUACAO[situacao];
@@ -188,7 +222,12 @@ export const JointLobbyView = ({
                     if (acao === 'tentar_de_novo') void j.recarregar();
                     // O CTA precisa levar ao histórico de verdade; `goBack`
                     // devolvia o usuário para a mesma tela de onde ele veio.
-                    else if (acao === 'ver_historico') navigation.navigate('SessionHistory');
+                    // F12: `SessionHistory` vive no ProgressStack, e o lobby
+                    // está no HomeStack — `navigate('SessionHistory')` daqui é
+                    // ação NÃO TRATADA. A navegação precisa ser aninhada.
+                    else if (acao === 'ver_historico') {
+                      navigation.navigate('Progress', { screen: 'SessionHistory' });
+                    }
                     else navigation.goBack();
                   }}
                 />
@@ -225,7 +264,7 @@ export const JointLobbyView = ({
         <View style={layout.coluna}>
           <Card testID="pendencia">
             <SectionHeader title="O que falta" />
-            <Notice tone="info" title={ROTULO_PENDENCIA[pendencia]} />
+            <Notice tone="info" title={rotuloDaPendencia} />
           </Card>
 
           {/* F3: o lobby frio precisa do convite INTEIRO — código, link, relógio,
@@ -268,10 +307,11 @@ export const JointLobbyView = ({
           {(state?.mode === 'each_own' || modoPreparado === 'each_own') ? (
             <JointMuscleGroupPicker
               grupos={meusGrupos(minhasSessoes)}
-              escolhido={state?.muscleGroup ?? grupoEscolhido}
+              escolhido={trocandoGrupo ? grupoEscolhido : (state?.muscleGroup ?? grupoEscolhido)}
               podeEscolher={permissoes.podeEscolherModo}
               onEscolher={(g) => {
                 setGrupoEscolhido(g);
+                setTrocandoGrupo(false);
                 void j.escolherModo('each_own', g);
               }}
             />
@@ -280,8 +320,14 @@ export const JointLobbyView = ({
           {incompatibilidade ? (
             <JointIncompatibilidade
               incompatibilidade={incompatibilidade}
-              onTrocarGrupo={() => setGrupoEscolhido(null)}
-              onTrocarModo={() => void j.escolherModo('host_plan')}
+              // F13: zerar `grupoEscolhido` não mudava nada — `state.muscleGroup`
+              // continuava dominante e nenhuma RPC saía. Trocar de grupo reabre
+              // o seletor, e é a NOVA escolha que chama R3 com each_own+grupo.
+              onTrocarGrupo={() => {
+                setGrupoEscolhido(null);
+                setTrocandoGrupo(true);
+              }}
+              onTrocarModo={() => { setTrocandoGrupo(false); void j.escolherModo('host_plan', null); }}
             />
           ) : null}
 
@@ -311,7 +357,19 @@ export const JointLobbyView = ({
             </Card>
           ) : null}
 
-          {permissoes.podeConfirmarSessaoPropria && !incompatibilidade ? (
+          {/* F19: falha ao carregar o PRÓPRIO plano não é "nenhum treino
+              elegível" — sem esta distinção, uma queda de rede vira a mensagem
+              de quem realmente não tem treino, e o usuário não tenta de novo. */}
+          {erroPlano ? (
+            <Card testID="erro-plano">
+              <Notice tone="danger" title="Não foi possível carregar seus treinos"
+                description={erroPlano} />
+              <Button label="Tentar de novo" variant="outline"
+                testID="recarregar-plano" onPress={() => onRecarregarPlano?.()} />
+            </Card>
+          ) : null}
+
+          {permissoes.podeConfirmarSessaoPropria && !incompatibilidade && !erroPlano ? (
             <JointSessionPicker
               sessoes={elegiveis}
               escolhida={eu?.plannedSessionId ?? null}
@@ -323,7 +381,7 @@ export const JointLobbyView = ({
             euPronto={Boolean(eu?.ready)}
             parceiroPronto={Boolean(parceiro?.ready)}
             habilitado={permissoes.podeFicarPronto && j.emCurso == null}
-            motivo={ROTULO_PENDENCIA[pendencia]}
+            motivo={rotuloDaPendencia}
             emCurso={j.emCurso === 'pronto'}
             onAlternar={(pronto) => void j.definirPronto(pronto)}
           />

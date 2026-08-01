@@ -12,12 +12,36 @@
 //
 // Nas duas direções: host_plan (o convidado recebe) e guest_plan (o host recebe).
 
+const mockSentinelas = {
+  carga: 'SENTINELA_CARGA_137',
+  nota: 'SENTINELA_NOTA_dor_no_ombro_direito',
+  nomeOriginal: 'SENTINELA_NOME_ORIGINAL',
+  lesao: 'SENTINELA_LESAO_ombro',
+};
+const mockIdFonte = 'ps-FONTE-DO-PARCEIRO';
+
+const mockLinhaContaminada = {
+  id: mockIdFonte,
+  title: 'Peito do parceiro',
+  muscle_groups: ['Peito'],
+  status: 'pending',
+  joint_session_id: 'js-1',
+  target_load_kg: mockSentinelas.carga,
+  notes: mockSentinelas.nota,
+  name_original: mockSentinelas.nomeOriginal,
+  injury_flags: [mockSentinelas.lesao],
+  full_name: mockSentinelas.nota,
+};
+
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: { getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}), removeItem: jest.fn(async () => {}) },
 }));
 
-// Espiona TODA consulta que sair pelo cliente Supabase.
+// Espiona TODA consulta que sair pelo cliente Supabase — e, quando alguém
+// consultar a FONTE do parceiro, DEVOLVE as sentinelas. Sem isso o mock volta
+// vazio e o teste comprova a ausência de algo que nunca esteve lá: era esse o
+// falso positivo central do F17.
 const consultas: { tabela: string; filtros: any[] }[] = [];
 jest.mock('../src/config/supabaseClient', () => ({
   supabase: {
@@ -27,8 +51,20 @@ jest.mock('../src/config/supabaseClient', () => ({
       const b: any = {};
       const chain = (nome: string) => (...args: any[]) => { registro.filtros.push([nome, ...args]); return b; };
       for (const m of ['select', 'eq', 'is', 'not', 'gt', 'order', 'limit', 'range', 'in', 'maybeSingle']) b[m] = jest.fn(chain(m));
-      b.single = jest.fn(() => Promise.resolve({ data: null, error: null }));
-      b.then = (res: any, rej: any) => Promise.resolve({ data: [], error: null }).then(res, rej);
+
+      // A FONTE existe e é contaminada: quem perguntar por ela RECEBE as
+      // sentinelas. É o que dá dente ao teste — se a UI consultar, vaza.
+      const pediuAFonte = () =>
+        JSON.stringify(registro.filtros).includes(mockIdFonte)
+        || ['profiles', 'planned_exercises', 'planned_sets', 'training_plans'].includes(tabela);
+      const resposta = () => (pediuAFonte()
+        ? { data: [mockLinhaContaminada], error: null }
+        : { data: [], error: null });
+
+      b.single = jest.fn(() => Promise.resolve(pediuAFonte()
+        ? { data: mockLinhaContaminada, error: null }
+        : { data: null, error: null }));
+      b.then = (res: any, rej: any) => Promise.resolve(resposta()).then(res, rej);
       return b;
     }),
     rpc: jest.fn(() => Promise.resolve({ data: null, error: null })),
@@ -49,14 +85,10 @@ import { JointLobbyView } from '../src/screens/JointLobbyScreen';
 import * as repoReal from '../src/services/jointSessionRepository';
 
 // ---- SENTINELAS: só existem no plano do parceiro ----
-const SENTINELAS = {
-  carga: 'SENTINELA_CARGA_137',
-  nota: 'SENTINELA_NOTA_dor_no_ombro_direito',
-  nomeOriginal: 'SENTINELA_NOME_ORIGINAL',
-  lesao: 'SENTINELA_LESAO_ombro',
-};
-const ID_FONTE_DO_PARCEIRO = 'ps-FONTE-DO-PARCEIRO';
+const SENTINELAS = mockSentinelas;
+const ID_FONTE_DO_PARCEIRO = mockIdFonte;
 const ID_DA_MINHA_COPIA = 'ps-MINHA-COPIA';
+
 
 const HOST = 'u-host';
 const GUEST = 'u-guest';
@@ -166,6 +198,27 @@ describe('M4 — direção guest_plan: o HOST recebe a estrutura', () => {
       c.filtros.filter((f) => JSON.stringify(f).includes(ID_FONTE_DO_PARCEIRO)),
     );
     expect(comFonte).toEqual([]);
+  });
+});
+
+describe('a armadilha está ARMADA — o mock devolve as sentinelas se perguntarem', () => {
+  it('CONTROLE: consultar a fonte do parceiro RETORNA os quatro valores proibidos', async () => {
+    // Sem este controle, os testes acima poderiam passar por o mock devolver
+    // vazio — comprovando a ausência de algo que nunca esteve lá. Era esse o
+    // falso positivo do F17.
+    const { supabase } = require('../src/config/supabaseClient');
+    const r = await supabase.from('planned_sessions').select('*').eq('id', ID_FONTE_DO_PARCEIRO);
+    const texto = JSON.stringify(r.data);
+    for (const [nome, valor] of Object.entries(SENTINELAS)) {
+      expect({ nome, presente: texto.includes(valor as string) })
+        .toEqual({ nome, presente: true });
+    }
+  });
+
+  it('CONTROLE: consultar `profiles` também devolveria dado alheio', async () => {
+    const { supabase } = require('../src/config/supabaseClient');
+    const r = await supabase.from('profiles').select('*').eq('id', 'u-host');
+    expect(JSON.stringify(r.data)).toContain(SENTINELAS.nota);
   });
 });
 

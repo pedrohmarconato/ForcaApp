@@ -104,6 +104,27 @@ export const useJointSession = (
   // sobrescrever a atual.
   const geracao = useRef(0);
   const acaoRef = useRef<AcaoDoLobby | null>(null);
+  // Sequência MONOTÔNICA de aplicação. `geracao` só separa sessão e unmount;
+  // dentro da MESMA sessão, um `buscar()` lento pode resolver depois de um
+  // estado mais novo e sobrescrevê-lo — a tela volta no tempo sem ninguém ver.
+  // Cada origem de estado (snapshot ou evento) pega um selo crescente, e só
+  // aplica quem trouxer selo maior que o último aplicado.
+  const selo = useRef(0);
+  const ultimoAplicado = useRef(0);
+
+  /** Pega um selo novo. Quem pega mais tarde tem prioridade. */
+  const proximoSelo = useCallback(() => {
+    selo.current += 1;
+    return selo.current;
+  }, []);
+
+  /** Aplica só se este selo ainda for o mais novo já visto. */
+  const aplicarEstado = useCallback((meuSelo: number, proximo: JointSessionState | null) => {
+    if (meuSelo < ultimoAplicado.current) return false;
+    ultimoAplicado.current = meuSelo;
+    setState(proximo);
+    return true;
+  }, []);
 
   const aplicar = useCallback((minhaGeracao: number, fn: () => void) => {
     if (!vivo.current || minhaGeracao !== geracao.current) return;
@@ -116,10 +137,13 @@ export const useJointSession = (
   const buscar = useCallback(
     async (minhaGeracao: number) => {
       if (!jointSessionId) return;
+      // O selo é tirado ANTES da ida ao servidor: é a ordem de PEDIDO que
+      // define quem é antigo, não a ordem de chegada.
+      const meuSelo = proximoSelo();
       try {
         const s = await repo.getJointSessionSnapshot(jointSessionId);
         aplicar(minhaGeracao, () => {
-          setState(s);
+          aplicarEstado(meuSelo, s);
           setErro(null);
           setCarregando(false);
         });
@@ -152,7 +176,7 @@ export const useJointSession = (
         });
       }
     },
-    [aplicar, jointSessionId, meuUserId],
+    [aplicar, aplicarEstado, jointSessionId, meuUserId, proximoSelo],
   );
 
   // ------------------------------------------------------------------
@@ -164,6 +188,7 @@ export const useJointSession = (
     const minhaGeracao = geracao.current;
 
     if (!jointSessionId) {
+      ultimoAplicado.current = 0;
       setState(null);
       setParceiro(null);
       setConvite(null);
@@ -178,8 +203,9 @@ export const useJointSession = (
       jointSessionId,
       meuUserId,
       {
+        // Evento do canal é sempre o mais novo no instante em que chega.
         onState: (s) => aplicar(minhaGeracao, () => {
-          setState(s);
+          aplicarEstado(proximoSelo(), s);
           setCarregando(false);
         }),
         onError: (e) => aplicar(minhaGeracao, () => setErro(mensagemDe(e))),
