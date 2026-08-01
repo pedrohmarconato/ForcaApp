@@ -35,12 +35,17 @@ de promover à main.
 ## Migrations
 
 - **Sempre primeiro no staging**: `supabase link --project-ref
-  mjdjtiujhwklchalquhc && supabase db push` (senha do banco em
-  `~/.forcaapp_staging_db` no Mac do dono).
+  mjdjtiujhwklchalquhc && scripts/supabase-preflight.sh hml && supabase db push`
+  (senha do banco em `~/.forcaapp_staging_db` no Mac do dono).
 - Só depois de validada em HML a migration vai à produção — **registrada**
-  (`db push` no projeto de produção; nunca SQL direto sem registro).
+  (`scripts/supabase-preflight.sh prod && supabase db push` no projeto de
+  produção; nunca SQL direto sem registro).
 - Cuidado com o link do clone: `supabase link` troca o projeto-alvo do
-  diretório. Confirme o ref antes de qualquer `db push`.
+  diretório. O preflight acima é quem confirma o ref — ele lê o projeto
+  realmente linkado e aborta se divergir do ambiente que você declarou.
+  Não pule esse passo confiando no que o roteiro afirma: um briefing de
+  revisão já trocou os dois refs e chamou a produção de "HML descartável"
+  (ver o bloco de refs canônicos no `AGENTS.md`).
 
 ## Testar o plano com Opus no HML
 
@@ -53,7 +58,22 @@ teste fiel do plano: na VPS, edite `PLAN_MODEL_NAME=claude-opus-4-8` em
 
 - O container HML binda **somente em loopback** (`127.0.0.1:5002`) — a
   exposição pública passa pelo nginx com TLS, como na produção.
-- O `.env` de HML na VPS não é versionado; a `ANTHROPIC_API_KEY` é a mesma da
-  produção (lida localmente no setup, nunca trafega).
+- O `.env` de HML na VPS não é versionado.
+- ⚠️ **A `ANTHROPIC_API_KEY` de HML precisa ser exclusiva** (SEG-01 do review
+  defensivo de 31/07/2026). Até então era a mesma da produção, o que significa
+  que um comprometimento do container, do host ou do `.env` de homologação
+  entregava a credencial que produção usa — e a rotação de emergência derrubaria
+  os dois ambientes de uma vez. Runbook da separação:
+
+  1. No console da Anthropic, criar uma chave nova **com limite de gasto
+     próprio**, nomeada de forma a não haver dúvida (ex.: `forcaapp-hml`).
+  2. Na VPS: editar `ANTHROPIC_API_KEY` em `/docker/forcaapp-hml/.env` e subir
+     com `docker compose --project-directory /docker/forcaapp-hml up -d`.
+  3. Conferir sem imprimir a chave — o log de startup do container mostra os
+     modelos e flags ativos, e `GET /api/health` deve voltar `200`.
+  4. **Rotacionar a chave antiga**, que continua sendo a de produção e esteve
+     exposta ao ambiente de homologação enquanto era compartilhada.
+
+  Passos 1 e 4 dependem de login no console e são do dono do projeto.
 - Dados de HML são descartáveis; **nunca** aponte o HML para o banco de
   produção.

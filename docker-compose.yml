@@ -17,6 +17,20 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    # INFRA-03: contenção do container. A imagem já roda como não-root (USER
+    # forca no Dockerfile); estas quatro linhas fecham o resto da superfície.
+    #
+    # read_only + tmpfs: o rootfs deixa de ser gravável, e /tmp existe só em
+    # memória. O backend não escreve em disco — o que ele produz vai para o
+    # Supabase. Se algum dia precisar de um caminho gravável, acrescente-o como
+    # tmpfs aqui em vez de reabrir o rootfs inteiro.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       # Default seguro: só loopback. Na VPS a chain DOCKER-USER está vazia e
       # porta publicada pelo Docker FURA o UFW — 0.0.0.0 aqui já expôs o
@@ -54,5 +68,20 @@ services:
       CHAT_RATE_WINDOW_SECONDS: ${CHAT_RATE_WINDOW_SECONDS:-60}
       PLAN_RATE_LIMIT: ${PLAN_RATE_LIMIT:-3}
       PLAN_RATE_WINDOW_SECONDS: ${PLAN_RATE_WINDOW_SECONDS:-3600}
+      # Teto DIÁRIO por usuário, persistido no Supabase (migrations 0024/0025).
+      # Os limites acima são barreira de burst em memória: zeram no restart e
+      # não valem entre réplicas. Estes sobrevivem e contam cada tentativa
+      # paga, inclusive o retry do molde.
+      #
+      # Chamadas por ROTA, porque as três não custam a mesma coisa: o chat é
+      # Haiku e acontece dezenas de vezes num onboarding conversado; o plano é
+      # Opus e acontece poucas vezes. Um teto único somando as três barrava o
+      # usuário na geração do plano depois de uma conversa longa.
+      AI_DAILY_CALL_LIMIT_CHAT: ${AI_DAILY_CALL_LIMIT_CHAT:-250}
+      AI_DAILY_CALL_LIMIT_CONSOLIDATE: ${AI_DAILY_CALL_LIMIT_CONSOLIDATE:-30}
+      AI_DAILY_CALL_LIMIT_PLAN: ${AI_DAILY_CALL_LIMIT_PLAN:-15}
+      # Gasto do dia inteiro, somando as rotas. É esta a trava que segura o
+      # Opus — a contagem acima existe para cortar loop acidental.
+      AI_DAILY_USD_LIMIT: ${AI_DAILY_USD_LIMIT:-5.00}
       FLASK_DEBUG: "false"
       PORT: "5001"
