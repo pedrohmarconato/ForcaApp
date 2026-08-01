@@ -315,8 +315,12 @@ await rodarHarness('joint-contract', 4, async (ctx, [a, b, c, d]) => {
         .update({ joint_session_id: FAKE }).eq('id', pA.sessionId)],
       ['H2 null joint_session_id', '42501', () => a.client.from('planned_sessions')
         .update({ joint_session_id: null }).eq('id', pA.sessionId)],
-      ['H3 update status', '42501', () => a.client.from('planned_sessions')
+      ['H3 update status=completed', '42501', () => a.client.from('planned_sessions')
         .update({ status: 'completed' }).eq('id', pA.sessionId)],
+      // Conclusão silenciosa e recusa silenciosa são caminhos DIFERENTES do
+      // cliente; os dois precisam bater no gatilho.
+      ['H3 update status=skipped', '42501', () => a.client.from('planned_sessions')
+        .update({ status: 'skipped' }).eq('id', pA.sessionId)],
       ['H6 finish_session', '42501', () => a.client.rpc('finish_session', { p_session_log_id: logGA })],
       ['H7 update finished_at', '42501', () => a.client.from('session_logs')
         .update({ finished_at: new Date().toISOString() }).eq('id', logGA)],
@@ -347,7 +351,40 @@ await rodarHarness('joint-contract', 4, async (ctx, [a, b, c, d]) => {
     const logAindaAberto = await ctx.admin
       .from('session_logs').select('finished_at').eq('id', logGA).single();
     assert(logAindaAberto.data.finished_at === null, 'H16: um bypass fechou o log');
-    console.log('[joint-contract] H1–H10, H13, H16 ok — 10 bypasses recusados sob JWT real (8 pelo guard, 1 por pré-condição, 1 por FK), estado intacto');
+    console.log('[joint-contract] H1–H10, H13, H16 ok — 11 bypasses recusados sob JWT real (9 pelo guard, 1 por pré-condição, 1 por FK), estado intacto');
+
+    // --- TERMINAL: H2 e H9 depois de `abandoned` ---
+    // Depois do encerramento a trilha é justamente o que não pode sumir. Os
+    // guards de status/finished_at soltam (é o que faz C19 funcionar), mas os
+    // de VÍNCULO e de DELETE continuam valendo — e isso precisa ter regressão
+    // versionada, não só ter passado num teste avulso.
+    {
+      const abn = await a.client.rpc('abandon_joint_session', { p_joint_session_id: lobby.id });
+      assert(un(abn).status === 'abandoned', `H terminal: status ${un(abn)?.status}`);
+      const antesT = await retrato(ctx, lobby.id);
+
+      const casosTerminais = [
+        ['H2 terminal: null joint_session_id', () => a.client.from('planned_sessions')
+          .update({ joint_session_id: null }).eq('id', pA.sessionId)],
+        ['H2 terminal: trocar joint_session_id', () => a.client.from('planned_sessions')
+          .update({ joint_session_id: FAKE }).eq('id', pA.sessionId)],
+        ['H9 terminal: delete planned_session', () => a.client.from('planned_sessions')
+          .delete().eq('id', pA.sessionId)],
+        ['H9 terminal: delete session_log', () => a.client.from('session_logs')
+          .delete().eq('id', logGA)],
+      ];
+      for (const [rotulo, executar] of casosTerminais) {
+        const r = await executar();
+        assert(r.error != null, `${rotulo}: NÃO foi recusado depois do encerramento`);
+        assert(errcode(r) === '42501', `${rotulo}: devolveu ${errcode(r)} (esperado 42501): ${r.error.message}`);
+      }
+      assert(antesT === (await retrato(ctx, lobby.id)), 'H terminal: uma recusa mudou o estado');
+
+      const vinculo = await ctx.admin
+        .from('planned_sessions').select('joint_session_id').eq('id', pA.sessionId).single();
+      assert(vinculo.data.joint_session_id === lobby.id, 'H terminal: o vínculo foi rompido');
+      console.log('[joint-contract] H2/H9 terminais ok — 4 recusas após abandoned, trilha intacta');
+    }
 
     // --- H12: fluxo solo INTACTO, sob JWT real ---
     await liberarConta(ctx, c);
@@ -374,7 +411,6 @@ await rodarHarness('joint-contract', 4, async (ctx, [a, b, c, d]) => {
     assert(!s6.error, `H12: update direto do replanejador falhou (${s6.error?.message})`);
     console.log('[joint-contract] H12 ok — fluxo solo íntegro sob JWT real, inclusive o replanejador');
 
-    await a.client.rpc('abandon_joint_session', { p_joint_session_id: lobby.id });
   }
 
   // ============================================================
@@ -483,6 +519,15 @@ await rodarHarness('joint-contract', 4, async (ctx, [a, b, c, d]) => {
     await b.client.rpc('complete_joint_participant', { p_joint_session_id: joint.id });
 
     // E9/E10/E11 — nas DUAS direções, cada uma sob o próprio JWT.
+    //
+    // ANCORADAS NO LOG DESTE CENÁRIO e conferindo VALOR, não contagem: as contas
+    // do harness já têm execuções anteriores, então "trouxe alguma linha"
+    // passaria verde com dado de outro treino. O que prova registro individual é
+    // cada um ver os PRÓPRIOS números — e exatamente eles.
+    const esperados = new Map([
+      [logHost, { duracao: 1800, distancia: 5200, esforco: 'forte' }],
+      [logGuest, { duracao: 1500, distancia: 4100, esforco: 'moderado' }],
+    ]);
     const pares = [[a, logHost, b, logGuest], [b, logGuest, a, logHost]];
     for (const [eu, meuLog, parceiro, logDoParceiro] of pares) {
       const hist = await eu.client
@@ -492,22 +537,45 @@ await rodarHarness('joint-contract', 4, async (ctx, [a, b, c, d]) => {
       assert(ids.includes(meuLog), 'E9: o próprio registro não aparece');
       assert(!ids.includes(logDoParceiro), 'E9: VAZAMENTO — registro do parceiro no histórico');
 
-      const meus = await eu.client
+      // E10 — progresso ancorado NESTE log, com os valores exatos.
+      const meu = esperados.get(meuLog);
+      const prog = await eu.client
         .from('set_logs')
-        .select('actual_duration_seconds, actual_distance_m, perceived_effort, session_logs!inner(user_id)')
-        .eq('session_logs.user_id', eu.id);
-      assert(!meus.error, `E10: ${meus.error?.message}`);
-      assert((meus.data ?? []).length > 0, 'E10: progresso próprio vazio');
+        .select('actual_duration_seconds, actual_distance_m, perceived_effort, actual_reps, session_logs!inner(user_id)')
+        .eq('session_logs.user_id', eu.id)
+        .eq('session_log_id', meuLog);
+      assert(!prog.error, `E10: ${prog.error?.message}`);
+      assert((prog.data ?? []).length === 1, `E10: ${prog.data?.length} linhas para o log do cenário`);
+      const linha = prog.data[0];
+      assert(linha.actual_duration_seconds === meu.duracao,
+        `E10: duração ${linha.actual_duration_seconds}, esperado ${meu.duracao}`);
+      assert(Number(linha.actual_distance_m) === meu.distancia,
+        `E10: distância ${linha.actual_distance_m}, esperado ${meu.distancia}`);
+      assert(linha.perceived_effort === meu.esforco,
+        `E10: esforço ${linha.perceived_effort}, esperado ${meu.esforco}`);
+      assert(linha.actual_reps == null, 'E10: cardio gravou repetição');
 
-      // E11 — detalhe PRÓPRIO visível, do parceiro invisível. Nas duas direções.
-      const meuDetalhe = await eu.client.from('set_logs').select('id').eq('session_log_id', meuLog);
-      assert((meuDetalhe.data ?? []).length > 0, 'E11: o próprio detalhe não é visível');
-      const detalheAlheio = await eu.client.from('set_logs').select('id').eq('session_log_id', logDoParceiro);
+      // E11 — detalhe PRÓPRIO conferido valor a valor; do parceiro, zero linhas.
+      const detalhe = await eu.client
+        .from('set_logs')
+        .select('actual_duration_seconds, actual_distance_m, perceived_effort')
+        .eq('session_log_id', meuLog);
+      assert((detalhe.data ?? []).length === 1, 'E11: o próprio detalhe não é visível');
+      assert(detalhe.data[0].actual_duration_seconds === meu.duracao, 'E11: detalhe próprio divergente');
+      assert(detalhe.data[0].perceived_effort === meu.esforco, 'E11: esforço próprio divergente');
+
+      const alheio = esperados.get(logDoParceiro);
+      assert(meu.duracao !== alheio.duracao, 'E11: os dois lados têm os mesmos números');
+      const detalheAlheio = await eu.client
+        .from('set_logs')
+        .select('actual_duration_seconds, actual_distance_m, perceived_effort')
+        .eq('session_log_id', logDoParceiro);
+      assert(!detalheAlheio.error, `E11: ${detalheAlheio.error?.message}`);
       assert(
         (detalheAlheio.data ?? []).length === 0,
-        `E11: VAZAMENTO — ${eu.id} enxerga o detalhe de ${parceiro.id}`,
+        `E11: VAZAMENTO — ${eu.id} enxerga ${detalheAlheio.data?.length} linha(s) de ${parceiro.id}`,
       );
     }
-    console.log('[joint-contract] E9–E11 ok — histórico, progresso e detalhe nas DUAS direções');
+    console.log('[joint-contract] E9–E11 ok — valores próprios exatos nas duas direções, zero acesso cruzado');
   }
 });
