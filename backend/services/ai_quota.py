@@ -30,10 +30,30 @@ import requests
 
 REQUEST_TIMEOUT_SECONDS = 10
 
-# Tetos diários por usuário. Valem para o TOTAL do dia somando todas as rotas.
-# Padrões deliberadamente folgados para um app de treino de uso pessoal: o
-# objetivo é cortar abuso e loop acidental, não atrapalhar o uso legítimo.
-AI_DAILY_CALL_LIMIT = int(os.environ.get("AI_DAILY_CALL_LIMIT", "40"))
+# Tetos diários por usuário.
+#
+# O limite de CHAMADAS é por rota; o de CUSTO é do dia inteiro. A razão é que
+# as três rotas não se parecem em nada quando vistas por preço e frequência:
+#
+#   chat        Haiku, ~US$ 0,005 a chamada, dezenas por onboarding conversado
+#   consolidate Haiku, uma vez por onboarding
+#   plan        Opus, a chamada cara, poucas por dia
+#
+# Um teto único somando as três (como na 0024) deixava a conversa de
+# onboarding consumir a cota e barrar o usuário justamente na geração do
+# plano. Quem contém o gasto de verdade é o limite em dólares — o de chamadas
+# existe para cortar loop acidental, não para racionar conversa.
+AI_DAILY_CALL_LIMIT_CHAT = int(os.environ.get("AI_DAILY_CALL_LIMIT_CHAT", "250"))
+AI_DAILY_CALL_LIMIT_CONSOLIDATE = int(os.environ.get("AI_DAILY_CALL_LIMIT_CONSOLIDATE", "30"))
+AI_DAILY_CALL_LIMIT_PLAN = int(os.environ.get("AI_DAILY_CALL_LIMIT_PLAN", "15"))
+
+LIMITE_CHAMADAS_POR_ROTA = {
+    "chat": AI_DAILY_CALL_LIMIT_CHAT,
+    "consolidate": AI_DAILY_CALL_LIMIT_CONSOLIDATE,
+    "plan": AI_DAILY_CALL_LIMIT_PLAN,
+}
+
+# Trava global de gasto, somando todas as rotas. É esta que segura o Opus.
 AI_DAILY_USD_LIMIT = float(os.environ.get("AI_DAILY_USD_LIMIT", "5.00"))
 
 # Preço por 1 milhão de tokens (USD), tabela pública da Anthropic conferida em
@@ -61,13 +81,15 @@ CARACTERES_POR_TOKEN = 4
 class QuotaExcedida(RuntimeError):
     """O teto diário do usuário foi atingido — a chamada paga não deve ocorrer."""
 
-    def __init__(self, motivo: str, chamadas_dia: int, custo_dia_usd: float):
+    def __init__(self, motivo: str, rota: str, chamadas_rota: int, custo_dia_usd: float):
         self.motivo = motivo
-        self.chamadas_dia = chamadas_dia
+        self.rota = rota
+        self.chamadas_rota = chamadas_rota
         self.custo_dia_usd = custo_dia_usd
         super().__init__(
-            "Teto diário de uso de IA atingido ({}): {} chamadas, US$ {:.2f}.".format(
-                motivo, chamadas_dia, custo_dia_usd
+            "Teto diário de uso de IA atingido por {} na rota '{}': "
+            "{} chamadas na rota, US$ {:.2f} no dia.".format(
+                motivo, rota, chamadas_rota, custo_dia_usd
             )
         )
 
@@ -176,13 +198,17 @@ def reservar(access_token: str, rota: str, custo_estimado: float) -> Dict[str, A
     chama isto já depende do Supabase para persistir o resultado — um banco
     fora do ar não deixaria o fluxo terminar de qualquer forma.
     """
+    # Rota fora do mapa não vira "sem limite": a RPC recusaria a rota de
+    # qualquer forma, e um None aqui significaria teto ausente.
+    limite_chamadas = LIMITE_CHAMADAS_POR_ROTA.get(rota, AI_DAILY_CALL_LIMIT_PLAN)
+
     corpo = _chamar_rpc(
         access_token,
         {
             "p_rota": rota,
             "p_chamadas": 1,
             "p_custo_usd": round(float(custo_estimado), 6),
-            "p_limite_chamadas": AI_DAILY_CALL_LIMIT,
+            "p_limite_chamadas": limite_chamadas,
             "p_limite_usd": AI_DAILY_USD_LIMIT,
             "p_forcar": False,
         },
@@ -190,7 +216,8 @@ def reservar(access_token: str, rota: str, custo_estimado: float) -> Dict[str, A
     if not corpo.get("permitido"):
         raise QuotaExcedida(
             motivo=str(corpo.get("motivo") or "desconhecido"),
-            chamadas_dia=int(corpo.get("chamadas_dia") or 0),
+            rota=str(corpo.get("rota") or rota),
+            chamadas_rota=int(corpo.get("chamadas_rota") or 0),
             custo_dia_usd=float(corpo.get("custo_dia_usd") or 0.0),
         )
     return corpo

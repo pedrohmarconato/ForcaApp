@@ -167,8 +167,9 @@ def _reservar_quota_ia(rota, modelo, caracteres_prompt, max_tokens_saida, user_i
         ai_quota.reservar(g.access_token, rota, custo)
     except ai_quota.QuotaExcedida as excedida:
         app_logger.warning(
-            f"Quota diária de IA excedida ({excedida.motivo}) para usuário {user_id}: "
-            f"{excedida.chamadas_dia} chamadas, US$ {excedida.custo_dia_usd:.2f}."
+            f"Quota diária de IA excedida ({excedida.motivo}) para usuário {user_id} "
+            f"na rota {excedida.rota}: {excedida.chamadas_rota} chamadas na rota, "
+            f"US$ {excedida.custo_dia_usd:.2f} no dia."
         )
         return jsonify({
             "error": "Limite diário de uso da IA atingido. Tente novamente amanhã.",
@@ -225,10 +226,11 @@ app_logger.warning(
 app_logger.info(
     "Configuração ativa | modelos: plano={} chat={} geral={} | flags: "
     "USE_MOLDE_ARCHITECTURE={} PROMPT_MOLDE_V2={} STRUCTURED_OUTPUT={} | "
-    "quota diária: {} chamadas / US$ {:.2f}".format(
+    "quota diária: chat={} consolidate={} plano={} chamadas / US$ {:.2f} no dia".format(
         get_plan_model_name(), get_chat_model_name(), get_model_name(),
         FORCA_USE_MOLDE_ARCHITECTURE, FORCA_PROMPT_MOLDE_V2, FORCA_STRUCTURED_OUTPUT,
-        ai_quota.AI_DAILY_CALL_LIMIT, ai_quota.AI_DAILY_USD_LIMIT,
+        ai_quota.AI_DAILY_CALL_LIMIT_CHAT, ai_quota.AI_DAILY_CALL_LIMIT_CONSOLIDATE,
+        ai_quota.AI_DAILY_CALL_LIMIT_PLAN, ai_quota.AI_DAILY_USD_LIMIT,
     )
 )
 

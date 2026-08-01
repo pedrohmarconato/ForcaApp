@@ -68,11 +68,20 @@ services:
       CHAT_RATE_WINDOW_SECONDS: ${CHAT_RATE_WINDOW_SECONDS:-60}
       PLAN_RATE_LIMIT: ${PLAN_RATE_LIMIT:-3}
       PLAN_RATE_WINDOW_SECONDS: ${PLAN_RATE_WINDOW_SECONDS:-3600}
-      # Teto DIÁRIO por usuário, persistido no Supabase (migration 0024). Os
-      # limites acima são barreira de burst em memória: zeram no restart e não
-      # valem entre réplicas. Estes sobrevivem e limitam o gasto em dólares —
-      # contando cada tentativa paga, inclusive o retry do molde.
-      AI_DAILY_CALL_LIMIT: ${AI_DAILY_CALL_LIMIT:-40}
+      # Teto DIÁRIO por usuário, persistido no Supabase (migrations 0024/0025).
+      # Os limites acima são barreira de burst em memória: zeram no restart e
+      # não valem entre réplicas. Estes sobrevivem e contam cada tentativa
+      # paga, inclusive o retry do molde.
+      #
+      # Chamadas por ROTA, porque as três não custam a mesma coisa: o chat é
+      # Haiku e acontece dezenas de vezes num onboarding conversado; o plano é
+      # Opus e acontece poucas vezes. Um teto único somando as três barrava o
+      # usuário na geração do plano depois de uma conversa longa.
+      AI_DAILY_CALL_LIMIT_CHAT: ${AI_DAILY_CALL_LIMIT_CHAT:-250}
+      AI_DAILY_CALL_LIMIT_CONSOLIDATE: ${AI_DAILY_CALL_LIMIT_CONSOLIDATE:-30}
+      AI_DAILY_CALL_LIMIT_PLAN: ${AI_DAILY_CALL_LIMIT_PLAN:-15}
+      # Gasto do dia inteiro, somando as rotas. É esta a trava que segura o
+      # Opus — a contagem acima existe para cortar loop acidental.
       AI_DAILY_USD_LIMIT: ${AI_DAILY_USD_LIMIT:-5.00}
       FLASK_DEBUG: "false"
       PORT: "5001"

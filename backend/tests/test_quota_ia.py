@@ -68,11 +68,13 @@ def _fake_anthropic_client(reply_text="Resposta da IA"):
     return cliente
 
 
-def _rpc_resposta(permitido, motivo=None, chamadas=0, custo=0.0):
+def _rpc_resposta(permitido, motivo=None, chamadas=0, custo=0.0, rota="chat"):
     return {
         "permitido": permitido,
         "motivo": motivo,
-        "chamadas_dia": chamadas,
+        "rota": rota,
+        # `chamadas_rota` (0025): a contagem é POR ROTA; o custo é do dia todo.
+        "chamadas_rota": chamadas,
         "custo_dia_usd": custo,
     }
 
@@ -171,6 +173,71 @@ def test_reserva_precede_a_chamada_e_o_acerto_a_sucede(client):
 
     assert resposta.status_code == 200
     assert ordem == ["reserva", "anthropic", "acerto"]
+
+
+# --- 3b. Teto de chamadas por rota (0025) ---
+#
+# O modo de falha que a 0024 tinha e homologação não podia revelar: com um
+# teto único somando as três rotas, uma conversa longa de onboarding gastava a
+# cota e o usuário era barrado na geração do plano — a chamada que importa.
+
+def test_cada_rota_carrega_o_proprio_teto_de_chamadas(client):
+    """O chat é generoso porque é barato; o plano é restrito porque é Opus."""
+    limites = {}
+
+    def _rpc_capturando(access_token, payload):
+        # Só a RESERVA leva limites; o acerto pós-chamada (p_forcar) manda
+        # None de propósito, e capturá-lo aqui mascararia o que se quer medir.
+        if not payload["p_forcar"]:
+            limites[payload["p_rota"]] = payload["p_limite_chamadas"]
+        return _rpc_resposta(True, rota=payload["p_rota"])
+
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=_fake_anthropic_client()), \
+         mock.patch.object(ai_quota, "_chamar_rpc", side_effect=_rpc_capturando):
+        client.post(
+            "/api/chat",
+            json={"messages": [{"role": "user", "content": "Oi"}],
+                  "questionnaireData": {"idade": 30}},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+
+    assert limites["chat"] == ai_quota.AI_DAILY_CALL_LIMIT_CHAT
+    # O chat precisa caber num onboarding conversado sem racionar mensagem.
+    assert ai_quota.AI_DAILY_CALL_LIMIT_CHAT > ai_quota.AI_DAILY_CALL_LIMIT_PLAN * 10
+
+
+def test_o_teto_de_custo_e_o_mesmo_para_todas_as_rotas():
+    """
+    Quem contém o Opus é o dinheiro, não a contagem. O limite em dólares tem de
+    ser global — se fosse por rota, três rotas dariam três vezes o orçamento.
+    """
+    enviados = []
+
+    def _rpc_capturando(access_token, payload):
+        enviados.append(payload["p_limite_usd"])
+        return _rpc_resposta(True, rota=payload["p_rota"])
+
+    with mock.patch.object(ai_quota, "_chamar_rpc", side_effect=_rpc_capturando):
+        for rota in ("chat", "consolidate", "plan"):
+            ai_quota.reservar("token", rota, 0.01)
+
+    assert enviados == [ai_quota.AI_DAILY_USD_LIMIT] * 3
+
+
+def test_rota_desconhecida_nao_vira_teto_ausente():
+    """Um None em p_limite_chamadas significaria 'sem limite' para a RPC."""
+    capturado = {}
+
+    def _rpc_capturando(access_token, payload):
+        capturado.update(payload)
+        return _rpc_resposta(True)
+
+    with mock.patch.object(ai_quota, "_chamar_rpc", side_effect=_rpc_capturando):
+        ai_quota.reservar("token", "rota-que-nao-existe", 0.01)
+
+    assert capturado["p_limite_chamadas"] is not None
+    assert capturado["p_limite_chamadas"] == ai_quota.AI_DAILY_CALL_LIMIT_PLAN
 
 
 # --- 4. Aritmética do custo, contra a tabela de preços publicada ---
@@ -320,7 +387,7 @@ def test_quota_estourada_na_segunda_tentativa_impede_a_segunda_geracao(monkeypat
 
 
 def _rpc_ok():
-    return {"permitido": True, "chamadas_dia": 1, "custo_dia_usd": 0.1}
+    return {"permitido": True, "rota": "plan", "chamadas_rota": 1, "custo_dia_usd": 0.1}
 
 
 # --- 7. A reserva cobre o gasto real (senão o teto vaza) ---
