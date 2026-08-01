@@ -18,6 +18,9 @@ import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 import ActiveSessionScreen from '../screens/ActiveSessionScreen';
 import SessionHistoryScreen from '../screens/SessionHistoryScreen';
 import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
+import JointInviteScreen from '../screens/JointInviteScreen';
+import JointJoinScreen from '../screens/JointJoinScreen';
+import JointLobbyScreen from '../screens/JointLobbyScreen';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -26,6 +29,11 @@ export type HomeStackParamList = {
   HomeMain: undefined;
   WorkoutDetail: { sessionId: string };
   ActiveSession: { sessionId: string };
+  // Treino conjunto (Sprint 02). `JointLobby` recebe SÓ o id da sessão: ele vem
+  // do retorno de create/join, nunca do código parseado de um link.
+  JointInvite: undefined;
+  JointJoin: { code?: string };
+  JointLobby: { jointSessionId: string };
 };
 
 export type TrainingStackParamList = {
@@ -56,6 +64,9 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <HomeStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
+      <HomeStack.Screen name="JointInvite" component={JointInviteScreen as any} />
+      <HomeStack.Screen name="JointJoin" component={JointJoinScreen as any} />
+      <HomeStack.Screen name="JointLobby" component={JointLobbyScreen as any} />
     </HomeStack.Navigator>
   );
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Conexão local × presença do parceiro</title><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0B0B0C; color: #F5F5F5;
+         font-family: Inter, -apple-system, system-ui, sans-serif; padding: 16px; }
+  .tela { display: flex; flex-direction: column; gap: 12px; }
+  .duplo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #101315; border-radius: 14px; padding: 14px; }
+  .titulo { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+            color: #A0A0A5; margin-bottom: 8px; }
+  .linha { display: flex; align-items: center; justify-content: space-between; }
+  .chip { font-size: 10px; padding: 4px 10px; border-radius: 999px;
+          background: rgba(255,255,255,.08); color: #F5F5F5; }
+  .chip.on { background: #C8FF00; color: #000; }
+  .btn { display: block; text-align: center; padding: 12px; border-radius: 12px;
+         background: #C8FF00; color: #000; font-weight: 700; font-size: 13px; }
+  .btn.sec { background: transparent; color: #F5F5F5;
+             border: 1px solid rgba(255,255,255,.18); }
+  .btn.off { opacity: .4; }
+  .aviso { border-left: 3px solid #D8B15C; padding-left: 10px; font-size: 12px;
+           color: #A0A0A5; }
+  .info { border-left: 3px solid #C8FF00; padding-left: 10px; font-size: 12px;
+          color: #A0A0A5; }
+  .codigo { font-size: 34px; letter-spacing: .22em; text-align: center; font-weight: 800; }
+  .link { font-size: 11px; color: #A0A0A5; text-align: center; }
+  .rot { font-size: 10px; color: #A0A0A5; text-transform: uppercase;
+         letter-spacing: .1em; margin-bottom: 6px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  h2 { font-size: 14px; }
+  p { font-size: 12px; color: #A0A0A5; }
+</style></head>
+<body>
+  <!-- Cenário: Conexão local × presença do parceiro — Estado: três estados; sinais distintos -->
+  <div class="rot">Conexão local × presença do parceiro · três estados; sinais distintos</div>
+  <div class="tela"><div class="card"><div class="titulo">Conectado</div><div class="linha"><span>Ana — No treino</span><span class="chip on">Conectado</span></div></div><div class="card"><div class="titulo">Reconectando</div><div class="linha"><span>Ana — No treino</span><span class="chip">Reconectando</span></div></div><div class="card"><div class="titulo">Parceiro ausente</div><div class="linha"><span>Ana — Sem sinal do parceiro</span><span class="chip on">Conectado</span></div><div style="height:8px"></div><div class="aviso">O aparelho do parceiro parou de responder.</div></div></div>
+</body></html>

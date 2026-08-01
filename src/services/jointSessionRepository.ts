@@ -408,6 +408,59 @@ export const getJointSessionSnapshot = async (
   return paraSessao(row, participantes);
 };
 
+export type JointInviteDoHost = {
+  inviteCode: string;
+  inviteExpiresAt: string;
+};
+
+/**
+ * Convite da sessão em que o chamador é ANFITRIÃO, para reconstruir a tela de
+ * espera a frio — o snapshot não traz `invite_code` nem `invite_expires_at`.
+ *
+ * ISTO É RESTRIÇÃO DE APLICAÇÃO, NÃO FRONTEIRA DE SEGURANÇA. A autorização real
+ * continua sendo a policy row-level da 0026, que deixa qualquer participante ler
+ * a linha inteira — inclusive o convidado, que depois do join tecnicamente lê o
+ * código já consumido (o que não abre nada: código consumido não serve para
+ * ninguém). O que este wrapper faz é menos e é honesto: obtém o UID por dentro,
+ * filtra por anfitrião, convite ainda aberto e não consumido, e projeta só os
+ * dois campos.
+ *
+ * O UID NÃO é argumento: quem chama não escolhe por quem está perguntando.
+ *
+ * Devolve o convite mesmo EXPIRADO — é assim que o host vê o relógio vencido e
+ * rotaciona. Devolve `null` para convidado, terceiro ou convite já consumido.
+ */
+export const getJointInviteForHost = async (
+  jointSessionId: string,
+): Promise<JointInviteDoHost | null> => {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return null;
+
+  let response: any;
+  try {
+    response = await supabase
+      .from('joint_sessions')
+      .select('invite_code, invite_expires_at')
+      .eq('id', jointSessionId)
+      .eq('host_user_id', uid)
+      .eq('status', 'inviting')
+      .is('invite_consumed_at', null)
+      .limit(1);
+  } catch (error) {
+    throw erroDeTransporte(error);
+  }
+  if (response.error) {
+    throw new JointSessionRequestError(response.error, { status: response.status ?? null });
+  }
+  const row = response.data?.[0];
+  if (!row?.invite_code) return null;
+  return {
+    inviteCode: String(row.invite_code),
+    inviteExpiresAt: String(row.invite_expires_at),
+  };
+};
+
 /** Eventos a partir de um seq — usado para fechar buraco pequeno sem snapshot. */
 export const getJointSessionEvents = async (
   jointSessionId: string,

@@ -1,0 +1,68 @@
+{
+  "sprint": "02",
+  "cenarios": [
+    {
+      "id": "a-home-com-treino-do-dia",
+      "titulo": "Home — treino do dia e o cartão conjunto na posição real",
+      "estado": "treino do dia primeiro; \"Treinar junto\" logo depois",
+      "viewport": "390x844",
+      "html": "a-home-com-treino-do-dia.html",
+      "png": "a-home-com-treino-do-dia.png",
+      "bytesPng": 24040
+    },
+    {
+      "id": "b-criar-ou-entrar",
+      "titulo": "Escolha — criar ou entrar",
+      "estado": "nenhum convite criado; nada nasce de montagem",
+      "viewport": "390x844",
+      "html": "b-criar-ou-entrar.html",
+      "png": "b-criar-ou-entrar.png",
+      "bytesPng": 16310
+    },
+    {
+      "id": "c-host-aguardando",
+      "titulo": "Anfitrião aguardando — código, link e relógio",
+      "estado": "status inviting; recuperável a frio pela leitura host-only",
+      "viewport": "390x844",
+      "html": "c-host-aguardando.html",
+      "png": "c-host-aguardando.png",
+      "bytesPng": 21537
+    },
+    {
+      "id": "d-modo-host-e-guest",
+      "titulo": "Modo escolhido — anfitrião (controle) × convidado (leitura)",
+      "estado": "host_plan; só o anfitrião pode trocar",
+      "viewport": "800x844",
+      "html": "d-modo-host-e-guest.html",
+      "png": "d-modo-host-e-guest.png",
+      "bytesPng": 26344
+    },
+    {
+      "id": "e-incompatibilidade-dois-papeis",
+      "titulo": "Incompatibilidade — a saída depende do papel",
+      "estado": "each_own com grupo Costas; nenhum lado vê a lista do outro",
+      "viewport": "800x844",
+      "html": "e-incompatibilidade-dois-papeis.html",
+      "png": "e-incompatibilidade-dois-papeis.png",
+      "bytesPng": 30507
+    },
+    {
+      "id": "f-conexao-e-presenca",
+      "titulo": "Conexão local × presença do parceiro",
+      "estado": "três estados; sinais distintos",
+      "viewport": "390x844",
+      "html": "f-conexao-e-presenca.html",
+      "png": "f-conexao-e-presenca.png",
+      "bytesPng": 23038
+    },
+    {
+      "id": "g-prontidao-e-handoff",
+      "titulo": "Prontidão e handoff",
+      "estado": "um pronto · ambos prontos · active (sem player)",
+      "viewport": "390x844",
+      "html": "g-prontidao-e-handoff.html",
+      "png": "g-prontidao-e-handoff.png",
+      "bytesPng": 22547
+    }
+  ]
+}

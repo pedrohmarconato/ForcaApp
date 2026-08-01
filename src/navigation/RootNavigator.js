@@ -1,6 +1,8 @@
 // src/navigation/RootNavigator.js
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { linkingInterceptor, linkingMain } from './linking';
+import { consumirConvitePendente } from '../services/jointInvitePending';
 import { ActivityIndicator, View, StyleSheet, Text } from 'react-native';
 import theme from '../theme/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +11,19 @@ import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
 import { useAuth } from '../contexts/AuthContext';
+
+/**
+ * Ref da árvore MAIN. O convite pendente é despachado por aqui, e só depois de o
+ * dispatch ser ACEITO o pendente é removido — se a ref ainda não estiver pronta,
+ * o código sobrevive para a próxima tentativa.
+ */
+export const mainNavigationRef = createNavigationContainerRef();
+
+const despacharConvite = (codigo) => {
+  if (!mainNavigationRef.isReady()) return false;
+  mainNavigationRef.navigate('Home', { screen: 'JointJoin', params: { code: codigo } });
+  return true;
+};
 
 const RootNavigator = () => {
   // ... (estados e useEffect permanecem os mesmos da versão anterior) ...
@@ -56,8 +71,11 @@ const RootNavigator = () => {
         console.log('[RootNavigator] Limpando preferência @userShouldStayLoggedIn pois não há sessão.');
         AsyncStorage.removeItem('@userShouldStayLoggedIn');
     }
+    // Esta árvore NÃO tem `Home/JointJoin`. A config interceptora guarda o
+    // código do convite e devolve `null`, em vez de tentar hidratar uma rota
+    // que não existe aqui.
     return (
-      <NavigationContainer>
+      <NavigationContainer linking={linkingInterceptor}>
         <AuthNavigator />
       </NavigationContainer>
     );
@@ -104,9 +122,21 @@ const RootNavigator = () => {
     NavigatorComponent = <OnboardingNavigator />;
   }
 
-  // Retorna o componente navegador decidido dentro do Container
+  // O segundo container hospeda Main OU Onboarding, e só a Main tem
+  // `Home/JointJoin`. Passar `linkingMain` para o Onboarding faria ele tentar
+  // montar uma rota ausente — por isso a escolha é explícita.
+  const ehMain = Boolean(profile && profile.onboarding_completed);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={ehMain ? mainNavigationRef : undefined}
+      linking={ehMain ? linkingMain : linkingInterceptor}
+      onReady={() => {
+        // Consome o convite que chegou antes da hora — sem entrar sozinho: a
+        // tela abre preenchida e espera a ação do usuário.
+        if (ehMain) void consumirConvitePendente(despacharConvite);
+      }}
+    >
       {NavigatorComponent}
     </NavigationContainer>
   );

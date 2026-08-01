@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Incompatibilidade — a saída depende do papel</title><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0B0B0C; color: #F5F5F5;
+         font-family: Inter, -apple-system, system-ui, sans-serif; padding: 16px; }
+  .tela { display: flex; flex-direction: column; gap: 12px; }
+  .duplo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #101315; border-radius: 14px; padding: 14px; }
+  .titulo { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+            color: #A0A0A5; margin-bottom: 8px; }
+  .linha { display: flex; align-items: center; justify-content: space-between; }
+  .chip { font-size: 10px; padding: 4px 10px; border-radius: 999px;
+          background: rgba(255,255,255,.08); color: #F5F5F5; }
+  .chip.on { background: #C8FF00; color: #000; }
+  .btn { display: block; text-align: center; padding: 12px; border-radius: 12px;
+         background: #C8FF00; color: #000; font-weight: 700; font-size: 13px; }
+  .btn.sec { background: transparent; color: #F5F5F5;
+             border: 1px solid rgba(255,255,255,.18); }
+  .btn.off { opacity: .4; }
+  .aviso { border-left: 3px solid #D8B15C; padding-left: 10px; font-size: 12px;
+           color: #A0A0A5; }
+  .info { border-left: 3px solid #C8FF00; padding-left: 10px; font-size: 12px;
+          color: #A0A0A5; }
+  .codigo { font-size: 34px; letter-spacing: .22em; text-align: center; font-weight: 800; }
+  .link { font-size: 11px; color: #A0A0A5; text-align: center; }
+  .rot { font-size: 10px; color: #A0A0A5; text-transform: uppercase;
+         letter-spacing: .1em; margin-bottom: 6px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  h2 { font-size: 14px; }
+  p { font-size: 12px; color: #A0A0A5; }
+</style></head>
+<body>
+  <!-- Cenário: Incompatibilidade — a saída depende do papel — Estado: each_own com grupo Costas; nenhum lado vê a lista do outro -->
+  <div class="rot">Incompatibilidade — a saída depende do papel · each_own com grupo Costas; nenhum lado vê a lista do outro</div>
+  <div class="duplo"><div><div class="rot">Anfitrião — controles reais</div><div class="card"><div class="titulo">Grupo incompatível</div><div class="aviso">Você não tem treino de Costas.<br>Seus grupos: Peito, Pernas.</div><div style="height:10px"></div><div class="btn">Trocar o grupo</div><div style="height:8px"></div><div class="btn sec">Trocar o modo</div></div></div><div><div class="rot">Convidado — orientação, sem controle</div><div class="card"><div class="titulo">Grupo incompatível</div><div class="aviso">Você não tem treino de Costas.<br>Seus grupos: Ombro.<br>Peça para quem convidou trocar o grupo ou o modo.</div></div></div></div>
+</body></html>
