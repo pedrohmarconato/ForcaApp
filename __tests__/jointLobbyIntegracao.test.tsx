@@ -6,6 +6,14 @@
 // montam a tela. Aqui só a fronteira (repositório e realtime) é mockada, e as
 // asserções batem nos PARAMS das RPCs — o que o servidor realmente receberia.
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn(async () => null),
+    setItem: jest.fn(async () => {}),
+    removeItem: jest.fn(async () => {}),
+  },
+}));
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn(), from: jest.fn() } }));
 jest.mock('../src/services/jointSessionRepository', () => ({
   __esModule: true,
@@ -25,7 +33,7 @@ jest.mock('../src/services/jointSessionRealtime', () => ({
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
-import JointLobbyScreen from '../src/screens/JointLobbyScreen';
+import { JointLobbyView } from '../src/screens/JointLobbyScreen';
 import * as repo from '../src/services/jointSessionRepository';
 import { subscribeToJointSession } from '../src/services/jointSessionRealtime';
 
@@ -77,7 +85,7 @@ const abrir = (meuUserId = HOST) => {
   const navigation = { goBack: jest.fn(), navigate: jest.fn() };
   const confirmar = jest.fn((_t: string, _m: string, onSim: () => void) => onSim());
   const utils = render(
-    <JointLobbyScreen
+    <JointLobbyView
       navigation={navigation as any}
       route={{ params: { jointSessionId: 'js-1' } }}
       meuUserId={meuUserId}
@@ -90,12 +98,26 @@ const abrir = (meuUserId = HOST) => {
 };
 
 describe('I1/I2 — a tela chama as RPCs com os params certos', () => {
-  it('escolher modo envia jointSessionId e modo', async () => {
+  it('host_plan envia jointSessionId e modo', async () => {
     const { getByTestId } = abrir(HOST);
     await waitFor(() => getByTestId('modo-escolha'));
-    fireEvent.press(getByTestId('modo-each_own'));
+    fireEvent.press(getByTestId('modo-host_plan'));
     await waitFor(() => expect(repo.setJointSessionMode).toHaveBeenCalledWith(
-      expect.objectContaining({ jointSessionId: 'js-1', mode: 'each_own' })));
+      { jointSessionId: 'js-1', mode: 'host_plan', muscleGroup: null }));
+  });
+
+  // F2 pelo caminho real: `each_own` só chega ao servidor COM grupo.
+  it('each_own envia modo e grupo JUNTOS, com o grupo exato', async () => {
+    const { getByTestId } = abrir(HOST);
+    await waitFor(() => getByTestId('modo-escolha'));
+
+    fireEvent.press(getByTestId('modo-each_own'));
+    expect(repo.setJointSessionMode).not.toHaveBeenCalled();
+
+    fireEvent.press(getByTestId('grupo-Peito'));
+    await waitFor(() => expect(repo.setJointSessionMode).toHaveBeenCalledWith(
+      { jointSessionId: 'js-1', mode: 'each_own', muscleGroup: 'Peito' }));
+    expect(repo.setJointSessionMode).toHaveBeenCalledTimes(1);
   });
 
   it('confirmar sessão envia o plannedSessionId escolhido', async () => {

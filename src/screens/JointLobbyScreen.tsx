@@ -11,7 +11,7 @@
 //  3. Não navega para o player. Em `active` ela mostra o handoff; o player é o
 //     Sprint 03.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, BackHandler, StyleSheet, View } from 'react-native';
 import theme from '../theme/theme';
 import { Button } from '../components/ui';
@@ -40,6 +40,8 @@ import {
 } from '../engine/jointLobbyModel';
 import { parceiroDe, participanteDe, type JointMode } from '../engine/jointSessionModel';
 import { useJointSession } from '../hooks/useJointSession';
+import { useAuth } from '../contexts/AuthContext';
+import { getPlanSessions } from '../services/trainingRepository';
 
 const layout = StyleSheet.create({
   coluna: { gap: theme.spacing.sm },
@@ -53,6 +55,9 @@ export type JointLobbyScreenProps = {
   minhasSessoes: SessaoElegivel[];
   confirmar?: (titulo: string, mensagem: string, onSim: () => void) => void;
   anunciar?: (texto: string) => void;
+  /** Falha ao carregar o próprio plano — a lista de sessões fica vazia. */
+  erroPlano?: string | null;
+  onRecarregarPlano?: () => void;
 };
 
 const confirmarPadrao = (titulo: string, mensagem: string, onSim: () => void) =>
@@ -61,17 +66,23 @@ const confirmarPadrao = (titulo: string, mensagem: string, onSim: () => void) =>
     { text: 'Encerrar', style: 'destructive', onPress: onSim },
   ]);
 
-const JointLobbyScreen = ({
+export const JointLobbyView = ({
   navigation,
   route,
   meuUserId,
   minhasSessoes,
   confirmar = confirmarPadrao,
   anunciar = (t) => AccessibilityInfo.announceForAccessibility?.(t),
+  erroPlano = null,
+  onRecarregarPlano,
 }: JointLobbyScreenProps) => {
   const { jointSessionId } = route.params;
   const j = useJointSession(jointSessionId, meuUserId);
   const [grupoEscolhido, setGrupoEscolhido] = useState<string | null>(null);
+  // Modo escolhido na tela mas ainda NÃO enviado: `each_own` espera o grupo.
+  const [modoPreparado, setModoPreparado] = useState<JointMode | null>(null);
+  // Trava de saída: uma vez autorizada, o `beforeRemove` deixa passar.
+  const saindoRef = useRef(false);
 
   const situacao = situacaoDoLobby({
     carregando: j.carregando,
@@ -110,6 +121,28 @@ const JointLobbyScreen = ({
     return () => sub.remove();
   }, [sair]);
 
+  // GESTO e pop nativos não passam pelo header nem pelo BackHandler: sem
+  // `beforeRemove`, um swipe removia a tela sem confirmação e sem encerrar a
+  // dupla. `saindoRef` libera a saída UMA vez, depois de o R13 ter sucesso.
+  useEffect(() => {
+    const remover = (navigation as any).addListener?.('beforeRemove', (e: any) => {
+      if (saindoRef.current) return;            // já autorizado: deixa sair
+      e.preventDefault?.();
+      confirmar(
+        'Encerrar o treino conjunto?',
+        'Sair encerra o treino para você e para o seu parceiro.',
+        () => {
+          void j.sair().then((ok) => {
+            if (!ok) return;                     // falhou: permanece no lobby
+            saindoRef.current = true;
+            (navigation as any).dispatch?.(e.data.action);
+          });
+        },
+      );
+    });
+    return () => remover?.();
+  }, [confirmar, j, navigation]);
+
   const state = j.state;
   const permissoes = permissoesDe(state, meuUserId);
   const pendencia = pendenciaAtual(state, meuUserId);
@@ -147,6 +180,9 @@ const JointLobbyScreen = ({
                   testID={`acao-${acao}`}
                   onPress={() => {
                     if (acao === 'tentar_de_novo') void j.recarregar();
+                    // O CTA precisa levar ao histórico de verdade; `goBack`
+                    // devolvia o usuário para a mesma tela de onde ele veio.
+                    else if (acao === 'ver_historico') navigation.navigate('SessionHistory');
                     else navigation.goBack();
                   }}
                 />
@@ -197,14 +233,24 @@ const JointLobbyScreen = ({
           <JointModePicker
             modo={state?.mode ?? null}
             podeEscolher={permissoes.podeEscolherModo}
-            onEscolher={(m: JointMode) => void j.escolherModo(m, m === 'each_own' ? grupoEscolhido : null)}
+            onEscolher={(m: JointMode) => {
+              // `each_own` SEM grupo é recusado pela RPC com 22023. Escolher o
+              // modo aqui só arma a etapa do grupo; a chamada sai quando os dois
+              // valores existem — modo e grupo viajam JUNTOS.
+              if (m === 'each_own') {
+                setModoPreparado('each_own');
+                return;
+              }
+              setModoPreparado(null);
+              void j.escolherModo(m, null);
+            }}
           />
 
-          {state?.mode === 'each_own' ? (
+          {(state?.mode === 'each_own' || modoPreparado === 'each_own') ? (
             <JointMuscleGroupPicker
               grupos={meusGrupos(minhasSessoes)}
-              escolhido={state.muscleGroup}
-              podeEscolher={permissoes.podeEscolherGrupo}
+              escolhido={state?.muscleGroup ?? grupoEscolhido}
+              podeEscolher={permissoes.podeEscolherModo}
               onEscolher={(g) => {
                 setGrupoEscolhido(g);
                 void j.escolherModo('each_own', g);
@@ -220,7 +266,11 @@ const JointLobbyScreen = ({
             />
           ) : null}
 
-          {permissoes.podeMaterializarCopia && !eu?.plannedSessionId ? (
+          {/* F5: sem a fonte confirmada pelo dono, `materialize` responde P0001.
+              Oferecer o botão antes disso é desenhar um caminho que só falha. */}
+          {permissoes.podeMaterializarCopia
+            && !eu?.plannedSessionId
+            && Boolean(parceiro?.plannedSessionId) ? (
             <Card testID="materializar">
               <SectionHeader title="Treino recebido" />
               <Notice
@@ -263,6 +313,87 @@ const JointLobbyScreen = ({
         </View>
       )}
     </Screen>
+  );
+};
+
+// ============================================================
+// Container — é ELE que o React Navigation monta
+// ============================================================
+//
+// A rodada 1 registrou a view diretamente com `as any`, e ela exigia
+// `meuUserId` e `minhasSessoes` que o navegador NUNCA fornece: no app,
+// `sessoesElegiveis(undefined, ...)` quebrava. Todos os testes injetavam as
+// props e escondiam isso. O container existe para que a tela real busque as
+// próprias dependências, e para que a view continue testável por injeção.
+
+const JointLobbyScreen = (props: {
+  navigation: JointLobbyScreenProps['navigation'];
+  route: JointLobbyScreenProps['route'];
+}) => {
+  const { user } = useAuth();
+  const [minhasSessoes, setMinhasSessoes] = useState<SessaoElegivel[]>([]);
+  const [carregandoPlano, setCarregandoPlano] = useState(true);
+  const [erroPlano, setErroPlano] = useState<string | null>(null);
+
+  const userId = user?.id ?? null;
+
+  const carregarPlano = useCallback(async () => {
+    if (!userId) return;
+    setCarregandoPlano(true);
+    setErroPlano(null);
+    try {
+      const sessoes = await getPlanSessions(userId);
+      // Só o MEU plano ativo, mapeado para o que o modelo entende. A lista do
+      // parceiro não é pedida nem recebida — a RLS não a entregaria.
+      setMinhasSessoes(
+        sessoes.map((s: any) => ({
+          id: String(s.id),
+          title: String(s.title ?? 'Treino'),
+          muscleGroups: Array.isArray(s.muscle_groups) ? s.muscle_groups.map(String) : [],
+          status: String(s.status ?? 'pending'),
+          jointSessionId: s.joint_session_id ?? null,
+        })),
+      );
+    } catch (e) {
+      setErroPlano(e instanceof Error ? e.message : 'Não foi possível carregar seus treinos.');
+    } finally {
+      setCarregandoPlano(false);
+    }
+  }, [userId]);
+
+  useEffect(() => { void carregarPlano(); }, [carregarPlano]);
+
+  if (!userId) {
+    return (
+      <Screen>
+        <StackHeader title="Treinar junto" onBack={() => props.navigation.goBack()} />
+        <Card testID="sem-sessao">
+          <EmptyState title="Entre na sua conta para treinar junto" />
+        </Card>
+      </Screen>
+    );
+  }
+
+  if (carregandoPlano) {
+    return (
+      <Screen>
+        <StackHeader title="Treinar junto" onBack={() => props.navigation.goBack()} />
+        <Card testID="carregando-plano">
+          <EmptyState title="Carregando seus treinos…" />
+        </Card>
+      </Screen>
+    );
+  }
+
+  return (
+    <JointLobbyView
+      navigation={props.navigation}
+      route={props.route}
+      meuUserId={userId}
+      minhasSessoes={minhasSessoes}
+      erroPlano={erroPlano}
+      onRecarregarPlano={carregarPlano}
+    />
   );
 };
 

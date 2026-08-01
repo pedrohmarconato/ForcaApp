@@ -91,8 +91,10 @@ export const useJointSession = (
   const [erro, setErro] = useState<ErroDoLobby>(null);
   const [conexao, setConexao] = useState<ConexaoLocal>('reconectando');
   const [emCurso, setEmCurso] = useState<AcaoDoLobby | null>(null);
-  // Só para reavaliar a presença quando o relógio anda, sem evento nenhum.
-  const [, setTique] = useState(0);
+  // O VALOR do tique entra na dependência do memo. Descartá-lo (usando só o
+  // setter, que é estável) fazia a presença nunca ser recalculada: o relógio
+  // andava, o timer disparava, e a tela seguia dizendo "presente" para sempre.
+  const [tique, setTique] = useState(0);
 
   const vivo = useRef(true);
   // Identifica a "geração" de dados: troca de sessão ou unmount invalida tudo
@@ -281,9 +283,10 @@ export const useJointSession = (
 
   const presenca = useMemo(
     () => presencaDoParceiro(state, meuUserId, agora(), ttlMs),
-    // `setTique` força a reavaliação quando o relógio anda.
+    // `tique` (o valor) é o que muda quando o timer dispara — é ele que faz o
+    // TTL ser cruzado sem nenhum evento novo chegar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, meuUserId, ttlMs, agora, setTique],
+    [state, meuUserId, ttlMs, agora, tique],
   );
 
   return {

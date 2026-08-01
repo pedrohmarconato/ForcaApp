@@ -8,6 +8,14 @@
 //  4. a tela oferecer "tentar de novo" onde tentar de novo nunca funciona;
 //  5. navegar para um player que ainda não existe.
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn(async () => null),
+    setItem: jest.fn(async () => {}),
+    removeItem: jest.fn(async () => {}),
+  },
+}));
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn(), from: jest.fn() } }));
 
 const estadoFalso: any = { atual: null, erro: null };
@@ -18,7 +26,7 @@ jest.mock('../src/hooks/useJointSession', () => ({
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import JointLobbyScreen from '../src/screens/JointLobbyScreen';
+import { JointLobbyView } from '../src/screens/JointLobbyScreen';
 import type { SessaoElegivel } from '../src/engine/jointLobbyModel';
 
 const HOST = 'u-host';
@@ -58,7 +66,7 @@ const renderizar = (hook: any, meuUserId = HOST, minhasSessoes: SessaoElegivel[]
   const confirmar = jest.fn((_t: string, _m: string, onSim: () => void) => onSim());
   const anunciar = jest.fn();
   const utils = render(
-    <JointLobbyScreen
+    <JointLobbyView
       navigation={navigation as any}
       route={{ params: { jointSessionId: 'js-1' } }}
       meuUserId={meuUserId}
@@ -92,11 +100,31 @@ describe('modo — só o anfitrião escolhe', () => {
     expect(queryByTestId('modo-escolha')).toBeNull();
   });
 
-  it('escolher modo chama a ação com o modo certo', () => {
+  it('modo sem grupo (host_plan) vai direto', () => {
+    const hook = montarHook();
+    const { getByTestId } = renderizar(hook, HOST);
+    fireEvent.press(getByTestId('modo-host_plan'));
+    expect(hook.escolherModo).toHaveBeenCalledWith('host_plan', null);
+  });
+
+  // F2: `each_own` com grupo nulo é recusado pela RPC (22023). Tocar no modo só
+  // ARMA a etapa do grupo; a chamada sai com os dois valores juntos.
+  it('each_own NÃO chama a RPC antes de existir grupo', () => {
     const hook = montarHook();
     const { getByTestId } = renderizar(hook, HOST);
     fireEvent.press(getByTestId('modo-each_own'));
-    expect(hook.escolherModo).toHaveBeenCalledWith('each_own', null);
+    expect(hook.escolherModo).not.toHaveBeenCalled();
+    // E o seletor de grupo aparece imediatamente, sem depender do snapshot.
+    expect(getByTestId('grupo-escolha')).toBeTruthy();
+  });
+
+  it('escolher o grupo envia modo E grupo juntos', () => {
+    const hook = montarHook();
+    const { getByTestId } = renderizar(hook, HOST, [sessao({ muscleGroups: ['Peito'] })]);
+    fireEvent.press(getByTestId('modo-each_own'));
+    fireEvent.press(getByTestId('grupo-Peito'));
+    expect(hook.escolherModo).toHaveBeenCalledTimes(1);
+    expect(hook.escolherModo).toHaveBeenCalledWith('each_own', 'Peito');
   });
 });
 
@@ -143,7 +171,7 @@ describe('saída — bilateral, confirmada e transacional', () => {
     estadoFalso.hook = hook;
     const navigation = { goBack: jest.fn(), navigate: jest.fn() };
     const { getByLabelText } = render(
-      <JointLobbyScreen
+      <JointLobbyView
         navigation={navigation as any}
         route={{ params: { jointSessionId: 'js-1' } }}
         meuUserId={HOST}
