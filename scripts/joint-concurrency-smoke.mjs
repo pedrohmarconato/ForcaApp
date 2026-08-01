@@ -62,39 +62,50 @@ await rodarHarness('joint-concurrency', 4, async (ctx, [a, b, c, d]) => {
     const perdedorConta = [b, c].find((x) => x.id !== estado.data.guest_user_id);
     const vencedorConta = [b, c].find((x) => x.id === estado.data.guest_user_id);
 
+    // A11 de verdade: a conta parte SEM pertencimento e disputa `create` contra
+    // `join` em paralelo. A rodada 1 partia de uma conta já viva, onde as duas
+    // operações deviam falhar de qualquer jeito — provava o trivial.
+    const convite = desempacotar(await d.client.rpc('create_joint_session')).invite_code;
     const [criar, aceitar] = await Promise.all([
-      vencedorConta.client.rpc('create_joint_session'),
-      (async () => {
-        const nova = await d.client.rpc('create_joint_session');
-        return vencedorConta.client.rpc('join_joint_session', {
-          p_invite_code: desempacotar(nova).invite_code,
-        });
-      })(),
+      perdedorConta.client.rpc('create_joint_session'),
+      perdedorConta.client.rpc('join_joint_session', { p_invite_code: convite }),
     ]);
     const sucessos = [criar, aceitar].filter(entrou);
     assert(
-      sucessos.length === 0,
-      `A11: quem já está vivo conseguiu ${sucessos.length} pertencimento(s) a mais`,
+      sucessos.length === 1,
+      `A11: ${sucessos.length} sucessos numa disputa create×join partindo de conta limpa (esperado 1)`,
     );
 
     const vivos = await ctx.admin
       .from('joint_session_participants')
       .select('joint_session_id')
-      .eq('user_id', vencedorConta.id)
+      .eq('user_id', perdedorConta.id)
       .eq('live', true);
     assert(
       (vivos.data ?? []).length === 1,
       `A11: ${vivos.data?.length} pertencimentos vivos para a mesma pessoa`,
     );
-    console.log('[joint-concurrency] A11 ok — um único pertencimento vivo, sob corrida');
+
+    // E a conta que já estava viva continua barrada nas duas vias.
+    const barrado = [
+      await vencedorConta.client.rpc('create_joint_session'),
+      await vencedorConta.client.rpc('join_joint_session', { p_invite_code: convite }),
+    ].filter(entrou);
+    assert(barrado.length === 0, `A11: conta já viva conseguiu ${barrado.length} pertencimento(s) a mais`);
+    console.log('[joint-concurrency] A11 ok — create×join de conta limpa: exatamente um vence');
 
     // ============================================================
     // B13 — contador soma todas as tentativas simultâneas
     // ============================================================
+    // Contador ZERADO antes de medir: `>= N` sobre um contador já incrementado
+    // passaria mesmo com tentativas perdidas. O número tem de bater exato.
+    const alvo = [a, b, c, d].find((x) => ![perdedorConta.id, vencedorConta.id].includes(x.id)) ?? d;
+    await ctx.admin.from('joint_invite_attempts').delete().eq('user_id', alvo.id);
+
     const TENTATIVAS = 6;
     await Promise.all(
       Array.from({ length: TENTATIVAS }, (_, i) =>
-        perdedorConta.client.rpc('join_joint_session', {
+        alvo.client.rpc('join_joint_session', {
           p_invite_code: `ZZZZ${String(i).padStart(2, '0')}`,
         }),
       ),
@@ -102,15 +113,15 @@ await rodarHarness('joint-concurrency', 4, async (ctx, [a, b, c, d]) => {
     const contador = await ctx.admin
       .from('joint_invite_attempts')
       .select('attempts')
-      .eq('user_id', perdedorConta.id)
+      .eq('user_id', alvo.id)
       .maybeSingle();
     assert(contador.data != null, 'B13: nenhuma tentativa foi contada');
     assert(
-      contador.data.attempts >= TENTATIVAS,
-      `B13: contador em ${contador.data.attempts}, esperado >= ${TENTATIVAS} — tentativa perdida sob concorrência`,
+      contador.data.attempts === TENTATIVAS,
+      `B13: contador em ${contador.data.attempts}, esperado EXATAMENTE ${TENTATIVAS} — tentativa perdida sob concorrência`,
     );
     console.log(
-      `[joint-concurrency] B13 ok — ${contador.data.attempts} tentativas contadas de ${TENTATIVAS} simultâneas`,
+      `[joint-concurrency] B13 ok — ${contador.data.attempts} de ${TENTATIVAS} simultâneas, contagem exata`,
     );
   }
 
@@ -231,6 +242,15 @@ await rodarHarness('joint-concurrency', 4, async (ctx, [a, b, c, d]) => {
     const ok = [av1, av2].filter((r) => !r.error);
     assert(ok.length === 1, `C10c: ${ok.length} avanços aceitos, esperado 1`);
 
+    // O CÓDIGO do perdedor importa: conflito de versão (40001) manda o cliente
+    // refazer o snapshot; 42501 seria lido como falta de permissão e a tela
+    // diria a coisa errada. Contar só "houve um sucesso" deixava isso passar.
+    const perdedorAv = [av1, av2].find((r) => r.error);
+    assert(
+      perdedorAv.error.code === 'FC001',
+      `C10c: perdedor com errcode ${perdedorAv.error.code} (esperado FC001): ${perdedorAv.error.message}`,
+    );
+
     const depois = await ctx.admin
       .from('joint_sessions')
       .select('turn_seq, current_turn_user_id')
@@ -248,6 +268,6 @@ await rodarHarness('joint-concurrency', 4, async (ctx, [a, b, c, d]) => {
       (eventos.data ?? []).length === 1,
       `C10c: ${eventos.data?.length} eventos de avanço (esperado 1)`,
     );
-    console.log('[joint-concurrency] C10c ok — um commit, um evento, turn_seq +1');
+    console.log('[joint-concurrency] C10c ok — um commit, um evento, turn_seq +1, perdedor FC001');
   }
 });

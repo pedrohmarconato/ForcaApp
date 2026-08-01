@@ -29,7 +29,7 @@ export type JointErrorMotivo =
   | 'nao_autorizado'      // 42501
   | 'argumento_invalido'  // 22023
   | 'estado_invalido'     // 55000
-  | 'turno_desatualizado' // 40001
+  | 'turno_desatualizado' // FC001 (ver nota abaixo)
   | 'limite_de_tentativas'// 54000
   | 'fila_pendente'       // P0001
   | 'nao_encontrado'      // P0002
@@ -40,7 +40,11 @@ const MOTIVO_POR_ERRCODE: Record<string, JointErrorMotivo> = {
   '42501': 'nao_autorizado',
   '22023': 'argumento_invalido',
   '55000': 'estado_invalido',
-  '40001': 'turno_desatualizado',
+  // FC001, não 40001: `40001` é serialization_failure e o PostgREST RETENTA
+  // essa classe sozinho — a chamada fica presa até o gateway desistir (medido em
+  // 125s contra 219ms do caminho normal). O conflito de versão do turno precisa
+  // de um SQLSTATE que o transporte não trate como transitório.
+  FC001: 'turno_desatualizado',
   '54000': 'limite_de_tentativas',
   P0001: 'fila_pendente',
   P0002: 'nao_encontrado',

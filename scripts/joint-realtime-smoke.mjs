@@ -15,6 +15,7 @@
 // joint-smoke-shared.mjs. Nenhum segredo é impresso.
 
 import {
+  aguardarAte,
   assert,
   criarPlanoDeTeste,
   esperar,
@@ -110,11 +111,14 @@ await rodarHarness('joint-realtime', 3, async (ctx, [a, b, c]) => {
   });
   assert(!ativou.error, `ready: ${ativou.error?.message}`);
 
-  await esperar(3_000);
+  const entregou = await aguardarAte(() => caixaA.length > 0 && caixaB.length > 0);
 
   // ---- G2a / G2b ----
+  assert(entregou, 'nem os dois participantes receberam mudanças dentro do prazo');
   assert(caixaA.length > 0, 'o anfitrião NÃO recebeu nenhuma mudança pelo Realtime');
   assert(caixaB.length > 0, 'o convidado NÃO recebeu nenhuma mudança pelo Realtime');
+  // Margem para o intruso receber algo indevido antes de afirmar que não recebeu.
+  await esperar(1_500);
   console.log(
     `[joint-realtime] entregas — anfitrião: ${caixaA.length}, convidado: ${caixaB.length}, intruso: ${caixaC.length}`,
   );
@@ -132,11 +136,18 @@ await rodarHarness('joint-realtime', 3, async (ctx, [a, b, c]) => {
     p_reason: 'participant_request',
   });
   assert(!pausou.error, `pause: ${pausou.error?.message}`);
-  await esperar(1_500);
+  await esperar(2_500);
   assert(
     caixaA.length === antesDaQueda,
     'o canal removido continuou entregando — a queda não foi real',
   );
+
+  // RECONEXÃO DE VERDADE: reassina um canal NOVO e só então busca o snapshot.
+  // A rodada 1 fazia SELECT com o canal derrubado e chamava isso de reconexão —
+  // provava que a leitura funciona, não que o cliente volta a receber.
+  const caixaReconectada = [];
+  const canalNovo = await inscrever(a.client, jointId, caixaReconectada);
+  console.log('[joint-realtime] canal reassinado após a queda');
 
   const snapshot = await a.client
     .from('joint_sessions')
@@ -148,7 +159,19 @@ await rodarHarness('joint-realtime', 3, async (ctx, [a, b, c]) => {
     snapshot.data.status === 'paused',
     `o snapshot autoritativo não trouxe a pausa (status ${snapshot.data.status})`,
   );
-  console.log('[joint-realtime] reconexão: snapshot autoritativo reconciliou a pausa');
+
+  // E o canal reassinado precisa ENTREGAR de novo — é isso que fecha G2.
+  const retomou = await b.client.rpc('resume_joint_session', { p_joint_session_id: jointId });
+  assert(!retomou.error, `resume: ${retomou.error?.message}`);
+  assert(
+    await aguardarAte(() => caixaReconectada.length > 0),
+    'o canal reassinado NÃO voltou a entregar — reconexão incompleta',
+  );
+  assert(caixaC.length === 0, `VAZAMENTO: o intruso recebeu ${caixaC.length} após a retomada`);
+  console.log(
+    `[joint-realtime] reconexão completa — snapshot reconciliou e o canal novo entregou ${caixaReconectada.length}`,
+  );
+  await a.client.removeChannel(canalNovo);
 
   // ---- o intruso também não LÊ ----
   const leituraIntruso = await c.client

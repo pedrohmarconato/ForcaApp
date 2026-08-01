@@ -50,9 +50,13 @@
 --
 -- Errcodes que o app trata (src/services/jointSessionRepository.ts):
 --   42501 não autenticado · não participante · alheio · convite inválido
---   22023 argumento inválido · 55000 estado não permite · 40001 turno
+--   22023 argumento inválido · 55000 estado não permite · FC001 turno
 --   desatualizado · 54000 limite de tentativas · P0001 fila não encerrada ·
 --   P0002 não encontrado.
+--
+--   FC001 é um SQLSTATE nosso de propósito: 40001 (serialization_failure) faz o
+--   PostgREST retentar a requisição sozinho e a chamada trava até o gateway
+--   desistir — medido em 125s contra 219ms do caminho normal.
 
 -- ============================================================
 -- 0. Vocabulários e helpers internos
@@ -777,6 +781,7 @@ declare
   v_row    public.joint_sessions;
   v_grupo  text := nullif(btrim(coalesce(p_muscle_group, '')), '');
   v_copia  uuid;
+  v_copias uuid[];
 begin
   if v_uid is null then
     raise exception 'autenticação obrigatória' using errcode = '42501';
@@ -803,20 +808,17 @@ begin
   -- Trocar de modo invalida TUDO que dependia do modo anterior: ninguém fica
   -- "pronto" para um treino que não é mais o combinado, e a cópia do modo
   -- antigo não pode sobrar reutilizável.
-  for v_copia in
-    select p.planned_session_id
-      from public.joint_session_participants p
-      join public.planned_sessions ps on ps.id = p.planned_session_id
-      join public.training_plans tp on tp.id = ps.plan_id
-     where p.joint_session_id = p_joint_session_id
-       and tp.purpose = 'joint'
-  loop
-    -- No lobby a cópia nunca tem execução (seção 8), então apagá-la não apaga
-    -- histórico. A guarda existe mesmo assim.
-    if not exists (select 1 from public.session_logs where planned_session_id = v_copia) then
-      delete from public.planned_sessions where id = v_copia;
-    end if;
-  end loop;
+  -- ORDEM IMPORTA. `joint_session_participants.planned_session_id` referencia
+  -- `planned_sessions` com ON DELETE RESTRICT: apagar a cópia ANTES de soltar
+  -- essa referência falha com 23503 assim que o parceiro já tiver confirmado a
+  -- cópia — que é o caminho normal, não o excepcional.
+  --  1. anota o que apagar;  2. solta as FKs;  3. só então apaga.
+  select coalesce(array_agg(ps.id), '{}'::uuid[]) into v_copias
+    from public.joint_session_participants p
+    join public.planned_sessions ps on ps.id = p.planned_session_id
+    join public.training_plans tp on tp.id = ps.plan_id
+   where p.joint_session_id = p_joint_session_id
+     and tp.purpose = 'joint';
 
   update public.joint_session_participants
      set planned_session_id = null, session_log_id = null,
@@ -826,6 +828,14 @@ begin
   update public.planned_sessions
      set joint_session_id = null
    where joint_session_id = p_joint_session_id;
+
+  foreach v_copia in array v_copias loop
+    -- No lobby a cópia nunca tem execução, então apagá-la não apaga histórico.
+    -- A guarda existe mesmo assim.
+    if not exists (select 1 from public.session_logs where planned_session_id = v_copia) then
+      delete from public.planned_sessions where id = v_copia;
+    end if;
+  end loop;
 
   -- Container sem nenhuma sessão restante não fica de lembrança.
   -- Escopo por usuário é obrigatório: sem o `in (...)`, uma definer apagaria o
@@ -1270,12 +1280,25 @@ begin
     raise exception 'treino conjunto não está em execução (status %)', v_sessao.status
       using errcode = '55000';
   end if;
-  if v_sessao.current_turn_user_id <> v_uid then
-    raise exception 'não é a sua vez' using errcode = '42501';
-  end if;
+  -- ORDEM IMPORTA: a versão vem ANTES do dono do turno.
+  -- Numa corrida de dois avanços com o mesmo `expected_turn_seq`, o primeiro
+  -- commit já transferiu o turno; se o dono fosse checado antes, o perdedor
+  -- receberia `42501` ("não é a sua vez") e o cliente trataria um conflito de
+  -- versão como falta de permissão — em vez de refazer o snapshot.
+  -- ERRCODE 'FC001', e NÃO '40001'.
+  --
+  -- `40001` é `serialization_failure`, e o PostgREST trata essa classe como
+  -- falha transitória e RETENTA a requisição sozinho. Usá-la como erro de
+  -- domínio faz a chamada ficar presa até o gateway desistir: medido em HML,
+  -- 125 SEGUNDOS e um `upstream request timeout`, sem concorrência nenhuma —
+  -- contra 219 ms do caminho feliz. O contrato pedia 40001; através deste
+  -- transporte, 40001 não é utilizável. Desvio declarado no handoff.
   if v_sessao.turn_seq <> p_expected_turn_seq then
     raise exception 'turno desatualizado (esperado %, atual %)', p_expected_turn_seq, v_sessao.turn_seq
-      using errcode = '40001';
+      using errcode = 'FC001';
+  end if;
+  if v_sessao.current_turn_user_id <> v_uid then
+    raise exception 'não é a sua vez' using errcode = '42501';
   end if;
 
   select * into v_eu from public.joint_session_participants
@@ -1290,6 +1313,18 @@ begin
   ) then
     raise exception 'série % não pertence à sua execução neste treino conjunto', p_set_log_id
       using errcode = '42501';
+  end if;
+
+  -- Série já consumida por um evento anterior: precheck EXPLÍCITO. Sem ele, a
+  -- primeira defesa a disparar seria o índice único e o cliente receberia
+  -- `23505` cru, que o repositório mapearia como erro desconhecido. Corrigir uma
+  -- série e reenviá-la com id de evento novo é o caminho real disto.
+  if exists (
+    select 1 from public.joint_session_events
+     where joint_session_id = p_joint_session_id and set_log_id = p_set_log_id
+  ) then
+    raise exception 'série % já confirmou um turno; corrigir não avança o treino do parceiro',
+      p_set_log_id using errcode = '22023';
   end if;
 
   -- Fila do parceiro encerrada: o turno FICA com quem ainda tem o que fazer.
@@ -1501,6 +1536,14 @@ begin
     raise exception 'autenticação obrigatória' using errcode = '42501';
   end if;
 
+  -- Terminal é imutável também para o heartbeat: sem esta guarda, o watchdog de
+  -- um aparelho que ficou para trás continuaria carimbando presença numa sessão
+  -- já encerrada.
+  if public._forca_joint_status(p_joint_session_id) in ('completed', 'canceled', 'abandoned') then
+    raise exception 'sessão conjunta já encerrada; presença não muda mais'
+      using errcode = '55000';
+  end if;
+
   update public.joint_session_participants
      set last_seen_at = now()
    where joint_session_id = p_joint_session_id and user_id = v_uid
@@ -1606,6 +1649,7 @@ declare
   v_row    public.joint_sessions;
   v_destino text;
   v_copia  uuid;
+  v_copias uuid[];
 begin
   if v_uid is null then
     raise exception 'autenticação obrigatória' using errcode = '42501';
@@ -1626,18 +1670,14 @@ begin
     -- Nada foi executado: as seleções são liberadas para que a sessão real do
     -- plano volte a ser usável em outro treino conjunto (o unique parcial de
     -- planned_session_id a prenderia para sempre, senão).
-    for v_copia in
-      select ps.id
-        from public.joint_session_participants p
-        join public.planned_sessions ps on ps.id = p.planned_session_id
-        join public.training_plans tp on tp.id = ps.plan_id
-       where p.joint_session_id = p_joint_session_id
-         and tp.purpose = 'joint'
-    loop
-      if not exists (select 1 from public.session_logs where planned_session_id = v_copia) then
-        delete from public.planned_sessions where id = v_copia;
-      end if;
-    end loop;
+    -- Mesma ordem obrigatória do set_joint_session_mode: soltar as FKs antes
+    -- de apagar a cópia (ON DELETE RESTRICT em participants.planned_session_id).
+    select coalesce(array_agg(ps.id), '{}'::uuid[]) into v_copias
+      from public.joint_session_participants p
+      join public.planned_sessions ps on ps.id = p.planned_session_id
+      join public.training_plans tp on tp.id = ps.plan_id
+     where p.joint_session_id = p_joint_session_id
+       and tp.purpose = 'joint';
 
     update public.joint_session_participants
        set planned_session_id = null, session_log_id = null, ready = false, ready_at = null
@@ -1646,6 +1686,12 @@ begin
     update public.planned_sessions
        set joint_session_id = null
      where joint_session_id = p_joint_session_id;
+
+    foreach v_copia in array v_copias loop
+      if not exists (select 1 from public.session_logs where planned_session_id = v_copia) then
+        delete from public.planned_sessions where id = v_copia;
+      end if;
+    end loop;
 
     -- Escopo por usuário é obrigatório: sem o `in (...)`, uma definer apagaria o
     -- container VAZIO de qualquer outra conta do banco.
@@ -1722,9 +1768,18 @@ $$;
 -- revogar o UPDATE da tabela e regrantar todas as outras colunas, plantando uma
 -- armadilha para a próxima migration que adicionar coluna.
 
--- Leitura do estado do vínculo para os gatilhos do guard. É DEFINER porque o
--- guard não pode ser cegado pela RLS: se a consulta voltasse vazia por falta de
--- permissão, o gatilho concluiria "não há vínculo" e deixaria o bypass passar.
+-- Leitura do vínculo para os gatilhos do guard.
+--
+-- DEFINER porque a RLS não pode cegar o guard: se a consulta voltasse vazia por
+-- falta de permissão, o gatilho concluiria "não há vínculo" e deixaria o bypass
+-- passar. E SEGURA DE CONCEDER a `authenticated` porque só responde sobre uma
+-- `planned_sessions` do PRÓPRIO `auth.uid()` — não serve de oráculo sobre a
+-- sessão de ninguém.
+--
+-- Precisa ser concedida: o gatilho é INVOKER (senão `current_user` viraria o
+-- dono e o guard se desligaria), então ele executa com o papel do cliente e não
+-- alcançaria uma função revogada. Foi exatamente esse o furo que travou o
+-- `finish_session` solo depois de `abandoned`.
 create or replace function public._forca_joint_status(p_joint_session_id uuid)
 returns text
 language sql
@@ -1735,7 +1790,7 @@ as $$
   select status from public.joint_sessions where id = p_joint_session_id;
 $$;
 
-create or replace function public._forca_joint_status_por_sessao(p_planned_session_id uuid)
+create or replace function public._forca_joint_vinculo_do_dono(p_planned_session_id uuid)
 returns text
 language sql
 stable
@@ -1745,18 +1800,12 @@ as $$
   select j.status
     from public.planned_sessions ps
     join public.joint_sessions j on j.id = ps.joint_session_id
-   where ps.id = p_planned_session_id;
+   where ps.id = p_planned_session_id
+     and ps.user_id = auth.uid();
 $$;
 
-create or replace function public._forca_joint_vinculo_por_sessao(p_planned_session_id uuid)
-returns uuid
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select ps.joint_session_id from public.planned_sessions ps where ps.id = p_planned_session_id;
-$$;
+comment on function public._forca_joint_vinculo_do_dono(uuid) is
+  'Status do treino conjunto ligado a uma sessão planejada DO PRÓPRIO usuário. Null quando não há vínculo ou a sessão não é dele.';
 
 create or replace function public._forca_guarda_planned_session()
 returns trigger
@@ -1773,7 +1822,10 @@ declare
   v_status  text;
 begin
   if tg_op = 'DELETE' then
-    if old.joint_session_id is null or not public._forca_papel_de_cliente() then
+    -- `current_user` inline: o gatilho é INVOKER e não alcançaria uma função
+    -- revogada de `authenticated`. Chamada de função aqui foi o que quebrou
+    -- o caminho pós-abandono.
+    if old.joint_session_id is null or current_user not in ('authenticated', 'anon') then
       return old;
     end if;
     raise exception 'sessão vinculada a treino conjunto não é apagada pelo cliente'
@@ -1784,7 +1836,7 @@ begin
   if old.joint_session_id is null and new.joint_session_id is null then
     return new;
   end if;
-  if not public._forca_papel_de_cliente() then
+  if current_user not in ('authenticated', 'anon') then
     return new;
   end if;
 
@@ -1793,8 +1845,7 @@ begin
       using errcode = '42501';
   end if;
 
-  v_vinculo := old.joint_session_id;
-  v_status := public._forca_joint_status(v_vinculo);
+  v_status := public._forca_joint_vinculo_do_dono(old.id);
   if v_status in ('inviting', 'lobby', 'active', 'paused')
      and new.status is distinct from old.status then
     raise exception 'sessão em treino conjunto: o status muda pela máquina conjunta'
@@ -1822,20 +1873,23 @@ declare
   v_status  text;
 begin
   if tg_op = 'DELETE' then
-    v_vinculo := public._forca_joint_vinculo_por_sessao(old.planned_session_id);
-    if v_vinculo is null or not public._forca_papel_de_cliente() then
+    if current_user not in ('authenticated', 'anon') then
+      return old;
+    end if;
+    if public._forca_joint_vinculo_do_dono(old.planned_session_id) is null then
       return old;
     end if;
     raise exception 'execução de treino conjunto não é apagada pelo cliente'
       using errcode = '42501';
   end if;
 
-  v_vinculo := public._forca_joint_vinculo_por_sessao(new.planned_session_id);
-  if v_vinculo is null or not public._forca_papel_de_cliente() then
+  if current_user not in ('authenticated', 'anon') then
     return new;
   end if;
-
-  v_status := public._forca_joint_status(v_vinculo);
+  v_status := public._forca_joint_vinculo_do_dono(new.planned_session_id);
+  if v_status is null then
+    return new;
+  end if;
 
   if tg_op = 'INSERT' then
     if v_status in ('inviting', 'lobby', 'active', 'paused') then
@@ -1941,9 +1995,11 @@ revoke all on function public._forca_joint_payload_valido(jsonb)                
 revoke all on function public._forca_joint_codigo_novo()                           from public, anon, authenticated;
 revoke all on function public._forca_joint_papel(uuid, uuid)                       from public, anon, authenticated;
 revoke all on function public._forca_joint_fila_pendente(uuid)                     from public, anon, authenticated;
+-- Concedida de propósito (ver comentário da função): o gatilho INVOKER precisa
+-- alcançá-la, e ela só responde sobre sessão do próprio chamador.
 revoke all on function public._forca_joint_status(uuid)                            from public, anon, authenticated;
-revoke all on function public._forca_joint_status_por_sessao(uuid)                 from public, anon, authenticated;
-revoke all on function public._forca_joint_vinculo_por_sessao(uuid)                from public, anon, authenticated;
+revoke all on function public._forca_joint_vinculo_do_dono(uuid)                   from public, anon;
+grant execute on function public._forca_joint_vinculo_do_dono(uuid)                to authenticated;
 revoke all on function public._forca_joint_evento(uuid, uuid, text, jsonb, text, uuid, bigint, bigint)
   from public, anon, authenticated;
 
@@ -2063,9 +2119,7 @@ begin
     'public._forca_joint_codigo_novo()',
     'public._forca_joint_papel(uuid, uuid)',
     'public._forca_joint_fila_pendente(uuid)',
-    'public._forca_joint_status(uuid)',
-    'public._forca_joint_status_por_sessao(uuid)',
-    'public._forca_joint_vinculo_por_sessao(uuid)'
+    'public._forca_joint_status(uuid)'
   ] loop
     if has_function_privilege('authenticated', v_fn, 'EXECUTE') then
       raise exception 'asserção falhou: authenticated executa a interna %', v_fn;

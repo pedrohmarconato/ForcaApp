@@ -173,6 +173,21 @@ export const assert = (condicao, mensagem) => {
 
 export const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Espera uma condição virar verdadeira, com prazo. Substitui `esperar(3000)` nas
+ * asserções de entrega: uma janela fixa transforma latência de propagação em
+ * falha intermitente, e um harness que às vezes reprova é um harness em que
+ * ninguém confia — nem quando ele acusa um problema de verdade.
+ */
+export const aguardarAte = async (condicao, { prazoMs = 15_000, passoMs = 250 } = {}) => {
+  const limite = Date.now() + prazoMs;
+  while (Date.now() < limite) {
+    if (await condicao()) return true;
+    await esperar(passoMs);
+  }
+  return false;
+};
+
 /** Monta um plano com uma sessão executável para a conta indicada. */
 export const criarPlanoDeTeste = async (ctx, userId, titulo, grupos = ['Peito']) => {
   const plano = await ctx.admin

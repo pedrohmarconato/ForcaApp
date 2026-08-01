@@ -471,7 +471,7 @@ begin
     raise exception 'FALHOU: avanço com seq desatualizado foi aceito';
   exception when others then
     if sqlerrm like 'FALHOU:%' then raise; end if;
-    if sqlstate <> '40001' then raise exception 'FALHOU: errcode % no seq desatualizado', sqlstate; end if;
+    if sqlstate <> 'FC001' then raise exception 'FALHOU: errcode % no seq desatualizado', sqlstate; end if;
   end;
 
   -- C9 — avanço válido

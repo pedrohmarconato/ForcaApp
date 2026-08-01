@@ -166,16 +166,41 @@ describe('guard das tabelas existentes', () => {
     expect(cabecalho).not.toContain('security definer');
   });
 
-  it('as leituras do guard passam por helper DEFINER — a RLS não pode cegá-lo', () => {
-    for (const helper of [
-      '_forca_joint_status',
-      '_forca_joint_vinculo_por_sessao',
-    ]) {
-      const bloco = sql.slice(sql.indexOf(`create or replace function public.${helper}(`));
-      expect(bloco.slice(0, bloco.indexOf('as $$'))).toContain('security definer');
+  it('a leitura do guard é DEFINER — a RLS não pode cegá-lo', () => {
+    const bloco = sql.slice(
+      sql.indexOf('create or replace function public._forca_joint_vinculo_do_dono('),
+    );
+    expect(bloco.slice(0, bloco.indexOf('as $$'))).toContain('security definer');
+    expect(sql).toContain('v_status := public._forca_joint_vinculo_do_dono(old.id);');
+    expect(sql).toContain('public._forca_joint_vinculo_do_dono(new.planned_session_id)');
+  });
+
+  // A trava do achado F2 da rodada 1: o gatilho é INVOKER, logo executa com o
+  // papel do CLIENTE. Se a função que ele chama estiver revogada de
+  // `authenticated`, todo caminho guardado quebra com `permission denied` — foi
+  // o que impediu `finish_session` solo depois de `abandoned`.
+  it('a leitura do guard é CONCEDIDA a authenticated — senão o gatilho INVOKER não a alcança', () => {
+    expect(sql).toMatch(
+      /grant execute on function public\._forca_joint_vinculo_do_dono\(uuid\)\s+to authenticated/,
+    );
+  });
+
+  it('a leitura do guard só responde sobre sessão do PRÓPRIO usuário', () => {
+    // É isso que a torna segura de conceder: não vira oráculo sobre a sessão
+    // de terceiro.
+    const bloco = sql.slice(
+      sql.indexOf('create or replace function public._forca_joint_vinculo_do_dono('),
+    );
+    expect(bloco.slice(0, bloco.indexOf('$$;'))).toContain('ps.user_id = auth.uid()');
+  });
+
+  it('o sinal de papel é inline no gatilho, não uma chamada de função revogada', () => {
+    for (const guard of ['_forca_guarda_planned_session', '_forca_guarda_session_log']) {
+      const bloco = sql.slice(sql.indexOf(`create or replace function public.${guard}()`));
+      const corpo = bloco.slice(0, bloco.indexOf('$$;'));
+      expect(corpo).toContain("current_user not in ('authenticated', 'anon')");
+      expect(corpo).not.toContain('public._forca_papel_de_cliente()');
     }
-    expect(sql).toContain('v_status := public._forca_joint_status(v_vinculo);');
-    expect(sql).toContain('public._forca_joint_vinculo_por_sessao(new.planned_session_id)');
   });
 
   it('append-only recusa o cliente mas deixa o cascade de auth.users passar', () => {

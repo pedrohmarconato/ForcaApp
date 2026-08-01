@@ -103,7 +103,7 @@ describe('propagação de erro', () => {
     ['42501', 'nao_autorizado'],
     ['22023', 'argumento_invalido'],
     ['55000', 'estado_invalido'],
-    ['40001', 'turno_desatualizado'],
+    ['FC001', 'turno_desatualizado'],
     ['54000', 'limite_de_tentativas'],
     ['P0001', 'fila_pendente'],
     ['P0002', 'nao_encontrado'],
