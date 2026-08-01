@@ -189,13 +189,30 @@ export const aguardarAte = async (condicao, { prazoMs = 15_000, passoMs = 250 } 
 };
 
 /** Monta um plano com uma sessão executável para a conta indicada. */
-export const criarPlanoDeTeste = async (ctx, userId, titulo, grupos = ['Peito']) => {
-  const plano = await ctx.admin
+export const planoAtivoDe = async (ctx, userId, nome) => {
+  // `training_plans_one_active_per_user_idx` só permite UM plano ativo por
+  // usuário (0002). Reaproveitar é o comportamento correto: o app também tem um
+  // plano ativo só, e forçar um segundo testaria uma situação que não existe.
+  const existente = await ctx.admin
     .from('training_plans')
-    .insert({ user_id: userId, name: `SMOKE ${titulo}`, status: 'active', purpose: 'solo' })
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .limit(1);
+  if (existente.error) throw new Error(`plano ativo: ${existente.error.message}`);
+  if (existente.data?.[0]) return existente.data[0].id;
+
+  const criado = await ctx.admin
+    .from('training_plans')
+    .insert({ user_id: userId, name: nome, status: 'active', purpose: 'solo' })
     .select('id')
     .single();
-  if (plano.error) throw new Error(`plano: ${plano.error.message}`);
+  if (criado.error) throw new Error(`plano: ${criado.error.message}`);
+  return criado.data.id;
+};
+
+export const criarPlanoDeTeste = async (ctx, userId, titulo, grupos = ['Peito']) => {
+  const plano = { data: { id: await planoAtivoDe(ctx, userId, `SMOKE ${titulo}`) } };
 
   const sessao = await ctx.admin
     .from('planned_sessions')
@@ -241,4 +258,151 @@ export const criarPlanoDeTeste = async (ctx, userId, titulo, grupos = ['Peito'])
   if (series.error) throw new Error(`séries: ${series.error.message}`);
 
   return { planId: plano.data.id, sessionId: sessao.data.id, setIds: series.data.map((s) => s.id) };
+};
+
+// ============================================================
+// Construtores de cenário
+// ============================================================
+// Existem porque a rodada 2 reprovou por evidência sobredeclarada: exercitar uma
+// RPC com um UUID falso prova que a PRIMEIRA guarda dispara, não que o caminho
+// legítimo funciona. Um caso honesto precisa da sessão no estado certo, com o
+// ator certo. Estes helpers montam esse estado.
+
+export const un = (r) => (Array.isArray(r.data) ? r.data[0] : r.data);
+export const errcode = (r) => r.error?.code ?? null;
+
+/** Encerra qualquer pertencimento vivo, para a conta poder entrar em outro. */
+export const liberarConta = async (ctx, conta) => {
+  const vivos = await ctx.admin
+    .from('joint_session_participants')
+    .select('joint_session_id')
+    .eq('user_id', conta.id)
+    .eq('live', true);
+  for (const v of vivos.data ?? []) {
+    await conta.client.rpc('abandon_joint_session', { p_joint_session_id: v.joint_session_id });
+  }
+};
+
+/** Convite aberto (`inviting`), só com o anfitrião. */
+export const montarConvite = async (ctx, host) => {
+  await liberarConta(ctx, host);
+  const r = await host.client.rpc('create_joint_session');
+  if (r.error) throw new Error(`montarConvite: ${r.error.message}`);
+  return un(r);
+};
+
+/** Lobby com os dois dentro; opcionalmente com modo e sessões confirmadas. */
+export const montarLobby = async (ctx, host, guest, opcoes = {}) => {
+  const joint = await montarConvite(ctx, host);
+  await liberarConta(ctx, guest);
+  const ent = await guest.client.rpc('join_joint_session', { p_invite_code: joint.invite_code });
+  if (ent.error || !un(ent)?.id) throw new Error('montarLobby: convidado não entrou');
+
+  if (opcoes.mode) {
+    const m = await host.client.rpc('set_joint_session_mode', {
+      p_joint_session_id: joint.id,
+      p_mode: opcoes.mode,
+      p_muscle_group: opcoes.muscleGroup ?? null,
+    });
+    if (m.error) throw new Error(`montarLobby modo: ${m.error.message}`);
+  }
+  if (opcoes.confirmar) {
+    const cH = await host.client.rpc('confirm_joint_participant_session', {
+      p_joint_session_id: joint.id,
+      p_planned_session_id: opcoes.sessaoHost,
+    });
+    if (cH.error) throw new Error(`montarLobby confirm host: ${cH.error.message}`);
+    const cG = await guest.client.rpc('confirm_joint_participant_session', {
+      p_joint_session_id: joint.id,
+      p_planned_session_id: opcoes.sessaoGuest,
+    });
+    if (cG.error) throw new Error(`montarLobby confirm guest: ${cG.error.message}`);
+  }
+  return joint;
+};
+
+/** Sessão ATIVA, com os dois logs abertos. Devolve ids dos logs. */
+export const montarAtiva = async (ctx, host, guest, sessaoHost, sessaoGuest, grupo = 'Peito') => {
+  const joint = await montarLobby(ctx, host, guest, {
+    mode: 'each_own',
+    muscleGroup: grupo,
+    confirmar: true,
+    sessaoHost,
+    sessaoGuest,
+  });
+  await host.client.rpc('set_joint_participant_ready', { p_joint_session_id: joint.id, p_ready: true });
+  const r = await guest.client.rpc('set_joint_participant_ready', {
+    p_joint_session_id: joint.id,
+    p_ready: true,
+  });
+  if (r.error || un(r).status !== 'active') {
+    throw new Error(`montarAtiva: ativação falhou (${r.error?.message ?? un(r)?.status})`);
+  }
+  const parts = await ctx.admin
+    .from('joint_session_participants')
+    .select('user_id, session_log_id')
+    .eq('joint_session_id', joint.id);
+  return {
+    joint: un(r),
+    logHost: parts.data.find((p) => p.user_id === host.id).session_log_id,
+    logGuest: parts.data.find((p) => p.user_id === guest.id).session_log_id,
+  };
+};
+
+/** Grava uma série pelo caminho normal do app. */
+export const gravarSerie = async (client, logId, setId, valores) => {
+  const r = await client.rpc('save_set_log', {
+    p_session_log_id: logId,
+    p_planned_set_id: setId,
+    p_actual_reps: valores.reps ?? null,
+    p_actual_load_kg: valores.carga ?? null,
+    p_actual_rir: valores.rir ?? null,
+    p_outcome: valores.outcome ?? 'on_target',
+    p_started_at: null,
+    p_actual_duration_seconds: valores.duracao ?? null,
+    p_actual_distance_m: valores.distancia ?? null,
+    p_perceived_effort: valores.esforco ?? null,
+  });
+  if (r.error) throw new Error(`gravarSerie: ${r.error.message}`);
+  return un(r);
+};
+
+/** Retrato do estado autoritativo, para comparar antes/depois de um bypass. */
+export const retrato = async (ctx, jointId) => {
+  const s = await ctx.admin.from('joint_sessions').select('*').eq('id', jointId).single();
+  const p = await ctx.admin
+    .from('joint_session_participants')
+    .select('*')
+    .eq('joint_session_id', jointId)
+    .order('role');
+  const e = await ctx.admin
+    .from('joint_session_events')
+    .select('seq')
+    .eq('joint_session_id', jointId);
+  return JSON.stringify({ s: s.data, p: p.data, eventos: (e.data ?? []).length });
+};
+
+/** Plano de CARDIO com alvos de tempo e distância. */
+export const criarPlanoCardio = async (ctx, userId, titulo) => {
+  const plano = { data: { id: await planoAtivoDe(ctx, userId, `SMOKE ${titulo}`) } };
+  const sessao = await ctx.admin
+    .from('planned_sessions')
+    .insert({ plan_id: plano.data.id, user_id: userId, week_number: 1, title: titulo, muscle_groups: ['Cardio'] })
+    .select('id').single();
+  if (sessao.error) throw new Error(`sessão cardio: ${sessao.error.message}`);
+  const ex = await ctx.admin
+    .from('planned_exercises')
+    .insert({
+      session_id: sessao.data.id, exercise_order: 1, name: 'Esteira',
+      exercise_key: 'esteira', metric: 'tempo_distancia',
+      notes: 'nota privada do parceiro', injury_flags: ['joelho'],
+    })
+    .select('id').single();
+  if (ex.error) throw new Error(`exercício cardio: ${ex.error.message}`);
+  const sets = await ctx.admin
+    .from('planned_sets')
+    .insert({ exercise_id: ex.data.id, set_order: 1, target_duration_seconds: 1800, target_distance_m: 5000 })
+    .select('id');
+  if (sets.error) throw new Error(`séries cardio: ${sets.error.message}`);
+  return { planId: plano.data.id, sessionId: sessao.data.id, setIds: sets.data.map((x) => x.id) };
 };
