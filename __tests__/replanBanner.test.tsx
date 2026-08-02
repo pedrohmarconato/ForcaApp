@@ -85,9 +85,11 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
   const { getByText, getAllByText, queryByText } = render(
     <ReplanBanner
       proposal={PROPOSTA}
+      reagendamento={null}
       sessions={SESSIONS}
       busy={false}
       onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
     />,
   );
@@ -134,12 +136,15 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
 it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', () => {
   const onConfirm = jest.fn();
   const onDecline = jest.fn();
+  const onConfirmReagendamento = jest.fn();
   const { getByTestId, rerender } = render(
     <ReplanBanner
       proposal={PROPOSTA}
+      reagendamento={null}
       sessions={SESSIONS}
       busy={false}
       onConfirm={onConfirm}
+      onConfirmReagendamento={onConfirmReagendamento}
       onDecline={onDecline}
     />,
   );
@@ -151,9 +156,11 @@ it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', (
   rerender(
     <ReplanBanner
       proposal={PROPOSTA}
+      reagendamento={null}
       sessions={SESSIONS}
       busy
       onConfirm={onConfirm}
+      onConfirmReagendamento={onConfirmReagendamento}
       onDecline={onDecline}
     />,
   );
@@ -166,9 +173,11 @@ it('sem mudanças (ou sem proposta) não renderiza nada', () => {
   const a = render(
     <ReplanBanner
       proposal={semMudancas}
+      reagendamento={null}
       sessions={[]}
       busy={false}
       onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
     />,
   );
@@ -176,9 +185,11 @@ it('sem mudanças (ou sem proposta) não renderiza nada', () => {
   const b = render(
     <ReplanBanner
       proposal={null}
+      reagendamento={null}
       sessions={[]}
       busy={false}
       onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
     />,
   );
@@ -191,9 +202,11 @@ it('sem as sessões em mãos ainda decide — cai no id, não quebra', () => {
   const { getByTestId } = render(
     <ReplanBanner
       proposal={PROPOSTA}
+      reagendamento={null}
       sessions={[]}
       busy={false}
       onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
     />,
   );

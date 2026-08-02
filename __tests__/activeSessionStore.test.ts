@@ -44,6 +44,12 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));
+jest.mock('../src/services/agendaRepository', () => ({
+  getAgendaDoAluno: jest.fn(),
+}));
+jest.mock('../src/services/planEditRepository', () => ({
+  reagendarSessoesDaSemana: jest.fn(),
+}));
 
 import {
   startSessionLog,

@@ -90,6 +90,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const computeReplan = useActiveSessionStore((s) => s.computeReplan);
   const requestTimeCut = useActiveSessionStore((s) => s.requestTimeCut);
   const confirmReplan = useActiveSessionStore((s) => s.confirmReplan);
+  const confirmReagendamento = useActiveSessionStore((s) => s.confirmReagendamento);
   const declineReplan = useActiveSessionStore((s) => s.declineReplan);
   const storageWarning = useActiveSessionStore((s) => s.storageWarning);
   const clearStorageWarning = useActiveSessionStore((s) => s.clearStorageWarning);
@@ -381,9 +382,11 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
         <ReplanBanner
           proposal={pendingReplan?.proposal ?? null}
+          reagendamento={pendingReplan?.reagendamento ?? null}
           sessions={pendingReplan?.context.sessions ?? []}
           busy={replanBusy}
           onConfirm={confirmReplan}
+          onConfirmReagendamento={() => { void confirmReagendamento(); }}
           onDecline={() => { void declineReplan(); }}
         />
 

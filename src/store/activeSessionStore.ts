@@ -51,7 +51,7 @@ import {
   type Adjustment,
 } from '../engine/intraSessionAdaptation';
 import { effectiveMinutesForMood, type SessionMood } from '../engine/moodAdjustment';
-import { localTodayISO } from '../engine/agendaDias';
+import { localTodayISO, segundaDaSemanaDe } from '../engine/agendaDias';
 import {
   replanByRules,
   applyTimeCutToDraft,
@@ -62,6 +62,9 @@ import {
   type WeeklyReplanProposal,
   type AddedSetRow,
 } from '../engine/weeklyReplanner';
+import { reancorarSemana, type SessaoParaReancorar } from '../engine/scheduleShift';
+import { getAgendaDoAluno } from '../services/agendaRepository';
+import { reagendarSessoesDaSemana, isPlanoDesatualizado } from '../services/planEditRepository';
 import {
   getWeekReplanContext,
   applyConfirmedReplan,
@@ -87,6 +90,13 @@ export type PendingAdaptation = {
   recommendation: Recommendation;
 };
 
+/** Plano de reencaixe de sessões pendentes. Armazenado para reaplicação sem I/O
+ *  ao recalcular a proposta. */
+export type Reagendamento = {
+  movidas: { id: string; de: string | null; para: string }[];
+  semEncaixe: string[];
+};
+
 // Replanejamento semanal pendente de decisão (Fase 6). A UI observa este campo
 // para exibir o banner; a proposta é SÓ overlay em memória até o aluno confirmar
 // — recusa mantém o plano original (nada é escrito).
@@ -97,6 +107,8 @@ export type PendingReplan = {
   requestedMinutes: number | null;
   /** Redistribuição recusada nesta visita — não voltar a propô-la ao recalcular. */
   redistributionDismissed: boolean;
+  /** Plano de reencaixe (se houver sessões atrasadas). Reaplicado ao recalcular. */
+  reagendamento: Reagendamento | null;
   context: WeekReplanContext;
   proposal: WeeklyReplanProposal;
 };
@@ -134,6 +146,7 @@ interface ActiveSessionState {
   computeReplan: (detail: SessionDetail) => Promise<void>;
   requestTimeCut: (minutes: number | null) => void;
   confirmReplan: () => Promise<boolean>;
+  confirmReagendamento: () => Promise<boolean>;
   declineReplan: () => Promise<void>;
   clearStorageWarning: () => void;
   clearReplanWarning: () => void;
@@ -714,6 +727,82 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         blockedExerciseNames: nomesBloqueadosPorRecusa(atual),
       });
 
+      // Calcula o reencaixe (best-effort: falha não derruba a proposta).
+      // Se houver reencaixe possível, suprime o pulo da proposta.
+      let reagendamento: Reagendamento | null = null;
+      try {
+        const agenda = await getAgendaDoAluno({
+          userId: draft.userId,
+          planId: detail.plan_id,
+        });
+
+        if (agenda.agenda.length > 0) {
+          const hojeISO = localTodayISO();
+          // Calcula a segunda-feira da semana com base na sessão da proposta.
+          // Busca a data mais antiga das sessões do contexto para âncora.
+          const menorData = context.sessions.reduce((acc, sess) => {
+            if (sess.scheduledDate && (!acc || sess.scheduledDate < acc)) {
+              return sess.scheduledDate;
+            }
+            return acc;
+          }, null as string | null);
+
+          const segundaISO = menorData ? segundaDaSemanaDe(menorData) : null;
+          if (segundaISO) {
+            // Monta mapa id → order_in_week a partir das linhas cruas do banco.
+            // Não usamos indexOf(sess) porque a ordem do array pode ser arbitrária
+            // (getWeekReplanContext não ordena o select); order_in_week é a verdade.
+            const orderInWeekMap = new Map<string, number>();
+            for (const rawSess of context.raw) {
+              const orderInWeek = rawSess.order_in_week;
+              if (typeof orderInWeek === 'number') {
+                orderInWeekMap.set(rawSess.id, orderInWeek);
+              }
+            }
+
+            // Monta o array de sessões para reancoragem
+            const sessoesPendentes: SessaoParaReancorar[] = context.sessions.map((sess) => ({
+              id: sess.id,
+              status: sess.status as 'pending' | 'in_progress' | 'completed' | 'skipped',
+              scheduledDate: sess.scheduledDate,
+              orderInWeek: orderInWeekMap.get(sess.id) ?? 0,
+            }));
+
+            const plano = reancorarSemana({
+              sessoes: sessoesPendentes,
+              hojeISO,
+              agenda: agenda.agenda,
+              segundaDaSemanaISO: segundaISO,
+            });
+
+            // Se houver movidas, armazena o plano para exibição.
+            // A supressão da redistribuição é INDEPENDENTE: só suprime se existe
+            // redistribution originalmente (há pulo a ser oferecido).
+            if (plano.movidas.length > 0) {
+              reagendamento = {
+                movidas: plano.movidas,
+                semEncaixe: plano.semEncaixe,
+              };
+            }
+
+            // Suprime o pulo quando há reencaixe: confirmReplan não aplicará
+            // redistribution, logo nenhuma sessão será marcada como skipped.
+            // Se houvesse skipped sem redistribution, o servidor rejeitaria.
+            if (plano.movidas.length > 0 && proposal.redistribution) {
+              proposal = {
+                ...proposal,
+                redistribution: null,
+                hasChanges: proposal.timeCut != null,
+              };
+            }
+          }
+        }
+      } catch (reanchorError) {
+        // Reencaixe falhou (I/O): proposta segue como estava (com pulo, se houve).
+        // O treino nunca é travado por falha de reencaixe; a feature é degradável.
+        console.warn('[replan] reencaixe falhou (não-fatal):', reanchorError);
+      }
+
       // Oculta proposta cujo fingerprint foi recusado nesta sessão.
       const declined = atual.declinedReplanFingerprints ?? [];
       if (proposal.hasChanges && declined.includes(replanFingerprint(proposal))) {
@@ -725,6 +814,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           sessionLogId: sid,
           requestedMinutes: get().checkInMinutes,
           redistributionDismissed: false,
+          reagendamento,
           context,
           proposal,
         },
@@ -766,6 +856,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     });
     // Redistribuição já recusada nesta visita não volta pela porta do recálculo.
     if (pr.redistributionDismissed) {
+      proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
+    }
+    // Reencaixe já calculado: reaplicar a supressão sem novo I/O. Se o aluno pedir
+    // menos tempo DEPOIS do reencaixe, a redistribution continua suprimida.
+    if (pr.reagendamento && pr.reagendamento.movidas.length > 0) {
       proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
     }
     // Oculta proposta cujo fingerprint foi recusado nesta sessão.
@@ -910,6 +1005,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               sessionLogId: sid,
               requestedMinutes: null,
               redistributionDismissed: false,
+              reagendamento: null,
               context: refreshed,
               proposal,
             },
@@ -962,6 +1058,68 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             'Não foi possível salvar sua recusa localmente. Ela vale agora, mas pode reaparecer se o app fechar.',
         });
       }
+    }
+  },
+
+  confirmReagendamento: async () => {
+    // Reentrância (duplo-toque/corrida): guarda de mesma forma que confirmReplan.
+    if (get().replanBusy) return false;
+    const pr = get().pendingReplan;
+    if (!pr || !pr.reagendamento || pr.reagendamento.movidas.length === 0) return true;
+    const draft = get().draft;
+    if (!draft || !draft.sessionLogId) {
+      set({ saveError: 'Sessão não iniciada corretamente. Reabra o treino.' });
+      return false;
+    }
+    // Proposta calculada para OUTRA sessão (troca sem passar pela tela) não é
+    // aplicável — descarta em vez de escrever no lugar errado.
+    if (pr.sessionLogId !== draft.sessionLogId) {
+      set({ pendingReplan: null });
+      return false;
+    }
+    const epoch = operationEpoch;
+    const sid = draft.sessionLogId;
+    set({ replanBusy: true });
+    try {
+      await reagendarSessoesDaSemana({
+        planId: pr.context.planId,
+        weekNumber: pr.context.weekNumber,
+        atribuicoes: pr.reagendamento.movidas.map((m) => ({
+          sessionId: m.id,
+          scheduledDate: m.para,
+        })),
+      });
+      // CAS: aplicado no servidor; se o usuário trocou de sessão durante o await,
+      // não mexemos no rascunho da outra.
+      const atual = get().draft;
+      if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
+      // Sessão está in_progress — o motor nunca move sessão não pendente.
+      // Logo não há nada a reconciliar no rascunho. Limpa o banner.
+      set({ pendingReplan: null, saveError: null });
+      return true;
+    } catch (e) {
+      if (operationEpoch !== epoch || get().draft?.sessionLogId !== sid) return false;
+      // 40001/55000/42501: o plano mudou fora desta tela (outro aparelho, outra
+      // aba). A proposta em mãos está obsoleta — descarta em vez de deixar o
+      // aluno tocar de novo num reencaixe que o servidor vai recusar igual.
+      if (isPlanoDesatualizado(e)) {
+        set({
+          pendingReplan: null,
+          saveError: 'Seu plano mudou em outro lugar. Reabra o treino para ver a agenda atualizada.',
+        });
+        return false;
+      }
+      // Erro de chamada (lista vazia, IDs inválidos, etc.) ou de transporte.
+      const msg = e instanceof Error ? e.message : 'Erro ao reagendar as sessões.';
+      const amigável =
+        msg.includes('lista vazia') || msg.includes('vazio') ? msg :
+        isReplanTransportError(e)
+          ? 'Sem conexão para confirmar o reagendamento. Toque para tentar de novo.'
+          : msg;
+      set({ saveError: amigável });
+      return false;
+    } finally {
+      set({ replanBusy: false });
     }
   },
 
