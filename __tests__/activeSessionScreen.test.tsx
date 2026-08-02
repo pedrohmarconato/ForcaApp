@@ -316,7 +316,7 @@ it('bloqueia edição da medição enquanto a gravação está em voo', async ()
   await waitFor(() => expect(screen.getByText(/8 reps × 40 kg/)).toBeTruthy());
 });
 
-describe('modal "Ver andamento" — começa fechado, abre, e ações só após onDismiss', () => {
+describe('modal "Ver andamento" — uma camada nativa também no Android', () => {
   const abrirSessao = async (screen: any) => {
     await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
     fireEvent.press(screen.getByLabelText('Normal'));
@@ -325,17 +325,8 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
     await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
   };
 
-  const dismissDoModal = (screen: any): (() => void) => {
-    // O modal "Ver andamento" é o ÚNICO com onDismiss (os sheets usam Modal
-    // sem onDismiss). Filtra pelo prop para não pegar as outras camadas.
-    const modais = screen.root.findAll(
-      (node: any) =>
-        node.type === Modal && typeof node.props.onDismiss === 'function',
-    );
-    expect(modais.length).toBeGreaterThanOrEqual(1);
-    const onDismiss = modais[0].props.onDismiss;
-    return () => onDismiss();
-  };
+  const modaisVisiveis = (screen: any) =>
+    screen.root.findAll((node: any) => node.type === Modal && node.props.visible);
 
   it('começa FECHADO (fila não montada) e o botão tem accessibilityLabel', async () => {
     const screen = renderScreen();
@@ -349,7 +340,10 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
     expect(btn.props.accessibilityLabel).toBe('Ver andamento do treino');
   });
 
-  it('abrir mostra a fila no modal; ativar série NÃO age antes do onDismiss (nem coexiste com sheet)', async () => {
+  it('Android ativa série sem onDismiss e fecha a única camada', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    try {
     const screen = renderScreen();
     await abrirSessao(screen);
 
@@ -359,34 +353,17 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
     expect(screen.getAllByText('S1').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText(/Pular para a série 1 de Supino Reto/)).toBeTruthy();
 
-    // Toca a série pendente: modal fecha, ação fica PENDENTE.
     fireEvent.press(screen.getByLabelText(/Pular para a série 1 de Supino Reto/));
     await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
-
-    // ANTES do onDismiss: nenhuma ação de ativação e nenhum sheet.
-    const draftAntes = useActiveSessionStore.getState().draft!;
-    expect(draftAntes.exercises[0].sets[0].status).not.toBe('active');
-
-    // Depois do onDismiss (fim real da camada nativa): a ação executa.
-    act(() => dismissDoModal(screen)());
-    const draftDepois = useActiveSessionStore.getState().draft!;
-    expect(draftDepois.exercises[0].sets[0].status).toBe('active');
-  });
-
-  it('Android executa ativar série sem onDismiss manual após fechar o modal', async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
-    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
-    try {
-      const screen = renderScreen(); await abrirSessao(screen);
-      fireEvent.press(screen.getByTestId('ver-andamento'));
-      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
-      fireEvent.press(screen.getByLabelText(/Pular para a série 1 de Supino Reto/));
-      await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
-      await waitFor(() => expect(useActiveSessionStore.getState().draft!.exercises[0].sets[0].status).toBe('active'));
+    expect(useActiveSessionStore.getState().draft!.exercises[0].sets[0].status).toBe('active');
+    expect(modaisVisiveis(screen)).toHaveLength(0);
     } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
-  it('recusar exercício pelo modal: sheet SÓ abre depois do onDismiss', async () => {
+  it('Android recusa exercício no conteúdo embutido: nunca monta dois Modals', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    try {
     const screen = renderScreen();
     await abrirSessao(screen);
 
@@ -394,16 +371,18 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
     await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
 
     fireEvent.press(screen.getByLabelText(/Não vou fazer Flexão/));
-    await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
-
-    // ANTES do onDismiss: modal fechado E sheet NÃO visível (nunca coexistem).
-    expect(screen.queryByText('Não vou fazer Flexão')).toBeNull();
-
-    act(() => dismissDoModal(screen)());
     await waitFor(() => expect(screen.getByText('Não vou fazer Flexão')).toBeTruthy());
+    expect(modaisVisiveis(screen)).toHaveLength(1);
+    fireEvent.press(screen.getByTestId('skip-reason-nao_gosto'));
+    fireEvent.press(screen.getByTestId('skip-reason-confirm'));
+    await waitFor(() => expect(useActiveSessionStore.getState().draft!.exercises[1].skippedByUser).toBe(true));
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
-  it('desfazer recusa pelo modal executa após o onDismiss', async () => {
+  it('Android desfaz recusa sem onDismiss manual', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    try {
     const screen = renderScreen();
     await abrirSessao(screen);
 
@@ -429,13 +408,10 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
 
     fireEvent.press(screen.getByLabelText(/Voltar a fazer Supino Reto/));
     await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
-
-    // Antes do onDismiss: ainda recusado.
-    expect(useActiveSessionStore.getState().draft!.exercises[0].skippedByUser).toBe(true);
-
-    act(() => dismissDoModal(screen)());
     await waitFor(() =>
       expect(useActiveSessionStore.getState().draft!.exercises[0].skippedByUser).toBe(false),
     );
+    expect(modaisVisiveis(screen)).toHaveLength(0);
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 });

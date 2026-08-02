@@ -15,7 +15,6 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -113,31 +112,11 @@ const ActiveSessionScreen = ({ route }: Props) => {
   >(null);
   const [recusaBusy, setRecusaBusy] = useState(false);
 
-  // Modal "Ver andamento": começa fechado. Ações que abrem sheet/navegam usam
-  // pendingModalAction + onDismiss para sequenciar — o modal nativo termina
-  // antes de outra camada abrir.
+  // A fila e a recusa aberta a partir dela compartilham ESTE Modal nativo. Em
+  // Android isso torna impossível empilhar Dialogs durante a animação: o
+  // formulário troca apenas o conteúdo da camada já visível.
   const [modalVisible, setModalVisible] = useState(false);
-  const [pendingModalAction, setPendingModalAction] = useState<(() => void) | null>(null);
-  const pendingModalActionRef = useRef<(() => void) | null>(null);
-
-  const flushModalAction = useCallback(() => {
-    const action = pendingModalActionRef.current;
-    if (!action) return;
-    pendingModalActionRef.current = null;
-    setPendingModalAction(null);
-    action();
-  }, []);
-  const queueModalAction = useCallback((action: () => void) => {
-    pendingModalActionRef.current = action;
-    setPendingModalAction(() => action);
-    setModalVisible(false);
-  }, []);
-  useEffect(() => {
-    if (modalVisible || !pendingModalAction || Platform.OS === 'ios') return;
-    // Android não entrega onDismiss: roda após o commit visible=false.
-    const timer = setTimeout(flushModalAction, 0);
-    return () => clearTimeout(timer);
-  }, [flushModalAction, modalVisible, pendingModalAction]);
+  const [modalContent, setModalContent] = useState<'queue' | 'skip_reason'>('queue');
 
   const onConfirmarRecusa = useCallback(
     async (reason: SkipReason, note: string | null) => {
@@ -155,6 +134,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
           return;
         }
         setRecusa(null);
+        setModalContent('queue');
+        setModalVisible(false);
       } finally {
         setRecusaBusy(false);
       }
@@ -504,7 +485,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
       />
 
       <SkipReasonSheet
-        visible={recusa != null}
+        visible={recusa != null && modalContent !== 'skip_reason'}
         escopo={recusa?.escopo ?? 'exercicio'}
         alvo={recusa?.escopo === 'exercicio' ? recusa.nome : draft.title}
         busy={recusaBusy}
@@ -516,10 +497,23 @@ const ActiveSessionScreen = ({ route }: Props) => {
         visible={modalVisible}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setModalVisible(false)}
-        onDismiss={flushModalAction}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setModalContent('queue');
+          setRecusa(null);
+        }}
       >
-        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+        {modalContent === 'skip_reason' && recusa?.escopo === 'exercicio' ? (
+          <SkipReasonSheet
+            inline
+            visible
+            escopo="exercicio"
+            alvo={recusa.nome}
+            busy={recusaBusy}
+            onConfirm={onConfirmarRecusa}
+            onDismiss={() => { setRecusa(null); setModalContent('queue'); }}
+          />
+        ) : <SafeAreaView style={styles.modalContainer} edges={['top']}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Andamento do treino</Text>
             <TouchableOpacity
@@ -544,23 +538,20 @@ const ActiveSessionScreen = ({ route }: Props) => {
                 return detalheEx ? formatExerciseTarget(detalheEx) : null;
               }}
               onSolicitarRecusa={(ex: DraftExercise) => {
-                queueModalAction(() =>
-                  setRecusa({
-                    escopo: 'exercicio',
-                    exerciseId: ex.exerciseId,
-                    nome: ex.name,
-                  }),
-                );
+                setRecusa({ escopo: 'exercicio', exerciseId: ex.exerciseId, nome: ex.name });
+                setModalContent('skip_reason');
               }}
               onActivateSet={(exerciseId, setOrder) => {
-                queueModalAction(() => activateSet(exerciseId, setOrder));
+                activateSet(exerciseId, setOrder);
+                setModalVisible(false);
               }}
               onUnskipExercise={(exerciseId) => {
-                queueModalAction(() => void unskipExercise(exerciseId));
+                void unskipExercise(exerciseId);
+                setModalVisible(false);
               }}
             />
           </ScrollView>
-        </SafeAreaView>
+        </SafeAreaView>}
       </Modal>
     </SafeAreaView>
   );
