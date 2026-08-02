@@ -51,6 +51,7 @@ import {
   type Adjustment,
 } from '../engine/intraSessionAdaptation';
 import { effectiveMinutesForMood, type SessionMood } from '../engine/moodAdjustment';
+import { localTodayISO } from '../engine/agendaDias';
 import {
   replanByRules,
   applyTimeCutToDraft,
@@ -247,15 +248,6 @@ const withTimeout = <T>(
 
 const isClosedSessionError = (error: unknown): boolean =>
   error instanceof SessionExecutionRequestError && error.code === 'P0001';
-
-// Data local do aparelho (YYYY-MM-DD): scheduled_date é um DATE de calendário;
-// comparar com UTC viraria o dia mais cedo/tarde dependendo do fuso.
-const localTodayISO = (): string => {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
-};
 
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
 const withSet = (
