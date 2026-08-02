@@ -35,6 +35,7 @@ import {
   DIAS_DA_SEMANA,
 } from '../utils/weekSummary';
 import { semanasConstantes } from '../engine/progressStats';
+import { normalizeName } from '../engine/sessionModel';
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
@@ -155,6 +156,23 @@ const HomeScreen = () => {
   );
   const ultima = completed?.[0] ?? null;
 
+  // Conjunto normalizado de grupos musculares, na mesma régua dos dois lados.
+  const gruposIguais = (a: string[], b: string[]): boolean => {
+    if (a.length !== b.length) return false;
+    const na = a.map(normalizeName).sort();
+    const nb = b.map(normalizeName).sort();
+    return na.every((g, i) => g === nb[i]);
+  };
+
+  // A próxima prescrição REPETE título E grupos da última sessão concluída?
+  // Só com os dois iguais (não mera interseção acidental) o destaque precisa
+  // explicitar data e semana para comunicar que é OUTRA sessão.
+  const repeticao =
+    todaySession != null &&
+    ultima != null &&
+    normalizeName(todaySession.title) === normalizeName(ultima.title) &&
+    gruposIguais(todaySession.muscle_groups ?? [], ultima.muscleGroups ?? []);
+
   // Momentum REAL: semanas consecutivas com treino, ancoradas no dia local
   // (mesma régua da semana). Zero → o cabeçalho não exibe número nenhum.
   const streak = useMemo(
@@ -219,12 +237,25 @@ const HomeScreen = () => {
             accessibilityLabel={`Abrir o treino ${todaySession.title}`}
           >
             <View style={styles.heroTop}>
-              <Text style={styles.kicker}>{ehHoje ? 'Treino de hoje' : 'Próximo treino'}</Text>
+              <Text style={styles.kicker}>
+                {repeticao
+                  ? 'Próxima sessão'
+                  : ehHoje
+                    ? 'Treino de hoje'
+                    : 'Próximo treino'}
+              </Text>
               <Text style={styles.heroMeta}>Semana {todaySession.week_number}</Text>
             </View>
 
             <Text style={styles.heroTitle}>{todaySession.title}</Text>
             <Text style={styles.heroDescription}>{descricaoSessao(todaySession)}</Text>
+
+            {repeticao ? (
+              <Text style={styles.repeticaoNote}>
+                Você já concluiu esta sessão — confira a data e a semana: esta é
+                outra prescrição dela.
+              </Text>
+            ) : null}
 
             <View style={styles.metaRow}>
               {todaySession.estimated_minutes ? (
@@ -462,6 +493,13 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.sm,
+  },
+  repeticaoNote: {
+    marginTop: -theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
   },
   metaRow: {
     flexDirection: 'row',
