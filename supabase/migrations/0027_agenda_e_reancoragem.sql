@@ -375,7 +375,10 @@ set search_path = public, pg_temp
 as $$
 declare
   v_user              uuid := auth.uid();
-  v_assignment        record;
+  -- jsonb, não record: `select * from jsonb_array_elements(...)` devolve uma LINHA
+  -- com a coluna `value`, e `record ->> texto` não existe. Iterar sobre `value`
+  -- mantém o elemento como jsonb, que é o que os operadores abaixo esperam.
+  v_assignment        jsonb;
   v_moved             int  := 0;
   v_old_date          date;
   v_new_date          date;
@@ -498,7 +501,7 @@ begin
   end if;
 
   -- Aplicar mudanças e contar quantas realmente mudaram.
-  for v_assignment in select * from jsonb_array_elements(p_assignments)
+  for v_assignment in select value from jsonb_array_elements(p_assignments)
   loop
     v_session_id := (v_assignment ->> 'session_id')::uuid;
     v_new_date   := (v_assignment ->> 'scheduled_date')::date;
