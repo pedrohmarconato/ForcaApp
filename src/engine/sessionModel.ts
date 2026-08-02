@@ -147,6 +147,10 @@ export type SessionDraft = {
   // chave do catálogo quando existe — antes disso era o nome, e "Supino com
   // Halteres (Deload)" perdia o histórico de "Supino com Halteres".
   lastLoadByExercise: Record<string, number>;
+  // Fingerprints determinísticos de propostas de replanejamento recusadas pelo
+  // aluno neste aparelho. Oculta somente a proposta idêntica; mudança de séries,
+  // minutos, cortes ou redistribuição gera fingerprint diferente (visível).
+  declinedReplanFingerprints?: string[];
 };
 
 /**
@@ -401,6 +405,7 @@ export const buildDraftFromDetail = (
     status: 'active',
     exercises,
     lastLoadByExercise: { ...lastLoadSeed },
+    declinedReplanFingerprints: [],
   };
 };
 
@@ -415,6 +420,9 @@ export const buildDraftFromDetail = (
 export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
   ...draft,
   weekNumber: toNum(draft.weekNumber) ?? 0,
+  declinedReplanFingerprints: Array.isArray(draft.declinedReplanFingerprints)
+    ? draft.declinedReplanFingerprints.filter((f) => typeof f === 'string')
+    : [],
   // O mapa de última carga também alimenta a sugestão/stepper — um "40" legado aqui
   // contaminaria do mesmo jeito. Coage os valores (descarta os que não são número).
   lastLoadByExercise: Object.fromEntries(
