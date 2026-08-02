@@ -374,17 +374,86 @@ def _uuid_ou_none(valor: Any) -> Optional[str]:
         return None
 
 
+def _ancora_semana1(
+    inicio: datetime.date, offsets: List[int], n_sessoes_semana1: int
+) -> datetime.date:
+    """
+    Calcula a âncora (segunda-feira) da semana 1.
+
+    Quando a semana calendário de `inicio` não comporta todas as sessões
+    da frequência, o plano começa na semana SEGUINTE em vez de empilhar
+    sessões num único dia. Isso respeita a decisão do dono: a semana é
+    calendário fixo (seg–dom), não rotativa.
+
+    Argumento:
+    - inicio: data de início do plano
+    - offsets: offsets dos dias disponíveis (0=segunda, ..., 6=domingo), ordenados
+    - n_sessoes_semana1: número de sessões na semana 1
+
+    Retorna:
+    - segunda-feira da semana que conterá as sessões da semana 1
+    """
+    segunda_atual = inicio - datetime.timedelta(days=inicio.weekday())
+
+    # Quais offsets cabem na semana de `segunda_atual` a partir de `inicio`?
+    restantes = [o for o in offsets if segunda_atual + datetime.timedelta(days=o) >= inicio]
+
+    # Semana corrente comporta pelo menos n_sessoes_semana1 slots?
+    if len(restantes) >= n_sessoes_semana1:
+        return segunda_atual
+
+    # Não cabe: próxima segunda
+    return segunda_atual + datetime.timedelta(days=7)
+
+
+def _offset_com_agenda(
+    offset_preferido: int,
+    offsets_agenda: List[int],
+    dias_ocupados: set,
+) -> int:
+    """
+    Resolve qual offset usar quando há agenda.
+
+    Regra: usa o preferido se estiver na agenda e livre; senão o primeiro
+    da agenda que estiver livre; senão o próximo dia livre da semana;
+    senão o preferido (semana cheia).
+    """
+    # Usa o preferido se estiver na agenda e livre
+    if offset_preferido in offsets_agenda and offset_preferido not in dias_ocupados:
+        return offset_preferido
+
+    # Senão o primeiro slot livre da agenda
+    for candidato in sorted(offsets_agenda):
+        if candidato not in dias_ocupados:
+            return candidato
+
+    # Senão o próximo dia livre da semana
+    for passo in range(1, 7):
+        candidato = (offset_preferido + passo) % 7
+        if candidato not in dias_ocupados:
+            return candidato
+
+    # Semana cheia: retorna o preferido
+    return offset_preferido
+
+
 def mapear_plano_ia(
     plano: Dict[str, Any],
     user_id: str,
     start_date: Optional[datetime.date] = None,
     restricoes_lesao: Optional[List[Dict[str, Any]]] = None,
     created_by: str = "ai",
+    dias_disponiveis: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Converte o plano da IA em linhas prontas para o PostgREST.
     Retorna {"plan": {...}, "sessions": [...], "exercises": [...], "sets": [...]}.
     Levanta ValueError se o plano não tiver nenhuma sessão utilizável.
+
+    Argumento novo (retrocompatível):
+    - dias_disponiveis: Lista de dias da semana em português ['segunda', 'terca', ...]
+      Quando fornecido, respeita a agenda e não empilha múltiplas sessões no mesmo dia.
+      Quando None ou vazio, usa o comportamento atual (fallback posicional + clamp).
     """
     if not isinstance(plano, dict):
         raise ValueError("Plano inválido: esperado objeto JSON.")
@@ -395,6 +464,17 @@ def mapear_plano_ia(
     inicio = start_date or datetime.date.today()
     # Semana 1 = semana-calendário de start_date, ancorada na segunda-feira
     segunda_semana1 = inicio - datetime.timedelta(days=inicio.weekday())
+
+    # Converte dias_disponiveis em offsets (0=segunda, ..., 6=domingo)
+    # None ou vazio significa sem agenda — mantém comportamento atual
+    offsets_agenda = None
+    if dias_disponiveis and isinstance(dias_disponiveis, (list, tuple)):
+        offsets_agenda = []
+        for dia_nome in dias_disponiveis:
+            offset = _DIA_SEMANA_OFFSET.get(dia_nome.strip().lower())
+            if offset is not None:
+                offsets_agenda.append(offset)
+        offsets_agenda = sorted(list(set(offsets_agenda))) if offsets_agenda else None
 
     plan_id = str(uuid.uuid4())
     plan_row: Dict[str, Any] = {
@@ -414,11 +494,42 @@ def mapear_plano_ia(
         "status": "active",
         "raw_plan": plano,
         "created_by": created_by,
+        "training_days": dias_disponiveis,
     }
 
     sessions: List[Dict[str, Any]] = []
     exercises: List[Dict[str, Any]] = []
     sets: List[Dict[str, Any]] = []
+
+    # Calcula a âncora uma única vez ANTES do laço dos ciclos/microciclos
+    # Procura n_sessoes_semana1 varrendo os microciclos
+    n_sessoes_semana1 = 0
+    if offsets_agenda:
+        for ciclo in principal.get("ciclos") or []:
+            if not isinstance(ciclo, dict):
+                continue
+            for micro in ciclo.get("microciclos") or []:
+                if not isinstance(micro, dict):
+                    continue
+                semana = micro.get("semana")
+                if not isinstance(semana, int) or semana < 1:
+                    semana = 1
+                if semana == 1:
+                    sessoes_semana = [s for s in (micro.get("sessoes") or []) if isinstance(s, dict)]
+                    n_sessoes_semana1 = len(sessoes_semana)
+                    break
+            if n_sessoes_semana1 > 0:
+                break
+        # Se não encontrou semana 1, usa a frequência do plano
+        if n_sessoes_semana1 == 0:
+            n_sessoes_semana1 = principal.get("frequencia_semanal")
+            if not isinstance(n_sessoes_semana1, int) or n_sessoes_semana1 < 1:
+                n_sessoes_semana1 = 3
+
+    # Calcula a âncora única, válida para TODAS as semanas
+    ancora = segunda_semana1
+    if offsets_agenda and n_sessoes_semana1 > 0:
+        ancora = _ancora_semana1(inicio, offsets_agenda, n_sessoes_semana1)
 
     for ciclo in principal.get("ciclos") or []:
         if not isinstance(ciclo, dict):
@@ -430,17 +541,28 @@ def mapear_plano_ia(
             if not isinstance(semana, int) or semana < 1:
                 semana = 1
             sessoes_semana = [s for s in (micro.get("sessoes") or []) if isinstance(s, dict)]
+
             # Escopo do desempate é a SEMANA: dois treinos em semanas
             # diferentes podem (e devem) cair no mesmo dia da semana.
             dias_ocupados: set = set()
             for ordem_na_semana, sessao in enumerate(sessoes_semana, start=1):
                 session_id = str(uuid.uuid4())
-                offset, rotulo_dia = _resolver_dia(sessao, ordem_na_semana, dias_ocupados)
-                data_agendada = segunda_semana1 + datetime.timedelta(days=(semana - 1) * 7 + offset)
-                # Nunca agendar antes do início do plano (achado #8: gerar numa
-                # sexta ancorava a semana 1 na segunda ANTERIOR ao início)
-                if data_agendada < inicio:
-                    data_agendada = inicio
+
+                if offsets_agenda:
+                    # Com agenda: aloca aos slots disponíveis usando a função simplificada
+                    offset_preferido, _ = _dia_da_sessao(sessao, ordem_na_semana)
+                    offset = _offset_com_agenda(offset_preferido, offsets_agenda, dias_ocupados)
+                    dias_ocupados.add(offset)
+                    rotulo_dia = _NOME_DIA_POR_OFFSET[offset]
+                    data_agendada = ancora + datetime.timedelta(days=(semana - 1) * 7 + offset)
+                else:
+                    # Sem agenda: comportamento original
+                    offset, rotulo_dia = _resolver_dia(sessao, ordem_na_semana, dias_ocupados)
+                    data_agendada = segunda_semana1 + datetime.timedelta(days=(semana - 1) * 7 + offset)
+                    # Nunca agendar antes do início do plano (achado #8: gerar numa
+                    # sexta ancorava a semana 1 na segunda ANTERIOR ao início)
+                    if data_agendada < inicio:
+                        data_agendada = inicio
                 grupos = [
                     g.get("nome")
                     for g in (sessao.get("grupos_musculares") or [])
