@@ -110,6 +110,7 @@ const makeDetail = (injuryFlags: string[] = []): SessionDetail => ({
       planned_sets: [
         { id: 'st-1', exercise_id: 'ex-1', set_order: 1, target_reps_min: 8, target_reps_max: 10, target_load_kg: null, target_rir: 2 },
         { id: 'st-2', exercise_id: 'ex-1', set_order: 2, target_reps_min: 8, target_reps_max: 10, target_load_kg: null, target_rir: 2 },
+        { id: 'st-3', exercise_id: 'ex-1', set_order: 3, target_reps_min: 8, target_reps_max: 10, target_load_kg: null, target_rir: 2 },
       ],
     },
   ],
@@ -290,4 +291,77 @@ it('HIGH: retomada online preserva e REAPLICA a adaptation à próxima série', 
   const sets = store().draft!.exercises[0].sets;
   expect(sets.find((s) => s.setOrder === 1)!.adaptation).toEqual(REDUZIR_45); // restaurada
   expect(sets.find((s) => s.setOrder === 2)!.targetLoadKg).toBe(45); // reaplicada
+});
+
+describe('última série do exercício: sem proposta nem decisão automática (emenda G)', () => {
+  it('completar a ÚLTIMA série com superávit → pendingAdaptation null E lastAutoDecision null', async () => {
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail: makeDetail() });
+    await confirmarCheckInSePedido();
+
+    // Começa limpo.
+    expect(store().lastAutoDecision).toBeNull();
+
+    // Série 3 é a ÚLTIMA (a série 1 e 2 já estão feitas).
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 50);
+    await store().completeSet('ex-1', 1);
+    store().setReps('ex-1', 2, 8);
+    store().setLoad('ex-1', 2, 50);
+    await store().completeSet('ex-1', 2);
+
+    // Superávit na última série (12 de 8–10): haveria recomendação de aumento,
+    // mas SEM próxima série do mesmo exercício NÃO abre proposta nem decisão.
+    store().setReps('ex-1', 3, 12);
+    store().setLoad('ex-1', 3, 50);
+    await store().completeSet('ex-1', 3);
+
+    expect(store().pendingAdaptation).toBeNull();
+    expect(store().lastAutoDecision).toBeNull();
+    // A série foi concluída e avançou normalmente.
+    const set3 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 3)!;
+    expect(set3.status).toBe('done');
+  });
+
+  it('última série SEM próxima do mesmo exercício, mas com pendentes de OUTRO → também não abre', async () => {
+    const detail = makeDetail();
+    // Acrescenta um segundo exercício com série pendente para provar que a
+    // regra é por EXERCÍCIO, não por sessão inteira.
+    detail.planned_exercises.push({
+      id: 'ex-2',
+      session_id: 'sess-1',
+      exercise_order: 2,
+      name: 'Flexão',
+      muscle_group: 'Peito',
+      priority: 'secondary',
+      equipment: 'Peso corporal',
+      load_increment_kg: 0,
+      rest_seconds: 60,
+      target_rm_percent: null,
+      sets_planned: 1,
+      reps_raw: '12-15',
+      method: null,
+      notes: null,
+      injury_flags: [],
+      planned_sets: [
+        { id: 'st-4', exercise_id: 'ex-2', set_order: 1, target_reps_min: 12, target_reps_max: 15, target_load_kg: null, target_rir: null },
+      ],
+    });
+    await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail });
+    await confirmarCheckInSePedido();
+
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 50);
+    await store().completeSet('ex-1', 1);
+    store().setReps('ex-1', 2, 8);
+    store().setLoad('ex-1', 2, 50);
+    await store().completeSet('ex-1', 2);
+
+    // Última série do ex-1 (superávit): há pendente em ex-2, mas não em ex-1.
+    store().setReps('ex-1', 3, 12);
+    store().setLoad('ex-1', 3, 50);
+    await store().completeSet('ex-1', 3);
+
+    expect(store().pendingAdaptation).toBeNull();
+    expect(store().lastAutoDecision).toBeNull();
+  });
 });

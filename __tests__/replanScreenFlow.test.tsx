@@ -208,8 +208,10 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.press(screen.getByTestId('replan-decline'));
   await waitFor(() => expect(screen.queryByText(/na sua semana/)).toBeNull());
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
-  // Redesign: número e nome vivem em Texts separados na fila compacta.
-  expect(screen.getByText('Tríceps Corda')).toBeTruthy();
+  // Redesign: a fila (nome do exercício) vive no modal "Ver andamento".
+  fireEvent.press(screen.getByTestId('ver-andamento'));
+  await waitFor(() => expect(screen.getByText('Tríceps Corda')).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Fechar andamento'));
 
   // 3. Menos tempo hoje: 40 min → proposta de corte do acessório (sem a
   // redistribuição recusada de volta)
@@ -227,6 +229,9 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   // 4. APLICAR: escreve via repositório e o acessório sai do caminho na tela
   fireEvent.press(screen.getByTestId('replan-confirm'));
   await waitFor(() => expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1));
+  // O "Cortado por tempo" é nota da fila, dentro do modal de andamento.
+  fireEvent.press(screen.getByTestId('ver-andamento'));
   await waitFor(() => expect(screen.getByText(/Cortado por tempo/)).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Fechar andamento'));
   expect(screen.queryByText(/na sua semana/)).toBeNull();
 });

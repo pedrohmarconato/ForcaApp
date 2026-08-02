@@ -341,3 +341,97 @@ describe('Home — correções do review adversarial do PR #13', () => {
     expect(getByText('1')).toBeTruthy();
   });
 });
+
+describe('Home — próxima prescrição e refetch após resumo', () => {
+  const hoje = hojeLocalISO();
+
+  it('refetch REAL por foco: sessão A sai do destaque e B (ou null) assume', async () => {
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-A',
+      title: 'Push A',
+      scheduled_date: hoje,
+    };
+    const { getByText, queryByText } = render(<HomeScreen />);
+    await waitFor(() => expect(getByText('Push A')).toBeTruthy());
+
+    // Usuário conclui A e volta do resumo: a Home ganha foco de novo e relê.
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-B',
+      title: 'Pull B',
+      scheduled_date: hoje,
+    };
+    act(() => dispararFocus());
+
+    await waitFor(() => expect(getByText('Pull B')).toBeTruthy());
+    expect(queryByText('Push A')).toBeNull();
+  });
+
+  it('refetch por foco: sem nova sessão pendente, o destaque some (null)', async () => {
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-A',
+      title: 'Push A',
+      scheduled_date: hoje,
+    };
+    const { getByText, queryByText } = render(<HomeScreen />);
+    await waitFor(() => expect(getByText('Push A')).toBeTruthy());
+
+    mockRespostaHoje = null;
+    act(() => dispararFocus());
+
+    await waitFor(() =>
+      expect(getByText('Nenhum treino pendente')).toBeTruthy(),
+    );
+    expect(queryByText('Push A')).toBeNull();
+  });
+
+  it('repetição (título E grupos iguais) → kicker "Próxima sessão" + nota + data/semana', async () => {
+    mockConcluidas = [concluidaHoje('Push A', 50)]; // muscleGroups: ['Pernas']
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-rep',
+      title: 'Push A',
+      scheduled_date: hoje,
+      muscle_groups: ['Pernas'],
+    };
+    const { getByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('Próxima sessão')).toBeTruthy());
+    expect(getByText(/Você já concluiu esta sessão/)).toBeTruthy();
+    // Data e semana explícitas (outra prescrição, não "treino de hoje").
+    expect(getByText('Semana 1')).toBeTruthy();
+    expect(getByText(/Sessão do seu plano|Pernas/)).toBeTruthy();
+  });
+
+  it('mesmo título com GRUPO diferente → NÃO dispara repetição', async () => {
+    mockConcluidas = [concluidaHoje('Push A', 50)];
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-x',
+      title: 'Push A',
+      scheduled_date: hoje,
+      muscle_groups: ['Peito', 'Tríceps'],
+    };
+    const { getByText, queryByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('Treino de hoje')).toBeTruthy());
+    expect(queryByText(/Você já concluiu esta sessão/)).toBeNull();
+  });
+
+  it('grupos iguais com TÍTULO diferente → NÃO dispara repetição', async () => {
+    mockConcluidas = [concluidaHoje('Push A', 50)];
+    mockRespostaHoje = {
+      ...sessaoBase,
+      id: 'sess-y',
+      title: 'Pull B',
+      scheduled_date: hoje,
+      muscle_groups: ['Pernas'],
+    };
+    const { getByText, queryByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByText('Treino de hoje')).toBeTruthy());
+    expect(queryByText(/Você já concluiu esta sessão/)).toBeNull();
+  });
+});

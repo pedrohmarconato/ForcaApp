@@ -160,6 +160,20 @@ describe('transparência do "manter" automático (store)', () => {
                 outcome: null,
                 adaptation: null,
               },
+              {
+                plannedSetId: 'st-2',
+                setOrder: 2,
+                status: 'pending',
+                targetRepsMin: 8,
+                targetRepsMax: 10,
+                targetLoadKg: null,
+                targetRir: 2,
+                actualReps: null,
+                actualLoadKg: null,
+                actualRir: null,
+                outcome: null,
+                adaptation: null,
+              },
             ],
           },
         ],
@@ -222,5 +236,95 @@ describe('degrau mínimo em carga leve (incremento grosso vs teto)', () => {
       actualRir: null,
     });
     expect(rec.recommended.kind).toBe('keep');
+  });
+});
+
+describe('topo da faixa com fôlego (gatilho interno explícito)', () => {
+  const topo = evaluateSet({ actualReps: 10, targetRepsMin: 8, targetRepsMax: 10 });
+
+  it('no MÁXIMO da faixa + RIR >= 2 + carga válida → sugere AUMENTO com trigger machine-readable', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: 40,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('load');
+    if (rec.recommended.kind === 'load') {
+      expect(rec.recommended.direction).toBe('increase');
+      // 40 + 2.5 = 42.5 → 6.25% dentro de [5%, 12%] → passo seguro.
+      expect(rec.recommended.toKg).toBe(42.5);
+    }
+    expect(rec.trigger).toBe('topo_da_faixa_com_folego');
+    expect(rec.recommended.reason.toLowerCase()).toContain('topo da faixa');
+  });
+
+  it('meio da faixa (9 de 8–10) NÃO é topo → manter', () => {
+    const rec = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 9, targetRepsMin: 8, targetRepsMax: 10 }),
+      currentLoadKg: 40,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+  });
+
+  it('RIR 1 no topo → manter (fôlego abaixo do gatilho)', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: 40,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 1,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+  });
+
+  it('lesão declarada no topo → manter (guardrail vence)', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: 40,
+      incrementKg: 2.5,
+      ctx: { isBodyweight: false, injury: true },
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+  });
+
+  it('carga ausente no topo → manter (nunca sugere no escuro)', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: null,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+  });
+
+  it('SEM incremento seguro dentro dos limites (15kg + 2.5 = 16.7% > teto) → KEEP, razão explícita', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: 15,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('keep');
+    expect(rec.recommended.reason.toLowerCase()).toContain('incremento seguro');
+    expect(rec.trigger).toBe('topo_da_faixa_com_folego');
+  });
+
+  it('peso corporal no topo → mexe em REPS, não carga (trigger não dispara)', () => {
+    const rec = recommendByRules({
+      evaluated: topo,
+      currentLoadKg: null,
+      incrementKg: 0,
+      ctx: { isBodyweight: true, injury: false },
+      actualRir: 2,
+    });
+    expect(rec.recommended.kind).toBe('reps');
   });
 });

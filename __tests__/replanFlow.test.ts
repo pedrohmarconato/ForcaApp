@@ -447,3 +447,180 @@ it('retomada reaplica um corte de tempo já CONFIRMADO (registro do servidor)', 
     await confirmarCheckInSePedido();
   expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).toBe(true);
 });
+
+// ============================================================
+// Memória da proposta recusada (fingerprint) e falhas amigáveis
+// ============================================================
+
+import { replanFingerprint } from '../src/engine/weeklyReplanner';
+import { SessionExecutionRequestError } from '../src/services/sessionExecutionRepository';
+
+describe('memória da proposta recusada (fingerprint)', () => {
+  it('recusar A (await) persiste o fingerprint; remount + recálculo OCULTA a proposta idêntica', async () => {
+    await abrir();
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+    const fpA = replanFingerprint(store().pendingReplan!.proposal);
+
+    // 1. Recusa: fingerprint persistido no draft via saveDraft.
+    await store().declineReplan();
+    expect(mock(saveDraft)).toHaveBeenCalled();
+    const salvo = mock(saveDraft).mock.calls[mock(saveDraft).mock.calls.length - 1][0];
+    expect(salvo.declinedReplanFingerprints).toContain(fpA);
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+
+    // 2. Remount: reset + startOrResume carrega o draft salvo (servidor reidrata).
+    useActiveSessionStore.getState().reset();
+    mock(loadDraft).mockResolvedValue(salvo);
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'log-1',
+      startedAt: '2020-01-07T10:00:00Z',
+      setLogs: [],
+    });
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+
+    // 3. Recalcular a MESMA proposta → oculta (banner não aparece).
+    await store().computeReplan(makeDetail());
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+  });
+
+  it('proposta com conteúdo DIFERENTE reaparece após recusa', async () => {
+    await abrir();
+    await store().declineReplan();
+
+    // Outra falta (sessão 'qui' com grupo Costas) muda o fingerprint.
+    const contexto = makeContext();
+    contexto.sessions = [
+      {
+        id: 'qui',
+        weekNumber: 1,
+        title: 'Treino B',
+        sessionType: 'Hipertrofia',
+        scheduledDate: '2020-01-02',
+        status: 'pending',
+        estimatedMinutes: 60,
+        exercises: [
+          {
+            id: 'c1',
+            name: 'Remada',
+            muscleGroup: 'Costas',
+            priority: 'primary',
+            exerciseOrder: 1,
+            sets: [1, 2, 3, 4].map((i) => ({ id: `c1-s${i}`, setOrder: i })),
+          },
+        ],
+      },
+      ...contexto.sessions,
+    ];
+    mock(getWeekReplanContext).mockResolvedValue(contexto);
+
+    await store().computeReplan(makeDetail());
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+  });
+
+  it('falha de AsyncStorage em declineReplan: recusa vale AGORA, storageWarning setado, treino ativo', async () => {
+    await abrir();
+    mock(saveDraft).mockRejectedValue(new Error('storage cheio'));
+
+    await store().declineReplan();
+
+    // Recusa vale na montagem atual (proposta fechada), mesmo sem persistir.
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+    // Aviso não bloqueante de armazenamento.
+    expect(store().storageWarning).toContain('salvar');
+    expect(store().status).toBe('active');
+  });
+});
+
+describe('falhas de transporte e payload inválido no replanejamento', () => {
+  it('transporte em computeReplan → replanWarning amigável (sem stack), treino segue ativo', async () => {
+    await abrir();
+    mock(getWeekReplanContext).mockRejectedValue(
+      new SessionExecutionRequestError({ message: 'TypeError: Network request failed' }, { kind: 'transport' }),
+    );
+
+    await store().computeReplan(makeDetail());
+
+    expect(store().replanWarning).toContain('conexão');
+    expect(store().replanWarning).not.toMatch(/TypeError|at /);
+    expect(store().status).toBe('active');
+    expect(store().saveError).toBeNull();
+  });
+
+  it('payload estruturalmente inválido → aviso amigável (não mascara como offline)', async () => {
+    await abrir();
+    mock(getWeekReplanContext).mockResolvedValue({
+      planId: 'plan-1',
+      weekNumber: 1,
+      userId: 'user-1',
+      sessions: null, // malformado
+      completedSetsBySession: {},
+      sessionLabelById: {},
+      raw: [],
+      snapshotBySessionLogId: {},
+    } as unknown as WeekReplanContext);
+
+    await store().computeReplan(makeDetail());
+
+    expect(store().replanWarning).toContain('replanejamento');
+    expect(store().status).toBe('active');
+    expect(store().draft).not.toBeNull();
+  });
+
+  it('transporte em confirmReplan → saveError amigável SEM TypeError/stack', async () => {
+    await abrir();
+    mock(applyConfirmedReplan).mockRejectedValue(
+      new SessionExecutionRequestError({ message: 'TypeError: Network request failed' }, { kind: 'transport' }),
+    );
+
+    const ok = await store().confirmReplan();
+
+    expect(ok).toBe(false);
+    expect(store().saveError).toContain('Sem conexão');
+    expect(store().saveError).not.toMatch(/TypeError|at /);
+  });
+
+  it('falha parcial (replanApplied=true) com refresh sem rede: séries DONE não regridem', async () => {
+    await abrir();
+    // Série 1 já confirmada no servidor (done no draft).
+    useActiveSessionStore.setState({
+      draft: {
+        ...store().draft!,
+        exercises: store().draft!.exercises.map((ex, i) =>
+          i === 0
+            ? {
+                ...ex,
+                sets: ex.sets.map((s) =>
+                  s.setOrder === 1
+                    ? { ...s, status: 'done', setLogId: 'sl-1', actualReps: 8, actualLoadKg: 40, outcome: 'on_target' as const }
+                    : s,
+                ),
+              }
+            : ex,
+        ),
+      },
+    });
+    const doneBefore = store().draft!.exercises[0].sets[0].status;
+
+    // applyConfirmedReplan falha no SKIP após inserir+registrar (replanApplied=true).
+    mock(applyConfirmedReplan).mockRejectedValue({
+      replanApplied: true,
+      addedSets: [],
+      stage: 'skip',
+      message: 'skip falhou',
+    });
+    // E o refresh do contexto também falha por transporte.
+    mock(getWeekReplanContext).mockRejectedValue(
+      new SessionExecutionRequestError({ message: 'net' }, { kind: 'transport' }),
+    );
+
+    const ok = await store().confirmReplan();
+    expect(ok).toBe(false);
+    // A série confirmada NÃO regrediu.
+    expect(store().draft!.exercises[0].sets[0].status).toBe(doneBefore);
+    expect(store().saveError).not.toMatch(/TypeError/);
+  });
+});
