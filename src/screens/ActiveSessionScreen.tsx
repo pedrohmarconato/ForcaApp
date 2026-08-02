@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -90,9 +91,15 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const requestTimeCut = useActiveSessionStore((s) => s.requestTimeCut);
   const confirmReplan = useActiveSessionStore((s) => s.confirmReplan);
   const declineReplan = useActiveSessionStore((s) => s.declineReplan);
+  const storageWarning = useActiveSessionStore((s) => s.storageWarning);
+  const clearStorageWarning = useActiveSessionStore((s) => s.clearStorageWarning);
+  const replanWarning = useActiveSessionStore((s) => s.replanWarning);
+  const clearReplanWarning = useActiveSessionStore((s) => s.clearReplanWarning);
 
   const skipExercise = useActiveSessionStore((s) => s.skipExercise);
   const skipWholeSession = useActiveSessionStore((s) => s.skipWholeSession);
+  const activateSet = useActiveSessionStore((s) => s.activateSet);
+  const unskipExercise = useActiveSessionStore((s) => s.unskipExercise);
 
   // Toggle "menos tempo hoje" (Fase 6): input de minutos → recalcula a proposta.
   const [timeInputVisible, setTimeInputVisible] = useState(false);
@@ -104,6 +111,12 @@ const ActiveSessionScreen = ({ route }: Props) => {
     { escopo: 'exercicio'; exerciseId: string; nome: string } | { escopo: 'sessao' } | null
   >(null);
   const [recusaBusy, setRecusaBusy] = useState(false);
+
+  // A fila e a recusa aberta a partir dela compartilham ESTE Modal nativo. Em
+  // Android isso torna impossível empilhar Dialogs durante a animação: o
+  // formulário troca apenas o conteúdo da camada já visível.
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalContent, setModalContent] = useState<'queue' | 'skip_reason'>('queue');
 
   const onConfirmarRecusa = useCallback(
     async (reason: SkipReason, note: string | null) => {
@@ -121,6 +134,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
           return;
         }
         setRecusa(null);
+        setModalContent('queue');
+        setModalVisible(false);
       } finally {
         setRecusaBusy(false);
       }
@@ -369,7 +384,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
           sessions={pendingReplan?.context.sessions ?? []}
           busy={replanBusy}
           onConfirm={confirmReplan}
-          onDecline={declineReplan}
+          onDecline={() => { void declineReplan(); }}
         />
 
         {/* Redesign 22/07: modo player — um card com o AGORA; o resto é fila. */}
@@ -377,18 +392,38 @@ const ActiveSessionScreen = ({ route }: Props) => {
           draft={draft}
           suggestedLoadFor={(ex, s) => suggestionFor(draft, ex, s)}
         />
-        <SessionQueue
-          draft={draft}
-          metaFor={(ex) => {
-            const detalheEx = detail?.planned_exercises.find(
-              (e) => e.id === ex.exerciseId,
-            );
-            return detalheEx ? formatExerciseTarget(detalheEx) : null;
-          }}
-          onSolicitarRecusa={(ex: DraftExercise) =>
-            setRecusa({ escopo: 'exercicio', exerciseId: ex.exerciseId, nome: ex.name })
-          }
-        />
+
+        <TouchableOpacity
+          style={styles.verAndamentoBtn}
+          testID="ver-andamento"
+          accessibilityRole="button"
+          accessibilityLabel="Ver andamento do treino"
+          onPress={() => setModalVisible(true)}
+        >
+          <Text style={styles.verAndamentoText}>Ver andamento</Text>
+        </TouchableOpacity>
+
+        {replanWarning ? (
+          <Notice
+            tone="warning"
+            title={replanWarning}
+            style={styles.errorBanner}
+            action={
+              <Button label="Dispensar" variant="ghost" compact onPress={clearReplanWarning} />
+            }
+          />
+        ) : null}
+
+        {storageWarning ? (
+          <Notice
+            tone="warning"
+            title={storageWarning}
+            style={styles.errorBanner}
+            action={
+              <Button label="Dispensar" variant="ghost" compact onPress={clearStorageWarning} />
+            }
+          />
+        ) : null}
 
         {/* Recusar tudo, exercício por exercício, deixava a tela sem saída: o
             "Concluir" exige série registrada e não havia nada registrado. Aqui o
@@ -450,13 +485,74 @@ const ActiveSessionScreen = ({ route }: Props) => {
       />
 
       <SkipReasonSheet
-        visible={recusa != null}
+        visible={recusa != null && modalContent !== 'skip_reason'}
         escopo={recusa?.escopo ?? 'exercicio'}
         alvo={recusa?.escopo === 'exercicio' ? recusa.nome : draft.title}
         busy={recusaBusy}
         onConfirm={onConfirmarRecusa}
         onDismiss={() => setRecusa(null)}
       />
+
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setModalContent('queue');
+          setRecusa(null);
+        }}
+      >
+        {modalContent === 'skip_reason' && recusa?.escopo === 'exercicio' ? (
+          <SkipReasonSheet
+            inline
+            visible
+            escopo="exercicio"
+            alvo={recusa.nome}
+            busy={recusaBusy}
+            onConfirm={onConfirmarRecusa}
+            onDismiss={() => { setRecusa(null); setModalContent('queue'); }}
+          />
+        ) : <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Andamento do treino</Text>
+            <TouchableOpacity
+              style={styles.modalClose}
+              accessibilityRole="button"
+              accessibilityLabel="Fechar andamento"
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.modalCloseText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.modalScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            <SessionQueue
+              draft={draft}
+              metaFor={(ex) => {
+                const detalheEx = detail?.planned_exercises.find(
+                  (e) => e.id === ex.exerciseId,
+                );
+                return detalheEx ? formatExerciseTarget(detalheEx) : null;
+              }}
+              onSolicitarRecusa={(ex: DraftExercise) => {
+                setRecusa({ escopo: 'exercicio', exerciseId: ex.exerciseId, nome: ex.name });
+                setModalContent('skip_reason');
+              }}
+              onActivateSet={(exerciseId, setOrder) => {
+                activateSet(exerciseId, setOrder);
+                setModalVisible(false);
+              }}
+              onUnskipExercise={(exerciseId) => {
+                void unskipExercise(exerciseId);
+                setModalVisible(false);
+              }}
+            />
+          </ScrollView>
+        </SafeAreaView>}
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -596,6 +692,53 @@ const styles = StyleSheet.create({
   },
 
   finishBtn: { marginTop: theme.spacing.sm, marginBottom: theme.spacing.xxxl },
+
+  verAndamentoBtn: {
+    alignSelf: 'center',
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.xl,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border.strong,
+    borderRadius: theme.borderRadius.md,
+  },
+  verAndamentoText: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.surface.canvas,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border.subtle,
+  },
+  modalTitle: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.lg,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  modalClose: {
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+  },
+  modalCloseText: {
+    color: theme.colors.text.accent,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.base,
+    fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  modalScroll: { padding: theme.spacing.xl },
 });
 
 export default ActiveSessionScreen;

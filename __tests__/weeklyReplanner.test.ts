@@ -16,6 +16,8 @@ import {
   parseReplanSnapshot,
   addedSetIdsFromSnapshots,
   lastTimeCutForSession,
+  replanFingerprint,
+  type WeeklyReplanProposal,
   type ReplanSession,
   type ReplanExercise,
   type ReplanSetRef,
@@ -636,5 +638,111 @@ describe('snapshot do replanejamento (parse defensivo)', () => {
     });
     expect(lastTimeCutForSession(snap, 'sess-1')?.availableMinutes).toBe(45);
     expect(lastTimeCutForSession(snap, 'sem-corte')).toBeNull();
+  });
+});
+
+describe('replanFingerprint — conteúdo canônico visível/aplicável', () => {
+  const proposta = (overrides: Partial<WeeklyReplanProposal> = {}): WeeklyReplanProposal => ({
+    adherence: { sessionsDue: 1, sessionsCompleted: 0, sessionRate: 0, setsDue: 4, setsCompleted: 0, volumeRate: 0 },
+    timeCut: {
+      kind: 'time_cut',
+      sessionId: 'sess-1',
+      availableMinutes: 30,
+      estimatedMinutes: 60,
+      ratio: 0.5,
+      keptPriorities: ['primary'],
+      cutExercises: [
+        { exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 },
+      ],
+    },
+    redistribution: {
+      kind: 'missed_redistribution',
+      missedSessionIds: ['seg'],
+      additions: [
+        { targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 },
+      ],
+      losses: [
+        { missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' },
+      ],
+    },
+    hasChanges: true,
+    ...overrides,
+  });
+
+  it('mesma semântica em ordem diferente → fingerprint IGUAL', () => {
+    const a = proposta({
+      timeCut: { ...proposta().timeCut, cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 }] },
+      redistribution: {
+        ...proposta().redistribution,
+        missedSessionIds: ['seg'],
+        additions: [{ targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 }],
+        losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' }],
+      },
+    });
+    const b = proposta({
+      timeCut: { ...proposta().timeCut, cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 }] },
+      redistribution: {
+        ...proposta().redistribution,
+        missedSessionIds: ['seg'],
+        additions: [{ targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 }],
+        losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' }],
+      },
+    });
+    expect(replanFingerprint(a)).toBe(replanFingerprint(b));
+  });
+
+  it('mudar availableMinutes (com timeCut) → DIFERENTE', () => {
+    expect(replanFingerprint(proposta({ timeCut: { ...proposta().timeCut, availableMinutes: 40 } }))).not.toBe(
+      replanFingerprint(proposta()),
+    );
+  });
+
+  it('mudar setsCut de um corte → DIFERENTE', () => {
+    const p = proposta();
+    p.timeCut.cutExercises[0] = { ...p.timeCut.cutExercises[0], setsCut: 2 };
+    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
+  });
+
+  it('mudar nome do corte (visível) → DIFERENTE', () => {
+    const p = proposta();
+    p.timeCut.cutExercises[0] = { ...p.timeCut.cutExercises[0], name: 'Tríceps Francês' };
+    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
+  });
+
+  it('mudar prioridade ou grupo do corte → DIFERENTE', () => {
+    const p = proposta();
+    p.timeCut.cutExercises[0] = { ...p.timeCut.cutExercises[0], priority: 'secondary' };
+    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
+    const q = proposta();
+    q.timeCut.cutExercises[0] = { ...q.timeCut.cutExercises[0], muscleGroup: 'Ombro' };
+    expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
+  });
+
+  it('mudar addSets ou exerciseName de uma addition → DIFERENTE', () => {
+    const p = proposta();
+    p.redistribution.additions[0] = { ...p.redistribution.additions[0], addSets: 2 };
+    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
+    const q = proposta();
+    q.redistribution.additions[0] = { ...q.redistribution.additions[0], exerciseName: 'Supino Inclinado' };
+    expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
+  });
+
+  it('mudar sets ou muscleGroup de uma loss → DIFERENTE', () => {
+    const p = proposta();
+    p.redistribution.losses[0] = { ...p.redistribution.losses[0], sets: 2 };
+    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
+    const q = proposta();
+    q.redistribution.losses[0] = { ...q.redistribution.losses[0], muscleGroup: 'Costas' };
+    expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
+  });
+
+  it('sem timeCut: mudar só os minutos NÃO muda o fingerprint (sem proposta visível de corte)', () => {
+    const semCorte = proposta({ timeCut: null });
+    const semCorte40 = proposta({ timeCut: null });
+    expect(replanFingerprint(semCorte)).toBe(replanFingerprint(semCorte40));
+  });
+
+  it('proposta sem timeCut nem redistribution → fingerprint estável "no-changes"', () => {
+    expect(replanFingerprint(proposta({ timeCut: null, redistribution: null, hasChanges: false }))).toBe('no-changes');
   });
 });

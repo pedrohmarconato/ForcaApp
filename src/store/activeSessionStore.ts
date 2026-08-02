@@ -57,6 +57,7 @@ import {
   appendAddedSetsToDraft,
   parseReplanSnapshot,
   lastTimeCutForSession,
+  replanFingerprint,
   type WeeklyReplanProposal,
   type AddedSetRow,
 } from '../engine/weeklyReplanner';
@@ -103,6 +104,10 @@ interface ActiveSessionState {
   draft: SessionDraft | null;
   status: Status;
   saveError: string | null;
+  /** Aviso não bloqueante de falha de armazenamento local (saveDraft rejeitou). */
+  storageWarning: string | null;
+  /** Aviso não bloqueante de falha de transporte no replanejamento. */
+  replanWarning: string | null;
   pendingAdaptation: PendingAdaptation | null;
   pendingReplan: PendingReplan | null;
   replanBusy: boolean;
@@ -128,7 +133,9 @@ interface ActiveSessionState {
   computeReplan: (detail: SessionDetail) => Promise<void>;
   requestTimeCut: (minutes: number | null) => void;
   confirmReplan: () => Promise<boolean>;
-  declineReplan: () => void;
+  declineReplan: () => Promise<void>;
+  clearStorageWarning: () => void;
+  clearReplanWarning: () => void;
   activateSet: (exerciseId: string, setOrder: number) => void;
   setReps: (exerciseId: string, setOrder: number, reps: number | null) => void;
   setLoad: (exerciseId: string, setOrder: number, load: number | null) => void;
@@ -421,17 +428,98 @@ const applyServerSetLogs = (
   // `?? []` não é decoração: o campo é novo, e um OpenSessionLog vindo de
   // versão anterior do repositório (ou de um mock) faria a retomada INTEIRA
   // estourar num reduce de undefined — o treino não abriria.
-  return (aberta.exerciseSkips ?? []).reduce(
+  const comRecusas = (aberta.exerciseSkips ?? []).reduce(
     (acc, skip) =>
       applyExerciseSkipToDraft(acc, skip.plannedExerciseId, skip.reason, skip.note),
     comCorte,
   );
+  // Fingerprints de propostas recusadas são memória LOCAL do aparelho (nunca do
+  // servidor): na reconstrução a partir do servidor, eles vêm do rascunho local.
+  return {
+    ...comRecusas,
+    declinedReplanFingerprints:
+      local?.declinedReplanFingerprints ?? draft.declinedReplanFingerprints ?? [],
+  };
 };
+
+/**
+ * Validação estrutural do contexto de replanejamento antes do consumo.
+ * Payload malformado NÃO é tratado como offline — é diagnosticado separadamente
+ * para nunca mascarar um bug estrutural como "sem conexão" nem vazar bruto à UI.
+ */
+class ReplanContextStructureError extends Error {
+  constructor(reason: string) {
+    super(`[replan] contexto estrutural inválido: ${reason}`);
+    this.name = 'ReplanContextStructureError';
+  }
+}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const requireString = (value: unknown, path: string, nullable = false): void => {
+  if ((nullable && value === null) || typeof value === 'string') return;
+  throw new ReplanContextStructureError(`${path} deve ser ${nullable ? 'string|null' : 'string'}`);
+};
+const requireFiniteNumber = (value: unknown, path: string, nullable = false): void => {
+  if ((nullable && value === null) || (typeof value === 'number' && Number.isFinite(value))) return;
+  throw new ReplanContextStructureError(`${path} deve ser ${nullable ? 'número|null' : 'número'}`);
+};
+const assertValidReplanContext: (ctx: unknown) => asserts ctx is WeekReplanContext = (ctx) => {
+  if (!isRecord(ctx)) throw new ReplanContextStructureError('contexto não é objeto');
+  if (!Array.isArray(ctx.sessions)) throw new ReplanContextStructureError('sessions não é array');
+  if (!isRecord(ctx.completedSetsBySession)) throw new ReplanContextStructureError('completedSetsBySession não é objeto');
+  requireString(ctx.userId, 'userId'); requireString(ctx.planId, 'planId'); requireFiniteNumber(ctx.weekNumber, 'weekNumber');
+  for (const [sessionId, completed] of Object.entries(ctx.completedSetsBySession)) requireFiniteNumber(completed, `completedSetsBySession.${sessionId}`);
+  for (const [sessionIndex, session] of ctx.sessions.entries()) {
+    const sessionPath = `sessions[${sessionIndex}]`;
+    if (!isRecord(session)) throw new ReplanContextStructureError(`${sessionPath} não é objeto`);
+    requireString(session.id, `${sessionPath}.id`); requireFiniteNumber(session.weekNumber, `${sessionPath}.weekNumber`); requireString(session.title, `${sessionPath}.title`);
+    requireString(session.sessionType, `${sessionPath}.sessionType`, true); requireString(session.scheduledDate, `${sessionPath}.scheduledDate`, true);
+    if (!['pending', 'in_progress', 'completed', 'skipped'].includes(String(session.status))) throw new ReplanContextStructureError(`${sessionPath}.status é inválido`);
+    requireFiniteNumber(session.estimatedMinutes, `${sessionPath}.estimatedMinutes`, true);
+    if (!Array.isArray(session.exercises)) throw new ReplanContextStructureError(`${sessionPath}.exercises não é array`);
+    for (const [exerciseIndex, exercise] of session.exercises.entries()) {
+      const exercisePath = `${sessionPath}.exercises[${exerciseIndex}]`;
+      if (!isRecord(exercise)) throw new ReplanContextStructureError(`${exercisePath} não é objeto`);
+      requireString(exercise.id, `${exercisePath}.id`); requireString(exercise.name, `${exercisePath}.name`); requireString(exercise.muscleGroup, `${exercisePath}.muscleGroup`, true);
+      if (!['primary', 'secondary', 'accessory'].includes(String(exercise.priority))) throw new ReplanContextStructureError(`${exercisePath}.priority é inválida`);
+      requireFiniteNumber(exercise.exerciseOrder, `${exercisePath}.exerciseOrder`);
+      if (!Array.isArray(exercise.sets)) throw new ReplanContextStructureError(`${exercisePath}.sets não é array`);
+      for (const [setIndex, plannedSet] of exercise.sets.entries()) {
+        const setPath = `${exercisePath}.sets[${setIndex}]`;
+        if (!isRecord(plannedSet)) throw new ReplanContextStructureError(`${setPath} não é objeto`);
+        requireString(plannedSet.id, `${setPath}.id`); requireFiniteNumber(plannedSet.setOrder, `${setPath}.setOrder`);
+        if (plannedSet.addedByReplan !== undefined && typeof plannedSet.addedByReplan !== 'boolean') throw new ReplanContextStructureError(`${setPath}.addedByReplan deve ser boolean`);
+      }
+    }
+  }
+};
+
+/** Mensagem amigável para falha de transporte no replanejamento. */
+const REPLAN_TRANSPORT_MSG =
+  'Não foi possível verificar o replanejamento da semana. Verifique a conexão.';
+const REPLAN_STRUCTURE_MSG =
+  'Os dados do replanejamento vieram em um formato inválido. O treino segue normalmente.';
+const isReplanTransportError = (error: unknown): boolean => {
+  if (isTransportSessionExecutionError(error)) return true;
+  if (!isRecord(error) && !(error instanceof Error)) return false;
+  const name = typeof (error as { name?: unknown }).name === 'string' ? (error as { name: string }).name : '';
+  if (name === 'AbortError') return true;
+  const message = typeof (error as { message?: unknown }).message === 'string' ? (error as { message: string }).message : '';
+  if ((error instanceof TypeError || name === 'TypeError' || name === 'ReplanApplyError') && /(?:^TypeError:\s*)?(?:failed to fetch|network request failed|network error|load failed)/i.test(message)) return true;
+  const cause = (error as { cause?: unknown }).cause;
+  return cause !== undefined && cause !== error && isReplanTransportError(cause);
+};
+
+/** Mensagem amigável (não bloqueante) de falha ao persistir o rascunho local. */
+const STORAGE_WARNING_MSG =
+  'Não foi possível salvar localmente. Seu treino continua, mas pode não retomar se o app fechar.';
 
 export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   draft: null,
   status: 'idle',
   saveError: null,
+  storageWarning: null,
+  replanWarning: null,
   pendingAdaptation: null,
   pendingReplan: null,
   replanBusy: false,
@@ -524,6 +612,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             '[activeSession] rascunho não persistido (não-fatal):',
             e,
           );
+          set({ storageWarning: STORAGE_WARNING_MSG });
         }
         return;
       }
@@ -556,6 +645,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         await saveDraft(draft);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        set({ storageWarning: STORAGE_WARNING_MSG });
       }
     } catch (e) {
       if (isCurrent()) set({ status: 'error', saveError: errMsg(e) });
@@ -586,6 +676,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         await saveDraft(draft);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        set({ storageWarning: STORAGE_WARNING_MSG });
       }
     } catch (e) {
       if (operationEpoch === epoch) set({ status: 'error', saveError: errMsg(e) });
@@ -608,8 +699,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         detail.plan_id,
         detail.week_number,
       );
+      if (operationEpoch !== epoch) return;
+
+      // Validação estrutural ANTES do consumo: payload malformado é bug, não offline.
+      assertValidReplanContext(context);
+
       const atual = get().draft;
-      if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return;
+      if (!atual || atual.sessionLogId !== sid) return;
       const sessaoDeHoje =
         context.sessions.find((sess) => sess.id === atual.plannedSessionId) ?? null;
       const minutosEfetivos = effectiveMinutesForMood({
@@ -617,17 +713,21 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         availableMinutes: get().checkInMinutes,
         estimatedMinutes: sessaoDeHoje?.estimatedMinutes ?? null,
       });
-      const proposal = replanByRules({
+      let proposal = replanByRules({
         sessions: context.sessions,
         todayISO: localTodayISO(),
         currentSessionId: atual.plannedSessionId,
         availableMinutes: minutosEfetivos,
         completedSetsBySession: context.completedSetsBySession,
-        // O que ele recusou por dor/rejeição/equipamento não volta pela porta da
-        // redistribuição (0020).
         blockedExerciseNames: nomesBloqueadosPorRecusa(atual),
       });
-      // Guarda mesmo sem mudanças: o contexto serve ao "menos tempo hoje".
+
+      // Oculta proposta cujo fingerprint foi recusado nesta sessão.
+      const declined = atual.declinedReplanFingerprints ?? [];
+      if (proposal.hasChanges && declined.includes(replanFingerprint(proposal))) {
+        proposal = { ...proposal, hasChanges: false };
+      }
+
       set({
         pendingReplan: {
           sessionLogId: sid,
@@ -638,7 +738,18 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         },
       });
     } catch (e) {
-      console.warn('[activeSession] replanejamento não calculado (não-fatal):', e);
+      if (operationEpoch !== epoch) return;
+      if (e instanceof ReplanContextStructureError) {
+        console.warn(e.message);
+        set({ replanWarning: REPLAN_STRUCTURE_MSG });
+      } else if (isReplanTransportError(e)) {
+        // Transporte: aviso amigável não bloqueante, sem stack.
+        set({ replanWarning: REPLAN_TRANSPORT_MSG });
+      } else {
+        // Erro estrutural/inesperado: diagnosticado no console, aviso genérico à UI.
+        console.warn('[replan] erro não classificado como transporte:', e);
+        set({ replanWarning: REPLAN_STRUCTURE_MSG });
+      }
     }
   },
 
@@ -664,6 +775,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Redistribuição já recusada nesta visita não volta pela porta do recálculo.
     if (pr.redistributionDismissed) {
       proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
+    }
+    // Oculta proposta cujo fingerprint foi recusado nesta sessão.
+    const declined = draft.declinedReplanFingerprints ?? [];
+    if (proposal.hasChanges && declined.includes(replanFingerprint(proposal))) {
+      proposal = { ...proposal, hasChanges: false };
     }
     set({ pendingReplan: { ...pr, requestedMinutes: minutes, proposal } });
   },
@@ -714,6 +830,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         await saveDraft(novo);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        set({ storageWarning: STORAGE_WARNING_MSG });
       }
       return true;
     } catch (e) {
@@ -734,7 +851,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (failure?.replanApplied !== true && !insertConflict) {
         // Nada foi aplicado (insert/snapshot falharam com rollback): a proposta
         // fica de pé para tentar de novo; o erro aparece, nunca é engolido.
-        set({ saveError: errMsg(e) });
+        const msg = isReplanTransportError(e)
+          ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.'
+          : errMsg(e);
+        set({ saveError: msg });
         return false;
       }
       if (insertConflict) {
@@ -764,14 +884,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             (r) => r.sessionId === atual.plannedSessionId,
           );
           if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
-          set({ draft: novo, pendingReplan: null, saveError: errMsg(e) });
+          set({ draft: novo, pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
           try {
             await saveDraft(novo);
           } catch (storageError) {
             console.warn('[activeSession] rascunho não persistido (não-fatal):', storageError);
+            set({ storageWarning: STORAGE_WARNING_MSG });
           }
         } else {
-          set({ pendingReplan: null, saveError: errMsg(e) });
+          set({ pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
         }
       }
       // Recálculo do servidor (comum ao conflito e ao skip falho): a nova
@@ -812,12 +933,17 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     }
   },
 
-  declineReplan: () => {
+  declineReplan: async () => {
     const pr = get().pendingReplan;
     if (!pr) return;
-    // Recusa = NADA é escrito; o plano original segue valendo. Só o contexto fica
-    // para um eventual "menos tempo hoje" depois.
+    // Fingerprint canônico da proposta recusada: oculta somente a idêntica.
+    const fp = replanFingerprint(pr.proposal);
+    // Recusa = NADA é escrito no servidor; o plano original segue valendo.
+    const draft = get().draft;
+    const declinedFps = draft ? [...(draft.declinedReplanFingerprints ?? []), fp] : [fp];
+    const draftComFp = draft ? { ...draft, declinedReplanFingerprints: declinedFps } : null;
     set({
+      ...(draftComFp ? { draft: draftComFp } : {}),
       pendingReplan: {
         ...pr,
         requestedMinutes: null,
@@ -831,6 +957,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         },
       },
     });
+    // Persiste o fingerprint no draft para que a proposta idêntica fique oculta
+    // após remount. Falha de armazenamento: a recusa vale na montagem atual, mas
+    // não é garantida após remount — aviso não bloqueante.
+    if (draftComFp) {
+      try {
+        await saveDraft(draftComFp);
+      } catch (e) {
+        console.warn('[activeSession] fingerprint de recusa não persistido (não-fatal):', e);
+        set({
+          storageWarning:
+            'Não foi possível salvar sua recusa localmente. Ela vale agora, mas pode reaparecer se o app fechar.',
+        });
+      }
+    }
   },
 
   activateSet: (exerciseId, setOrder) => {
@@ -1056,19 +1196,22 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      // Fase 5: série fora do alvo → recomenda um ajuste. On-target não gera nada.
-      // O motor mexe em CARGA: não tem o que propor para uma caminhada. Cardio
-      // conclui a série e segue — progressão de cardio é do plano, não daqui.
-      const evaluated = cardio
-        ? null
-        : evaluateSet({
-            actualReps: saved.actualReps as number,
-            targetRepsMin: serie.targetRepsMin,
-            targetRepsMax: serie.targetRepsMax,
-          });
+      // Fase 5: série fora do alvo → recomenda um ajuste. On-target não gera nada
+      // (exceto topo da faixa com fôlego). O motor mexe em CARGA: não tem o que
+      // propor para uma caminhada. Cardio conclui a série e segue.
+      // GUARD DE ÚLTIMA SÉRIE: sem próxima série pendente do MESMO exercício, não
+      // há proposta nem decisão automática — a adaptação é intra-exercício.
+      const updatedEx = novo.exercises.find((e) => e.exerciseId === exerciseId);
+      const hasNextPendingOfSameExercise =
+        updatedEx?.sets.some((s) => s.setOrder > setOrder && s.status !== 'done') ?? false;
       let finalDraft = novo;
       let pending: PendingAdaptation | null = null;
-      if (evaluated && evaluated.outcome !== 'on_target') {
+      if (hasNextPendingOfSameExercise && !cardio) {
+        const evaluated = evaluateSet({
+          actualReps: saved.actualReps as number,
+          targetRepsMin: serie.targetRepsMin,
+          targetRepsMax: serie.targetRepsMax,
+        });
         const recommendation = recommendByRules({
           evaluated,
           currentLoadKg: saved.actualLoadKg,
@@ -1077,7 +1220,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           actualRir: saved.actualRir,
         });
         if (recommendation.recommended.kind !== 'keep') {
-          // Há um ajuste CONCRETO → o aluno decide no bottom sheet (a UI observa pending).
+          // Há um ajuste CONCRETO (topo da faixa, fora do alvo) → o aluno decide.
           pending = {
             exerciseId,
             setOrder,
@@ -1085,10 +1228,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             sessionLogId: sid,
             recommendation,
           };
-        } else {
-          // Guardrail (lesão) / piso / RIR / incremento grosso resultaram em "manter": é uma
-          // decisão AUTOMÁTICA de segurança, não uma escolha do aluno. Não abre sheet, mas
-          // registra (auto:true) para a coluna não ficar null (achado MEDIUM do review).
+        } else if (evaluated.outcome !== 'on_target') {
+          // Guardrail (lesão) / piso / RIR / incremento grosso resultaram em "manter":
+          // decisão AUTOMÁTICA de segurança. Não abre sheet, mas registra.
           const autoKeep: Adjustment = {
             kind: 'keep',
             auto: true,
@@ -1110,6 +1252,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             );
           }
         }
+        // on_target + keep (sem progressão possível): nada — a série conclui e segue.
       }
       set({ draft: finalDraft, saveError: null, pendingAdaptation: pending });
 
@@ -1117,6 +1260,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         await saveDraft(finalDraft);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        set({ storageWarning: STORAGE_WARNING_MSG });
       }
       return true;
     } catch (e) {
@@ -1163,6 +1307,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         await saveDraft(novo);
       } catch (e) {
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+        set({ storageWarning: STORAGE_WARNING_MSG });
       }
     } else {
       set({ pendingAdaptation: null });
@@ -1226,6 +1371,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       await saveDraft(novo);
     } catch (e) {
       console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      set({ storageWarning: STORAGE_WARNING_MSG });
     }
     return true;
   },
@@ -1255,6 +1401,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       await saveDraft(novo);
     } catch (e) {
       console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      set({ storageWarning: STORAGE_WARNING_MSG });
     }
     return true;
   },
@@ -1343,6 +1490,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   },
 
   clearError: () => set({ saveError: null }),
+  clearStorageWarning: () => set({ storageWarning: null }),
+  clearReplanWarning: () => set({ replanWarning: null }),
 
   reset: () => {
     operationEpoch += 1;
@@ -1350,6 +1499,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       draft: null,
       status: 'idle',
       saveError: null,
+      storageWarning: null,
+      replanWarning: null,
       pendingAdaptation: null,
       pendingReplan: null,
       replanBusy: false,

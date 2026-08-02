@@ -87,23 +87,15 @@ export const getActivePlanId = async (userId: string): Promise<string | null> =>
 };
 
 /**
- * Sessão "de hoje": prioriza uma sessão em andamento; sem isso, a próxima
- * pendente por data — sempre DENTRO do plano ativo.
- * Retorna null quando não há plano/sessões.
+ * Sessão "de hoje": a primeira REALMENTE PENDENTE do plano ativo, por data e
+ * ordem na semana. Sessões em andamento (in_progress), concluídas ou recusadas
+ * NÃO são selecionadas automaticamente — a retomada de uma sessão abandonada é
+ * explícita (via Plano ou URL tipada), nunca um redirecionamento global.
+ * Retorna null quando não há plano/sessões pendentes.
  */
 export const getTodaySession = async (userId: string): Promise<PlannedSession | null> => {
   const planId = await getActivePlanId(userId);
   if (!planId) return null;
-
-  const emAndamento = await supabase
-    .from('planned_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('plan_id', planId)
-    .eq('status', 'in_progress')
-    .limit(1);
-  if (emAndamento.error) throw emAndamento.error;
-  if (emAndamento.data && emAndamento.data.length > 0) return emAndamento.data[0];
 
   const pendente = await supabase
     .from('planned_sessions')

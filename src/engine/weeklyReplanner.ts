@@ -502,6 +502,77 @@ export const replanByRules = (params: {
 };
 
 // ---------------------------------------------------------------
+// Fingerprint canônico da proposta (ocultação de recusa idêntica)
+// ---------------------------------------------------------------
+
+/**
+ * Hash determinístico do conteúdo VISÍVEL E APLICÁVEL da proposta.
+ *
+ * Inclui TODO campo que o aluno vê ou que altera séries/minutos/cortes/
+ * redistribuição — não só os campos usados na escrita. Coleções são ordenadas
+ * (canônicas) sem apagar multiplicidade/quantidades. `requestedMinutes` fica
+ * fora apenas quando não há `timeCut`: sem corte, minutos não mudam o conteúdo
+ * visível (só redistribution, que independe de minutos). Com `timeCut`,
+ * `availableMinutes` está dentro do fingerprint.
+ *
+ * NÃO inclui: `adherence` (telemetria), `hasChanges` (derivado), `ratio`
+ * (derivado de available/estimated), `requestedMinutes` (sem timeCut).
+ */
+export const replanFingerprint = (proposal: WeeklyReplanProposal): string => {
+  const parts: string[] = [];
+
+  if (proposal.timeCut) {
+    const tc = proposal.timeCut;
+    parts.push('tc');
+    parts.push(tc.sessionId);
+    parts.push(String(tc.availableMinutes));
+    parts.push(String(tc.estimatedMinutes));
+    parts.push([...tc.keptPriorities].sort().join(','));
+    const cuts = [...tc.cutExercises]
+      .sort((a, b) => a.exerciseId.localeCompare(b.exerciseId))
+      .map(
+        (c) =>
+          `${c.exerciseId}|${c.name}|${c.priority}|${c.muscleGroup ?? ''}|${c.setsCut}`,
+      )
+      .join(';');
+    parts.push(cuts);
+  }
+
+  if (proposal.redistribution) {
+    const rd = proposal.redistribution;
+    parts.push('rd');
+    parts.push([...rd.missedSessionIds].sort().join(','));
+    const adds = [...rd.additions]
+      .sort(
+        (a, b) =>
+          a.targetSessionId.localeCompare(b.targetSessionId) ||
+          a.exerciseId.localeCompare(b.exerciseId),
+      )
+      .map(
+        (a) =>
+          `${a.targetSessionId}|${a.exerciseId}|${a.exerciseName}|${a.muscleGroup}|${a.addSets}`,
+      )
+      .join(';');
+    parts.push(adds);
+    const losses = [...rd.losses]
+      .sort(
+        (a, b) =>
+          a.missedSessionId.localeCompare(b.missedSessionId) ||
+          a.muscleGroup.localeCompare(b.muscleGroup) ||
+          a.reason.localeCompare(b.reason),
+      )
+      .map(
+        (l) => `${l.missedSessionId}|${l.muscleGroup}|${l.sets}|${l.reason}`,
+      )
+      .join(';');
+    parts.push(losses);
+  }
+
+  if (parts.length === 0) return 'no-changes';
+  return parts.join('||');
+};
+
+// ---------------------------------------------------------------
 // Aplicação ao RASCUNHO da sessão ativa (pura — chamada só após confirmação)
 // ---------------------------------------------------------------
 

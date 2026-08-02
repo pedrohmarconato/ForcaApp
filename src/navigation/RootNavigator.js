@@ -8,7 +8,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
+import { LINKING_PREFIXES, LINKING_CONFIG } from './linking';
 import { useAuth } from '../contexts/AuthContext';
+
+// Deep link / URL tipada: a sessão ativa é recuperável por URL nos stacks Hoje
+// e Plano (ex.: /home/active-session/<id> e /training/active-session/<id>).
+const linking = {
+  prefixes: LINKING_PREFIXES,
+  config: LINKING_CONFIG,
+};
 
 const RootNavigator = () => {
   // ... (estados e useEffect permanecem os mesmos da versão anterior) ...
@@ -57,7 +65,7 @@ const RootNavigator = () => {
         AsyncStorage.removeItem('@userShouldStayLoggedIn');
     }
     return (
-      <NavigationContainer>
+      <NavigationContainer linking={linking}>
         <AuthNavigator />
       </NavigationContainer>
     );
@@ -106,7 +114,7 @@ const RootNavigator = () => {
 
   // Retorna o componente navegador decidido dentro do Container
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       {NavigatorComponent}
     </NavigationContainer>
   );

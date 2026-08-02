@@ -167,13 +167,15 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   // Anel: drena continuamente — a cada segundo anima até a fração seguinte.
   const ringAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!rest || restTotal <= 0) return;
-    Animated.timing(ringAnim, {
+    if (!rest || restTotal <= 0) return undefined;
+    const anim = Animated.timing(ringAnim, {
       toValue: Math.max(0, restRemaining - 1) / restTotal,
       duration: 1000,
-      easing: (t) => t, // descanso: linear, sem aceleração
-      useNativeDriver: false, // strokeDashoffset é prop de SVG (JS driver)
-    }).start();
+      easing: (t) => t,
+      useNativeDriver: false,
+    });
+    anim.start();
+    return () => anim.stop();
   }, [rest, restRemaining, restTotal, ringAnim]);
 
   // Pulso discreto do relógio nos 5 segundos finais.
@@ -196,6 +198,18 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
 
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
+
+  // Cleanup no unmount: cancela timers e animações iniciados para que nenhuma
+  // atualização de estado dispare após o componente sair da árvore.
+  useEffect(() => {
+    return () => {
+      if (restTick.current) clearInterval(restTick.current);
+      entrada.stopAnimation();
+      ringAnim.stopAnimation();
+      pulseAnim.stopAnimation();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Entrada do card quando o TREINO vira a página do exercício. Dispara só na
   // troca de exercício — animar a cada série viraria ruído, e era justamente a
@@ -236,7 +250,6 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   }, [exercicioAtivoId, entrada]);
 
   const estiloDeEntrada = {
-    opacity: entrada,
     transform: [
       { translateY: entrada.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
     ],
