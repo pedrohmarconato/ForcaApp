@@ -15,6 +15,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -117,6 +118,26 @@ const ActiveSessionScreen = ({ route }: Props) => {
   // antes de outra camada abrir.
   const [modalVisible, setModalVisible] = useState(false);
   const [pendingModalAction, setPendingModalAction] = useState<(() => void) | null>(null);
+  const pendingModalActionRef = useRef<(() => void) | null>(null);
+
+  const flushModalAction = useCallback(() => {
+    const action = pendingModalActionRef.current;
+    if (!action) return;
+    pendingModalActionRef.current = null;
+    setPendingModalAction(null);
+    action();
+  }, []);
+  const queueModalAction = useCallback((action: () => void) => {
+    pendingModalActionRef.current = action;
+    setPendingModalAction(() => action);
+    setModalVisible(false);
+  }, []);
+  useEffect(() => {
+    if (modalVisible || !pendingModalAction || Platform.OS === 'ios') return;
+    // Android não entrega onDismiss: roda após o commit visible=false.
+    const timer = setTimeout(flushModalAction, 0);
+    return () => clearTimeout(timer);
+  }, [flushModalAction, modalVisible, pendingModalAction]);
 
   const onConfirmarRecusa = useCallback(
     async (reason: SkipReason, note: string | null) => {
@@ -496,13 +517,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
         animationType="slide"
         transparent={false}
         onRequestClose={() => setModalVisible(false)}
-        onDismiss={() => {
-          if (pendingModalAction) {
-            const action = pendingModalAction;
-            setPendingModalAction(null);
-            action();
-          }
-        }}
+        onDismiss={flushModalAction}
       >
         <SafeAreaView style={styles.modalContainer} edges={['top']}>
           <View style={styles.modalHeader}>
@@ -529,22 +544,19 @@ const ActiveSessionScreen = ({ route }: Props) => {
                 return detalheEx ? formatExerciseTarget(detalheEx) : null;
               }}
               onSolicitarRecusa={(ex: DraftExercise) => {
-                setPendingModalAction(() => () =>
+                queueModalAction(() =>
                   setRecusa({
                     escopo: 'exercicio',
                     exerciseId: ex.exerciseId,
                     nome: ex.name,
                   }),
                 );
-                setModalVisible(false);
               }}
               onActivateSet={(exerciseId, setOrder) => {
-                setPendingModalAction(() => () => activateSet(exerciseId, setOrder));
-                setModalVisible(false);
+                queueModalAction(() => activateSet(exerciseId, setOrder));
               }}
               onUnskipExercise={(exerciseId) => {
-                setPendingModalAction(() => () => void unskipExercise(exerciseId));
-                setModalVisible(false);
+                queueModalAction(() => void unskipExercise(exerciseId));
               }}
             />
           </ScrollView>

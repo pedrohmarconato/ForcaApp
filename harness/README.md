@@ -27,7 +27,8 @@ open http://localhost:8787
    fallback): player + barra de progresso + botão "Ver andamento". A fixture
    tem a série 1 feita, o ex-3 cortado por replan e o ex-4 recusado.
 2. **Modal de andamento** — tocar "Ver andamento": fila rolável com
-   concluídas/atual/pendentes (conteúdo abaixo da dobra).
+   concluídas/atual/pendentes. A fixture tem 12 exercícios e 28 séries, com
+   conteúdo real abaixo da dobra a 390×844.
 3. **Após "Pular descanso"** — completar a série ativa (ex.: 8 reps × 40 kg),
    esperar o descanso aparecer e tocar "Pular descanso": o próximo card fica
    visível imediatamente.
@@ -39,7 +40,7 @@ open http://localhost:8787
 | `/auth/v1/token`, `/auth/v1/signup`, `/auth/v1/user` | sessão fake (`user-1`), qualquer credencial |
 | `/rest/v1/profiles` | perfil com `onboarding_completed: true` |
 | `/rest/v1/training_plans` | plano ativo `plan-1` |
-| `/rest/v1/planned_sessions` (detalhe `sess-v1`) | 4 exercícios × 6 séries (fixture) |
+| `/rest/v1/planned_sessions` (detalhe `sess-v1`) | 12 exercícios × 28 séries (fixture) |
 | `/rest/v1/session_logs` (aberta) | log `log-1` com série 1 feita + skip ex-4 + corte ex-3 |
 | `/rest/v1/rpc/save_set_log` etc. | echo determinístico |
 
@@ -47,3 +48,6 @@ open http://localhost:8787
 
 O harness (`harness/`) é infraestrutura de TESTE: não entra no bundle de
 produção (nenhum import do app o referencia) e não expõe rota/debug entry.
+
+As capturas da rodada 2 ficam em `capturas/round-2-*.png`; `capture.mjs`
+reproduz a captura Chrome/CDP e também não é referenciado pelo app.

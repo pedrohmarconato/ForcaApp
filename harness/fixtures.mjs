@@ -154,6 +154,23 @@ export const SESSION_DETAIL = {
       injury_flags: [],
       planned_sets: [ST('st-6', 1, 12, 15, 12)].map((s) => ({ ...s, exercise_id: 'ex-4' })),
     },
+    ...[
+      ['ex-5', 'Crucifixo Máquina', 'Peito', 'secondary', 'Máquina', 3],
+      ['ex-6', 'Remada Baixa', 'Costas', 'secondary', 'Polia', 3],
+      ['ex-7', 'Rosca Direta', 'Bíceps', 'accessory', 'Barra', 3],
+      ['ex-8', 'Rosca Martelo', 'Bíceps', 'accessory', 'Halteres', 3],
+      ['ex-9', 'Face Pull', 'Ombro', 'accessory', 'Polia', 3],
+      ['ex-10', 'Panturrilha em Pé', 'Panturrilha', 'accessory', 'Máquina', 3],
+      ['ex-11', 'Prancha', 'Core', 'accessory', 'Colchonete', 3],
+      ['ex-12', 'Abdominal Cable', 'Core', 'accessory', 'Polia', 3],
+    ].map(([id, name, muscleGroup, priority, equipment, setsPlanned], index) => ({
+      id, session_id: 'sess-v1', exercise_order: index + 5, name, exercise_key: String(id), name_original: null,
+      metric: 'carga_reps', muscle_group: muscleGroup, priority, equipment, load_increment_kg: 2.5, rest_seconds: 60,
+      target_rm_percent: null, sets_planned: setsPlanned, reps_raw: '10-12', method: null, notes: null, injury_flags: [],
+      planned_sets: Array.from({ length: setsPlanned }, (_, setIndex) =>
+        ({ ...ST(`st-${id}-${setIndex + 1}`, setIndex + 1, 10, 12, 20), exercise_id: id }),
+      ),
+    })),
   ],
 };
 

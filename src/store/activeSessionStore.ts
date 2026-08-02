@@ -447,25 +447,68 @@ const applyServerSetLogs = (
  * Payload malformado NÃO é tratado como offline — é diagnosticado separadamente
  * para nunca mascarar um bug estrutural como "sem conexão" nem vazar bruto à UI.
  */
-const validateReplanContext = (
-  ctx: unknown,
-): { ok: boolean; reason?: string } => {
-  if (typeof ctx !== 'object' || ctx === null)
-    return { ok: false, reason: 'contexto não é objeto' };
-  const c = ctx as Record<string, unknown>;
-  if (!Array.isArray(c.sessions))
-    return { ok: false, reason: 'sessions não é array' };
-  if (typeof c.completedSetsBySession !== 'object' || c.completedSetsBySession === null)
-    return { ok: false, reason: 'completedSetsBySession não é objeto' };
-  if (typeof c.userId !== 'string') return { ok: false, reason: 'userId ausente' };
-  if (typeof c.planId !== 'string') return { ok: false, reason: 'planId ausente' };
-  if (typeof c.weekNumber !== 'number') return { ok: false, reason: 'weekNumber ausente' };
-  return { ok: true };
+class ReplanContextStructureError extends Error {
+  constructor(reason: string) {
+    super(`[replan] contexto estrutural inválido: ${reason}`);
+    this.name = 'ReplanContextStructureError';
+  }
+}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const requireString = (value: unknown, path: string, nullable = false): void => {
+  if ((nullable && value === null) || typeof value === 'string') return;
+  throw new ReplanContextStructureError(`${path} deve ser ${nullable ? 'string|null' : 'string'}`);
+};
+const requireFiniteNumber = (value: unknown, path: string, nullable = false): void => {
+  if ((nullable && value === null) || (typeof value === 'number' && Number.isFinite(value))) return;
+  throw new ReplanContextStructureError(`${path} deve ser ${nullable ? 'número|null' : 'número'}`);
+};
+const assertValidReplanContext: (ctx: unknown) => asserts ctx is WeekReplanContext = (ctx) => {
+  if (!isRecord(ctx)) throw new ReplanContextStructureError('contexto não é objeto');
+  if (!Array.isArray(ctx.sessions)) throw new ReplanContextStructureError('sessions não é array');
+  if (!isRecord(ctx.completedSetsBySession)) throw new ReplanContextStructureError('completedSetsBySession não é objeto');
+  requireString(ctx.userId, 'userId'); requireString(ctx.planId, 'planId'); requireFiniteNumber(ctx.weekNumber, 'weekNumber');
+  for (const [sessionId, completed] of Object.entries(ctx.completedSetsBySession)) requireFiniteNumber(completed, `completedSetsBySession.${sessionId}`);
+  for (const [sessionIndex, session] of ctx.sessions.entries()) {
+    const sessionPath = `sessions[${sessionIndex}]`;
+    if (!isRecord(session)) throw new ReplanContextStructureError(`${sessionPath} não é objeto`);
+    requireString(session.id, `${sessionPath}.id`); requireFiniteNumber(session.weekNumber, `${sessionPath}.weekNumber`); requireString(session.title, `${sessionPath}.title`);
+    requireString(session.sessionType, `${sessionPath}.sessionType`, true); requireString(session.scheduledDate, `${sessionPath}.scheduledDate`, true);
+    if (!['pending', 'in_progress', 'completed', 'skipped'].includes(String(session.status))) throw new ReplanContextStructureError(`${sessionPath}.status é inválido`);
+    requireFiniteNumber(session.estimatedMinutes, `${sessionPath}.estimatedMinutes`, true);
+    if (!Array.isArray(session.exercises)) throw new ReplanContextStructureError(`${sessionPath}.exercises não é array`);
+    for (const [exerciseIndex, exercise] of session.exercises.entries()) {
+      const exercisePath = `${sessionPath}.exercises[${exerciseIndex}]`;
+      if (!isRecord(exercise)) throw new ReplanContextStructureError(`${exercisePath} não é objeto`);
+      requireString(exercise.id, `${exercisePath}.id`); requireString(exercise.name, `${exercisePath}.name`); requireString(exercise.muscleGroup, `${exercisePath}.muscleGroup`, true);
+      if (!['primary', 'secondary', 'accessory'].includes(String(exercise.priority))) throw new ReplanContextStructureError(`${exercisePath}.priority é inválida`);
+      requireFiniteNumber(exercise.exerciseOrder, `${exercisePath}.exerciseOrder`);
+      if (!Array.isArray(exercise.sets)) throw new ReplanContextStructureError(`${exercisePath}.sets não é array`);
+      for (const [setIndex, plannedSet] of exercise.sets.entries()) {
+        const setPath = `${exercisePath}.sets[${setIndex}]`;
+        if (!isRecord(plannedSet)) throw new ReplanContextStructureError(`${setPath} não é objeto`);
+        requireString(plannedSet.id, `${setPath}.id`); requireFiniteNumber(plannedSet.setOrder, `${setPath}.setOrder`);
+        if (plannedSet.addedByReplan !== undefined && typeof plannedSet.addedByReplan !== 'boolean') throw new ReplanContextStructureError(`${setPath}.addedByReplan deve ser boolean`);
+      }
+    }
+  }
 };
 
 /** Mensagem amigável para falha de transporte no replanejamento. */
 const REPLAN_TRANSPORT_MSG =
   'Não foi possível verificar o replanejamento da semana. Verifique a conexão.';
+const REPLAN_STRUCTURE_MSG =
+  'Os dados do replanejamento vieram em um formato inválido. O treino segue normalmente.';
+const isReplanTransportError = (error: unknown): boolean => {
+  if (isTransportSessionExecutionError(error)) return true;
+  if (!isRecord(error) && !(error instanceof Error)) return false;
+  const name = typeof (error as { name?: unknown }).name === 'string' ? (error as { name: string }).name : '';
+  if (name === 'AbortError') return true;
+  const message = typeof (error as { message?: unknown }).message === 'string' ? (error as { message: string }).message : '';
+  if ((error instanceof TypeError || name === 'TypeError' || name === 'ReplanApplyError') && /(?:^TypeError:\s*)?(?:failed to fetch|network request failed|network error|load failed)/i.test(message)) return true;
+  const cause = (error as { cause?: unknown }).cause;
+  return cause !== undefined && cause !== error && isReplanTransportError(cause);
+};
 
 /** Mensagem amigável (não bloqueante) de falha ao persistir o rascunho local. */
 const STORAGE_WARNING_MSG =
@@ -659,15 +702,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (operationEpoch !== epoch) return;
 
       // Validação estrutural ANTES do consumo: payload malformado é bug, não offline.
-      const valid = validateReplanContext(context);
-      if (!valid.ok) {
-        console.warn('[replan] contexto inválido:', valid.reason);
-        set({
-          replanWarning:
-            'Não foi possível carregar os dados do replanejamento. O treino segue normalmente.',
-        });
-        return;
-      }
+      assertValidReplanContext(context);
 
       const atual = get().draft;
       if (!atual || atual.sessionLogId !== sid) return;
@@ -704,21 +739,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       });
     } catch (e) {
       if (operationEpoch !== epoch) return;
-      // Classificação espelha a fronteira do repositório: fetch falha com
-      // TypeError; abort com AbortError; erros já normalizados têm kind.
-      const nome =
-        typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string'
-          ? (e as { name: string }).name
-          : '';
-      const transport =
-        isTransportSessionExecutionError(e) || e instanceof TypeError || nome === 'AbortError';
-      if (transport) {
+      if (e instanceof ReplanContextStructureError) {
+        console.warn(e.message);
+        set({ replanWarning: REPLAN_STRUCTURE_MSG });
+      } else if (isReplanTransportError(e)) {
         // Transporte: aviso amigável não bloqueante, sem stack.
         set({ replanWarning: REPLAN_TRANSPORT_MSG });
       } else {
         // Erro estrutural/inesperado: diagnosticado no console, aviso genérico à UI.
         console.warn('[replan] erro não classificado como transporte:', e);
-        set({ replanWarning: REPLAN_TRANSPORT_MSG });
+        set({ replanWarning: REPLAN_STRUCTURE_MSG });
       }
     }
   },
@@ -821,7 +851,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (failure?.replanApplied !== true && !insertConflict) {
         // Nada foi aplicado (insert/snapshot falharam com rollback): a proposta
         // fica de pé para tentar de novo; o erro aparece, nunca é engolido.
-        const msg = isTransportSessionExecutionError(e)
+        const msg = isReplanTransportError(e)
           ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.'
           : errMsg(e);
         set({ saveError: msg });
@@ -854,7 +884,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             (r) => r.sessionId === atual.plannedSessionId,
           );
           if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
-          set({ draft: novo, pendingReplan: null, saveError: errMsg(e) });
+          set({ draft: novo, pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
           try {
             await saveDraft(novo);
           } catch (storageError) {
@@ -862,7 +892,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             set({ storageWarning: STORAGE_WARNING_MSG });
           }
         } else {
-          set({ pendingReplan: null, saveError: errMsg(e) });
+          set({ pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
         }
       }
       // Recálculo do servidor (comum ao conflito e ao skip falho): a nova
@@ -911,7 +941,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Recusa = NADA é escrito no servidor; o plano original segue valendo.
     const draft = get().draft;
     const declinedFps = draft ? [...(draft.declinedReplanFingerprints ?? []), fp] : [fp];
+    const draftComFp = draft ? { ...draft, declinedReplanFingerprints: declinedFps } : null;
     set({
+      ...(draftComFp ? { draft: draftComFp } : {}),
       pendingReplan: {
         ...pr,
         requestedMinutes: null,
@@ -928,8 +960,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Persiste o fingerprint no draft para que a proposta idêntica fique oculta
     // após remount. Falha de armazenamento: a recusa vale na montagem atual, mas
     // não é garantida após remount — aviso não bloqueante.
-    if (draft) {
-      const draftComFp = { ...draft, declinedReplanFingerprints: declinedFps };
+    if (draftComFp) {
       try {
         await saveDraft(draftComFp);
       } catch (e) {

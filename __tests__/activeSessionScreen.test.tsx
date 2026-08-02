@@ -5,7 +5,7 @@
 // e a ausência de campo de kg no bodyweight.
 
 import React from 'react';
-import { Modal } from 'react-native';
+import { Modal, Platform } from 'react-native';
 import { act, render, waitFor, fireEvent } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
@@ -371,6 +371,19 @@ describe('modal "Ver andamento" — começa fechado, abre, e ações só após o
     act(() => dismissDoModal(screen)());
     const draftDepois = useActiveSessionStore.getState().draft!;
     expect(draftDepois.exercises[0].sets[0].status).toBe('active');
+  });
+
+  it('Android executa ativar série sem onDismiss manual após fechar o modal', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    try {
+      const screen = renderScreen(); await abrirSessao(screen);
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText(/Pular para a série 1 de Supino Reto/));
+      await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
+      await waitFor(() => expect(useActiveSessionStore.getState().draft!.exercises[0].sets[0].status).toBe('active'));
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
   it('recusar exercício pelo modal: sheet SÓ abre depois do onDismiss', async () => {

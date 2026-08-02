@@ -40,6 +40,7 @@ import {
   startSessionLog,
   getOpenSessionLog,
   getLastLoadByExercise,
+  saveSetLog,
 } from '../src/services/sessionExecutionRepository';
 import { saveDraft, loadDraft } from '../src/services/sessionDraftStorage';
 import {
@@ -189,6 +190,7 @@ beforeEach(() => {
   mock(getLastLoadByExercise).mockResolvedValue({});
   mock(getOpenSessionLog).mockResolvedValue(null);
   mock(startSessionLog).mockResolvedValue({ sessionLogId: 'log-1', startedAt: '2020-01-07T10:00:00Z' });
+  mock(saveSetLog).mockImplementation(async (params: any) => ({ setLogId: `log-${params.plannedSetId}`, actualReps: params.actualReps, actualLoadKg: params.actualLoadKg, actualRir: params.actualRir, outcome: params.outcome }));
   mock(getWeekReplanContext).mockResolvedValue(makeContext());
   mock(applyConfirmedReplan).mockResolvedValue({ addedSets: [] });
 });
@@ -466,11 +468,16 @@ describe('memória da proposta recusada (fingerprint)', () => {
     expect(mock(saveDraft)).toHaveBeenCalled();
     const salvo = mock(saveDraft).mock.calls[mock(saveDraft).mock.calls.length - 1][0];
     expect(salvo.declinedReplanFingerprints).toContain(fpA);
+    expect(store().draft!.declinedReplanFingerprints).toContain(fpA);
     expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+    store().activateSet('ex-1', 1); store().setReps('ex-1', 1, 8); store().setLoad('ex-1', 1, 40);
+    expect(await store().completeSet('ex-1', 1)).toBe(true);
+    const salvoDepoisDaSerie = mock(saveDraft).mock.calls[mock(saveDraft).mock.calls.length - 1][0];
+    expect(salvoDepoisDaSerie.declinedReplanFingerprints).toContain(fpA);
 
     // 2. Remount: reset + startOrResume carrega o draft salvo (servidor reidrata).
     useActiveSessionStore.getState().reset();
-    mock(loadDraft).mockResolvedValue(salvo);
+    mock(loadDraft).mockResolvedValue(salvoDepoisDaSerie);
     mock(getOpenSessionLog).mockResolvedValue({
       sessionLogId: 'log-1',
       startedAt: '2020-01-07T10:00:00Z',
@@ -566,8 +573,18 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     await store().computeReplan(makeDetail());
 
     expect(store().replanWarning).toContain('replanejamento');
+    expect(store().replanWarning).toContain('formato inválido');
+    expect(store().replanWarning).not.toContain('conexão');
     expect(store().status).toBe('active');
     expect(store().draft).not.toBeNull();
+  });
+
+  it('exercises:null é estrutural, não offline nem TypeError bruto', async () => {
+    await abrir(); const invalido = makeContext(); (invalido.sessions[0] as any).exercises = null;
+    mock(getWeekReplanContext).mockResolvedValue(invalido);
+    await store().computeReplan(makeDetail());
+    expect(store().replanWarning).toContain('formato inválido');
+    expect(store().replanWarning).not.toMatch(/conexão|TypeError|at /);
   });
 
   it('transporte em confirmReplan → saveError amigável SEM TypeError/stack', async () => {
@@ -581,6 +598,18 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     expect(ok).toBe(false);
     expect(store().saveError).toContain('Sem conexão');
     expect(store().saveError).not.toMatch(/TypeError|at /);
+  });
+
+  it('ReplanApplyError com cause TypeError: Failed to fetch é transporte amigável e mantém retry/done', async () => {
+    await abrir();
+    useActiveSessionStore.setState({ draft: { ...store().draft!, exercises: store().draft!.exercises.map((ex, index) =>
+      index === 0 ? { ...ex, sets: ex.sets.map((set, i) => i === 0 ? { ...set, status: 'done' as const } : set) } : ex) } });
+    mock(applyConfirmedReplan).mockRejectedValueOnce({ name: 'ReplanApplyError', message: 'TypeError: Failed to fetch', cause: new TypeError('Failed to fetch'), stage: 'insert', replanApplied: false, addedSets: [] });
+    expect(await store().confirmReplan()).toBe(false);
+    expect(store().saveError).toContain('Sem conexão');
+    expect(store().saveError).not.toMatch(/TypeError|at /);
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
   });
 
   it('falha parcial (replanApplied=true) com refresh sem rede: séries DONE não regridem', async () => {
