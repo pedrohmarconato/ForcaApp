@@ -308,6 +308,14 @@ def _sanitize_chat_messages(raw_messages):
     Aceita apenas itens {role: user|assistant, content: str} e limita
     quantidade e tamanho para evitar abuso de tokens/custo.
     Retorna a lista saneada ou None se inválida.
+
+    Mensagens vazias (content em branco após strip) são FILTRADAS, não
+    rejeitam o lote: o app monta o histórico com `msg.parts[0]?.text ?? ''`,
+    e uma resposta do assistente sem texto (imagem, tool call, stream
+    truncado) derrubava a conversa inteira com 400 — o pedido do aluno morria
+    antes do molde (incidente 30/07/2026). Um item malformado (não-dict, role
+    inválido, content não-str) ainda é erro: é payload de cliente, não ruído
+    do app.
     """
     if not isinstance(raw_messages, list) or not raw_messages:
         return None
@@ -322,8 +330,11 @@ def _sanitize_chat_messages(raw_messages):
             return None
         content = content.strip()
         if not content:
-            return None
+            continue
         sanitized.append({"role": role, "content": content[:MAX_MESSAGE_LENGTH]})
+
+    if not sanitized:
+        return None
 
     # A API da Anthropic exige que a conversa comece com 'user':
     # descarta mensagens iniciais do assistente (ex.: saudação de boas-vindas)
