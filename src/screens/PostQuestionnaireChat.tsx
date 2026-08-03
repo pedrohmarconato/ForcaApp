@@ -208,12 +208,16 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
         diretrizes = await consolidateChat(historyForApi, currentQuestionnaireData);
         console.log(`[Chat ${userId}] Diretrizes consolidadas:`, JSON.stringify(diretrizes).substring(0, 200));
       } catch (consolidateError: any) {
-        // Houve conversa e ela não foi consolidada: o plano vai sair sem os
-        // ajustes pedidos. Silenciar isso entregava um plano que ignorava o
-        // que o aluno escreveu, sem ele saber.
-        console.log(`[Chat ${userId}] Consolidação falhou, usando diretrizes do questionário:`, consolidateError?.message);
-        diretrizes = diretrizesDoQuestionario();
-        setAjustesNaoAplicados(true);
+        // O chat do aluno NÃO pode ser descartado: gerar o plano com as
+        // diretrizes do questionário entrega um treino que ignora o que ele
+        // escreveu na conversa (incidente 30/07/2026 — o pedido "sem perna
+        // nas primeiras semanas" morreu num 400 do consolidate e o plano saiu
+        // com perna). Aqui a geração é BLOQUEADA: sem diretrizes do chat não
+        // há plano, e o aluno toca em "Gerar treino" de novo para tentar.
+        console.error(`[Chat ${userId}] Consolidação falhou — geração bloqueada:`, consolidateError?.message);
+        throw new Error(
+          'Não foi possível processar sua conversa. Toque em "Gerar treino" de novo para tentar.',
+        );
       }
     }
 
