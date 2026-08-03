@@ -65,6 +65,7 @@ let mockCompletedSessions: any[] = [];
 jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(async () => mockTodaySession),
   getUpcomingSessions: jest.fn(async () => mockUpcomingSessions),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
 }));
 
 jest.mock('../src/services/sessionExecutionRepository', () => ({

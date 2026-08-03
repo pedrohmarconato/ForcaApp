@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -18,6 +18,7 @@ import {
   getTodaySession,
   getPlanSessions,
   getSessionDetail,
+  fecharSessoesDeSemanasVencidas,
   SessionDetail,
   PlannedSession,
   PlannedExercise,
@@ -36,6 +37,16 @@ import {
   resumoPropagacao,
 } from '../engine/planReorder';
 import { getAgendaDoAluno } from '../services/agendaRepository';
+import { getHistoricoDeSemanas } from '../services/adherenceHistoryRepository';
+import {
+  aderenciaPorSemana,
+  vereditoDeFrequencia,
+  frequenciaReal,
+  diasPlanejados,
+  type VereditoDeFrequencia,
+} from '../engine/adherenceHistory';
+import { FREQUENCY_CONFIG } from '../engine/config';
+import FrequenciaCard, { type VereditoDeAviso } from '../components/plan/FrequenciaCard';
 import {
   reancorarSemana,
   precisaReancorar,
@@ -104,6 +115,14 @@ const TrainingSessionScreen = () => {
   const [agendaCarregada, setAgendaCarregada] = useState(false);
   const [agendaErro, setAgendaErro] = useState(false);
   const [agenda, setAgenda] = useState<OffsetDaSemana[]>([]);
+  // Nível 4 da escada: veredito de frequência das semanas fechadas. Só é
+  // montado para os três vereditos de alerta; falha de leitura esconde o
+  // card (não-fatal, como a agenda).
+  const [frequencia, setFrequencia] = useState<{
+    veredito: VereditoDeAviso;
+    frequenciaReal: number;
+    diasPlanejados: number;
+  } | null>(null);
   // Preview do reencaixe: mostrado no Modal antes de confirmar
   const [previewReencaixe, setPreviewReencaixe] = useState<{
     movidas: { id: string; de: string | null; para: string }[];
@@ -125,6 +144,12 @@ const TrainingSessionScreen = () => {
       });
 
     try {
+      // Fechamento de semanas vencidas antes de escolher o "treino de hoje":
+      // pendentes de semanas que já passaram não são oferecidas aqui. Falha
+      // NÃO derruba a tela (não-fatal) — roda de novo na próxima abertura.
+      await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
+        console.warn('[fechamento] falhou (não-fatal):', err)
+      );
       const proxima = await getTodaySession(user.id);
       if (!proxima) {
         setSession(null);
@@ -143,9 +168,14 @@ const TrainingSessionScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  useEffect(() => {
-    fetchCurrentTraining();
-  }, [fetchCurrentTraining]);
+  // Foco, não montagem: voltar do fluxo de "Gerar novo plano" (popToTop) não
+  // remonta esta tela — sem refetch por foco, o plano recém-gerado não
+  // apareceria na aba Plano (mesmo padrão da Home).
+  useFocusEffect(
+    useCallback(() => {
+      fetchCurrentTraining();
+    }, [fetchCurrentTraining]),
+  );
 
   // Busca a agenda do aluno para reencaixe
   useEffect(() => {
@@ -173,6 +203,56 @@ const TrainingSessionScreen = () => {
     buscarAgenda();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, session?.plan_id]);
+
+  // Diagnóstico de frequência (Nível 4): semanas fechadas antes da semana em
+  // curso — a semana em curso nunca conta contra o aluno.
+  useEffect(() => {
+    if (!user || !session || !agendaCarregada) {
+      setFrequencia(null);
+      return;
+    }
+    const buscarFrequencia = async () => {
+      try {
+        const sessoes = await getHistoricoDeSemanas({
+          userId: user.id,
+          planId: session.plan_id,
+          ateSemana: session.week_number,
+          // A janela é UMA só: o que o banco devolve e o que o motor agrega. Com
+          // o default do repositório (3), subir a config desligaria o Nível 4 em
+          // silêncio — semanas.length < janela vira 'insuficiente_historico'.
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
+        });
+        const semanas = aderenciaPorSemana({
+          sessoes,
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
+          ateSemana: session.week_number,
+        });
+        const veredito: VereditoDeFrequencia = vereditoDeFrequencia(semanas, agenda);
+        if (veredito === 'ok' || veredito === 'insuficiente_historico') {
+          setFrequencia(null);
+          return;
+        }
+        setFrequencia({
+          veredito,
+          frequenciaReal: frequenciaReal(semanas),
+          diasPlanejados: diasPlanejados(semanas),
+        });
+      } catch (err) {
+        console.log('Histórico de frequência indisponível:', err?.message ?? err);
+        setFrequencia(null);
+      }
+    };
+    buscarFrequencia();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, session?.plan_id, session?.week_number, agendaCarregada, agenda]);
+
+  // Botão do card (Nível 4): leva ao MESMO fluxo de geração do onboarding —
+  // o questionário refeito upserta as respostas e o backend arquiva o plano
+  // atual antes de salvar o novo (0006). skipChat=true dispara a geração
+  // direto, sem chat.
+  const gerarNovoPlano = () => {
+    navigation.navigate('Questionnaire');
+  };
 
   if (loading) {
     // Direção 03: a estrutura da tela já aparece na carga — skeleton no lugar
@@ -571,6 +651,18 @@ const TrainingSessionScreen = () => {
         </View>
       ) : null}
 
+      {/* --- Aviso de frequência (Nível 4): só fora de sessão ativa ---------- */}
+      {frequencia && !emAndamento ? (
+        <FrequenciaCard
+          veredito={frequencia.veredito}
+          frequenciaReal={frequencia.frequenciaReal}
+          diasPlanejados={frequencia.diasPlanejados}
+          semanasFechadasMinimas={FREQUENCY_CONFIG.semanasFechadasMinimas}
+          onGerarNovoPlano={gerarNovoPlano}
+          style={styles.frequenciaCard}
+        />
+      ) : null}
+
       <Card elevated style={styles.summary}>
         <View style={styles.summaryTop}>
           <View style={styles.summaryCopy}>
@@ -658,7 +750,7 @@ const TrainingSessionScreen = () => {
                         return (
                           <View key={id} style={styles.modalItem}>
                             <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
-                            <Text style={styles.modalItemSubtitle}>Será proposto como pular</Text>
+                            <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
                           </View>
                         );
                       })}
@@ -682,19 +774,46 @@ const TrainingSessionScreen = () => {
                   />
                 </View>
               </>
-            ) : (
-              <>
-                <Text style={styles.modalMessage}>Nenhum treino precisa ser reencaixado.</Text>
-                <View style={styles.modalActions}>
-                  <Button
-                    label="Fechar"
-                    variant="ghost"
-                    compact
-                    onPress={cancelarReencaixe}
-                  />
-                </View>
-              </>
-            )}
+              ) : previewReencaixe && previewReencaixe.semEncaixe.length > 0 ? (
+                <>
+                  <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.modalSectionLabel}>Treinos que não cabem nesta semana:</Text>
+                    {previewReencaixe.semEncaixe.map((id) => {
+                      const sessao = sessoesDaSemana.find((s) => s.id === id);
+                      return (
+                        <View key={id} style={styles.modalItem}>
+                          <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
+                          <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
+                        </View>
+                      );
+                    })}
+                    <Text style={styles.modalMessage}>
+                      A semana fecha com menos volume — estes treinos ficam de fora.
+                    </Text>
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalMessage}>Nenhum treino precisa ser reencaixado.</Text>
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              )}
           </View>
         </View>
       </Modal>
@@ -736,6 +855,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.xs,
   },
   reorderNotice: { marginBottom: theme.spacing.md },
+  frequenciaCard: { marginBottom: theme.spacing.xl },
   // Fixas esmaecidas no modo edição: não participam da permuta.
   rowFixa: { opacity: 0.55 },
 

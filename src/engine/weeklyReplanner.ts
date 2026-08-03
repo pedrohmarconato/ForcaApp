@@ -4,19 +4,14 @@
 // Dado o estado da semana (sessões planejadas × executadas), calcula:
 //  - aderência (sessões e volume), sem inventar taxa quando não há base;
 //  - escada de tempo para HOJE (~100%/66%/45%): corta acessórios antes de
-//    secundários antes de primários — usa a prioridade da Fase 3;
-//  - redistribuição pós-falta nas sessões RESTANTES, com teto (+25% por grupo
-//    muscular na receptora), respeitando recuperação (não empilhar o mesmo grupo
-//    em dias consecutivos). O que não couber é PERDA registrada, nunca maquiada.
-// Princípios herdados das Fases 4/5:
-//  - NUNCA aplica sozinho: devolve uma PROPOSTA; o aluno confirma na tela
-//    (recusa mantém o plano original — a proposta é só overlay até lá);
-//  - deload reduz e NÃO compensa: nunca recebe redistribuição e a falta de um
-//    deload não é compensada;
-//  - faltas múltiplas NÃO empilham: o teto vale para o TOTAL redistribuído
-//    (replans anteriores contam), não por falta.
+//    secundários antes de primários — usa a prioridade da Fase 3.
+//
+// COMMIT B da escada de reencaixe (jul/2026): a redistribuição pós-falta saiu —
+// a falta deixa de ser compensada e a semana fecha com menos volume (banner de
+// Nível 2). O que resta é a PROPOSTA pura: quem aplica é a camada de aplicação,
+// e SÓ depois da confirmação do aluno (recusa mantém o plano original).
 
-import { normalizeName, type SessionDraft } from './sessionModel';
+import { normalizeName, type ExerciseMetric, type SessionDraft } from './sessionModel';
 import { REPLAN_CONFIG, type ReplanConfig } from './config';
 
 export type Priority = 'primary' | 'secondary' | 'accessory';
@@ -25,8 +20,6 @@ export type ReplanSessionStatus = 'pending' | 'in_progress' | 'completed' | 'ski
 export type ReplanSetRef = {
   id: string;
   setOrder: number;
-  /** Série inserida por um replanejamento anterior (registrada no snapshot). */
-  addedByReplan?: boolean;
 };
 
 export type ReplanExercise = {
@@ -36,6 +29,8 @@ export type ReplanExercise = {
   priority: Priority;
   exerciseOrder: number;
   sets: ReplanSetRef[];
+  /** Como o exercício é medido (migration 0014). Plano anterior → ausente. */
+  metric?: ExerciseMetric | null;
 };
 
 export type ReplanSession = {
@@ -47,6 +42,8 @@ export type ReplanSession = {
   status: ReplanSessionStatus;
   estimatedMinutes: number | null;
   exercises: ReplanExercise[];
+  /** Quem marcou a sessão como skipped (0020). 'user' = recusa declarada do aluno. */
+  skipSource?: 'user' | 'replan' | null;
 };
 
 const PRIORITY_RANK: Record<Priority, number> = { primary: 0, secondary: 1, accessory: 2 };
@@ -187,47 +184,17 @@ export const planTimeCut = (params: {
 };
 
 // ---------------------------------------------------------------
-// Redistribuição pós-falta
+// Acesso a volume por grupo muscular (preservado para o COMMIT C)
 // ---------------------------------------------------------------
-
-export type ProposedAddition = {
-  targetSessionId: string;
-  exerciseId: string;
-  exerciseName: string;
-  muscleGroup: string;
-  addSets: number;
-};
-
-export type ReplanLossReason =
-  | 'nao_coube'
-  | 'deload_nao_compensa'
-  | 'sem_grupo_muscular'
-  | 'replan_anterior_perdido';
-
-export type ReplanLoss = {
-  missedSessionId: string;
-  muscleGroup: string;
-  sets: number;
-  reason: ReplanLossReason;
-};
-
-export type MissedRedistributionPlan = {
-  kind: 'missed_redistribution';
-  /** Sessões perdidas (pendentes com data passada) — serão marcadas 'skipped' na aplicação. */
-  missedSessionIds: string[];
-  additions: ProposedAddition[];
-  losses: ReplanLoss[];
-};
 
 type GroupVolume = {
   key: string; // grupo normalizado
   label: string; // como veio do plano
-  originalSets: number; // séries que NÃO vieram de replan anterior
-  priorReplanSets: number; // séries inseridas por replans anteriores
+  totalSets: number; // séries do plano
 };
 
 /** Volume por grupo muscular de um conjunto de exercícios, na ordem de aparição. */
-const groupVolumes = (exercises: ReplanExercise[]): GroupVolume[] => {
+export const groupVolumes = (exercises: ReplanExercise[]): GroupVolume[] => {
   const byKey = new Map<string, GroupVolume>();
   const ordered = [...exercises].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
   for (const ex of ordered) {
@@ -238,211 +205,19 @@ const groupVolumes = (exercises: ReplanExercise[]): GroupVolume[] => {
       vol = {
         key: mapKey,
         label: ex.muscleGroup ?? 'desconhecido',
-        originalSets: 0,
-        priorReplanSets: 0,
+        totalSets: 0,
       };
       byKey.set(mapKey, vol);
     }
-    for (const s of ex.sets) {
-      if (s.addedByReplan) vol.priorReplanSets += 1;
-      else vol.originalSets += 1;
-    }
+    vol.totalSets += ex.sets.length;
   }
   return [...byKey.values()];
 };
 
-const trainsGroup = (session: ReplanSession, groupKey: string): boolean =>
+export const trainsGroup = (session: ReplanSession, groupKey: string): boolean =>
   session.exercises.some(
     (ex) => ex.muscleGroup != null && normalizeName(ex.muscleGroup) === groupKey,
   );
-
-/**
- * Redistribui o volume das sessões PERDIDAS (pendentes com data anterior a hoje)
- * nas sessões restantes da semana. Devolve null quando não há falta. As perdas
- * (o que não coube, deload, sem grupo) são sempre registradas — nunca maquiadas.
- */
-export const planMissedRedistribution = (params: {
-  sessions: ReplanSession[];
-  todayISO: string;
-  /** Sessão sendo aberta agora: é "restante" mesmo com data de hoje. */
-  currentSessionId?: string;
-  /**
-   * Exercícios que NÃO podem receber séries (ex.: cortados pela escada de tempo
-   * do MESMO replan — achado do review: inserir num exercício cortado registra
-   * volume que nunca será executado). Excluídos também não contam no teto do grupo.
-   */
-  excludedReceiverExerciseIds?: string[];
-  /**
-   * Exercícios RECUSADOS pelo aluno por um motivo que é sobre o exercício em si
-   * (dor, rejeição, equipamento — migration 0020). Empurrar de volta na mesma
-   * semana o que ele acabou de dispensar transformaria a recusa em nada.
-   *
-   * Casa por NOME NORMALIZADO, não por id: o mesmo exercício tem id diferente em
-   * cada sessão do plano, e é justamente na sessão de OUTRO dia que a
-   * redistribuição tentaria colocá-lo. Variação de rótulo ("Corrida" vs
-   * "Corrida leve") escapa — limitação conhecida do casamento por nome.
-   */
-  blockedExerciseNames?: string[];
-  config?: ReplanConfig;
-}): MissedRedistributionPlan | null => {
-  const cfg = params.config ?? REPLAN_CONFIG;
-  const excludedIds = new Set(params.excludedReceiverExerciseIds ?? []);
-  const blockedNames = new Set((params.blockedExerciseNames ?? []).map(normalizeName));
-  // Predicado ÚNICO para "não pode receber volume": as três decisões de receptor
-  // (teto, elegibilidade, escolha) passam por aqui. Quando a checagem ficava
-  // repetida, acrescentar um critério novo significava lembrar de três lugares.
-  const naoPodeReceber = (ex: ReplanExercise): boolean =>
-    excludedIds.has(ex.id) || blockedNames.has(normalizeName(ex.name));
-  const today = dayIndex(params.todayISO);
-  if (today == null) return null;
-
-  const day = (s: ReplanSession) => dayIndex(s.scheduledDate);
-  const missed = params.sessions
-    .filter((s) => {
-      const d = day(s);
-      return s.status === 'pending' && d != null && d < today;
-    })
-    .sort((a, b) => (day(a)! - day(b)!) || a.id.localeCompare(b.id));
-  if (missed.length === 0) return null;
-  const missedIds = new Set(missed.map((s) => s.id));
-
-  // Receptoras: restantes da semana (pendente/em andamento, com data, hoje em diante
-  // ou a sessão sendo aberta), nunca deload, nunca uma das perdidas.
-  const targets = params.sessions
-    .filter((s) => {
-      if (missedIds.has(s.id)) return false;
-      if (s.status !== 'pending' && s.status !== 'in_progress') return false;
-      if (isDeloadSession(s, cfg)) return false;
-      const d = day(s);
-      if (d == null) return false;
-      return d >= today || s.id === params.currentSessionId;
-    })
-    .sort((a, b) => (day(a)! - day(b)!) || a.id.localeCompare(b.id));
-
-  // Recuperação: a receptora não pode receber um grupo já treinado em dia adjacente
-  // por OUTRA sessão não-descartada (as perdidas serão 'skipped', não contam).
-  const recoveryConflict = (target: ReplanSession, groupKey: string): boolean =>
-    params.sessions.some((other) => {
-      if (other.id === target.id || missedIds.has(other.id)) return false;
-      if (other.status === 'skipped') return false;
-      const dOther = day(other);
-      const dTarget = day(target);
-      if (dOther == null || dTarget == null) return false;
-      const gap = Math.abs(dOther - dTarget);
-      return gap > 0 && gap <= cfg.minRestDaysSameGroup && trainsGroup(other, groupKey);
-    });
-
-  // Capacidade restante por (receptora, grupo): teto sobre as séries ORIGINAIS,
-  // já descontando o que replans anteriores inseriram (faltas múltiplas não empilham).
-  // Exercícios excluídos (cortados neste replan) ficam FORA da base do teto: o
-  // volume deles não será executado, então não sustenta capacidade de receber.
-  const capacity = new Map<string, number>();
-  const capKey = (sessionId: string, groupKey: string) => `${sessionId}::${groupKey}`;
-  for (const t of targets) {
-    const receivable = t.exercises.filter((ex) => !naoPodeReceber(ex));
-    for (const vol of groupVolumes(receivable)) {
-      if (vol.key === '__sem_grupo__') continue;
-      const cap = Math.floor(cfg.redistributionCapPct * vol.originalSets) - vol.priorReplanSets;
-      capacity.set(capKey(t.id, vol.key), Math.max(0, cap));
-    }
-  }
-
-  // Exercício receptor por (receptora, grupo): o de maior prioridade, depois ordem.
-  const receiverExercise = (target: ReplanSession, groupKey: string): ReplanExercise | null => {
-    const candidates = target.exercises
-      .filter((ex) => !naoPodeReceber(ex))
-      .filter((ex) => ex.muscleGroup != null && normalizeName(ex.muscleGroup) === groupKey)
-      .sort(
-        (a, b) =>
-          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-          a.exerciseOrder - b.exerciseOrder ||
-          a.id.localeCompare(b.id),
-      );
-    return candidates[0] ?? null;
-  };
-
-  const additions = new Map<string, ProposedAddition & { targetDay: number; exerciseOrder: number }>();
-  const losses = new Map<string, ReplanLoss>();
-  const registerLoss = (
-    missedSessionId: string,
-    muscleGroup: string,
-    setsCount: number,
-    reason: ReplanLossReason,
-  ) => {
-    if (setsCount <= 0) return;
-    const key = `${missedSessionId}::${muscleGroup}::${reason}`;
-    const existing = losses.get(key);
-    if (existing) existing.sets += setsCount;
-    else losses.set(key, { missedSessionId, muscleGroup, sets: setsCount, reason });
-  };
-
-  const rrIndexByGroup = new Map<string, number>();
-
-  for (const lost of missed) {
-    const deload = isDeloadSession(lost, cfg);
-    for (const vol of groupVolumes(lost.exercises)) {
-      if (vol.key === '__sem_grupo__') {
-        registerLoss(lost.id, vol.label, vol.originalSets + vol.priorReplanSets, 'sem_grupo_muscular');
-        continue;
-      }
-      // Volume que veio de replan anterior não é re-redistribuído (empilharia em cadeia).
-      registerLoss(lost.id, vol.label, vol.priorReplanSets, 'replan_anterior_perdido');
-      if (deload) {
-        // Deload reduz e não compensa: a perda é aceita e registrada.
-        registerLoss(lost.id, vol.label, vol.originalSets, 'deload_nao_compensa');
-        continue;
-      }
-      const eligible = targets.filter(
-        (t) =>
-          (capacity.get(capKey(t.id, vol.key)) ?? 0) > 0 &&
-          receiverExercise(t, vol.key) != null &&
-          !recoveryConflict(t, vol.key),
-      );
-      let remaining = vol.originalSets;
-      let rr = rrIndexByGroup.get(vol.key) ?? 0;
-      // Uma série por vez, alternando entre as receptoras aptas, até esgotar o teto.
-      while (remaining > 0 && eligible.length > 0) {
-        let placed = false;
-        for (let i = 0; i < eligible.length && remaining > 0; i++) {
-          const t = eligible[(rr + i) % eligible.length];
-          const key = capKey(t.id, vol.key);
-          const cap = capacity.get(key) ?? 0;
-          if (cap <= 0) continue;
-          const receiver = receiverExercise(t, vol.key)!;
-          const addKey = `${t.id}::${receiver.id}`;
-          const existing = additions.get(addKey);
-          if (existing) existing.addSets += 1;
-          else
-            additions.set(addKey, {
-              targetSessionId: t.id,
-              exerciseId: receiver.id,
-              exerciseName: receiver.name,
-              muscleGroup: vol.label,
-              addSets: 1,
-              targetDay: day(t)!,
-              exerciseOrder: receiver.exerciseOrder,
-            });
-          capacity.set(key, cap - 1);
-          remaining -= 1;
-          rr = (rr + i + 1) % eligible.length;
-          placed = true;
-        }
-        if (!placed) break; // nenhuma receptora com teto disponível
-      }
-      rrIndexByGroup.set(vol.key, rr);
-      registerLoss(lost.id, vol.label, remaining, 'nao_coube');
-    }
-  }
-
-  return {
-    kind: 'missed_redistribution',
-    missedSessionIds: missed.map((s) => s.id),
-    additions: [...additions.values()]
-      .sort((a, b) => a.targetDay - b.targetDay || a.exerciseOrder - b.exerciseOrder)
-      .map(({ targetDay: _d, exerciseOrder: _o, ...a }) => a),
-    losses: [...losses.values()],
-  };
-};
 
 // ---------------------------------------------------------------
 // Orquestração
@@ -451,8 +226,7 @@ export const planMissedRedistribution = (params: {
 export type WeeklyReplanProposal = {
   adherence: WeekAdherence;
   timeCut: TimeCutPlan | null;
-  redistribution: MissedRedistributionPlan | null;
-  /** Há algo a propor ao aluno? (falta a resolver e/ou corte de tempo) */
+  /** Há algo a propor ao aluno? (hoje: corte de tempo) */
   hasChanges: boolean;
 };
 
@@ -467,8 +241,6 @@ export const replanByRules = (params: {
   currentSessionId: string;
   availableMinutes?: number | null;
   completedSetsBySession?: Record<string, number>;
-  /** Nomes recusados pelo aluno por motivo que é sobre o exercício (0020). */
-  blockedExerciseNames?: string[];
   config?: ReplanConfig;
 }): WeeklyReplanProposal => {
   const cfg = params.config ?? REPLAN_CONFIG;
@@ -478,26 +250,14 @@ export const replanByRules = (params: {
     todayISO: params.todayISO,
   });
   const current = params.sessions.find((s) => s.id === params.currentSessionId) ?? null;
-  // O corte vem PRIMEIRO: a redistribuição do mesmo replan não pode escolher como
-  // receptor um exercício que este corte tira do treino de hoje (achado do review
-  // — seria volume registrado que nunca é executado, consumindo o teto à toa).
   const timeCut =
     current && params.availableMinutes != null
       ? planTimeCut({ session: current, availableMinutes: params.availableMinutes, config: cfg })
       : null;
-  const redistribution = planMissedRedistribution({
-    sessions: params.sessions,
-    todayISO: params.todayISO,
-    currentSessionId: params.currentSessionId,
-    excludedReceiverExerciseIds: timeCut?.cutExercises.map((c) => c.exerciseId),
-    blockedExerciseNames: params.blockedExerciseNames,
-    config: cfg,
-  });
   return {
     adherence,
     timeCut,
-    redistribution,
-    hasChanges: timeCut != null || redistribution != null,
+    hasChanges: timeCut != null,
   };
 };
 
@@ -508,12 +268,10 @@ export const replanByRules = (params: {
 /**
  * Hash determinístico do conteúdo VISÍVEL E APLICÁVEL da proposta.
  *
- * Inclui TODO campo que o aluno vê ou que altera séries/minutos/cortes/
- * redistribuição — não só os campos usados na escrita. Coleções são ordenadas
- * (canônicas) sem apagar multiplicidade/quantidades. `requestedMinutes` fica
- * fora apenas quando não há `timeCut`: sem corte, minutos não mudam o conteúdo
- * visível (só redistribution, que independe de minutos). Com `timeCut`,
- * `availableMinutes` está dentro do fingerprint.
+ * Hoje o conteúdo é o corte de tempo (quando há): sessão, minutos,
+ * prioridades mantidas e exercícios cortados. Coleções são ordenadas
+ * (canônicas) sem apagar multiplicidade. `requestedMinutes` fica fora quando
+ * não há `timeCut`: sem corte, minutos não mudam o conteúdo visível.
  *
  * NÃO inclui: `adherence` (telemetria), `hasChanges` (derivado), `ratio`
  * (derivado de available/estimated), `requestedMinutes` (sem timeCut).
@@ -536,36 +294,6 @@ export const replanFingerprint = (proposal: WeeklyReplanProposal): string => {
       )
       .join(';');
     parts.push(cuts);
-  }
-
-  if (proposal.redistribution) {
-    const rd = proposal.redistribution;
-    parts.push('rd');
-    parts.push([...rd.missedSessionIds].sort().join(','));
-    const adds = [...rd.additions]
-      .sort(
-        (a, b) =>
-          a.targetSessionId.localeCompare(b.targetSessionId) ||
-          a.exerciseId.localeCompare(b.exerciseId),
-      )
-      .map(
-        (a) =>
-          `${a.targetSessionId}|${a.exerciseId}|${a.exerciseName}|${a.muscleGroup}|${a.addSets}`,
-      )
-      .join(';');
-    parts.push(adds);
-    const losses = [...rd.losses]
-      .sort(
-        (a, b) =>
-          a.missedSessionId.localeCompare(b.missedSessionId) ||
-          a.muscleGroup.localeCompare(b.muscleGroup) ||
-          a.reason.localeCompare(b.reason),
-      )
-      .map(
-        (l) => `${l.missedSessionId}|${l.muscleGroup}|${l.sets}|${l.reason}`,
-      )
-      .join(';');
-    parts.push(losses);
   }
 
   if (parts.length === 0) return 'no-changes';
@@ -594,78 +322,20 @@ export const applyTimeCutToDraft = (
   };
 };
 
-/** Linha de planned_sets inserida por um replanejamento confirmado. */
-export type AddedSetRow = {
-  id: string;
-  sessionId: string;
-  exerciseId: string;
-  setOrder: number;
-  targetRepsMin: number;
-  targetRepsMax: number;
-  targetLoadKg: number | null;
-  targetRir: number | null;
-};
-
-/**
- * Anexa ao rascunho as séries que a redistribuição confirmada inseriu na PRÓPRIA
- * sessão ativa (as das sessões futuras só existem no banco). Idempotente: uma
- * série já presente (mesmo plannedSetId) não é anexada duas vezes.
- */
-export const appendAddedSetsToDraft = (
-  draft: SessionDraft,
-  rows: AddedSetRow[],
-): SessionDraft => ({
-  ...draft,
-  exercises: draft.exercises.map((ex) => {
-    const novas = rows.filter(
-      (r) =>
-        r.exerciseId === ex.exerciseId &&
-        !ex.sets.some((s) => s.plannedSetId === r.id),
-    );
-    if (novas.length === 0) return ex;
-    return {
-      ...ex,
-      sets: [
-        ...ex.sets,
-        ...novas.map((r) => ({
-          plannedSetId: r.id,
-          setOrder: r.setOrder,
-          targetRepsMin: r.targetRepsMin,
-          targetRepsMax: r.targetRepsMax,
-          targetLoadKg: r.targetLoadKg,
-          targetRir: r.targetRir,
-          actualReps: null,
-          actualLoadKg: null,
-          actualRir: null,
-          status: 'pending' as const,
-          outcome: null,
-          setLogId: null,
-          adaptation: null,
-        })),
-      ].sort((a, b) => a.setOrder - b.setOrder),
-    };
-  }),
-});
-
 // ---------------------------------------------------------------
 // Snapshot do replanejamento (gravado em session_logs.adherence_snapshot)
 // ---------------------------------------------------------------
 // Decisão do dono (Fase 6): preservar o original SEM migration nova — a coluna
 // jsonb adherence_snapshot foi reservada para a Fase 6 na 0001. A aplicação é
-// só ADITIVA (insere séries + marca 'skipped'), então o evento abaixo basta
-// para auditar e reverter: apagar as séries de addedSets + restaurar os status
-// originais de missedSessions.
+// ADITIVA (só grava o evento; nada é inserido nem revertido), então o evento
+// abaixo basta para auditar o que foi confirmado. Eventos antigos com
+// `redistribution` (COMMIT A) continuam parseando: o campo é histórico.
 
 export type ReplanEvent = {
   confirmedAtISO: string;
   planId: string;
   weekNumber: number;
   adherence: WeekAdherence;
-  redistribution: {
-    missedSessions: { id: string; originalStatus: ReplanSessionStatus }[];
-    addedSets: { id: string; sessionId: string; exerciseId: string; setOrder: number }[];
-    losses: ReplanLoss[];
-  } | null;
   timeCut: {
     sessionId: string;
     availableMinutes: number;
@@ -688,21 +358,6 @@ export const parseReplanSnapshot = (value: unknown): ReplanSnapshot | null => {
       (e): e is ReplanEvent => typeof e === 'object' && e !== null,
     ),
   };
-};
-
-/** IDs de séries inseridas por replans anteriores (todas as fontes da semana). */
-export const addedSetIdsFromSnapshots = (
-  snapshots: (ReplanSnapshot | null)[],
-): Set<string> => {
-  const ids = new Set<string>();
-  for (const snap of snapshots) {
-    for (const ev of snap?.events ?? []) {
-      for (const added of ev.redistribution?.addedSets ?? []) {
-        if (typeof added?.id === 'string') ids.add(added.id);
-      }
-    }
-  }
-  return ids;
 };
 
 /** Último corte de tempo confirmado para uma sessão (para reaplicar na retomada). */

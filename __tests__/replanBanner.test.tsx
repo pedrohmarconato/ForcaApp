@@ -1,16 +1,12 @@
 // __tests__/replanBanner.test.tsx
-// Fase 6 — o banner resume as mudanças propostas (redistribuição + corte de
-// tempo, com o volume que fica de fora) e devolve a decisão do aluno; escondido
-// sem mudanças.
-//
-// Redesign 24/07/2026: os contratos de decisão continuam iguais; o que mudou é
-// a leitura. O teste agora exige o RESULTADO (12 → 14 séries), não o delta
-// solto, e proíbe o jargão do motor de chegar à tela.
+// Fase 6 — o banner resume as mudanças propostas (corte de tempo, com o volume
+// que fica de fora) e devolve a decisão do aluno; escondido sem mudanças.
+// COMMIT B: a redistribuição pós-falta saiu — resta o corte de tempo e o
+// fechamento honesto de Nível 2 quando nada é reencaixável.
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
-import ReplanBanner from '../src/components/session/ReplanBanner';
-import type {
+import ReplanBanner from '../src/components/session/ReplanBanner';import type {
   WeeklyReplanProposal,
   ReplanSession,
 } from '../src/engine/weeklyReplanner';
@@ -70,18 +66,10 @@ const PROPOSTA: WeeklyReplanProposal = {
       { exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 3 },
     ],
   },
-  redistribution: {
-    kind: 'missed_redistribution',
-    missedSessionIds: ['seg'],
-    additions: [
-      { targetSessionId: 'sex', exerciseId: 'f1', exerciseName: 'Supino', muscleGroup: 'Peito', addSets: 2 },
-    ],
-    losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 1, reason: 'nao_coube' }],
-  },
   hasChanges: true,
 };
 
-it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
+it('mostra o corte de tempo com antes → depois, sem jargão do motor', () => {
   const { getByText, getAllByText, queryByText } = render(
     <ReplanBanner
       proposal={PROPOSTA}
@@ -91,25 +79,12 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
       onConfirm={jest.fn()}
       onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
 
-  // Resumo no topo: 1 pulada + 1 reforçada + 1 corte de tempo + 1 perda.
-  getByText('4 mudanças na sua semana');
-
-  // Sessão perdida, com o volume que some junto.
-  getByText('Treino A · seg');
-  getByText('pulado');
-  getByText('9 séries que não aconteceram');
-
-  // O RESULTADO, não o delta solto: 12 → 14 séries. O "12" aparece duas vezes
-  // de propósito — é também o "antes" do cartão de tempo (a sessão de hoje
-  // tem 12 séries planejadas).
-  getByText('Treino C · sex');
-  expect(getAllByText('12')).toHaveLength(2);
-  getByText('14 séries');
-  getByText('+2');
-  getByText('Peito +2');
+  // Resumo no topo: só o corte de tempo.
+  getByText('1 mudança na sua semana');
 
   // Corte de tempo: antes → depois em SÉRIES (12 na sessão de hoje, −3), com o
   // tempo como contexto. Dizer "60 → 40 min" seria apresentar o tempo que o
@@ -123,11 +98,10 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
   getByText('saem: Tríceps Corda (3)');
   expect(queryByText('40 min')).toBeNull();
 
-  // O que fica de fora, em português de treinador.
-  getByText('1 série fica de fora');
-  getByText('não cabe no que sobrou da semana');
-
-  // Nada da versão antiga sobrevive.
+  // Nada da versão antiga (redistribuição/reflexão) sobrevive.
+  expect(queryByText(/pulado/)).toBeNull();
+  expect(queryByText(/séries que não aconteceram/)).toBeNull();
+  expect(queryByText(/\+2/)).toBeNull();
   expect(queryByText(/perda registrada/)).toBeNull();
   expect(queryByText(/não coube nas sessões restantes/)).toBeNull();
   expect(queryByText(/Replanejar a semana\?/)).toBeNull();
@@ -146,6 +120,7 @@ it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', (
       onConfirm={onConfirm}
       onConfirmReagendamento={onConfirmReagendamento}
       onDecline={onDecline}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
   fireEvent.press(getByTestId('replan-confirm'));
@@ -162,6 +137,7 @@ it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', (
       onConfirm={onConfirm}
       onConfirmReagendamento={onConfirmReagendamento}
       onDecline={onDecline}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
   fireEvent.press(getByTestId('replan-confirm'));
@@ -169,7 +145,7 @@ it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', (
 });
 
 it('sem mudanças (ou sem proposta) não renderiza nada', () => {
-  const semMudancas = { ...PROPOSTA, timeCut: null, redistribution: null, hasChanges: false };
+  const semMudancas = { ...PROPOSTA, timeCut: null, hasChanges: false };
   const a = render(
     <ReplanBanner
       proposal={semMudancas}
@@ -179,6 +155,7 @@ it('sem mudanças (ou sem proposta) não renderiza nada', () => {
       onConfirm={jest.fn()}
       onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
   expect(a.toJSON()).toBeNull();
@@ -191,6 +168,7 @@ it('sem mudanças (ou sem proposta) não renderiza nada', () => {
       onConfirm={jest.fn()}
       onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
   expect(b.toJSON()).toBeNull();
@@ -208,7 +186,121 @@ it('sem as sessões em mãos ainda decide — cai no id, não quebra', () => {
       onConfirm={jest.fn()}
       onConfirmReagendamento={jest.fn()}
       onDecline={jest.fn()}
+      onDeclineReagendamento={jest.fn()}
     />,
   );
   expect(getByTestId('replan-confirm')).toBeTruthy();
+});
+
+it('Nível 2: nada reencaixável — a semana fecha com menos volume, e isso é dito', () => {
+  // Sem espaço até domingo, o banner NÃO silencia: mostra o fechamento honesto
+  // (treinos/séries que não aconteceram + quais ficaram de fora), mesmo sem
+  // mudanças proponíveis. "Entendi" reconhece; não há plano B.
+  const onDecline = jest.fn();
+  const { getByText, getByTestId, queryByText } = render(
+    <ReplanBanner
+      proposal={{ ...PROPOSTA, timeCut: null, hasChanges: false }}
+      reagendamento={{ movidas: [], semEncaixe: ['seg'] }}
+      sessions={SESSIONS}
+      busy={false}
+      onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
+      onDecline={onDecline}
+      onDeclineReagendamento={jest.fn()}
+    />,
+  );
+
+  getByText('A semana fecha com menos volume');
+  getByText('1 de 2 treinos');
+  getByText('4 de 8 séries · 4 séries não aconteceram');
+  getByText('Treino A · seg');
+
+  // Botão único: reconhece o fechamento (sem jargão de motor, sem reencaixar).
+  fireEvent.press(getByTestId('replan-entendi'));
+  expect(onDecline).toHaveBeenCalledTimes(1);
+  expect(queryByText('Reencaixar')).toBeNull();
+  expect(queryByText(/perda registrada/)).toBeNull();
+});
+
+it('Nível 2 NÃO sequestra o corte de tempo pedido pelo aluno (achado nº 3 do review 67)', () => {
+  // Estado alcançável: requestTimeCut preserva o reagendamento sem encaixe e
+  // gera a proposta de corte. O banner precisa mostrar o CORTE (decisão em
+  // jogo) — escondê-lo atrás do "Entendi" gravaria o fingerprint do corte
+  // como recusado sem o aluno vê-lo.
+  const onConfirm = jest.fn();
+  const onDecline = jest.fn();
+  const { getByTestId, queryByTestId, queryByText } = render(
+    <ReplanBanner
+      proposal={PROPOSTA}
+      reagendamento={{ movidas: [], semEncaixe: ['seg'] }}
+      sessions={SESSIONS}
+      busy={false}
+      onConfirm={onConfirm}
+      onConfirmReagendamento={jest.fn()}
+      onDecline={onDecline}
+      onDeclineReagendamento={jest.fn()}
+    />,
+  );
+
+  // O cartão do corte está lá, com os botões de decisão.
+  getByTestId('replan-confirm');
+  getByTestId('replan-decline');
+  // O "Entendi" do Nível 2 NÃO aparece — não há recusa invisível.
+  expect(queryByText('A semana fecha com menos volume')).toBeNull();
+  expect(queryByTestId('replan-entendi')).toBeNull();
+
+  fireEvent.press(getByTestId('replan-confirm'));
+  expect(onConfirm).toHaveBeenCalledTimes(1);
+  expect(onDecline).not.toHaveBeenCalled();
+});
+
+it('reagendamento com corte pedido: "Manter plano original" dispensa o REENCAIXE, não o corte', () => {
+  // Mesmo furo do achado nº 3, no ramo `movidas > 0`: o cartão de reencaixe tem
+  // precedência e esconde o corte. Se a recusa dali chamasse onDecline, o
+  // fingerprint do corte seria gravado sem o aluno ter visto a proposta — e
+  // pedir os mesmos minutos de novo não traria nada de volta.
+  const onDecline = jest.fn();
+  const onDeclineReagendamento = jest.fn();
+  const { getByTestId, queryByTestId } = render(
+    <ReplanBanner
+      proposal={PROPOSTA}
+      reagendamento={{ movidas: [{ id: 'seg', de: '2026-07-13', para: '2026-07-16' }], semEncaixe: [] }}
+      sessions={SESSIONS}
+      busy={false}
+      onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
+      onDecline={onDecline}
+      onDeclineReagendamento={onDeclineReagendamento}
+    />,
+  );
+
+  getByTestId('replan-confirm-reagendamento');
+  fireEvent.press(getByTestId('replan-decline'));
+
+  expect(onDeclineReagendamento).toHaveBeenCalledTimes(1);
+  expect(onDecline).not.toHaveBeenCalled();
+  // O cartão do corte não está visível AQUI — quem o revela é o re-render sem
+  // reagendamento (ver replanFlow: declineReagendamento).
+  expect(queryByTestId('replan-confirm')).toBeNull();
+});
+
+it('sem reagendamento, a recusa do cartão de mudanças continua sendo onDecline', () => {
+  const onDecline = jest.fn();
+  const onDeclineReagendamento = jest.fn();
+  const { getByTestId } = render(
+    <ReplanBanner
+      proposal={PROPOSTA}
+      reagendamento={null}
+      sessions={SESSIONS}
+      busy={false}
+      onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
+      onDecline={onDecline}
+      onDeclineReagendamento={onDeclineReagendamento}
+    />,
+  );
+
+  fireEvent.press(getByTestId('replan-decline'));
+  expect(onDecline).toHaveBeenCalledTimes(1);
+  expect(onDeclineReagendamento).not.toHaveBeenCalled();
 });

@@ -92,6 +92,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const confirmReplan = useActiveSessionStore((s) => s.confirmReplan);
   const confirmReagendamento = useActiveSessionStore((s) => s.confirmReagendamento);
   const declineReplan = useActiveSessionStore((s) => s.declineReplan);
+  const declineReagendamento = useActiveSessionStore((s) => s.declineReagendamento);
   const storageWarning = useActiveSessionStore((s) => s.storageWarning);
   const clearStorageWarning = useActiveSessionStore((s) => s.clearStorageWarning);
   const replanWarning = useActiveSessionStore((s) => s.replanWarning);
@@ -388,6 +389,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
           onConfirm={confirmReplan}
           onConfirmReagendamento={() => { void confirmReagendamento(); }}
           onDecline={() => { void declineReplan(); }}
+          onDeclineReagendamento={declineReagendamento}
         />
 
         {/* Redesign 22/07: modo player — um card com o AGORA; o resto é fila. */}

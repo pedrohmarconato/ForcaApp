@@ -282,20 +282,31 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
 
 // Toque em "Começar" da revelação: só aqui o onboarding fecha e o
 // RootNavigator troca para o app principal. Falha vira erro com retry —
-// o plano JÁ está salvo, nada se perde.
+// o plano JÁ está salvo, nada se perde. Em regeneração (vinda da aba Plano) o
+// onboarding já ESTAVA completo: o RootNavigator não troca, então a tela volta
+// ao topo do stack de treino para o plano novo aparecer.
+//
+// O guard é o estado ANTERIOR do onboarding, não `skipChat`: skipChat também é
+// o caminho normal do primeiro onboarding ("Gerar treino direto"), e ali o
+// popToTop corria contra a troca de navigator — o questionário preenchido
+// reaparecia por um frame, ou a ação morria sem navigator que a tratasse.
 const handleEnterApp = useCallback(async () => {
   if (!readyPlanId || isEnteringApp) return;
+  const eraRegeneracao = user?.onboarding_completed === true;
   setIsEnteringApp(true);
   setChatError(null);
   try {
     await updateProfile({ onboarding_completed: true, current_plan_id: readyPlanId });
+    if (eraRegeneracao) {
+      navigation.popToTop();
+    }
   } catch (error: any) {
     console.error(`[Chat ${userId}] Erro ao concluir onboarding:`, error);
     setChatError('Não foi possível entrar agora. Seu plano está salvo — tente de novo.');
   } finally {
     setIsEnteringApp(false);
   }
-}, [readyPlanId, isEnteringApp, updateProfile, userId]);
+}, [readyPlanId, isEnteringApp, updateProfile, userId, user?.onboarding_completed, navigation]);
 
 
 
@@ -462,7 +473,7 @@ const handleEnterApp = useCallback(async () => {
                     chatStateFlag = await secureStorage.getItem(STORAGE_KEY_CHAT_STATE);
                 }
 
-                if (user?.onboarding_completed) {
+                if (user?.onboarding_completed && !route.params?.skipChat) {
                     console.log(`[Chat ${userId}] Onboarding já completo; o RootNavigator já exibe o app principal.`);
                     return;
                 }

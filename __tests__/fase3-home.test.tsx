@@ -95,6 +95,7 @@ jest.mock('../src/services/trainingRepository', () => ({
     if (mockFalhaBanco) throw mockFalhaBanco;
     return mockRespostaProximos;
   }),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
 }));
 
 const mockGetCompletedSessions = jest.fn((): Promise<any[]> => {
