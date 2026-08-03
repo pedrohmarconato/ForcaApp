@@ -11,7 +11,7 @@
 // Nível 2). O que resta é a PROPOSTA pura: quem aplica é a camada de aplicação,
 // e SÓ depois da confirmação do aluno (recusa mantém o plano original).
 
-import { normalizeName, type SessionDraft } from './sessionModel';
+import { normalizeName, type ExerciseMetric, type SessionDraft } from './sessionModel';
 import { REPLAN_CONFIG, type ReplanConfig } from './config';
 
 export type Priority = 'primary' | 'secondary' | 'accessory';
@@ -29,6 +29,8 @@ export type ReplanExercise = {
   priority: Priority;
   exerciseOrder: number;
   sets: ReplanSetRef[];
+  /** Como o exercício é medido (migration 0014). Plano anterior → ausente. */
+  metric?: ExerciseMetric | null;
 };
 
 export type ReplanSession = {

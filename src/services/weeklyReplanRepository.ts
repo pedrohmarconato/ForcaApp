@@ -12,7 +12,7 @@
 // novo (o store recalcula do servidor e a sessão nunca trava).
 
 import { supabase } from '../config/supabaseClient';
-import { toNum } from '../engine/sessionModel';
+import { toNum, type ExerciseMetric } from '../engine/sessionModel';
 import {
   parseReplanSnapshot,
   type Priority,
@@ -61,6 +61,7 @@ type RawExercise = {
   muscle_group: string | null;
   priority: Priority;
   exercise_order: number;
+  metric: ExerciseMetric | null;
   planned_sets: RawPlannedSet[];
 };
 
@@ -159,6 +160,7 @@ export const getWeekReplanContext = async (
       muscleGroup: e.muscle_group,
       priority: e.priority,
       exerciseOrder: toNum(e.exercise_order) ?? 0,
+      metric: e.metric ?? null,
       sets: (e.planned_sets ?? []).map((ps) => ({
         id: ps.id,
         setOrder: toNum(ps.set_order) ?? 0,

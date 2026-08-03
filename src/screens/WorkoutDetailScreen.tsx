@@ -24,11 +24,20 @@ import {
 } from '../services/sessionExecutionRepository';
 import { moveItem } from '../engine/planReorder';
 import { SKIP_REASON_LABELS, isSkipReason, type SkipReason } from '../engine/sessionModel';
+import {
+  gruposNegligenciados,
+  promoverPrimarioDoGrupo,
+  type PropostaPrioridade,
+} from '../engine/musclePriority';
+import { type ReplanSession } from '../engine/weeklyReplanner';
+import { getWeekReplanContext } from '../services/weeklyReplanRepository';
+import { useDiaLocal } from '../hooks/useDiaLocal';
 import { useActiveSessionStore } from '../store/activeSessionStore';
 import { Screen, Card, ScreenTitle, SectionHeader } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 import PlannedExerciseRow from '../components/session/PlannedExerciseRow';
+import PrioridadeCard from '../components/session/PrioridadeCard';
 import { SetasReordenar } from '../components/session/ReorderControls';
 import SkipReasonSheet from '../components/session/SkipReasonSheet';
 
@@ -46,6 +55,14 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
   const [ordemDraft, setOrdemDraft] = useState<PlannedExercise[] | null>(null);
   const [salvandoOrdem, setSalvandoOrdem] = useState(false);
   const [avisoOrdem, setAvisoOrdem] = useState<'falha' | 'desatualizado' | null>(null);
+
+  // Nível 3 (prioridade): proposta de subir o primário do grupo negligenciado
+  // ao 1º lugar real (depois do aquecimento). Nunca adiciona série — só
+  // reordena, e a RPC (40001) valida a permutação no servidor.
+  const [proposta, setProposta] = useState<PropostaPrioridade | null>(null);
+  const [promovido, setPromovido] = useState<{ exercicioId: string; grupo: string } | null>(null);
+  const [aplicandoPrioridade, setAplicandoPrioridade] = useState(false);
+  const [avisoPrioridade, setAvisoPrioridade] = useState<'falha' | 'desatualizado' | null>(null);
 
   // Recusa da sessão ANTES de começar (0020): quem já sabe que não vai treinar
   // não precisa entrar no treino para dizer isso.
@@ -78,6 +95,66 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
   useEffect(() => {
     fetchDetails();
   }, [fetchDetails]);
+
+  const diaLocal = useDiaLocal();
+
+  // Sessão do detalhe no formato do motor — só o que a proposta precisa.
+  const sessaoReplan = useCallback((): ReplanSession | null => {
+    if (!session) return null;
+    return {
+      id: session.id,
+      weekNumber: session.week_number,
+      title: session.title,
+      sessionType: session.session_type,
+      scheduledDate: session.scheduled_date,
+      status: session.status,
+      estimatedMinutes: session.estimated_minutes,
+      exercises: session.planned_exercises.map((e) => ({
+        id: e.id,
+        name: e.name,
+        muscleGroup: e.muscle_group,
+        priority: e.priority,
+        exerciseOrder: e.exercise_order,
+        metric: e.metric ?? null,
+        sets: e.planned_sets.map((s) => ({ id: s.id, setOrder: s.set_order })),
+      })),
+    };
+  }, [session]);
+
+  // Proposta de prioridade — best-effort: contexto da semana indisponível ou
+  // sessão fora de pending nunca bloqueiam a tela. A proposta é recalculada a
+  // cada releitura do detalhe; se o primário já está no lugar, some sozinha.
+  useEffect(() => {
+    let ativo = true;
+    if (!session || session.status !== 'pending' || draftAtivo) {
+      setProposta(null);
+      return;
+    }
+    const replan = sessaoReplan();
+    if (!replan) return;
+    (async () => {
+      try {
+        const ctx = await getWeekReplanContext(
+          session.user_id,
+          session.plan_id,
+          session.week_number,
+        );
+        if (!ativo) return;
+        const negligenciados = gruposNegligenciados(
+          ctx.sessions,
+          ctx.completedSetsBySession,
+          diaLocal,
+        );
+        setProposta(promoverPrimarioDoGrupo(replan, negligenciados));
+      } catch (err) {
+        console.warn('Sem proposta de prioridade (contexto da semana indisponível):', err);
+        if (ativo) setProposta(null);
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [session, draftAtivo, diaLocal, sessaoReplan]);
 
   if (loading) {
     return (
@@ -172,6 +249,37 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
     setOrdemDraft((atual) => (atual ? moveItem(atual, de, para) : atual));
   };
 
+  const aplicarPrioridade = async () => {
+    if (!proposta || !session || aplicandoPrioridade) return;
+    setAplicandoPrioridade(true);
+    setAvisoPrioridade(null);
+    try {
+      await reordenarExercicios(session.id, proposta.ordemProposta);
+      setPromovido({ exercicioId: proposta.exercicio.id, grupo: proposta.grupo });
+      setProposta(null);
+      await fetchDetails();
+    } catch (err) {
+      if (isPlanoDesatualizado(err)) {
+        // A ordem mudou fora desta tela: retry jamais funcionaria — recarrega.
+        setProposta(null);
+        setPromovido(null);
+        setAvisoPrioridade('desatualizado');
+        await fetchDetails();
+      } else {
+        console.error('Erro ao aplicar prioridade:', err);
+        setAvisoPrioridade('falha');
+      }
+    } finally {
+      setAplicandoPrioridade(false);
+    }
+  };
+
+  // "Manter como está" NUNCA toca a RPC — só dispensa a proposta desta visita.
+  const recusarPrioridade = () => {
+    setProposta(null);
+    setAvisoPrioridade(null);
+  };
+
   const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
     <PlannedExerciseRow
       exercise={item}
@@ -185,6 +293,8 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
             onSubir={() => moverExercicio(index, index - 1)}
             onDescer={() => moverExercicio(index, index + 1)}
           />
+        ) : promovido?.exercicioId === item.id ? (
+          <Chip label={`1º por prioridade · ${promovido.grupo} ficou de fora`} tone="info" />
         ) : undefined
       }
     />
@@ -214,6 +324,33 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
           ) : null}
         </View>
       </Card>
+
+      {!ordemDraft && proposta ? (
+        <PrioridadeCard
+          grupo={proposta.grupo}
+          nomeExercicio={proposta.exercicio.name}
+          busy={aplicandoPrioridade}
+          onAplicar={aplicarPrioridade}
+          onRecusar={recusarPrioridade}
+          style={styles.reorderNotice}
+        />
+      ) : null}
+      {avisoPrioridade === 'falha' ? (
+        <Notice
+          tone="danger"
+          title="Não foi possível salvar"
+          description="A nova ordem não foi aplicada. Verifique a conexão e tente novamente."
+          style={styles.reorderNotice}
+        />
+      ) : null}
+      {avisoPrioridade === 'desatualizado' ? (
+        <Notice
+          tone="info"
+          title="Este treino mudou em outro lugar."
+          description="Recarregamos a lista com a ordem atual."
+          style={styles.reorderNotice}
+        />
+      ) : null}
 
       <SectionHeader
         title="Exercícios"
