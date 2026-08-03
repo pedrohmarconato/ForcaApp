@@ -28,6 +28,10 @@ jest.mock('../src/services/agendaRepository', () => ({
   getAgendaDoAluno: jest.fn(),
 }));
 
+jest.mock('../src/services/adherenceHistoryRepository', () => ({
+  getHistoricoDeSemanas: jest.fn(),
+}));
+
 jest.mock('../src/services/planEditRepository', () => ({
   reordenarSessoesDaSemana: jest.fn(),
   reagendarSessoesDaSemana: jest.fn(),
@@ -50,6 +54,7 @@ import {
 import {
   getAgendaDoAluno,
 } from '../src/services/agendaRepository';
+import { getHistoricoDeSemanas } from '../src/services/adherenceHistoryRepository';
 import {
   reagendarSessoesDaSemana,
 } from '../src/services/planEditRepository';
@@ -59,6 +64,7 @@ const getPlanSessionsMock = getPlanSessions as jest.Mock;
 const getSessionDetailMock = getSessionDetail as jest.Mock;
 const getAgendaMock = getAgendaDoAluno as jest.Mock;
 const reagendarMock = reagendarSessoesDaSemana as jest.Mock;
+const getHistoricoMock = getHistoricoDeSemanas as jest.Mock;
 
 const sessao = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -115,7 +121,11 @@ const detalheS1 = {
   ],
 };
 
-const renderTela = async (planSessions = semanaComAtraso, agenda = [0, 2, 4]) => {
+const renderTela = async (
+  planSessions = semanaComAtraso,
+  agenda = [0, 2, 4],
+  historico: unknown[] = [],
+) => {
   const todaySessionId = planSessions[0].id;
   const sessionDetail = {
     ...planSessions[0],
@@ -143,6 +153,7 @@ const renderTela = async (planSessions = semanaComAtraso, agenda = [0, 2, 4]) =>
   getSessionDetailMock.mockResolvedValue(sessionDetail);
   getPlanSessionsMock.mockResolvedValue(planSessions);
   getAgendaMock.mockResolvedValue({ agenda, origem: 'plano' });
+  getHistoricoMock.mockResolvedValue(historico);
   const utils = render(<TrainingSessionScreen />);
   await waitFor(() => expect(utils.getByTestId('visao-ciclo')).toBeTruthy());
   return utils;
@@ -246,5 +257,51 @@ describe('TrainingSessionScreen - Reencaixe (atraso)', () => {
     const utils = await renderTela(semanaSemAtraso);
     expect(utils.getByTestId('visao-ciclo')).toBeTruthy();
     expect(getTodaySessionMock).toHaveBeenCalled();
+  });
+});
+
+// Semana em curso (número 4): a "sessão da vez" da semana corrente, para que o
+// histórico consultado (semanas 1-3) seja considerado fechado.
+const semanaEmCurso = [
+  sessao('s5', { title: 'Sessão Épsilon', scheduled_date: '2026-08-03', order_in_week: 1, week_number: 4, status: 'pending' }),
+  sessao('s6', { title: 'Sessão Zeta', scheduled_date: '2026-08-05', order_in_week: 2, week_number: 4, status: 'pending' }),
+];
+
+const historicoDe = (concluidasPorSemana: number[]) => {
+  const linhas: unknown[] = [];
+  concluidasPorSemana.forEach((concluidas, idxSemana) => {
+    for (let i = 0; i < 5; i += 1) {
+      linhas.push(
+        sessao(`h${idxSemana + 1}-${i}`, {
+          week_number: idxSemana + 1,
+          status: i < concluidas ? 'completed' : 'pending',
+          scheduled_date: null,
+        }),
+      );
+    }
+  });
+  return linhas;
+};
+
+describe('TrainingSessionScreen - Frequência (Nível 4)', () => {
+  it('mostra o card de falta crônica quando as semanas fechadas têm aderência baixa', async () => {
+    const utils = await renderTela(semanaEmCurso, [0, 2, 4], historicoDe([2, 2, 2]));
+    await waitFor(() => expect(utils.getByText('Sua frequência caiu')).toBeTruthy());
+    expect(
+      utils.getByText('Nas últimas 3 semanas você treinou 2 dos 5 dias planejados.'),
+    ).toBeTruthy();
+  });
+
+  it('não mostra o card quando a aderência das semanas fechadas é ok', async () => {
+    const utils = await renderTela(semanaEmCurso, [0, 2, 4], historicoDe([5, 5, 5]));
+    expect(utils.queryByText('Sua frequência caiu')).toBeNull();
+  });
+
+  it('não mostra o card durante sessão em andamento', async () => {
+    const semanaEmAndamento = [
+      sessao('s7', { title: 'Sessão Eta', scheduled_date: '2026-08-03', order_in_week: 1, week_number: 4, status: 'in_progress' }),
+    ];
+    const utils = await renderTela(semanaEmAndamento, [0, 2, 4], historicoDe([2, 2, 2]));
+    expect(utils.queryByText('Sua frequência caiu')).toBeNull();
   });
 });

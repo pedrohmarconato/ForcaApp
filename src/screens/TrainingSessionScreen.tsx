@@ -37,6 +37,16 @@ import {
   resumoPropagacao,
 } from '../engine/planReorder';
 import { getAgendaDoAluno } from '../services/agendaRepository';
+import { getHistoricoDeSemanas } from '../services/adherenceHistoryRepository';
+import {
+  aderenciaPorSemana,
+  vereditoDeFrequencia,
+  frequenciaReal,
+  diasPlanejados,
+  type VereditoDeFrequencia,
+} from '../engine/adherenceHistory';
+import { FREQUENCY_CONFIG } from '../engine/config';
+import FrequenciaCard, { type VereditoDeAviso } from '../components/plan/FrequenciaCard';
 import {
   reancorarSemana,
   precisaReancorar,
@@ -105,6 +115,14 @@ const TrainingSessionScreen = () => {
   const [agendaCarregada, setAgendaCarregada] = useState(false);
   const [agendaErro, setAgendaErro] = useState(false);
   const [agenda, setAgenda] = useState<OffsetDaSemana[]>([]);
+  // Nível 4 da escada: veredito de frequência das semanas fechadas. Só é
+  // montado para os três vereditos de alerta; falha de leitura esconde o
+  // card (não-fatal, como a agenda).
+  const [frequencia, setFrequencia] = useState<{
+    veredito: VereditoDeAviso;
+    frequenciaReal: number;
+    diasPlanejados: number;
+  } | null>(null);
   // Preview do reencaixe: mostrado no Modal antes de confirmar
   const [previewReencaixe, setPreviewReencaixe] = useState<{
     movidas: { id: string; de: string | null; para: string }[];
@@ -180,6 +198,53 @@ const TrainingSessionScreen = () => {
     buscarAgenda();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, session?.plan_id]);
+
+  // Diagnóstico de frequência (Nível 4): semanas fechadas antes da semana em
+  // curso — a semana em curso nunca conta contra o aluno.
+  useEffect(() => {
+    if (!user || !session || !agendaCarregada) {
+      setFrequencia(null);
+      return;
+    }
+    const buscarFrequencia = async () => {
+      try {
+        const sessoes = await getHistoricoDeSemanas({
+          userId: user.id,
+          planId: session.plan_id,
+          ateSemana: session.week_number,
+        });
+        const semanas = aderenciaPorSemana({
+          sessoes,
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
+          ateSemana: session.week_number,
+        });
+        const veredito: VereditoDeFrequencia = vereditoDeFrequencia(semanas, agenda);
+        if (veredito === 'ok' || veredito === 'insuficiente_historico') {
+          setFrequencia(null);
+          return;
+        }
+        setFrequencia({
+          veredito,
+          frequenciaReal: frequenciaReal(semanas),
+          diasPlanejados: diasPlanejados(semanas),
+        });
+      } catch (err) {
+        console.log('Histórico de frequência indisponível:', err?.message ?? err);
+        setFrequencia(null);
+      }
+    };
+    buscarFrequencia();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, session?.plan_id, session?.week_number, agendaCarregada, agenda]);
+
+  // Botão do card: por contrato da escada existe; o destino (fluxo de geração)
+  // vive no OnboardingNavigator e não tem rota alcançável da aba Plano nesta
+  // versão — o mínimo viável é registrar o desejo (ver relatório do COMMIT D).
+  const gerarNovoPlano = () => {
+    console.warn(
+      '[FrequenciaCard] Geração de plano indisponível nesta versão do app: o fluxo vive no onboarding.',
+    );
+  };
 
   if (loading) {
     // Direção 03: a estrutura da tela já aparece na carga — skeleton no lugar
@@ -578,6 +643,17 @@ const TrainingSessionScreen = () => {
         </View>
       ) : null}
 
+      {/* --- Aviso de frequência (Nível 4): só fora de sessão ativa ---------- */}
+      {frequencia && !emAndamento ? (
+        <FrequenciaCard
+          veredito={frequencia.veredito}
+          frequenciaReal={frequencia.frequenciaReal}
+          diasPlanejados={frequencia.diasPlanejados}
+          onGerarNovoPlano={gerarNovoPlano}
+          style={styles.frequenciaCard}
+        />
+      ) : null}
+
       <Card elevated style={styles.summary}>
         <View style={styles.summaryTop}>
           <View style={styles.summaryCopy}>
@@ -770,6 +846,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.xs,
   },
   reorderNotice: { marginBottom: theme.spacing.md },
+  frequenciaCard: { marginBottom: theme.spacing.xl },
   // Fixas esmaecidas no modo edição: não participam da permuta.
   rowFixa: { opacity: 0.55 },
 

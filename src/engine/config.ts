@@ -79,3 +79,30 @@ export type MoodConfig = {
 export const MOOD_CONFIG: MoodConfig = {
   tiredCapacityFactor: 0.7, // PADRÃO A VALIDAR — cansado ≈ 70% da capacidade
 };
+
+// ---------------------------------------------------------------
+// Escada de reencaixe — Nível 4 (adherenceHistory.ts): detecção de falta
+// crônica / abandono / agenda desalinhada. ⚠️ PADRÕES A VALIDAR por um
+// profissional de educação física, como todos os demais números deste arquivo.
+// ---------------------------------------------------------------
+
+export type FrequencyConfig = {
+  /** Semanas fechadas mínimas para diagnosticar (abaixo: insuficiente_historico). */
+  semanasFechadasMinimas: number;
+  /** Teto de taxa por semana: TODAS abaixo disso caracteriza falta crônica. NUNCA média. */
+  taxaMaxima: number;
+  /** Dado de dia mínimo para concluir desalinhamento de agenda (0 = sem base). */
+  deltaMinimoDeDias: number;
+  /** Frequência mínima que o plano gerado deve respeitar (proposta futura). */
+  frequenciaMinima: number;
+  /** Semanas entre propostas de replanejamento (proposta futura, sem persistência ainda). */
+  semanasEntrePropostas: number;
+};
+
+export const FREQUENCY_CONFIG: FrequencyConfig = {
+  semanasFechadasMinimas: 3, // PADRÃO A VALIDAR
+  taxaMaxima: 0.7, // PADRÃO A VALIDAR — abaixo de 70% da semana é falta crônica
+  deltaMinimoDeDias: 1, // PADRÃO A VALIDAR
+  frequenciaMinima: 2, // PADRÃO A VALIDAR — reservado para a tela de proposta
+  semanasEntrePropostas: 4, // PADRÃO A VALIDAR — reservado para a tela de proposta
+};
