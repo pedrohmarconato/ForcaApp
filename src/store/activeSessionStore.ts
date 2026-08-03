@@ -20,7 +20,6 @@ import {
   reconcileInjuryFlags,
   applyExerciseSkipToDraft,
   removeExerciseSkipFromDraft,
-  nomesBloqueadosPorRecusa,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
@@ -55,12 +54,10 @@ import { localTodayISO, segundaDaSemanaDe } from '../engine/agendaDias';
 import {
   replanByRules,
   applyTimeCutToDraft,
-  appendAddedSetsToDraft,
   parseReplanSnapshot,
   lastTimeCutForSession,
   replanFingerprint,
   type WeeklyReplanProposal,
-  type AddedSetRow,
 } from '../engine/weeklyReplanner';
 import { reancorarSemana, type SessaoParaReancorar } from '../engine/scheduleShift';
 import { getAgendaDoAluno } from '../services/agendaRepository';
@@ -105,8 +102,6 @@ export type PendingReplan = {
   sessionLogId: string | null;
   /** Minutos informados no "menos tempo hoje" (null = tempo cheio). */
   requestedMinutes: number | null;
-  /** Redistribuição recusada nesta visita — não voltar a propô-la ao recalcular. */
-  redistributionDismissed: boolean;
   /** Plano de reencaixe (se houver sessões atrasadas). Reaplicado ao recalcular. */
   reagendamento: Reagendamento | null;
   context: WeekReplanContext;
@@ -493,7 +488,6 @@ const assertValidReplanContext: (ctx: unknown) => asserts ctx is WeekReplanConte
         const setPath = `${exercisePath}.sets[${setIndex}]`;
         if (!isRecord(plannedSet)) throw new ReplanContextStructureError(`${setPath} não é objeto`);
         requireString(plannedSet.id, `${setPath}.id`); requireFiniteNumber(plannedSet.setOrder, `${setPath}.setOrder`);
-        if (plannedSet.addedByReplan !== undefined && typeof plannedSet.addedByReplan !== 'boolean') throw new ReplanContextStructureError(`${setPath}.addedByReplan deve ser boolean`);
       }
     }
   }
@@ -724,11 +718,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         currentSessionId: atual.plannedSessionId,
         availableMinutes: minutosEfetivos,
         completedSetsBySession: context.completedSetsBySession,
-        blockedExerciseNames: nomesBloqueadosPorRecusa(atual),
       });
 
       // Calcula o reencaixe (best-effort: falha não derruba a proposta).
-      // Se houver reencaixe possível, suprime o pulo da proposta.
       let reagendamento: Reagendamento | null = null;
       try {
         const agenda = await getAgendaDoAluno({
@@ -784,25 +776,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
                 semEncaixe: plano.semEncaixe,
               };
             }
-
-            // Suprime o pulo quando há reencaixe (movidas OU fechamento por
-            // semana cheia): confirmReplan não aplicará redistribution, logo
-            // nenhuma sessão será marcada como skipped. Se houvesse skipped
-            // sem redistribution, o servidor rejeitaria.
-            if (
-              (plano.movidas.length > 0 || plano.semEncaixe.length > 0) &&
-              proposal.redistribution
-            ) {
-              proposal = {
-                ...proposal,
-                redistribution: null,
-                hasChanges: proposal.timeCut != null,
-              };
-            }
           }
         }
       } catch (reanchorError) {
-        // Reencaixe falhou (I/O): proposta segue como estava (com pulo, se houve).
+        // Reencaixe falhou (I/O): proposta segue como estava.
         // O treino nunca é travado por falha de reencaixe; a feature é degradável.
         console.warn('[replan] reencaixe falhou (não-fatal):', reanchorError);
       }
@@ -817,7 +794,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         pendingReplan: {
           sessionLogId: sid,
           requestedMinutes: get().checkInMinutes,
-          redistributionDismissed: false,
           reagendamento,
           context,
           proposal,
@@ -856,21 +832,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       currentSessionId: draft.plannedSessionId,
       availableMinutes: minutosEfetivos,
       completedSetsBySession: pr.context.completedSetsBySession,
-      blockedExerciseNames: nomesBloqueadosPorRecusa(draft),
     });
-    // Redistribuição já recusada nesta visita não volta pela porta do recálculo.
-    if (pr.redistributionDismissed) {
-      proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
-    }
-    // Reencaixe já calculado: reaplicar a supressão sem novo I/O. Se o aluno pedir
-    // menos tempo DEPOIS do reencaixe, a redistribution continua suprimida —
-    // vale também para o Nível 2 (sem movidas, só semEncaixe).
-    if (
-      pr.reagendamento &&
-      (pr.reagendamento.movidas.length > 0 || pr.reagendamento.semEncaixe.length > 0)
-    ) {
-      proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
-    }
     // Oculta proposta cujo fingerprint foi recusado nesta sessão.
     const declined = draft.declinedReplanFingerprints ?? [];
     if (proposal.hasChanges && declined.includes(replanFingerprint(proposal))) {
@@ -901,7 +863,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const sid = draft.sessionLogId;
     set({ replanBusy: true });
     try {
-      const { addedSets } = await applyConfirmedReplan({
+      await applyConfirmedReplan({
         context: pr.context,
         proposal: pr.proposal,
         sessionLogId: sid,
@@ -918,8 +880,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           pr.proposal.timeCut.cutExercises.map((c) => c.exerciseId),
         );
       }
-      const daSessaoAtual = addedSets.filter((r) => r.sessionId === atual.plannedSessionId);
-      if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
       set({ draft: novo, pendingReplan: null, saveError: null });
       try {
         await saveDraft(novo);
@@ -930,69 +890,14 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return true;
     } catch (e) {
       if (operationEpoch !== epoch || get().draft?.sessionLogId !== sid) return false;
-      // Duck-type (o repositório é mockado nos testes): replanApplied=true significa
-      // que séries+snapshot JÁ persistiram e só o skip falhou.
-      const failure = e as {
-        replanApplied?: boolean;
-        addedSets?: AddedSetRow[];
-        stage?: string;
-        cause?: { code?: string };
-      };
-      // Conflito de unicidade no INSERT = OUTRO aparelho aplicou este replan
-      // primeiro (backstop do índice único da migration 0007). Nada desta
-      // tentativa persistiu, mas a proposta está obsoleta — reaplicá-la
-      // falharia para sempre; o caminho certo é recalcular do servidor.
-      const insertConflict = failure?.stage === 'insert' && failure?.cause?.code === '23505';
-      if (failure?.replanApplied !== true && !insertConflict) {
-        // Nada foi aplicado (insert/snapshot falharam com rollback): a proposta
-        // fica de pé para tentar de novo; o erro aparece, nunca é engolido.
-        const msg = isReplanTransportError(e)
+      // COMMIT B: a aplicação grava SÓ o snapshot — não há insert de séries nem
+      // skip, logo não existe estado parcial a refletir. Erro → aviso e a
+      // proposta é recalculada do servidor; a sessão nunca trava.
+      set({
+        saveError: isReplanTransportError(e)
           ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.'
-          : errMsg(e);
-        set({ saveError: msg });
-        return false;
-      }
-      if (insertConflict) {
-        // Rascunho intacto (nem corte nem séries persistiram por aqui); só
-        // descarta a proposta obsoleta — o recálculo abaixo traz o estado do
-        // servidor, que já contém o replan do outro aparelho.
-        set({
-          pendingReplan: null,
-          saveError: 'Replanejamento já aplicado em outro aparelho. Proposta atualizada.',
-        });
-      } else {
-        // Aplicado em parte (só o skip falhou). Reaplicar a MESMA proposta
-        // re-inseriria as séries (achado nº 2): reflete o que persistiu no
-        // rascunho, DESCARTA a proposta obsoleta e recalcula do servidor — o
-        // snapshot já registra os adds, então a nova proposta respeita o teto e
-        // só re-propõe o skip pendente.
-        const atual = get().draft;
-        if (atual && atual.sessionLogId === sid) {
-          let novo = atual;
-          if (pr.proposal.timeCut) {
-            novo = applyTimeCutToDraft(
-              novo,
-              pr.proposal.timeCut.cutExercises.map((c) => c.exerciseId),
-            );
-          }
-          const daSessaoAtual = (failure.addedSets ?? []).filter(
-            (r) => r.sessionId === atual.plannedSessionId,
-          );
-          if (daSessaoAtual.length > 0) novo = appendAddedSetsToDraft(novo, daSessaoAtual);
-          set({ draft: novo, pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
-          try {
-            await saveDraft(novo);
-          } catch (storageError) {
-            console.warn('[activeSession] rascunho não persistido (não-fatal):', storageError);
-            set({ storageWarning: STORAGE_WARNING_MSG });
-          }
-        } else {
-          set({ pendingReplan: null, saveError: isReplanTransportError(e) ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.' : errMsg(e) });
-        }
-      }
-      // Recálculo do servidor (comum ao conflito e ao skip falho): a nova
-      // proposta parte do estado autoritativo — adds anteriores contam no teto,
-      // sessão já pulada não é re-proposta.
+          : errMsg(e),
+      });
       try {
         const refreshed = await getWeekReplanContext(
           pr.context.userId,
@@ -1012,7 +917,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             pendingReplan: {
               sessionLogId: sid,
               requestedMinutes: null,
-              redistributionDismissed: false,
               reagendamento: null,
               context: refreshed,
               proposal,
@@ -1020,7 +924,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           });
         }
       } catch (refreshError) {
-        // Sem recálculo o banner some; a próxima abertura da sessão recalcula.
+        // Sem recálculo a proposta antiga fica de pé para tentar de novo.
         console.warn('[activeSession] replanejamento não recalculado (não-fatal):', refreshError);
       }
       return false;
@@ -1043,12 +947,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       pendingReplan: {
         ...pr,
         requestedMinutes: null,
-        redistributionDismissed:
-          pr.redistributionDismissed || pr.proposal.redistribution != null,
         proposal: {
           ...pr.proposal,
           timeCut: null,
-          redistribution: null,
           hasChanges: false,
         },
       },

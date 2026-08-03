@@ -54,10 +54,6 @@ export type ReplanConfig = {
     /** Razão a partir da qual mantém primários+secundários (degrau ~66%); abaixo, só primários (degrau ~45%). */
     secondaryMinRatio: number;
   };
-  /** Teto de volume redistribuído por grupo muscular numa sessão receptora (fração das séries originais). */
-  redistributionCapPct: number;
-  /** Distância mínima, em dias, para receber volume de um grupo já treinado perto (1 = não empilhar em dias consecutivos). */
-  minRestDaysSameGroup: number;
   /** Tokens (sem acento, minúsculos) que identificam sessão de deload em session_type/título. */
   deloadTokens: string[];
 };
@@ -67,8 +63,6 @@ export const REPLAN_CONFIG: ReplanConfig = {
     fullMinRatio: 0.85, // ≥85% do tempo → sessão inteira — PADRÃO A VALIDAR
     secondaryMinRatio: 0.55, // 55–85% → corta acessórios; <55% → só primários — PADRÃO A VALIDAR
   },
-  redistributionCapPct: 0.25, // +25% por grupo muscular na sessão receptora — PADRÃO A VALIDAR
-  minRestDaysSameGroup: 1, // não empilhar o mesmo grupo em dias consecutivos — PADRÃO A VALIDAR
   deloadTokens: ['deload', 'descarga'], // detecção por texto: o volume semanal da IA não é persistido
 };
 

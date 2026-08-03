@@ -83,7 +83,7 @@ const SkipReasonSheet = ({
           </Text>
           <Text style={styles.description}>
             {ehSessao
-              ? 'O treino fica registrado como recusado, com o seu motivo. O volume dele não é redistribuído nas outras sessões da semana.'
+              ? 'O treino fica registrado como recusado, com o seu motivo. A semana fecha com menos volume — nada é remanejado para os outros dias.'
               : 'As séries que você já registrou continuam valendo. As que faltam saem do treino de hoje — o exercício segue nas próximas semanas.'}
           </Text>
 

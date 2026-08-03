@@ -53,24 +53,6 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
 export const isSkipReason = (v: unknown): v is SkipReason =>
   typeof v === 'string' && (SKIP_REASONS as readonly string[]).includes(v);
 
-/**
- * Motivos que representam uma escolha do aluno sobre o EXERCÍCIO em si, não
- * sobre as circunstâncias do dia. Empurrar de volta na mesma semana o que foi
- * recusado por dor ou por rejeição é insistir no que ele acabou de dispensar;
- * "sem tempo"/"cansaço" são circunstância e não bloqueiam o exercício.
- */
-export const RECUSA_BLOQUEIA_REDISTRIBUICAO: readonly SkipReason[] = [
-  'dor_ou_lesao',
-  'nao_gosto',
-  'sem_equipamento',
-] as const;
-
-/** A recusa deste motivo impede que o exercício receba volume redistribuído? */
-export const recusaBloqueiaRedistribuicao = (
-  reason: SkipReason | null | undefined,
-): boolean =>
-  reason != null && (RECUSA_BLOQUEIA_REDISTRIBUICAO as readonly string[]).includes(reason);
-
 export type DraftSet = {
   plannedSetId: string;
   setOrder: number;
@@ -575,20 +557,6 @@ export const isSessionComplete = (draft: SessionDraft): boolean => {
   const { done, total } = sessionProgress(draft);
   return total > 0 && done === total;
 };
-
-/**
- * Nomes dos exercícios recusados por um motivo que é sobre o EXERCÍCIO (dor,
- * rejeição, equipamento). Alimenta o bloqueio de receptores da redistribuição:
- * sem isto, recusar a Corrida por dor no joelho hoje resultava em séries de
- * Corrida acrescentadas na sessão de quinta.
- *
- * "Sem tempo" e "cansaço" NÃO entram: são circunstância do dia, não rejeição do
- * exercício — refazê-lo em outro dia é exatamente o que o aluno espera.
- */
-export const nomesBloqueadosPorRecusa = (draft: SessionDraft): string[] =>
-  draft.exercises
-    .filter((ex) => ex.skippedByUser === true && recusaBloqueiaRedistribuicao(ex.skipReason))
-    .map((ex) => ex.name);
 
 /**
  * Não sobrou nada a fazer NEM nada feito — o aluno recusou (ou o tempo cortou)

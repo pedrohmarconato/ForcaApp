@@ -203,7 +203,7 @@ beforeEach(() => {
   mock(startSessionLog).mockResolvedValue({ sessionLogId: 'log-1', startedAt: '2020-01-07T10:00:00Z' });
   mock(saveSetLog).mockImplementation(async (params: any) => ({ setLogId: `log-${params.plannedSetId}`, actualReps: params.actualReps, actualLoadKg: params.actualLoadKg, actualRir: params.actualRir, outcome: params.outcome }));
   mock(getWeekReplanContext).mockResolvedValue(makeContext());
-  mock(applyConfirmedReplan).mockResolvedValue({ addedSets: [] });
+  mock(applyConfirmedReplan).mockResolvedValue(undefined);
   mock(getAgendaDoAluno).mockResolvedValue({ agenda: [], origem: 'ausente' });
   mock(reagendarSessoesDaSemana).mockResolvedValue({ week: 1, moved: 0 });
 });
@@ -215,50 +215,46 @@ const abrir = async () => {
   await store().computeReplan(detail);
 };
 
-it('abrir a sessão LEVANTA a proposta (falta detectada); nada é aplicado sem confirmação', async () => {
+it('abrir a sessão NÃO propõe redistribuição; só o corte de tempo, e nada é aplicado sem confirmação', async () => {
   await abrir();
   const pr = store().pendingReplan;
   expect(pr).not.toBeNull();
-  expect(pr!.proposal.hasChanges).toBe(true);
-  expect(pr!.proposal.redistribution!.missedSessionIds).toEqual(['seg']);
-  expect(pr!.proposal.redistribution!.additions).toEqual([
-    expect.objectContaining({ targetSessionId: 'sess-1', exerciseId: 'ex-1', addSets: 1 }),
-  ]);
+  // Falta detectada SEM pedido de menos tempo: nada a propor (COMMIT B).
+  expect(pr!.proposal.hasChanges).toBe(false);
+  expect(pr!.proposal.timeCut).toBeNull();
   // proposta é SÓ overlay: nenhuma escrita aconteceu
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
   // e o rascunho segue com as séries originais
   expect(store().draft!.exercises[0].sets).toHaveLength(2);
+
+  // "menos tempo hoje": aí sim há o que propor — e só o corte
+  store().requestTimeCut(40);
+  const pr2 = store().pendingReplan!;
+  expect(pr2.proposal.hasChanges).toBe(true);
+  expect(pr2.proposal.timeCut).not.toBeNull();
+  expect(pr2.proposal.timeCut!.sessionId).toBe('sess-1');
 });
 
-it('RECUSA mantém tudo: nada escrito, e o recálculo de tempo não ressuscita a redistribuição', async () => {
+it('RECUSA mantém tudo: nada escrito; recálculo de tempo não ressuscita o que foi recusado', async () => {
   await abrir();
-  store().declineReplan();
+  store().requestTimeCut(40);
+  expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+  await store().declineReplan();
   expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
 
-  // "menos tempo hoje" depois da recusa: só o corte entra na proposta
+  // Mesmos 40 min de novo: fingerprint recusado oculta a proposta.
   store().requestTimeCut(40);
+  expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+  // Conteúdo diferente (30 min) reaparece: só o corte entra na proposta.
+  store().requestTimeCut(30);
   const pr = store().pendingReplan!;
+  expect(pr.proposal.hasChanges).toBe(true);
   expect(pr.proposal.timeCut).not.toBeNull();
-  expect(pr.proposal.redistribution).toBeNull();
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
 });
 
-it('CONFIRMAR aplica via repositório e reflete no rascunho (corte + série adicionada hoje)', async () => {
-  mock(applyConfirmedReplan).mockResolvedValue({
-    addedSets: [
-      {
-        id: 'novo-1',
-        sessionId: 'sess-1',
-        exerciseId: 'ex-1',
-        setOrder: 3,
-        targetRepsMin: 8,
-        targetRepsMax: 10,
-        targetLoadKg: null,
-        targetRir: 2,
-      },
-    ],
-  });
+it('CONFIRMAR aplica via repositório e reflete o corte no rascunho', async () => {
   await abrir();
   store().requestTimeCut(40); // corta o acessório ex-2
 
@@ -270,146 +266,48 @@ it('CONFIRMAR aplica via repositório e reflete no rascunho (corte + série adic
   const draft = store().draft!;
   // corte refletido no rascunho
   expect(draft.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).toBe(true);
-  // série inserida na sessão ATUAL anexada ao rascunho
+  // NENHUMA série inserida: a falta não é compensada (COMMIT B)
   const setsEx1 = draft.exercises.find((e) => e.exerciseId === 'ex-1')!.sets;
-  expect(setsEx1.map((s) => s.plannedSetId)).toEqual(['st-1', 'st-2', 'novo-1']);
+  expect(setsEx1.map((s) => s.plannedSetId)).toEqual(['st-1', 'st-2']);
   // banner some
   expect(store().pendingReplan).toBeNull();
 });
 
-it('falha na aplicação: a proposta FICA de pé e o erro aparece (nunca sucesso otimista)', async () => {
+it('falha na aplicação: o erro aparece e a proposta é recalculada do servidor (nunca sucesso otimista)', async () => {
   mock(applyConfirmedReplan).mockRejectedValue(new Error('rede caiu'));
   await abrir();
+  store().requestTimeCut(40);
 
   const ok = await store().confirmReplan();
   expect(ok).toBe(false);
   expect(store().saveError).toBe('rede caiu');
-  expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+  // recálculo do servidor sem corte: nada mais a propor
+  expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
   // rascunho intacto
   expect(store().draft!.exercises[0].sets).toHaveLength(2);
 });
 
 it('confirmações CONCORRENTES: o repositório é chamado UMA única vez (achado nº 2)', async () => {
-  let liberar!: (v: { addedSets: never[] }) => void;
+  let liberar!: () => void;
   mock(applyConfirmedReplan).mockImplementation(
-    () => new Promise((res) => { liberar = res; }),
+    () => new Promise<void>((res) => { liberar = res; }),
   );
   await abrir();
+  store().requestTimeCut(40);
 
   // duplo-toque: a 2ª confirmação entra enquanto a 1ª ainda está no ar
   const p1 = store().confirmReplan();
   const p2 = store().confirmReplan();
-  liberar({ addedSets: [] });
+  liberar();
   const [r1, r2] = await Promise.all([p1, p2]);
 
   expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1);
   expect([r1, r2].sort()).toEqual([false, true]); // uma aplica, a outra é recusada
 });
 
-it('falha no SKIP após inserir+registrar: proposta obsoleta é descartada e o retry NÃO re-insere', async () => {
-  // O repositório sinaliza que séries+snapshot JÁ persistiram (replanApplied) —
-  // reusar a proposta antiga re-inseriria as mesmas séries (achado nº 2).
-  const novaSerie = {
-    id: 'novo-1',
-    sessionId: 'sess-1',
-    exerciseId: 'ex-1',
-    setOrder: 5,
-    targetRepsMin: 8,
-    targetRepsMax: 10,
-    targetLoadKg: null,
-    targetRir: 2,
-  };
-  mock(applyConfirmedReplan).mockRejectedValueOnce({
-    name: 'ReplanApplyError',
-    message: 'não foi possível marcar a sessão perdida como pulada',
-    stage: 'skip',
-    replanApplied: true,
-    addedSets: [novaSerie],
-  });
-  // Recálculo pós-falha vem do SERVIDOR: a série inserida já aparece marcada
-  // (teto consumido) → a nova proposta não tem mais adições, só o skip pendente.
-  const contextoAtualizado = makeContext();
-  contextoAtualizado.sessions[1].exercises[0].sets = [
-    ...[1, 2, 3, 4].map((i) => ({ id: `ex1-s${i}`, setOrder: i })),
-    { id: 'novo-1', setOrder: 5, addedByReplan: true },
-  ];
-  mock(getWeekReplanContext)
-    .mockResolvedValueOnce(makeContext()) // abrir
-    .mockResolvedValueOnce(contextoAtualizado); // refresh pós-falha
-
-  await abrir();
-  const ok = await store().confirmReplan();
-  expect(ok).toBe(false);
-
-  // o que FOI aplicado reflete no rascunho (série nova anexada) e o erro aparece
-  const setsEx1 = store().draft!.exercises.find((e) => e.exerciseId === 'ex-1')!.sets;
-  expect(setsEx1.map((s) => s.plannedSetId)).toContain('novo-1');
-  expect(store().saveError).toMatch(/pulada/);
-
-  // a proposta foi RECALCULADA do servidor: skip ainda pendente, SEM novas adições
-  const pr = store().pendingReplan!;
-  expect(pr.proposal.redistribution!.missedSessionIds).toEqual(['seg']);
-  expect(pr.proposal.redistribution!.additions).toEqual([]);
-
-  // retry: aplica de novo SÓ com o skip (nenhuma série para inserir)
-  mock(applyConfirmedReplan).mockResolvedValueOnce({ addedSets: [] });
-  const ok2 = await store().confirmReplan();
-  expect(ok2).toBe(true);
-  const segundaChamada = mock(applyConfirmedReplan).mock.calls[1][0];
-  expect(segundaChamada.proposal.redistribution.additions).toEqual([]);
-  // e o rascunho não ganhou série duplicada
-  const setsDepois = store().draft!.exercises.find((e) => e.exerciseId === 'ex-1')!.sets;
-  expect(setsDepois.filter((s) => s.plannedSetId === 'novo-1')).toHaveLength(1);
-});
-
-it('conflito de unicidade no INSERT (23505 = outro aparelho aplicou antes): descarta a proposta obsoleta e recalcula do servidor', async () => {
-  // Backstop da migration 0007 (índice único em planned_sets(exercise_id,
-  // set_order)): dois aparelhos com o mesmo contexto geram os MESMOS set_order —
-  // o segundo INSERT falha com 23505. Nada desta tentativa persistiu, mas a
-  // proposta está obsoleta: reaplicá-la falharia para sempre.
-  mock(applyConfirmedReplan).mockRejectedValueOnce({
-    name: 'ReplanApplyError',
-    message: 'duplicate key value violates unique constraint "planned_sets_exercise_set_order_key"',
-    stage: 'insert',
-    replanApplied: false,
-    addedSets: [],
-    cause: { code: '23505' },
-  });
-  // Refresh do servidor: o OUTRO aparelho já aplicou tudo — série inserida
-  // (marcada como de replan) e a sessão perdida já 'skipped'.
-  const contextoAtualizado = makeContext();
-  contextoAtualizado.sessions[0].status = 'skipped';
-  contextoAtualizado.sessions[1].exercises[0].sets = [
-    ...[1, 2, 3, 4].map((i) => ({ id: `ex1-s${i}`, setOrder: i })),
-    { id: 'outro-1', setOrder: 5, addedByReplan: true },
-  ];
-  mock(getWeekReplanContext)
-    .mockResolvedValueOnce(makeContext()) // abrir
-    .mockResolvedValueOnce(contextoAtualizado); // refresh pós-conflito
-
-  await abrir();
-  store().requestTimeCut(40); // corte + adição na mesma proposta
-  const ok = await store().confirmReplan();
-  expect(ok).toBe(false);
-
-  // NADA desta tentativa persistiu → rascunho intacto: sem corte e sem série nova
-  const draft = store().draft!;
-  expect(draft.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).not.toBe(true);
-  expect(draft.exercises.find((e) => e.exerciseId === 'ex-1')!.sets).toHaveLength(2);
-
-  // o erro explica o conflito, sem sucesso otimista
-  expect(store().saveError).toMatch(/outro aparelho/i);
-
-  // a proposta obsoleta foi DESCARTADA e recalculada do servidor: a falta já foi
-  // resolvida pelo outro aparelho → nada a propor (retry nunca re-insere)
-  expect(mock(getWeekReplanContext)).toHaveBeenCalledTimes(2);
-  const pr = store().pendingReplan;
-  expect(pr === null || pr.proposal.hasChanges === false).toBe(true);
-  expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1);
-});
-
 it('proposta de OUTRA sessão não é aplicável (troca de sessão descarta, nada escreve)', async () => {
   await abrir();
+  store().requestTimeCut(40); // precisa haver proposta para a checagem de troca valer
   // troca de sessão sem passar pela tela: novo log, proposta antiga fica órfã
   useActiveSessionStore.setState({
     draft: { ...store().draft!, sessionLogId: 'log-outro' },
@@ -445,7 +343,6 @@ it('retomada reaplica um corte de tempo já CONFIRMADO (registro do servidor)', 
           planId: 'plan-1',
           weekNumber: 1,
           adherence: { sessionsDue: 0, sessionsCompleted: 0, sessionRate: null, setsDue: 0, setsCompleted: 0, volumeRate: null },
-          redistribution: null,
           timeCut: {
             sessionId: 'sess-1',
             availableMinutes: 40,
@@ -473,6 +370,7 @@ import { SessionExecutionRequestError } from '../src/services/sessionExecutionRe
 describe('memória da proposta recusada (fingerprint)', () => {
   it('recusar A (await) persiste o fingerprint; remount + recálculo OCULTA a proposta idêntica', async () => {
     await abrir();
+    store().requestTimeCut(40); // corte a 40 min: é o que pode ser recusado
     expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
     const fpA = replanFingerprint(store().pendingReplan!.proposal);
 
@@ -504,45 +402,23 @@ describe('memória da proposta recusada (fingerprint)', () => {
 
     // 3. Recalcular a MESMA proposta → oculta (banner não aparece).
     await store().computeReplan(makeDetail());
+    store().requestTimeCut(40); // o corte idêntico ao recusado fica oculto
     expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
   });
 
   it('proposta com conteúdo DIFERENTE reaparece após recusa', async () => {
     await abrir();
+    store().requestTimeCut(40);
     await store().declineReplan();
 
-    // Outra falta (sessão 'qui' com grupo Costas) muda o fingerprint.
-    const contexto = makeContext();
-    contexto.sessions = [
-      {
-        id: 'qui',
-        weekNumber: 1,
-        title: 'Treino B',
-        sessionType: 'Hipertrofia',
-        scheduledDate: '2020-01-02',
-        status: 'pending',
-        estimatedMinutes: 60,
-        exercises: [
-          {
-            id: 'c1',
-            name: 'Remada',
-            muscleGroup: 'Costas',
-            priority: 'primary',
-            exerciseOrder: 1,
-            sets: [1, 2, 3, 4].map((i) => ({ id: `c1-s${i}`, setOrder: i })),
-          },
-        ],
-      },
-      ...contexto.sessions,
-    ];
-    mock(getWeekReplanContext).mockResolvedValue(contexto);
-
-    await store().computeReplan(makeDetail());
+    // Menos tempo ainda (30 min) muda o conteúdo do corte → fingerprint diferente.
+    store().requestTimeCut(30);
     expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
   });
 
   it('falha de AsyncStorage em declineReplan: recusa vale AGORA, storageWarning setado, treino ativo', async () => {
     await abrir();
+    store().requestTimeCut(40);
     mock(saveDraft).mockRejectedValue(new Error('storage cheio'));
 
     await store().declineReplan();
@@ -602,6 +478,7 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
 
   it('transporte em confirmReplan → saveError amigável SEM TypeError/stack', async () => {
     await abrir();
+    store().requestTimeCut(40);
     mock(applyConfirmedReplan).mockRejectedValue(
       new SessionExecutionRequestError({ message: 'TypeError: Network request failed' }, { kind: 'transport' }),
     );
@@ -613,60 +490,19 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     expect(store().saveError).not.toMatch(/TypeError|at /);
   });
 
-  it('ReplanApplyError com cause TypeError: Failed to fetch é transporte amigável e mantém retry/done', async () => {
+  it('TypeError "Failed to fetch" em confirmReplan é transporte amigável e mantém retry/done', async () => {
     await abrir();
     useActiveSessionStore.setState({ draft: { ...store().draft!, exercises: store().draft!.exercises.map((ex, index) =>
       index === 0 ? { ...ex, sets: ex.sets.map((set, i) => i === 0 ? { ...set, status: 'done' as const } : set) } : ex) } });
-    mock(applyConfirmedReplan).mockRejectedValueOnce({ name: 'ReplanApplyError', message: 'TypeError: Failed to fetch', cause: new TypeError('Failed to fetch'), stage: 'insert', replanApplied: false, addedSets: [] });
+    mock(applyConfirmedReplan).mockRejectedValueOnce({ name: 'ReplanApplyError', message: 'TypeError: Failed to fetch', cause: new TypeError('Failed to fetch') });
+    store().requestTimeCut(40);
     expect(await store().confirmReplan()).toBe(false);
     expect(store().saveError).toContain('Sem conexão');
     expect(store().saveError).not.toMatch(/TypeError|at /);
-    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+    // recálculo do servidor sem corte: nada a propor, retry não re-envia
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
   });
-
-  it('falha parcial (replanApplied=true) com refresh sem rede: séries DONE não regridem', async () => {
-    await abrir();
-    // Série 1 já confirmada no servidor (done no draft).
-    useActiveSessionStore.setState({
-      draft: {
-        ...store().draft!,
-        exercises: store().draft!.exercises.map((ex, i) =>
-          i === 0
-            ? {
-                ...ex,
-                sets: ex.sets.map((s) =>
-                  s.setOrder === 1
-                    ? { ...s, status: 'done', setLogId: 'sl-1', actualReps: 8, actualLoadKg: 40, outcome: 'on_target' as const }
-                    : s,
-                ),
-              }
-            : ex,
-        ),
-      },
-    });
-    const doneBefore = store().draft!.exercises[0].sets[0].status;
-
-    // applyConfirmedReplan falha no SKIP após inserir+registrar (replanApplied=true).
-    mock(applyConfirmedReplan).mockRejectedValue({
-      replanApplied: true,
-      addedSets: [],
-      stage: 'skip',
-      message: 'skip falhou',
-    });
-    // E o refresh do contexto também falha por transporte.
-    mock(getWeekReplanContext).mockRejectedValue(
-      new SessionExecutionRequestError({ message: 'net' }, { kind: 'transport' }),
-    );
-
-    const ok = await store().confirmReplan();
-    expect(ok).toBe(false);
-    // A série confirmada NÃO regrediu.
-    expect(store().draft!.exercises[0].sets[0].status).toBe(doneBefore);
-    expect(store().saveError).not.toMatch(/TypeError/);
-  });
-
-  // Testes da Fase 7: reencaixe de sessões pendentes
 
   it('computeReplan calcula reagendamento sem erro mesmo sem agenda', async () => {
     // Por padrão, getAgendaDoAluno retorna agenda vazia no beforeEach
@@ -825,32 +661,31 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     }
   });
 
-  it('reencaixe sem redistribuição: reagendamento é preenchido mesmo sem pulo a suprimir', async () => {
-    // Contexto com atraso (segunda perdida) mas proposta SEM redistribuição
-    // (por exemplo, não há receptora com capacidade no motor).
-    // O aluno deveria ver o reencaixe mesmo assim.
-    const contextoSemRedistribuicao = makeContext();
-    contextoSemRedistribuicao.sessions = [
+  it('reagendamento é preenchido mesmo sem proposta do motor (COMMIT B)', async () => {
+    // Contexto com atraso (segunda perdida) mas proposta do motor SEM nada a
+    // propor (sem corte de tempo). O aluno deveria ver o reencaixe mesmo assim.
+    const contextoSemProposta = makeContext();
+    contextoSemProposta.sessions = [
       {
-        ...contextoSemRedistribuicao.sessions[0],
+        ...contextoSemProposta.sessions[0],
         id: 'seg',
         status: 'pending',
         // Na semana do relógio (quarta 08/01): segunda perdida.
         scheduledDate: '2020-01-06',
       },
       {
-        ...contextoSemRedistribuicao.sessions[1],
+        ...contextoSemProposta.sessions[1],
         id: 'sess-1',
         status: 'in_progress',
         scheduledDate: '2020-01-07',
       },
     ];
-    contextoSemRedistribuicao.raw = [
+    contextoSemProposta.raw = [
       { id: 'seg', week_number: 1, title: 'Treino A', session_type: 'Hipertrofia', scheduled_date: '2020-01-06', status: 'pending', estimated_minutes: 60, planned_exercises: [], order_in_week: 1 } as any,
       { id: 'sess-1', week_number: 1, title: 'Push A', session_type: 'Hipertrofia', scheduled_date: '2020-01-07', status: 'in_progress', estimated_minutes: 60, planned_exercises: [], order_in_week: 2 } as any,
     ];
 
-    mock(getWeekReplanContext).mockResolvedValue(contextoSemRedistribuicao);
+    mock(getWeekReplanContext).mockResolvedValue(contextoSemProposta);
     // Agenda com espaço (quarta + quinta). O formato do contrato são OFFSETS
     // de dia da semana (0=segunda…6=domingo), como devolve agendaRepository —
     // o mock antigo passava objetos {data, blocos} e, sem slot válido, nada
@@ -868,107 +703,42 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     await store().startOrResume({ sessionId: 'sess-1', userId: 'user-1', detail });
     await confirmarCheckInSePedido();
 
-    // Mock do motor que NÃO propõe redistribuição (por qualquer razão)
-    // Captura a chamada original e força redistribution=null
+    // Mock do motor que não propõe nada (por qualquer razão): o reencaixe é
+    // calculado pelo store e independe da proposta do motor (COMMIT B).
     const originalReplanByRules = require('../src/engine/weeklyReplanner').replanByRules;
     jest.doMock('../src/engine/weeklyReplanner', () => ({
       ...originalReplanByRules,
       replanByRules: jest.fn(() => ({
-        hasChanges: false,
-        redistribution: null,  // SEM pulo
+        adherence: {
+          sessionsDue: 1,
+          sessionsCompleted: 0,
+          sessionRate: null,
+          setsDue: 4,
+          setsCompleted: 0,
+          volumeRate: null,
+        },
         timeCut: null,
-        timeCutExerciseIds: [],
-        fingerprint: 'fp-test',
+        hasChanges: false,
       })),
     }));
 
     await store().computeReplan(detail);
 
     const pr = store().pendingReplan;
-    // Mesmo sem redistribuição original, reencaixe DEVE estar preenchido
-    // (a intenção de reencaixar é independente do pulo oferecido).
+    // Mesmo sem proposta do motor, o reencaixe DEVE estar preenchido
+    // (a intenção de reencaixar é independente do corte de tempo).
     if (pr && pr.reagendamento) {
       expect(pr.reagendamento.movidas.length).toBeGreaterThan(0);
-      // E a proposta NÃO deve ter redistribuição (foi suprimida/não oferecida)
-      expect(pr.proposal.redistribution).toBeNull();
     }
     jest.useRealTimers();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Supressão do pulo quando o reencaixe resolve (escrito pelo revisor).
-//
-// O fixture padrão desta suíte usa datas de 2020: como "hoje" é sempre muito
-// depois, NENHUM slot da semana fica no futuro e o reencaixe nunca dispara —
-// uma asserção de `redistribution === null` passaria por vacuidade, sem
-// exercitar a supressão. Aqui o relógio é fixado numa quarta dentro da semana
-// do plano, que é a única forma de o caminho ser realmente percorrido.
-// ---------------------------------------------------------------------------
-describe('reencaixe possível suprime a proposta de pular', () => {
-  const QUARTA = new Date('2020-01-08T09:00:00');
-
-  const contextoNaSemana = (): WeekReplanContext => {
-    const ctx = makeContext();
-    // seg = segunda 06/01 (atrasada); a sessão de hoje fica na terça 07/01.
-    ctx.sessions[0].scheduledDate = '2020-01-06';
-    ctx.sessions[1].scheduledDate = '2020-01-07';
-    ctx.raw = ctx.sessions.map((s, i) => ({
-      id: s.id,
-      week_number: 1,
-      title: s.title,
-      session_type: s.sessionType,
-      scheduled_date: s.scheduledDate,
-      status: s.status,
-      estimated_minutes: s.estimatedMinutes,
-      order_in_week: i + 1,
-      planned_exercises: [],
-    })) as WeekReplanContext['raw'];
-    return ctx;
-  };
-
-  beforeEach(() => {
-    jest.useFakeTimers({ advanceTimers: true });
-    jest.setSystemTime(QUARTA);
-    mock(getWeekReplanContext).mockResolvedValue(contextoNaSemana());
-    mock(getAgendaDoAluno).mockResolvedValue({ agenda: [0, 1, 2, 3, 4], origem: 'plano' });
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('com reencaixe disponível, NENHUMA sessão é proposta para pular', async () => {
-    await abrir();
-    const pr = store().pendingReplan!;
-    // O treino atrasado vai para hoje (quarta 08/01), em vez de virar perda.
-    expect(pr.reagendamento!.movidas).toEqual([
-      expect.objectContaining({ id: 'seg', de: '2020-01-06', para: '2020-01-08' }),
-    ]);
-    // E a proposta NÃO carrega mais o pulo: confirmReplan não tem o que descartar.
-    expect(pr.proposal.redistribution).toBeNull();
-  });
-
-  it('recalcular o tempo não ressuscita o pulo já suprimido', async () => {
-    await abrir();
-    store().requestTimeCut(30);
-    expect(store().pendingReplan!.proposal.redistribution).toBeNull();
-  });
-
-  it('sem agenda, o comportamento antigo é preservado: o pulo volta a ser proposto', async () => {
-    mock(getAgendaDoAluno).mockResolvedValue({ agenda: [], origem: 'ausente' });
-    await abrir();
-    const pr = store().pendingReplan!;
-    expect(pr.reagendamento).toBeNull();
-    expect(pr.proposal.redistribution!.missedSessionIds).toEqual(['seg']);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Nível 2 da escada de reencaixe (Fase 2 do COMMIT A): quando NENHUM treino
 // cabe no que sobrou da semana, o plano vira um fechamento honesto — semEncaixe
-// preenchido, movidas vazio — e o pulo continua suprimido (nada será marcado
-// como skipped por esta proposta; o fechador cuida disso na abertura seguinte).
+// preenchido, movidas vazio — e a proposta não carrega pulo (COMMIT B: nada é
+// marcado como skipped; o fechador cuida disso na abertura seguinte).
 // ---------------------------------------------------------------------------
 describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () => {
   const QUARTA = new Date('2020-01-08T09:00:00');
@@ -1005,19 +775,17 @@ describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () =>
     jest.useRealTimers();
   });
 
-  it('nada cabe: movidas vazio, semEncaixe preenchido, pulo suprimido', async () => {
+  it('nada cabe: movidas vazio, semEncaixe preenchido, nada é pulado', async () => {
     await abrir();
     const pr = store().pendingReplan!;
     expect(pr.reagendamento).not.toBeNull();
     expect(pr.reagendamento!.movidas).toEqual([]);
     expect(pr.reagendamento!.semEncaixe).toEqual(['seg']);
-    expect(pr.proposal.redistribution).toBeNull();
   });
 
-  it('recalcular o tempo não ressuscita o pulo no Nível 2', async () => {
+  it('recalcular o tempo não altera o reencaixe no Nível 2', async () => {
     await abrir();
     store().requestTimeCut(30);
-    expect(store().pendingReplan!.proposal.redistribution).toBeNull();
     expect(store().pendingReplan!.reagendamento!.semEncaixe).toEqual(['seg']);
   });
 });

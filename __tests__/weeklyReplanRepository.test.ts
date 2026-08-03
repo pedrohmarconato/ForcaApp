@@ -1,12 +1,13 @@
 // __tests__/weeklyReplanRepository.test.ts
-// Fase 6 — I/O do replanejamento. Modos de falha cobertos:
-// - contexto marca as séries de replans ANTERIORES (insumo do "não empilhar")
-//   e conta as séries executadas por sessão;
-// - aplicação: INSERT copia o alvo da última série ORIGINAL (nada inventado),
-//   snapshot é MERGE (nunca apaga eventos) e vem ANTES do skip (se o skip
-//   falhar, o teto ainda enxerga os adds); skip só atinge sessão ainda pendente;
-// - snapshot falhou → séries recém-inseridas são removidas e o erro PROPAGA
-//   (nada fica aplicado sem registro).
+// Fase 6 — I/O do replanejamento. Modos de falha cobertos (COMMIT B):
+// - contexto: ordena, conta o executado, monta rótulos, mantém os snapshots
+//   existentes para o MERGE de eventos e ainda parseia snapshot LEGADO com
+//   redistribution (campo histórico é ignorado de propósito);
+// - aplicação: grava SÓ o snapshot — merge, nunca apaga eventos — com
+//   available_minutes quando há corte de tempo; nenhum insert em planned_sets,
+//   nenhum skip em planned_sessions;
+// - snapshot com 0 linhas atualizadas = falha (log alheio/inexistente não
+//   passa em silêncio) e o erro PROPAGA (nada fica aplicado sem registro).
 
 jest.mock('../src/config/supabaseClient', () => ({
   supabase: { from: jest.fn() },
@@ -43,7 +44,7 @@ beforeEach(() => {
 // getWeekReplanContext
 // ---------------------------------------------------------------
 
-it('contexto: ordena, marca séries de replans anteriores e conta o executado', async () => {
+it('contexto: ordena, conta o executado e mantém snapshots para merge (legado com redistribution ainda parseia)', async () => {
   const sessoes = builder({
     data: [
       {
@@ -110,9 +111,6 @@ it('contexto: ordena, marca séries de replans anteriores e conta o executado', 
   // exercícios/séries ordenados no cliente
   expect(ctx.sessions[0].exercises.map((e) => e.id)).toEqual(['e1', 'e2']);
   expect(ctx.sessions[0].exercises[0].sets.map((s) => s.setOrder)).toEqual([1, 2]);
-  // série inserida por replan anterior vem marcada (insumo do teto)
-  expect(ctx.sessions[0].exercises[1].sets[0].addedByReplan).toBe(true);
-  expect(ctx.sessions[0].exercises[0].sets[0].addedByReplan).toBe(false);
   // executado soma TODOS os logs da sessão
   expect(ctx.completedSetsBySession).toEqual({ qua: 3 });
   // numeric coagido e rótulo exibível
@@ -186,7 +184,6 @@ const contextoBase = (): WeekReplanContext => ({
           planId: 'plan-1',
           weekNumber: 1,
           adherence: { sessionsDue: 0, sessionsCompleted: 0, sessionRate: null, setsDue: 0, setsCompleted: 0, volumeRate: null },
-          redistribution: null,
           timeCut: null,
         },
       ],
@@ -205,190 +202,24 @@ const propostaBase = (): WeeklyReplanProposal => ({
     keptPriorities: ['primary', 'secondary'],
     cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 3 }],
   },
-  redistribution: {
-    kind: 'missed_redistribution',
-    missedSessionIds: ['seg'],
-    additions: [{ targetSessionId: 'sex', exerciseId: 'f1', exerciseName: 'Supino', muscleGroup: 'Peito', addSets: 2 }],
-    losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 2, reason: 'nao_coube' }],
-  },
   hasChanges: true,
 });
 
-it('aplica confirmado: insere copiando o alvo, snapshot MERGE antes do skip, skip só pendente', async () => {
-  const ordem: string[] = [];
-  const insertB = builder({
-    data: [
-      { id: 'novo-1', exercise_id: 'f1', set_order: 3, target_reps_min: 8, target_reps_max: 12, target_load_kg: '42.5', target_rir: 2 },
-      { id: 'novo-2', exercise_id: 'f1', set_order: 4, target_reps_min: 8, target_reps_max: 12, target_load_kg: '42.5', target_rir: 2 },
-    ],
-    error: null,
-  });
-  const snapB = builder({ data: [{ id: 'log-1' }], error: null });
-  const skipB = builder({ data: null, error: null });
-  fromMock.mockImplementation((table: string) => {
-    ordem.push(table);
-    if (table === 'planned_sets') return insertB;
-    if (table === 'session_logs') return snapB;
-    return skipB;
-  });
-
-  const { addedSets } = await applyConfirmedReplan({
-    context: contextoBase(),
-    proposal: propostaBase(),
-    sessionLogId: 'log-1',
-    confirmedAtISO: '2026-07-17T12:00:00Z',
-  });
-
-  // INSERT: 2 linhas copiando a ÚLTIMA série original (42.5) e ordem sequencial
-  const linhas = insertB.insert.mock.calls[0][0];
-  expect(linhas).toEqual([
-    expect.objectContaining({ exercise_id: 'f1', set_order: 3, target_load_kg: '42.5', target_reps_min: 8, target_reps_max: 12, target_rir: 2 }),
-    expect.objectContaining({ exercise_id: 'f1', set_order: 4 }),
-  ]);
-  // retorno coagido (numeric string → number) e com a sessão dona
-  expect(addedSets).toEqual([
-    expect.objectContaining({ id: 'novo-1', sessionId: 'sex', setOrder: 3, targetLoadKg: 42.5 }),
-    expect.objectContaining({ id: 'novo-2', sessionId: 'sex', setOrder: 4 }),
-  ]);
-
-  // snapshot: MERGE (evento antigo preservado + novo com os IDs inseridos)
-  const payload = snapB.update.mock.calls[0][0];
-  expect(payload.available_minutes).toBe(40);
-  expect(payload.adherence_snapshot.events).toHaveLength(2);
-  expect(payload.adherence_snapshot.events[1].redistribution.addedSets.map((r: any) => r.id)).toEqual(['novo-1', 'novo-2']);
-  expect(payload.adherence_snapshot.events[1].redistribution.missedSessions).toEqual([
-    { id: 'seg', originalStatus: 'pending' },
-  ]);
-
-  // ordem: inserir → snapshot → skip (snapshot ANTES do skip)
-  expect(ordem).toEqual(['planned_sets', 'session_logs', 'planned_sessions']);
-  // skip: restrito ao dono e a quem AINDA está pendente, com AUTORIA (0020) —
-  // 'replan' é o que impede a tela de oferecer "voltar a treinar hoje" numa
-  // sessão que ficou para trás por data vencida.
-  const skipPayload = skipB.update.mock.calls[0][0];
-  expect(skipPayload).toMatchObject({ status: 'skipped', skip_source: 'replan' });
-  expect(typeof skipPayload.skipped_at).toBe('string');
-  expect(Number.isNaN(Date.parse(skipPayload.skipped_at))).toBe(false);
-  expect(skipB.in).toHaveBeenCalledWith('id', ['seg']);
-  expect(skipB.eq).toHaveBeenCalledWith('status', 'pending');
-  expect(skipB.eq).toHaveBeenCalledWith('user_id', 'user-1');
-});
-
-it('INSERT falhou (23505 do índice único = outro aparelho) → erro tipado stage insert com a CAUSA preservada, nada aplicado', async () => {
-  // Backstop da 0007: o segundo aparelho colide no índice único de
-  // planned_sets(exercise_id, set_order). O bulk insert do PostgREST é um
-  // statement só (atômico), então nada persistiu; o store precisa do
-  // cause.code para classificar o conflito e descartar a proposta obsoleta.
-  const conflito = {
-    message: 'duplicate key value violates unique constraint "planned_sets_exercise_set_order_key"',
-    code: '23505',
-  };
-  const insertB = builder({ data: null, error: conflito });
-  const tabelas: string[] = [];
-  fromMock.mockImplementation((table: string) => {
-    tabelas.push(table);
-    return insertB;
-  });
-
-  await expect(
-    applyConfirmedReplan({
-      context: contextoBase(),
-      proposal: propostaBase(),
-      sessionLogId: 'log-1',
-      confirmedAtISO: '2026-07-17T12:00:00Z',
-    }),
-  ).rejects.toMatchObject({
-    name: 'ReplanApplyError',
-    stage: 'insert',
-    replanApplied: false,
-    cause: { code: '23505' },
-  });
-
-  // parou no insert: nem snapshot, nem skip, nem rollback (nada a desfazer)
-  expect(tabelas).toEqual(['planned_sets']);
-  expect(insertB.delete).not.toHaveBeenCalled();
-});
-
-it('snapshot falhou → remove as séries recém-inseridas, NÃO pula sessão e propaga', async () => {
-  const insertB = builder({
-    data: [{ id: 'novo-1', exercise_id: 'f1', set_order: 3, target_reps_min: 8, target_reps_max: 12, target_load_kg: null, target_rir: null }],
-    error: null,
-  });
-  const snapB = builder({ data: null, error: { message: 'permission denied' } });
-  const rollbackB = builder({ data: null, error: null });
-  const tabelas: string[] = [];
-  fromMock.mockImplementation((table: string) => {
-    tabelas.push(table);
-    if (table === 'session_logs') return snapB;
-    if (tabelas.filter((t) => t === 'planned_sets').length === 1 && table === 'planned_sets') return insertB;
-    return rollbackB;
-  });
-
-  await expect(
-    applyConfirmedReplan({
-      context: contextoBase(),
-      proposal: propostaBase(),
-      sessionLogId: 'log-1',
-      confirmedAtISO: '2026-07-17T12:00:00Z',
-    }),
-  ).rejects.toMatchObject({ message: 'permission denied' });
-
-  // rollback das inseridas; nenhuma sessão marcada como pulada
-  expect(rollbackB.delete).toHaveBeenCalled();
-  expect(rollbackB.in).toHaveBeenCalledWith('id', ['novo-1']);
-  expect(tabelas).not.toContain('planned_sessions');
-});
-
-it('SKIP falhou após inserir+registrar → erro tipado (applied) SEM rollback das séries', async () => {
-  // As séries e o snapshot persistiram; o chamador NÃO pode reusar a proposta
-  // antiga (re-inseriria). O erro carrega o estágio e as séries aplicadas.
-  const insertB = builder({
-    data: [{ id: 'novo-1', exercise_id: 'f1', set_order: 3, target_reps_min: 8, target_reps_max: 12, target_load_kg: null, target_rir: null }],
-    error: null,
-  });
-  const snapB = builder({ data: [{ id: 'log-1' }], error: null });
-  const skipB = builder({ data: null, error: { message: 'timeout no update' } });
-  fromMock.mockImplementation((table: string) => {
-    if (table === 'planned_sets') return insertB;
-    if (table === 'session_logs') return snapB;
-    return skipB;
-  });
-
-  await expect(
-    applyConfirmedReplan({
-      context: contextoBase(),
-      proposal: propostaBase(),
-      sessionLogId: 'log-1',
-      confirmedAtISO: '2026-07-17T12:00:00Z',
-    }),
-  ).rejects.toMatchObject({
-    name: 'ReplanApplyError',
-    stage: 'skip',
-    replanApplied: true,
-    addedSets: [expect.objectContaining({ id: 'novo-1' })],
-  });
-
-  // nada de rollback: as séries inseridas estão REGISTRADAS no snapshot
-  expect(insertB.delete).not.toHaveBeenCalled();
-});
-
 it('snapshot com 0 linhas atualizadas = falha (log alheio/inexistente não passa em silêncio)', async () => {
-  const insertB = builder({ data: [], error: null });
   const snapB = builder({ data: [], error: null }); // RLS filtrou → nada atualizado
-  fromMock.mockImplementation((table: string) => (table === 'session_logs' ? snapB : insertB));
+  fromMock.mockImplementation(() => snapB);
 
-  const proposta = { ...propostaBase(), redistribution: null };
   await expect(
     applyConfirmedReplan({
       context: contextoBase(),
-      proposal: proposta,
+      proposal: propostaBase(),
       sessionLogId: 'log-1',
       confirmedAtISO: '2026-07-17T12:00:00Z',
     }),
   ).rejects.toThrow('Não foi possível registrar o replanejamento.');
 });
 
-it('só corte de tempo: nada inserido, nada pulado; grava available_minutes + evento', async () => {
+it('só corte de tempo: grava available_minutes + evento MERGE, nada de séries nem skipped', async () => {
   const snapB = builder({ data: [{ id: 'log-1' }], error: null });
   const tabelas: string[] = [];
   fromMock.mockImplementation((table: string) => {
@@ -396,19 +227,25 @@ it('só corte de tempo: nada inserido, nada pulado; grava available_minutes + ev
     return snapB;
   });
 
-  const proposta = { ...propostaBase(), redistribution: null };
-  const { addedSets } = await applyConfirmedReplan({
+  await applyConfirmedReplan({
     context: contextoBase(),
-    proposal: proposta,
+    proposal: propostaBase(),
     sessionLogId: 'log-1',
     confirmedAtISO: '2026-07-17T12:00:00Z',
   });
 
-  expect(addedSets).toEqual([]);
+  // SÓ o snapshot: nada de planned_sets (insert) nem planned_sessions (skip).
   expect(tabelas).toEqual(['session_logs']);
   const payload = snapB.update.mock.calls[0][0];
   expect(payload.available_minutes).toBe(40);
-  expect(payload.adherence_snapshot.events[1].timeCut.cutExercises).toEqual([
-    { exerciseId: 'ex-2', name: 'Tríceps', setsCut: 3 },
-  ]);
+  // MERGE: o evento antigo fica, o novo vem com o corte.
+  expect(payload.adherence_snapshot.events).toHaveLength(2);
+  expect(payload.adherence_snapshot.events[1].timeCut).toEqual({
+    sessionId: 'hoje',
+    availableMinutes: 40,
+    estimatedMinutes: 60,
+    keptPriorities: ['primary', 'secondary'],
+    cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps', setsCut: 3 }],
+  });
+  expect(snapB.eq).toHaveBeenCalledWith('id', 'log-1');
 });

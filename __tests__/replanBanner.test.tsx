@@ -1,11 +1,8 @@
 // __tests__/replanBanner.test.tsx
-// Fase 6 — o banner resume as mudanças propostas (redistribuição + corte de
-// tempo, com o volume que fica de fora) e devolve a decisão do aluno; escondido
-// sem mudanças.
-//
-// Redesign 24/07/2026: os contratos de decisão continuam iguais; o que mudou é
-// a leitura. O teste agora exige o RESULTADO (12 → 14 séries), não o delta
-// solto, e proíbe o jargão do motor de chegar à tela.
+// Fase 6 — o banner resume as mudanças propostas (corte de tempo, com o volume
+// que fica de fora) e devolve a decisão do aluno; escondido sem mudanças.
+// COMMIT B: a redistribuição pós-falta saiu — resta o corte de tempo e o
+// fechamento honesto de Nível 2 quando nada é reencaixável.
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
@@ -70,18 +67,10 @@ const PROPOSTA: WeeklyReplanProposal = {
       { exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 3 },
     ],
   },
-  redistribution: {
-    kind: 'missed_redistribution',
-    missedSessionIds: ['seg'],
-    additions: [
-      { targetSessionId: 'sex', exerciseId: 'f1', exerciseName: 'Supino', muscleGroup: 'Peito', addSets: 2 },
-    ],
-    losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 1, reason: 'nao_coube' }],
-  },
   hasChanges: true,
 };
 
-it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
+it('mostra o corte de tempo com antes → depois, sem jargão do motor', () => {
   const { getByText, getAllByText, queryByText } = render(
     <ReplanBanner
       proposal={PROPOSTA}
@@ -94,22 +83,8 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
     />,
   );
 
-  // Resumo no topo: 1 pulada + 1 reforçada + 1 corte de tempo + 1 perda.
-  getByText('4 mudanças na sua semana');
-
-  // Sessão perdida, com o volume que some junto.
-  getByText('Treino A · seg');
-  getByText('pulado');
-  getByText('9 séries que não aconteceram');
-
-  // O RESULTADO, não o delta solto: 12 → 14 séries. O "12" aparece duas vezes
-  // de propósito — é também o "antes" do cartão de tempo (a sessão de hoje
-  // tem 12 séries planejadas).
-  getByText('Treino C · sex');
-  expect(getAllByText('12')).toHaveLength(2);
-  getByText('14 séries');
-  getByText('+2');
-  getByText('Peito +2');
+  // Resumo no topo: só o corte de tempo.
+  getByText('1 mudança na sua semana');
 
   // Corte de tempo: antes → depois em SÉRIES (12 na sessão de hoje, −3), com o
   // tempo como contexto. Dizer "60 → 40 min" seria apresentar o tempo que o
@@ -123,11 +98,10 @@ it('mostra cada mudança com antes → depois, sem jargão do motor', () => {
   getByText('saem: Tríceps Corda (3)');
   expect(queryByText('40 min')).toBeNull();
 
-  // O que fica de fora, em português de treinador.
-  getByText('1 série fica de fora');
-  getByText('não cabe no que sobrou da semana');
-
-  // Nada da versão antiga sobrevive.
+  // Nada da versão antiga (redistribuição/reflexão) sobrevive.
+  expect(queryByText(/pulado/)).toBeNull();
+  expect(queryByText(/séries que não aconteceram/)).toBeNull();
+  expect(queryByText(/\+2/)).toBeNull();
   expect(queryByText(/perda registrada/)).toBeNull();
   expect(queryByText(/não coube nas sessões restantes/)).toBeNull();
   expect(queryByText(/Replanejar a semana\?/)).toBeNull();
@@ -169,7 +143,7 @@ it('confirmar e recusar disparam os callbacks; ocupado desabilita os botões', (
 });
 
 it('sem mudanças (ou sem proposta) não renderiza nada', () => {
-  const semMudancas = { ...PROPOSTA, timeCut: null, redistribution: null, hasChanges: false };
+  const semMudancas = { ...PROPOSTA, timeCut: null, hasChanges: false };
   const a = render(
     <ReplanBanner
       proposal={semMudancas}
@@ -220,7 +194,7 @@ it('Nível 2: nada reencaixável — a semana fecha com menos volume, e isso é 
   const onDecline = jest.fn();
   const { getByText, getByTestId, queryByText } = render(
     <ReplanBanner
-      proposal={{ ...PROPOSTA, redistribution: null, timeCut: null, hasChanges: false }}
+      proposal={{ ...PROPOSTA, timeCut: null, hasChanges: false }}
       reagendamento={{ movidas: [], semEncaixe: ['seg'] }}
       sessions={SESSIONS}
       busy={false}
