@@ -775,20 +775,24 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               segundaDaSemanaISO: segundaISO,
             });
 
-            // Se houver movidas, armazena o plano para exibição.
-            // A supressão da redistribuição é INDEPENDENTE: só suprime se existe
-            // redistribution originalmente (há pulo a ser oferecido).
-            if (plano.movidas.length > 0) {
+            // Se houver movidas OU sessões sem encaixe, armazena o plano para
+            // exibição. O caso "sem movidas, só semEncaixe" é o Nível 2 da
+            // escada: a semana fecha com menos volume e o banner diz isso.
+            if (plano.movidas.length > 0 || plano.semEncaixe.length > 0) {
               reagendamento = {
                 movidas: plano.movidas,
                 semEncaixe: plano.semEncaixe,
               };
             }
 
-            // Suprime o pulo quando há reencaixe: confirmReplan não aplicará
-            // redistribution, logo nenhuma sessão será marcada como skipped.
-            // Se houvesse skipped sem redistribution, o servidor rejeitaria.
-            if (plano.movidas.length > 0 && proposal.redistribution) {
+            // Suprime o pulo quando há reencaixe (movidas OU fechamento por
+            // semana cheia): confirmReplan não aplicará redistribution, logo
+            // nenhuma sessão será marcada como skipped. Se houvesse skipped
+            // sem redistribution, o servidor rejeitaria.
+            if (
+              (plano.movidas.length > 0 || plano.semEncaixe.length > 0) &&
+              proposal.redistribution
+            ) {
               proposal = {
                 ...proposal,
                 redistribution: null,
@@ -859,8 +863,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
     }
     // Reencaixe já calculado: reaplicar a supressão sem novo I/O. Se o aluno pedir
-    // menos tempo DEPOIS do reencaixe, a redistribution continua suprimida.
-    if (pr.reagendamento && pr.reagendamento.movidas.length > 0) {
+    // menos tempo DEPOIS do reencaixe, a redistribution continua suprimida —
+    // vale também para o Nível 2 (sem movidas, só semEncaixe).
+    if (
+      pr.reagendamento &&
+      (pr.reagendamento.movidas.length > 0 || pr.reagendamento.semEncaixe.length > 0)
+    ) {
       proposal = { ...proposal, redistribution: null, hasChanges: proposal.timeCut != null };
     }
     // Oculta proposta cujo fingerprint foi recusado nesta sessão.

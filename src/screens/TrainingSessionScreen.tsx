@@ -18,6 +18,7 @@ import {
   getTodaySession,
   getPlanSessions,
   getSessionDetail,
+  fecharSessoesDeSemanasVencidas,
   SessionDetail,
   PlannedSession,
   PlannedExercise,
@@ -125,6 +126,12 @@ const TrainingSessionScreen = () => {
       });
 
     try {
+      // Fechamento de semanas vencidas antes de escolher o "treino de hoje":
+      // pendentes de semanas que já passaram não são oferecidas aqui. Falha
+      // NÃO derruba a tela (não-fatal) — roda de novo na próxima abertura.
+      await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
+        console.warn('[fechamento] falhou (não-fatal):', err)
+      );
       const proxima = await getTodaySession(user.id);
       if (!proxima) {
         setSession(null);
@@ -658,7 +665,7 @@ const TrainingSessionScreen = () => {
                         return (
                           <View key={id} style={styles.modalItem}>
                             <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
-                            <Text style={styles.modalItemSubtitle}>Será proposto como pular</Text>
+                            <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
                           </View>
                         );
                       })}
@@ -682,19 +689,46 @@ const TrainingSessionScreen = () => {
                   />
                 </View>
               </>
-            ) : (
-              <>
-                <Text style={styles.modalMessage}>Nenhum treino precisa ser reencaixado.</Text>
-                <View style={styles.modalActions}>
-                  <Button
-                    label="Fechar"
-                    variant="ghost"
-                    compact
-                    onPress={cancelarReencaixe}
-                  />
-                </View>
-              </>
-            )}
+              ) : previewReencaixe && previewReencaixe.semEncaixe.length > 0 ? (
+                <>
+                  <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.modalSectionLabel}>Treinos que não cabem nesta semana:</Text>
+                    {previewReencaixe.semEncaixe.map((id) => {
+                      const sessao = sessoesDaSemana.find((s) => s.id === id);
+                      return (
+                        <View key={id} style={styles.modalItem}>
+                          <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
+                          <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
+                        </View>
+                      );
+                    })}
+                    <Text style={styles.modalMessage}>
+                      A semana fecha com menos volume — estes treinos ficam de fora.
+                    </Text>
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalMessage}>Nenhum treino precisa ser reencaixado.</Text>
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              )}
           </View>
         </View>
       </Modal>

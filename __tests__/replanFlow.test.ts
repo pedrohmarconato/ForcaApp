@@ -835,26 +835,33 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
         ...contextoSemRedistribuicao.sessions[0],
         id: 'seg',
         status: 'pending',
+        // Na semana do relógio (quarta 08/01): segunda perdida.
+        scheduledDate: '2020-01-06',
       },
       {
         ...contextoSemRedistribuicao.sessions[1],
         id: 'sess-1',
         status: 'in_progress',
+        scheduledDate: '2020-01-07',
       },
     ];
     contextoSemRedistribuicao.raw = [
-      { id: 'seg', week_number: 1, title: 'Treino A', session_type: 'Hipertrofia', scheduled_date: '2020-01-05', status: 'pending', estimated_minutes: 60, planned_exercises: [], order_in_week: 1 } as any,
+      { id: 'seg', week_number: 1, title: 'Treino A', session_type: 'Hipertrofia', scheduled_date: '2020-01-06', status: 'pending', estimated_minutes: 60, planned_exercises: [], order_in_week: 1 } as any,
       { id: 'sess-1', week_number: 1, title: 'Push A', session_type: 'Hipertrofia', scheduled_date: '2020-01-07', status: 'in_progress', estimated_minutes: 60, planned_exercises: [], order_in_week: 2 } as any,
     ];
 
     mock(getWeekReplanContext).mockResolvedValue(contextoSemRedistribuicao);
-    // Agenda com espaço (quarta + quinta)
+    // Agenda com espaço (quarta + quinta). O formato do contrato são OFFSETS
+    // de dia da semana (0=segunda…6=domingo), como devolve agendaRepository —
+    // o mock antigo passava objetos {data, blocos} e, sem slot válido, nada
+    // movia: o teste passava por vacuidade, sem entrar na asserção. O relógio
+    // fica na semana do plano (2020-01-08 é quarta), senão todos os slots
+    // ficariam no passado e de novo nada moveria.
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date('2020-01-08T09:00:00'));
     mock(getAgendaDoAluno).mockResolvedValue({
-      agenda: [
-        { data: '2020-01-08', blocos: [] },
-        { data: '2020-01-09', blocos: [] },
-      ],
-      origem: 'presente',
+      agenda: [3, 4],
+      origem: 'plano',
     });
 
     const detail = makeDetail();
@@ -885,6 +892,7 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
       // E a proposta NÃO deve ter redistribuição (foi suprimida/não oferecida)
       expect(pr.proposal.redistribution).toBeNull();
     }
+    jest.useRealTimers();
   });
 });
 
@@ -953,5 +961,63 @@ describe('reencaixe possível suprime a proposta de pular', () => {
     const pr = store().pendingReplan!;
     expect(pr.reagendamento).toBeNull();
     expect(pr.proposal.redistribution!.missedSessionIds).toEqual(['seg']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nível 2 da escada de reencaixe (Fase 2 do COMMIT A): quando NENHUM treino
+// cabe no que sobrou da semana, o plano vira um fechamento honesto — semEncaixe
+// preenchido, movidas vazio — e o pulo continua suprimido (nada será marcado
+// como skipped por esta proposta; o fechador cuida disso na abertura seguinte).
+// ---------------------------------------------------------------------------
+describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () => {
+  const QUARTA = new Date('2020-01-08T09:00:00');
+
+  const contextoNivel2 = (): WeekReplanContext => {
+    const ctx = makeContext();
+    // seg = segunda 06/01 (atrasada); a sessão de hoje fica na terça 07/01.
+    ctx.sessions[0].scheduledDate = '2020-01-06';
+    ctx.sessions[1].scheduledDate = '2020-01-07';
+    ctx.raw = ctx.sessions.map((s, i) => ({
+      id: s.id,
+      week_number: 1,
+      title: s.title,
+      session_type: s.sessionType,
+      scheduled_date: s.scheduledDate,
+      status: s.status,
+      estimated_minutes: s.estimatedMinutes,
+      order_in_week: i + 1,
+      planned_exercises: [],
+    })) as WeekReplanContext['raw'];
+    return ctx;
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(QUARTA);
+    mock(getWeekReplanContext).mockResolvedValue(contextoNivel2());
+    // Agenda só com dias que já passaram (seg/ter): nenhum slot à frente de
+    // hoje (quarta). Toda pendente atrasada fica sem encaixe.
+    mock(getAgendaDoAluno).mockResolvedValue({ agenda: [0, 1], origem: 'plano' });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('nada cabe: movidas vazio, semEncaixe preenchido, pulo suprimido', async () => {
+    await abrir();
+    const pr = store().pendingReplan!;
+    expect(pr.reagendamento).not.toBeNull();
+    expect(pr.reagendamento!.movidas).toEqual([]);
+    expect(pr.reagendamento!.semEncaixe).toEqual(['seg']);
+    expect(pr.proposal.redistribution).toBeNull();
+  });
+
+  it('recalcular o tempo não ressuscita o pulo no Nível 2', async () => {
+    await abrir();
+    store().requestTimeCut(30);
+    expect(store().pendingReplan!.proposal.redistribution).toBeNull();
+    expect(store().pendingReplan!.reagendamento!.semEncaixe).toEqual(['seg']);
   });
 });

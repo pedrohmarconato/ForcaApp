@@ -4,6 +4,7 @@
 // respeitam o RLS: o usuário só enxerga as próprias linhas.
 
 import { supabase } from '../config/supabaseClient';
+import { segundaDaSemanaDe } from '../engine/agendaDias';
 
 export type PlannedSet = {
   id: string;
@@ -220,4 +221,65 @@ export const formatExerciseTarget = (exercicio: PlannedExercise): string => {
         : `${primeiraSerie.target_reps_min}-${primeiraSerie.target_reps_max}`
       : prescricaoOriginal ?? '—';
   return `${exercicio.sets_planned} séries × ${faixa} reps`;
+};
+
+/**
+ * Fechador de semanas vencidas (Fase 1 da escada de reencaixe).
+ *
+ * Sessão pendente de uma semana que já passou inteira não pode continuar na
+ * fila de "próximo treino" — a Home a ofereceria para sempre como se fosse
+ * hoje. Marca como skipped (skip_source 'replan', SEM skip_reason) o que está
+ * estritamente ANTES da segunda-feira da semana corrente. Atraso DENTRO da
+ * semana corrente continua pendente: o reencaixe é quem decide o destino.
+ *
+ * Idempotente (pendentes já fechadas não voltam à seleção). Trava de lote:
+ * mais de 12 pendentes vencidas sugere plano abandonado — não escreve nada,
+ * registra os ids no console e devolve 0; o app segue, o dono decide.
+ *
+ * O update repete o filtro `status = 'pending'`: entre o select e a escrita a
+ * sessão pode ter sido aberta (in_progress) — não se fecha o que começou.
+ */
+export const fecharSessoesDeSemanasVencidas = async (
+  userId: string,
+  hojeISO: string,
+): Promise<{ fechadas: number }> => {
+  const segundaDaSemana = segundaDaSemanaDe(hojeISO);
+  if (!segundaDaSemana) return { fechadas: 0 };
+
+  const vencidas = await supabase
+    .from('planned_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .lt('scheduled_date', segundaDaSemana)
+    .then(({ data, error }: { data: { id: string }[] | null; error: unknown }) => {
+      if (error) throw error;
+      return data ?? [];
+    });
+
+  if (vencidas.length === 0) return { fechadas: 0 };
+  if (vencidas.length > 12) {
+    console.warn(
+      `[fechamento] ${vencidas.length} pendentes de semanas vencidas — lote acima da trava; nada foi fechado: ${vencidas
+        .map((s) => s.id)
+        .join(', ')}`,
+    );
+    return { fechadas: 0 };
+  }
+
+  const ids = vencidas.map((s) => s.id);
+  const resultado = await supabase
+    .from('planned_sessions')
+    .update({
+      status: 'skipped',
+      skip_source: 'replan',
+      skipped_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .in('id', ids)
+    .then((r: { data: unknown; error: unknown }) => r);
+  if (resultado.error) throw resultado.error;
+
+  return { fechadas: ids.length };
 };

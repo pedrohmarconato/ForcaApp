@@ -21,6 +21,7 @@ import { useDiaLocal } from '../hooks/useDiaLocal';
 import {
   getTodaySession,
   getUpcomingSessions,
+  fecharSessoesDeSemanasVencidas,
   PlannedSession,
 } from '../services/trainingRepository';
 import {
@@ -35,6 +36,7 @@ import {
   DIAS_DA_SEMANA,
 } from '../utils/weekSummary';
 import { semanasConstantes } from '../engine/progressStats';
+import { localTodayISO } from '../engine/agendaDias';
 import { normalizeName } from '../engine/sessionModel';
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
@@ -85,6 +87,12 @@ const HomeScreen = () => {
     setLoading(true);
     setLoadError(false);
     try {
+      // Fechamento de semanas vencidas antes de montar a fila: pendentes de
+      // semanas que já passaram não podem ocupar o card de "hoje". Falha NÃO
+      // derruba a Home (não-fatal) — o fechador roda de novo na próxima carga.
+      await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
+        console.warn('[fechamento] falhou (não-fatal):', err)
+      );
       const [hoje, proximos] = await Promise.all([
         getTodaySession(user.id),
         getUpcomingSessions(user.id, 5),

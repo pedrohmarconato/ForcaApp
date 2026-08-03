@@ -23,6 +23,7 @@ import {
   diaDaSemana,
   type MudancaDoReplan,
 } from '../../engine/replanChanges';
+import { fecharSemana } from '../../engine/weekShortfall';
 import type {
   WeeklyReplanProposal,
   ReplanSession,
@@ -246,6 +247,74 @@ const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onCo
             accessibilityLabel="Recusar e manter o plano original"
           >
             <Text style={styles.declineText}>Manter plano original</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Nível 2 da escada de reencaixe: nada foi reencaixável (agenda sem espaço)
+  // e a semana fecha com menos volume — dito sem eufemismo. Botão único
+  // reconhece o fechamento; não há plano B para oferecer.
+  if (
+    proposal &&
+    reagendamento &&
+    reagendamento.movidas.length === 0 &&
+    reagendamento.semEncaixe.length > 0
+  ) {
+    const fechamento = fecharSemana({
+      adherence: proposal.adherence,
+      sessions,
+      semEncaixe: reagendamento.semEncaixe,
+    });
+    return (
+      <View style={styles.card} accessibilityLabel="Semana fecha com menos volume">
+        <View style={styles.coachRow}>
+          <FModules lit={1} size={16} />
+          <Text style={styles.coachKicker}>Proposta do treinador</Text>
+        </View>
+        <Text style={styles.title} accessibilityRole="header">
+          A semana fecha com menos volume
+        </Text>
+
+        <View style={styles.lista}>
+          <View style={styles.cartao}>
+            <View style={[styles.icone, styles.iconeAlerta]}>
+              <Feather name="alert-triangle" size={13} color={theme.colors.status.warning} />
+            </View>
+            <View style={styles.corpo}>
+              <Text style={styles.cartaoTitulo}>
+                {fechamento.sessoesFeitas} de {fechamento.sessoesPrevistas} treinos
+              </Text>
+              <Text style={styles.detalhe}>
+                {fechamento.seriesFeitas} de {fechamento.seriesPrevistas} séries
+                {fechamento.seriesQueNaoAconteceram != null
+                  ? ` · ${plural(
+                      fechamento.seriesQueNaoAconteceram,
+                      'série não aconteceu',
+                      'séries não aconteceram'
+                    )}`
+                  : null}
+              </Text>
+              {fechamento.rotulosSemEncaixe.length > 0 ? (
+                <Text style={styles.detalheSaida}>
+                  {fechamento.rotulosSemEncaixe.join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.confirmBtn, busy && styles.btnDisabled]}
+            onPress={onDecline}
+            disabled={busy}
+            testID="replan-entendi"
+            accessibilityRole="button"
+            accessibilityLabel="Entendi"
+          >
+            <Text style={styles.confirmText}>Entendi</Text>
           </TouchableOpacity>
         </View>
       </View>

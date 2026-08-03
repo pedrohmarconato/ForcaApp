@@ -39,6 +39,7 @@ jest.mock('../src/services/trainingRepository', () => ({
   getSessionDetail: jest.fn(async () => {
     throw new Error('relation planned_sessions does not exist');
   }),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
   formatExerciseTarget: jest.fn(() => ''),
 }));
 

@@ -24,6 +24,7 @@ jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(),
   getPlanSessions: jest.fn(),
   getSessionDetail: jest.fn(),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
   formatExerciseTarget: jest.fn(() => '4 séries × 8 reps'),
 }));
 

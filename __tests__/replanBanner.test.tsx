@@ -212,3 +212,32 @@ it('sem as sessões em mãos ainda decide — cai no id, não quebra', () => {
   );
   expect(getByTestId('replan-confirm')).toBeTruthy();
 });
+
+it('Nível 2: nada reencaixável — a semana fecha com menos volume, e isso é dito', () => {
+  // Sem espaço até domingo, o banner NÃO silencia: mostra o fechamento honesto
+  // (treinos/séries que não aconteceram + quais ficaram de fora), mesmo sem
+  // mudanças proponíveis. "Entendi" reconhece; não há plano B.
+  const onDecline = jest.fn();
+  const { getByText, getByTestId, queryByText } = render(
+    <ReplanBanner
+      proposal={{ ...PROPOSTA, redistribution: null, timeCut: null, hasChanges: false }}
+      reagendamento={{ movidas: [], semEncaixe: ['seg'] }}
+      sessions={SESSIONS}
+      busy={false}
+      onConfirm={jest.fn()}
+      onConfirmReagendamento={jest.fn()}
+      onDecline={onDecline}
+    />,
+  );
+
+  getByText('A semana fecha com menos volume');
+  getByText('1 de 2 treinos');
+  getByText('4 de 8 séries · 4 séries não aconteceram');
+  getByText('Treino A · seg');
+
+  // Botão único: reconhece o fechamento (sem jargão de motor, sem reencaixar).
+  fireEvent.press(getByTestId('replan-entendi'));
+  expect(onDecline).toHaveBeenCalledTimes(1);
+  expect(queryByText('Reencaixar')).toBeNull();
+  expect(queryByText(/perda registrada/)).toBeNull();
+});

@@ -20,6 +20,7 @@ jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(),
   getPlanSessions: jest.fn(),
   getSessionDetail: jest.fn(),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
   formatExerciseTarget: jest.fn(() => '4 séries × 8 reps'),
 }));
 
@@ -44,6 +45,7 @@ import {
   getPlanSessions,
   getSessionDetail,
   getTodaySession,
+  fecharSessoesDeSemanasVencidas,
 } from '../src/services/trainingRepository';
 import {
   getAgendaDoAluno,
@@ -224,5 +226,25 @@ describe('TrainingSessionScreen - Reencaixe (atraso)', () => {
     const utils = await renderTela(semanaComAtraso, [0, 2, 4]);
     expect(utils.getByText('Reencaixar')).toBeTruthy();
     expect(utils.getByText('Reordenar')).toBeTruthy();
+  });
+
+  it('fecha semanas vencidas na abertura, antes de escolher o treino de hoje', async () => {
+    const fecharMock = fecharSessoesDeSemanasVencidas as jest.Mock;
+    const utils = await renderTela(semanaSemAtraso);
+    // Fase 1: o fechador roda com a data local de hoje e o id do usuário.
+    await waitFor(() =>
+      expect(fecharMock).toHaveBeenCalledWith('user-1', '2026-08-03'),
+    );
+    // E o treino da semana corrente segue disponível (nada foi quebrado).
+    expect(utils.getByTestId('visao-ciclo')).toBeTruthy();
+  });
+
+  it('falha do fechador é não-fatal: a tela segue com o treino de hoje', async () => {
+    (fecharSessoesDeSemanasVencidas as jest.Mock).mockRejectedValueOnce(
+      new Error('relation planned_session does not exist'),
+    );
+    const utils = await renderTela(semanaSemAtraso);
+    expect(utils.getByTestId('visao-ciclo')).toBeTruthy();
+    expect(getTodaySessionMock).toHaveBeenCalled();
   });
 });
