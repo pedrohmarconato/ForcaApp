@@ -183,6 +183,12 @@ const HomeScreen = () => {
   const ehHoje = todaySession?.scheduled_date === hoje;
   const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
 
+  // Verifica se o treino está atrasado
+  const ehAtrasado = todaySession &&
+    todaySession.scheduled_date &&
+    todaySession.status === 'pending' &&
+    todaySession.scheduled_date < hoje;
+
   const descricaoSessao = (sessao: PlannedSession): string =>
     sessao.muscle_groups?.length
       ? sessao.muscle_groups.join(' · ')
@@ -271,6 +277,12 @@ const HomeScreen = () => {
                 </View>
               ) : null}
             </View>
+
+            {ehAtrasado ? (
+              <View style={styles.atrasadoBadge}>
+                <Chip label="Atrasado" tone="info" />
+              </View>
+            ) : null}
 
             {/* Caminho curto (Direção 03): Começar entra DIRETO na sessão — o
                 check-in de foco recebe o aluno lá. O detalhe vira secundário. */}
@@ -511,6 +523,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.xs,
+  },
+  atrasadoBadge: {
+    marginBottom: theme.spacing.lg,
   },
 
   weekTop: { marginBottom: theme.spacing.lg },

@@ -20,20 +20,25 @@ import FModules from '../ui/FModules';
 import {
   montarMudancas,
   resumoDasMudancas,
+  diaDaSemana,
   type MudancaDoReplan,
 } from '../../engine/replanChanges';
 import type {
   WeeklyReplanProposal,
   ReplanSession,
 } from '../../engine/weeklyReplanner';
+import type { Reagendamento } from '../../store/activeSessionStore';
 
 type Props = {
   /** null = escondido. */
   proposal: WeeklyReplanProposal | null;
+  /** Plano de reencaixe (se houver sessões atrasadas). */
+  reagendamento: Reagendamento | null;
   /** Sessões da semana — base do "antes" de cada cartão. */
   sessions: ReplanSession[];
   busy: boolean;
   onConfirm: () => void;
+  onConfirmReagendamento: () => void;
   onDecline: () => void;
 };
 
@@ -157,7 +162,96 @@ const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
   }
 };
 
-const ReplanBanner = ({ proposal, sessions, busy, onConfirm, onDecline }: Props) => {
+const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onConfirmReagendamento, onDecline }: Props) => {
+  // Se há reencaixe, mostra o cartão de reencaixe.
+  if (reagendamento && reagendamento.movidas.length > 0) {
+    return (
+      <View style={styles.card} accessibilityLabel="Reagendamento de sessões">
+        {/* Direção 03: proposta do motor vira "momento do treinador" assinado. */}
+        <View style={styles.coachRow}>
+          <FModules lit={1} size={16} />
+          <Text style={styles.coachKicker}>Proposta do treinador</Text>
+        </View>
+        <Text style={styles.title} accessibilityRole="header">
+          {reagendamento.movidas.length === 1
+            ? '1 treino muda de dia'
+            : `${reagendamento.movidas.length} treinos mudam de dia`}
+        </Text>
+
+        <View style={styles.lista}>
+          {reagendamento.movidas.map((movida, i) => (
+            <View key={movida.id} style={i > 0 ? styles.comSeparador : undefined}>
+              <View style={styles.cartao}>
+                <View style={[styles.icone, styles.iconeAcento]}>
+                  <Feather name="calendar" size={14} color={theme.colors.accent.main} />
+                </View>
+                <View style={styles.corpo}>
+                  <Text style={styles.cartaoTitulo}>
+                    {sessions.find(s => s.id === movida.id)?.title || movida.id}
+                  </Text>
+                  <View style={styles.transicao}>
+                    <Text style={styles.antes}>
+                      {movida.de ? diaDaSemana(movida.de) || 'sem data' : 'sem data'}
+                    </Text>
+                    <Feather
+                      name="arrow-right"
+                      size={13}
+                      color={theme.colors.text.quiet}
+                      style={styles.seta}
+                    />
+                    <Text style={styles.depois}>
+                      {diaDaSemana(movida.para) || movida.para}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          ))}
+          {reagendamento.semEncaixe.length > 0 && (
+            <View style={styles.comSeparador}>
+              <View style={styles.cartao}>
+                <View style={[styles.icone, styles.iconeAlerta]}>
+                  <Feather name="alert-triangle" size={13} color={theme.colors.status.warning} />
+                </View>
+                <View style={styles.corpo}>
+                  <Text style={styles.cartaoTitulo}>Sem encaixe nesta semana</Text>
+                  <Text style={styles.detalhe}>
+                    {reagendamento.semEncaixe.length === 1
+                      ? '1 treino não cabe até domingo'
+                      : `${reagendamento.semEncaixe.length} treinos não cabem até domingo`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.confirmBtn, busy && styles.btnDisabled]}
+            onPress={onConfirmReagendamento}
+            disabled={busy}
+            testID="replan-confirm-reagendamento"
+            accessibilityRole="button"
+            accessibilityLabel="Reencaixar os treinos"
+          >
+            <Text style={styles.confirmText}>{busy ? 'Reencaixando...' : 'Reencaixar'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.declineBtn, busy && styles.btnDisabled]}
+            onPress={onDecline}
+            disabled={busy}
+            testID="replan-decline"
+            accessibilityRole="button"
+            accessibilityLabel="Recusar e manter o plano original"
+          >
+            <Text style={styles.declineText}>Manter plano original</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   if (!proposal || !proposal.hasChanges) return null;
   const mudancas = montarMudancas({ proposal, sessions });
   if (mudancas.length === 0) return null;

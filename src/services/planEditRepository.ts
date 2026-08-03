@@ -122,3 +122,40 @@ export const reordenarSessoesDaSemana = async (params: {
     : [];
   return { appliedWeeks, skippedWeeks };
 };
+
+/**
+ * Reagenda sessões de uma semana atribuindo-as a novas datas.
+ * Chama a RPC `reschedule_week_sessions` com um array de atribuições
+ * (sessionId → scheduledDate). Lista vazia lança validação sem ida ao servidor.
+ */
+export const reagendarSessoesDaSemana = async (params: {
+  planId: string;
+  weekNumber: number;
+  atribuicoes: { sessionId: string; scheduledDate: string }[];
+}): Promise<{ week: number; moved: number }> => {
+  const { planId, weekNumber, atribuicoes } = params;
+
+  // Validação: lista vazia é erro
+  if (!Array.isArray(atribuicoes) || atribuicoes.length < 1) {
+    throw new PlanEditError('Reescalonamento de sessões exige ao menos 1 atribuição.');
+  }
+
+  // Validação: todos os IDs preenchidos
+  if (atribuicoes.some((a) => !a.sessionId || !a.scheduledDate)) {
+    throw new PlanEditError('Lista de atribuições contém sessionId ou scheduledDate vazio.');
+  }
+
+  const data = (await chamarRpc('reschedule_week_sessions', {
+    p_plan_id: planId,
+    p_week_number: weekNumber,
+    p_assignments: atribuicoes.map((a) => ({
+      session_id: a.sessionId,
+      scheduled_date: a.scheduledDate,
+    })),
+  })) as { week?: unknown; moved?: unknown } | null;
+
+  const week = typeof data?.week === 'number' ? data.week : weekNumber;
+  const moved = typeof data?.moved === 'number' ? data.moved : 0;
+
+  return { week, moved };
+};

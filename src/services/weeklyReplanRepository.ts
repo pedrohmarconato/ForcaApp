@@ -88,6 +88,10 @@ type RawSession = {
   scheduled_date: string | null;
   status: ReplanSessionStatus;
   estimated_minutes: number | null;
+  // Vem do `select('*')` e é a ordem REAL da semana. Sem ela declarada aqui,
+  // quem precisa desempatar a fila cai no índice do array — que este select
+  // não ordena, e portanto não garante.
+  order_in_week: number;
   planned_exercises: RawExercise[];
 };
 
