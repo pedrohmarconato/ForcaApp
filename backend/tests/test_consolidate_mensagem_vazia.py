@@ -280,3 +280,57 @@ def test_sanitize_so_com_vazias_continua_invalido():
 def test_sanitize_messages_vazio_invalido():
     assert _sanitize_chat_messages([]) is None
     assert _sanitize_chat_messages(None) is None
+
+
+# --- 4. Structured outputs: o histórico NÃO pode terminar em 'assistant' ---
+
+def test_consolidate_structured_outputs_descarta_assistant_final(client, monkeypatch):
+    """
+    A API da Anthropic rejeita pre-fill de 'assistant' quando output_config
+    (structured outputs) está ativo — e o histórico do chat termina com a
+    resposta do coach. O backend precisa descartar as mensagens 'assistant'
+    finais ANTES da chamada, senão o consolidate morre com 400 da API e o
+    app bloqueia a geração (502 visto na homologação de 03/08/2026).
+    """
+    monkeypatch.setattr(app_module, "FORCA_STRUCTURED_OUTPUT", True)
+
+    def _captura_messages(*args, **kwargs):
+        mensagens_enviadas = kwargs.get("messages")
+        assert mensagens_enviadas is not None
+        assert mensagens_enviadas[-1]["role"] == "user"
+        bloco = types.SimpleNamespace(
+            type="text",
+            text=json.dumps({
+                "preferencias": ["sem perna nas duas primeiras semanas"],
+                "restricoes": [],
+                "excecoes_estruturais": [],
+            }),
+        )
+        return types.SimpleNamespace(
+            content=[bloco],
+            usage=types.SimpleNamespace(
+                input_tokens=10, output_tokens=10,
+                cache_creation_input_tokens=0, cache_read_input_tokens=0,
+            ),
+        )
+
+    anthropic = mock.Mock()
+    anthropic.messages.create.side_effect = _captura_messages
+
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app._get_chat_anthropic_client", return_value=anthropic):
+        resposta = client.post(
+            "/api/consolidate-chat",
+            json={
+                "messages": [
+                    {"role": "user", "content": "Não quero treinar perna nas duas primeiras semanas"},
+                    {"role": "assistant", "content": "Anotado! Sem perna nas semanas 1 e 2."},
+                ],
+                "questionnaireData": {"idade": 30},
+            },
+            headers={"Authorization": "Bearer token-valido"},
+        )
+
+    assert resposta.status_code == 200
+    diretrizes = resposta.get_json()["diretrizes"]
+    assert "sem perna nas duas primeiras semanas" in diretrizes["preferencias"]
