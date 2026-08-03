@@ -547,3 +547,6 @@ $$;
 
 grant execute on function public.reschedule_week_sessions(uuid, int, jsonb) to authenticated;
 revoke execute on function public.reschedule_week_sessions(uuid, int, jsonb) from anon;
+-- Fix (03/08/2026): revogar também de PUBLIC. Função nova herda EXECUTE para
+-- PUBLIC e o revoke de anon não cobre esse grant (medido em HML: anon executava).
+revoke execute on function public.reschedule_week_sessions(uuid, int, jsonb) from public;
