@@ -18,6 +18,8 @@ import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 import ActiveSessionScreen from '../screens/ActiveSessionScreen';
 import SessionHistoryScreen from '../screens/SessionHistoryScreen';
 import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
+import QuestionnaireScreen from '../screens/QuestionnaireScreen';
+import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -32,6 +34,11 @@ export type TrainingStackParamList = {
   TrainingOverview: undefined;
   WorkoutDetail: { sessionId: string };
   ActiveSession: { sessionId: string };
+  // Regeneração de plano a partir da aba Plano (Nível 4): o mesmo fluxo do
+  // onboarding, montado dentro do stack de treino. skipChat=true dispara a
+  // geração direto, sem chat.
+  Questionnaire: undefined;
+  PostQuestionnaireChat: { formData?: any; skipChat?: boolean };
 };
 
 export type ProgressStackParamList = {
@@ -66,6 +73,8 @@ function TrainingStackNavigator() {
       <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
       <TrainingStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
+      <TrainingStack.Screen name="Questionnaire" component={QuestionnaireScreen} options={{ headerShown: false }} />
+      <TrainingStack.Screen name="PostQuestionnaireChat" component={PostQuestionnaireChat} />
     </TrainingStack.Navigator>
   );
 }

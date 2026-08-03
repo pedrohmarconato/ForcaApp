@@ -42,6 +42,8 @@ export type ReplanSession = {
   status: ReplanSessionStatus;
   estimatedMinutes: number | null;
   exercises: ReplanExercise[];
+  /** Quem marcou a sessão como skipped (0020). 'user' = recusa declarada do aluno. */
+  skipSource?: 'user' | 'replan' | null;
 };
 
 const PRIORITY_RANK: Record<Priority, number> = { primary: 0, secondary: 1, accessory: 2 };

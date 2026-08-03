@@ -18,6 +18,7 @@ const renderCard = (over: Record<string, unknown> = {}) =>
       veredito="falta_cronica"
       frequenciaReal={3}
       diasPlanejados={5}
+      semanasFechadasMinimas={3}
       onGerarNovoPlano={onGerarNovoPlano}
       {...over}
     />,
@@ -48,6 +49,30 @@ describe('FrequenciaCard', () => {
         'Nas últimas 3 semanas você treinou 3 dos 5 dias planejados, mas em dias diferentes do plano.',
       ),
     ).toBeTruthy();
+  });
+
+  it('o texto segue a config: janela diferente muda o número (achado nº 10 do review 67)', () => {
+    const utils = renderCard({
+      veredito: 'abandono',
+      frequenciaReal: 0,
+      diasPlanejados: 5,
+      semanasFechadasMinimas: 4,
+    });
+    expect(utils.getByText('Faz 4 semanas sem treinar')).toBeTruthy();
+    expect(
+      utils.getByText('Nenhum treino foi concluído nas últimas 4 semanas.'),
+    ).toBeTruthy();
+    expect(utils.queryByText('Faz 3 semanas sem treinar')).toBeNull();
+  });
+
+  it('singular com janela de 1 semana', () => {
+    const utils = renderCard({
+      veredito: 'abandono',
+      frequenciaReal: 0,
+      diasPlanejados: 5,
+      semanasFechadasMinimas: 1,
+    });
+    expect(utils.getByText('Faz 1 semana sem treinar')).toBeTruthy();
   });
 
   it('o botão dispara onGerarNovoPlano', () => {

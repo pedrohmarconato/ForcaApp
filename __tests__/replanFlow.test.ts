@@ -273,18 +273,27 @@ it('CONFIRMAR aplica via repositório e reflete o corte no rascunho', async () =
   expect(store().pendingReplan).toBeNull();
 });
 
-it('falha na aplicação: o erro aparece e a proposta é recalculada do servidor (nunca sucesso otimista)', async () => {
-  mock(applyConfirmedReplan).mockRejectedValue(new Error('rede caiu'));
+it('falha na aplicação: erro à mostra e a proposta FICA DE PÉ — retry aplica de verdade (achado nº 2 do review 67)', async () => {
+  mock(applyConfirmedReplan).mockRejectedValueOnce(new Error('rede caiu'));
   await abrir();
   store().requestTimeCut(40);
 
   const ok = await store().confirmReplan();
   expect(ok).toBe(false);
   expect(store().saveError).toBe('rede caiu');
-  // recálculo do servidor sem corte: nada mais a propor
-  expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+  // Nada foi escrito: a proposta continua de pé, com o corte de 40 min.
+  expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+  expect(store().pendingReplan!.proposal.timeCut!.availableMinutes).toBe(40);
   // rascunho intacto
   expect(store().draft!.exercises[0].sets).toHaveLength(2);
+
+  // Retry: agora o repositório responde — o corte chega ao servidor e ao rascunho.
+  mock(applyConfirmedReplan).mockResolvedValueOnce(undefined);
+  const retry = await store().confirmReplan();
+  expect(retry).toBe(true);
+  expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(2);
+  expect(store().pendingReplan).toBeNull();
+  expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).toBe(true);
 });
 
 it('confirmações CONCORRENTES: o repositório é chamado UMA única vez (achado nº 2)', async () => {
@@ -499,9 +508,15 @@ describe('falhas de transporte e payload inválido no replanejamento', () => {
     expect(await store().confirmReplan()).toBe(false);
     expect(store().saveError).toContain('Sem conexão');
     expect(store().saveError).not.toMatch(/TypeError|at /);
-    // recálculo do servidor sem corte: nada a propor, retry não re-envia
-    expect(store().pendingReplan!.proposal.hasChanges).toBe(false);
+    // A proposta fica de pé — retry não devolve sucesso sem escrever (achado nº 2).
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+
+    // Retry com rede de volta: aplica de verdade.
+    mock(applyConfirmedReplan).mockResolvedValueOnce(undefined);
+    expect(await store().confirmReplan()).toBe(true);
+    expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(2);
+    expect(store().pendingReplan).toBeNull();
   });
 
   it('computeReplan calcula reagendamento sem erro mesmo sem agenda', async () => {
@@ -788,4 +803,47 @@ describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () =>
     store().requestTimeCut(30);
     expect(store().pendingReplan!.reagendamento!.semEncaixe).toEqual(['seg']);
   });
+});
+
+it('declineReagendamento dispensa SÓ o reencaixe: o corte pedido continua de pé e aplicável', async () => {
+  // O cartão de reagendamento tem precedência e esconde o corte. Recusar o
+  // reencaixe não pode enterrar a proposta de corte junto (nem gravar o
+  // fingerprint dela): o banner precisa cair para o cartão do corte, com os
+  // botões de decisão intactos.
+  mock(getAgendaDoAluno).mockResolvedValue({ agenda: [0, 2, 4], origem: 'plano' });
+  await abrir();
+  store().requestTimeCut(40);
+
+  // Simula o estado alcançável: proposta de corte + reencaixe possível.
+  const pr = store().pendingReplan!;
+  useActiveSessionStore.setState({
+    pendingReplan: {
+      ...pr,
+      reagendamento: { movidas: [{ id: 'seg', de: '2020-01-05', para: '2020-01-09' }], semEncaixe: [] },
+    },
+  });
+  expect(store().pendingReplan!.proposal.timeCut!.availableMinutes).toBe(40);
+
+  store().declineReagendamento();
+
+  const depois = store().pendingReplan!;
+  // Reencaixe dispensado...
+  expect(depois.reagendamento).toBeNull();
+  // ...e o corte intacto: mesma proposta, sem fingerprint de recusa gravado.
+  expect(depois.proposal.hasChanges).toBe(true);
+  expect(depois.proposal.timeCut!.availableMinutes).toBe(40);
+  expect(store().draft!.declinedReplanFingerprints ?? []).toHaveLength(0);
+
+  // E ele ainda pode ser aplicado de verdade.
+  expect(await store().confirmReplan()).toBe(true);
+  expect(mock(applyConfirmedReplan)).toHaveBeenCalledTimes(1);
+  expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.cutByReplan).toBe(true);
+});
+
+it('declineReagendamento sem reencaixe em mãos é no-op (nunca mexe na proposta)', async () => {
+  await abrir();
+  store().requestTimeCut(40);
+  const antes = store().pendingReplan;
+  store().declineReagendamento();
+  expect(store().pendingReplan).toBe(antes);
 });

@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -168,9 +168,14 @@ const TrainingSessionScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  useEffect(() => {
-    fetchCurrentTraining();
-  }, [fetchCurrentTraining]);
+  // Foco, não montagem: voltar do fluxo de "Gerar novo plano" (popToTop) não
+  // remonta esta tela — sem refetch por foco, o plano recém-gerado não
+  // apareceria na aba Plano (mesmo padrão da Home).
+  useFocusEffect(
+    useCallback(() => {
+      fetchCurrentTraining();
+    }, [fetchCurrentTraining]),
+  );
 
   // Busca a agenda do aluno para reencaixe
   useEffect(() => {
@@ -212,6 +217,10 @@ const TrainingSessionScreen = () => {
           userId: user.id,
           planId: session.plan_id,
           ateSemana: session.week_number,
+          // A janela é UMA só: o que o banco devolve e o que o motor agrega. Com
+          // o default do repositório (3), subir a config desligaria o Nível 4 em
+          // silêncio — semanas.length < janela vira 'insuficiente_historico'.
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
         });
         const semanas = aderenciaPorSemana({
           sessoes,
@@ -237,13 +246,12 @@ const TrainingSessionScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, session?.plan_id, session?.week_number, agendaCarregada, agenda]);
 
-  // Botão do card: por contrato da escada existe; o destino (fluxo de geração)
-  // vive no OnboardingNavigator e não tem rota alcançável da aba Plano nesta
-  // versão — o mínimo viável é registrar o desejo (ver relatório do COMMIT D).
+  // Botão do card (Nível 4): leva ao MESMO fluxo de geração do onboarding —
+  // o questionário refeito upserta as respostas e o backend arquiva o plano
+  // atual antes de salvar o novo (0006). skipChat=true dispara a geração
+  // direto, sem chat.
   const gerarNovoPlano = () => {
-    console.warn(
-      '[FrequenciaCard] Geração de plano indisponível nesta versão do app: o fluxo vive no onboarding.',
-    );
+    navigation.navigate('Questionnaire');
   };
 
   if (loading) {
@@ -649,6 +657,7 @@ const TrainingSessionScreen = () => {
           veredito={frequencia.veredito}
           frequenciaReal={frequencia.frequenciaReal}
           diasPlanejados={frequencia.diasPlanejados}
+          semanasFechadasMinimas={FREQUENCY_CONFIG.semanasFechadasMinimas}
           onGerarNovoPlano={gerarNovoPlano}
           style={styles.frequenciaCard}
         />

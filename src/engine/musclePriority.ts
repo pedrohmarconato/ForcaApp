@@ -64,6 +64,13 @@ const dayIndex = (isoDate: string | null): number | null => {
  * `cutExerciseIdsBySession` remove da conta os exercícios cortados pela escada
  * de tempo (COMMIT B): quem foi cortado não está no plano aplicado, logo não
  * conta como planejado nem vira candidato.
+ *
+ * `excluirSessaoId` tira uma sessão das DEVIDAS — e só delas. É a sessão aberta
+ * na tela agora: ela não pode se declarar "de fora" quando vai ser treinada nos
+ * próximos minutos (achado nº 5 do review do PR #67). O volume dela continua no
+ * molde: `seriesPlanejadas` é a semana INTEIRA por definição, e é ele que
+ * desempata qual grupo a sessão promove — removê-la da entrada inteira mudava
+ * a escolha do grupo.
  */
 export const gruposNegligenciados = (
   sessions: ReplanSession[],
@@ -71,6 +78,7 @@ export const gruposNegligenciados = (
   todayISO: string,
   cutExerciseIdsBySession?: Record<string, string[]>,
   executedSetsByGroup?: Record<string, number>,
+  excluirSessaoId?: string,
 ): GrupoNegligenciado[] => {
   const hoje = dayIndex(todayISO);
   if (hoje == null) return [];
@@ -104,9 +112,15 @@ export const gruposNegligenciados = (
   };
   for (const s of sessions) acumular(s);
 
-  // Sessões devidas: passadas E sem nenhuma série concluída (qualquer status).
+  // Sessões devidas: passadas E sem nenhuma série concluída (qualquer status),
+  // EXCETO as recusadas pelo próprio aluno (skip_source 'user'): recusa é
+  // decisão declarada — pode ser dor/lesão — e promover o grupo recusado ao
+  // 1º lugar do treino seguinte iria contra o aluno. (O fechador por replan
+  // continua contando: é falta não resolvida, não decisão.)
   const devidas = sessions.filter((s) => {
+    if (excluirSessaoId != null && s.id === excluirSessaoId) return false;
     if ((completedSetsBySession[s.id] ?? 0) !== 0) return false;
+    if (s.skipSource === 'user') return false;
     const dia = dayIndex(s.scheduledDate);
     return dia != null && dia < hoje;
   });
@@ -143,21 +157,31 @@ export const promoverPrimarioDoGrupo = (
   if (isDeloadSession(session, config ?? REPLAN_CONFIG)) return null;
 
   let melhor: GrupoNegligenciado | null = null;
+  const exercicios = [...session.exercises].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
+  const primarioDe = (grupo: string): ReplanExercise | null => {
+    const chave = normalizeName(grupo);
+    const candidatos = exercicios.filter(
+      (ex) =>
+        ex.priority === 'primary' &&
+        ex.muscleGroup != null &&
+        normalizeName(ex.muscleGroup) === chave,
+    );
+    return candidatos[0] ?? null;
+  };
+  // Melhor candidato = maior volume planejado ENTRE os que a sessão treina E
+  // têm primário aqui (empate → ordem de aparição). Grupo sem primário na
+  // sessão é pulado — outro candidato é tentado; um grupo de aquecimento de
+  // volume alto não desliga o Nível 3 em silêncio.
+  let exercicio: ReplanExercise | null = null;
   for (const n of negligenciados) {
     if (!trainsGroup(session, normalizeName(n.grupo))) continue;
-    if (melhor == null || n.seriesPlanejadas > melhor.seriesPlanejadas) melhor = n;
+    if (melhor != null && n.seriesPlanejadas <= melhor.seriesPlanejadas) continue;
+    const primario = primarioDe(n.grupo);
+    if (primario == null) continue;
+    melhor = n;
+    exercicio = primario;
   }
-  if (melhor == null) return null;
-
-  const exercicios = [...session.exercises].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
-  const primariosDoGrupo = exercicios.filter(
-    (ex) =>
-      ex.priority === 'primary' &&
-      ex.muscleGroup != null &&
-      normalizeName(ex.muscleGroup) === normalizeName(melhor.grupo),
-  );
-  if (primariosDoGrupo.length === 0) return null;
-  const exercicio = primariosDoGrupo[0];
+  if (melhor == null || exercicio == null) return null;
 
   const ids = exercicios.map((e) => e.id);
   const origem = ids.indexOf(exercicio.id);

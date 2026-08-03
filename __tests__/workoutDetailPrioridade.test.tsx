@@ -221,6 +221,75 @@ describe('WorkoutDetail — card de prioridade (Nível 3)', () => {
     expect(getWeekReplanContextMock).not.toHaveBeenCalled();
   });
 
+  it('a própria sessão atrasada NÃO se declara "de fora" (achado nº 5 do review 67)', async () => {
+    // Sessão aberta hoje, agendada ONTEM (devida, zero séries): o grupo dela
+    // está prestes a ser treinado — afirmar "ficou de fora" seria mentira.
+    const atrasada = {
+      ...sessaoBase,
+      scheduled_date: '2020-01-07',
+      muscle_groups: ['Peito', 'Costas'],
+      planned_exercises: [
+        exercicio({ id: 'sup', nome: 'Supino', ordem: 1, grupo: 'Peito', prioridade: 'primary' }),
+        exercicio({ id: 'rem', nome: 'Remada Curvada', ordem: 2, grupo: 'Costas', prioridade: 'primary' }),
+      ],
+    };
+    const contexto = makeContext();
+    // O contexto da semana só tem a própria sessão atrasada (e uma futura).
+    contexto.sessions = [
+      {
+        id: 'sess-1',
+        weekNumber: 1,
+        title: 'Puxa',
+        sessionType: 'Hipertrofia',
+        scheduledDate: '2020-01-07',
+        status: 'pending',
+        estimatedMinutes: 50,
+        exercises: [
+          { id: 'sup', name: 'Supino', muscleGroup: 'Peito', priority: 'primary', exerciseOrder: 1, sets: [1, 2, 3, 4].map((i) => ({ id: `sup-s${i}`, setOrder: i })), metric: 'carga_reps' },
+          { id: 'rem', name: 'Remada Curvada', muscleGroup: 'Costas', priority: 'primary', exerciseOrder: 2, sets: [1, 2, 3, 4].map((i) => ({ id: `rem-s${i}`, setOrder: i })), metric: 'carga_reps' },
+        ],
+      },
+      {
+        id: 'qui',
+        weekNumber: 1,
+        title: 'Empurra',
+        sessionType: 'Hipertrofia',
+        scheduledDate: '2020-01-10',
+        status: 'pending',
+        estimatedMinutes: 50,
+        exercises: [
+          { id: 'tri', name: 'Tríceps', muscleGroup: 'Tríceps', priority: 'primary', exerciseOrder: 1, sets: [{ id: 'tri-s1', setOrder: 1 }], metric: 'carga_reps' },
+        ],
+      },
+    ];
+
+    const utils = await renderTela(atrasada, contexto);
+    await waitFor(() => expect(getWeekReplanContextMock).toHaveBeenCalledTimes(1));
+
+    // Nenhum grupo "negligenciado" vem dela mesma: sem card, sem chip mentiroso.
+    expect(utils.queryByText('Colocar primeiro')).toBeNull();
+    expect(utils.queryByText(/ficou de fora/)).toBeNull();
+  });
+
+  it('grupo negligenciado por OUTRA sessão devida continua gerando o card mesmo com a atual atrasada', async () => {
+    const atrasada = {
+      ...sessaoBase,
+      scheduled_date: '2020-01-07',
+      planned_exercises: [
+        exercicio({ id: 'ros', nome: 'Rosca', ordem: 1, grupo: 'Bíceps' }),
+        exercicio({ id: 'rem', nome: 'Remada Curvada', ordem: 2, grupo: 'Costas', prioridade: 'primary' }),
+      ],
+    };
+    const contexto = makeContext();
+    // A atual está atrasada (ontem), mas a SEGUNDA também está (segunda 05):
+    // Costas segue negligenciado por causa da seg — o card continua válido.
+    (contexto.sessions[1] as { scheduledDate: string }).scheduledDate = '2020-01-07';
+
+    const utils = await renderTela(atrasada, contexto);
+
+    await waitFor(() => expect(utils.getByText('Colocar primeiro')).toBeTruthy());
+  });
+
   it('draft ativo desta sessão → sem card (mesma guarda da reordenação)', async () => {
     mockStoreState.draft = { plannedSessionId: 'sess-1' };
     const utils = await renderTela();

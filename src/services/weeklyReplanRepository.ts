@@ -8,8 +8,9 @@
 // evento em session_logs.adherence_snapshot (coluna reservada à Fase 6 na
 // migration 0001), com available_minutes quando há corte de tempo. Não há mais
 // insert em planned_sets nem marcação de skipped — logo não existe estado
-// parcial: falha no snapshot propaga e a proposta fica de pé para tentar de
-// novo (o store recalcula do servidor e a sessão nunca trava).
+// parcial: falha no snapshot propaga, o erro aparece e a proposta fica de pé
+// para tentar de novo (o store NÃO recalcula com availableMinutes: null —
+// isso mataria o corte pedido e o retry devolveria sucesso sem escrever).
 
 import { supabase } from '../config/supabaseClient';
 import { toNum, type ExerciseMetric } from '../engine/sessionModel';
@@ -73,6 +74,8 @@ type RawSession = {
   scheduled_date: string | null;
   status: ReplanSessionStatus;
   estimated_minutes: number | null;
+  // Quem marcou como skipped (0020): 'user' = recusa declarada do aluno.
+  skip_source?: 'user' | 'replan' | null;
   // Vem do `select('*')` e é a ordem REAL da semana. Sem ela declarada aqui,
   // quem precisa desempatar a fila cai no índice do array — que este select
   // não ordena, e portanto não garante.
@@ -153,6 +156,7 @@ export const getWeekReplanContext = async (
     sessionType: s.session_type,
     scheduledDate: s.scheduled_date,
     status: s.status,
+    skipSource: s.skip_source ?? null,
     estimatedMinutes: s.estimated_minutes == null ? null : toNum(s.estimated_minutes),
     exercises: (s.planned_exercises ?? []).map((e) => ({
       id: e.id,

@@ -46,6 +46,7 @@ const sessao = (p: {
   id: string;
   data: string | null;
   status?: ReplanSession['status'];
+  skipSource?: ReplanSession['skipSource'];
   exercicios: ReplanExercise[];
 }): ReplanSession => ({
   id: p.id,
@@ -54,6 +55,7 @@ const sessao = (p: {
   sessionType: 'Hipertrofia',
   scheduledDate: p.data,
   status: p.status ?? 'pending',
+  skipSource: p.skipSource,
   estimatedMinutes: 60,
   exercises: p.exercicios,
 });
@@ -165,6 +167,38 @@ describe('gruposNegligenciados', () => {
         id: 'seg',
         data: '2020-01-05',
         status: 'skipped',
+        exercicios: [
+          ex({ id: 'rem', nome: 'Remada Curvada', grupo: 'Costas', prioridade: 'primary', ordem: 1, series: 4 }),
+        ],
+      }),
+    ];
+
+    expect(gruposNegligenciados(semana, {}, HOJE)).toEqual([{ grupo: 'Costas', seriesPlanejadas: 4 }]);
+  });
+
+  it('sessão RECUSADA pelo aluno (skip_source user) NÃO negligencia — recusa com dor não vira promoção de supino (achado nº 4 do review 67)', () => {
+    const semana = [
+      sessao({
+        id: 'seg',
+        data: '2020-01-05',
+        status: 'skipped',
+        skipSource: 'user',
+        exercicios: [
+          ex({ id: 'sup', nome: 'Supino Inclinado', grupo: 'Peito', prioridade: 'primary', ordem: 1, series: 4 }),
+        ],
+      }),
+    ];
+
+    expect(gruposNegligenciados(semana, {}, HOJE)).toEqual([]);
+  });
+
+  it('recusa pelo fechador (skip_source replan) continua negligenciando — é falta não resolvida, não decisão', () => {
+    const semana = [
+      sessao({
+        id: 'seg',
+        data: '2020-01-05',
+        status: 'skipped',
+        skipSource: 'replan',
         exercicios: [
           ex({ id: 'rem', nome: 'Remada Curvada', grupo: 'Costas', prioridade: 'primary', ordem: 1, series: 4 }),
         ],
@@ -379,6 +413,68 @@ describe('promoverPrimarioDoGrupo', () => {
     expect(promoverPrimarioDoGrupo(sessaoAlvo, [negligenciado('Costas', 7)])).toBeNull();
   });
 
+  it('grupo de maior volume SEM primário na sessão é pulado — o Nível 3 tenta o próximo (achado nº 6 do review 67)', () => {
+    const sessaoAlvo = sessao({
+      id: 'qui',
+      data: '2020-01-09',
+      exercicios: [
+        // Core tem o MAIOR volume da semana, mas aqui só existe como acessório
+        // (prancha) — não há primário de core para promover.
+        ex({ id: 'pra', nome: 'Prancha', grupo: 'Core', prioridade: 'accessory', ordem: 1, series: 3 }),
+        ex({ id: 'rem', nome: 'Remada Curvada', grupo: 'Costas', prioridade: 'primary', ordem: 2, series: 4 }),
+      ],
+    });
+
+    const negligenciados = [
+      negligenciado('Core', 9),
+      negligenciado('Costas', 8),
+    ];
+
+    const proposta = promoverPrimarioDoGrupo(sessaoAlvo, negligenciados);
+
+    // Costas (com primário) é promovido — o grupo de aquecimento não desliga a feature.
+    expect(proposta).not.toBeNull();
+    expect(proposta!.exercicio.id).toBe('rem');
+    expect(proposta!.ordemProposta).toEqual(['rem', 'pra']);
+  });
+
+  it('NENHUM candidato com primário na sessão → null (mesmo com grupo de volume alto)', () => {
+    const sessaoAlvo = sessao({
+      id: 'qui',
+      data: '2020-01-09',
+      exercicios: [
+        ex({ id: 'pra', nome: 'Prancha', grupo: 'Core', prioridade: 'accessory', ordem: 1, series: 3 }),
+        ex({ id: 'pon', nome: 'Ponte', grupo: 'Glúteos', prioridade: 'accessory', ordem: 2, series: 2 }),
+      ],
+    });
+
+    expect(
+      promoverPrimarioDoGrupo(sessaoAlvo, [
+        negligenciado('Core', 9),
+        negligenciado('Glúteos', 7),
+      ]),
+    ).toBeNull();
+  });
+
+  it('empate de volume entre candidatos com primário mantém ordem de aparição', () => {
+    const sessaoAlvo = sessao({
+      id: 'qui',
+      data: '2020-01-09',
+      exercicios: [
+        ex({ id: 'sup', nome: 'Supino', grupo: 'Peito', prioridade: 'primary', ordem: 1, series: 4 }),
+        ex({ id: 'rem', nome: 'Remada Curvada', grupo: 'Costas', prioridade: 'primary', ordem: 2, series: 4 }),
+      ],
+    });
+
+    const proposta = promoverPrimarioDoGrupo(sessaoAlvo, [
+      negligenciado('Costas', 6),
+      negligenciado('Peito', 6),
+    ]);
+
+    // Empate: quem aparece primeiro nos negligenciados vence (Costas).
+    expect(proposta!.exercicio.id).toBe('rem');
+  });
+
   it('sessão de deload → null (não mexe em semana de recuperação)', () => {
     const sessaoDeload = {
       ...sessao({
@@ -520,5 +616,58 @@ describe('promoverPrimarioDoGrupo', () => {
       // O motor não muta a entrada (volume intocado, invariante 2).
       expect(alvo.exercises.map((e) => ({ ...e, sets: [...e.sets] }))).toEqual(original);
     }
+  });
+});
+
+describe('excluirSessaoId — a sessão em exibição sai das DEVIDAS, não do molde', () => {
+  // A sessão aberta agora não pode se declarar "de fora" (achado nº 5), mas o
+  // volume planejado continua sendo o da semana INTEIRA: é ele que desempata
+  // qual grupo a sessão promove. Filtrar a sessão da entrada inteira mudava o
+  // desempate — sintoma diferente do que o filtro queria corrigir.
+  const perdida = sessao({
+    id: 'seg',
+    data: '2020-01-05',
+    exercicios: [
+      ex({ id: 'p1', nome: 'Supino', grupo: 'Peito', prioridade: 'primary', ordem: 1, series: 2 }),
+      ex({ id: 'p2', nome: 'Puxada', grupo: 'Costas', prioridade: 'primary', ordem: 2, series: 5 }),
+    ],
+  });
+  const exibida = sessao({
+    id: 'hoje',
+    data: '2020-01-07',
+    exercicios: [
+      aquecimento(1),
+      ex({ id: 'ag', nome: 'Agachamento', grupo: 'Perna', prioridade: 'primary', ordem: 2, series: 2 }),
+      ex({ id: 'h1', nome: 'Remada', grupo: 'Costas', prioridade: 'primary', ordem: 3, series: 2 }),
+      ex({ id: 'h2', nome: 'Supino Inclinado', grupo: 'Peito', prioridade: 'primary', ordem: 4, series: 6 }),
+    ],
+  });
+
+  it('a sessão excluída não aparece entre os negligenciados', () => {
+    const negl = gruposNegligenciados([perdida, exibida], {}, HOJE, undefined, undefined, 'hoje');
+    // Perna e o aquecimento só existem na sessão exibida: não são "falta".
+    expect(negl.map((n) => n.grupo).sort()).toEqual(['Costas', 'Peito']);
+  });
+
+  it('mas o volume planejado continua contando a semana inteira (inclusive a exibida)', () => {
+    const negl = gruposNegligenciados([perdida, exibida], {}, HOJE, undefined, undefined, 'hoje');
+    const porGrupo = Object.fromEntries(negl.map((n) => [n.grupo, n.seriesPlanejadas]));
+    expect(porGrupo).toEqual({ Peito: 8, Costas: 7 });
+
+    // E o desempate por volume leva ao MESMO grupo que o molde inteiro indica.
+    const proposta = promoverPrimarioDoGrupo(exibida, negl);
+    expect(proposta!.grupo).toBe('Peito');
+    expect(proposta!.exercicio.name).toBe('Supino Inclinado');
+  });
+
+  it('sem excluirSessaoId o comportamento antigo segue intacto (nenhum chamador quebra)', () => {
+    const negl = gruposNegligenciados([perdida, exibida], {}, HOJE);
+    expect(negl.map((n) => n.grupo)).toContain('Perna');
+  });
+
+  it('sessão exibida sozinha na semana: nada a propor sobre ela mesma', () => {
+    const negl = gruposNegligenciados([exibida], {}, HOJE, undefined, undefined, 'hoje');
+    expect(negl).toHaveLength(0);
+    expect(promoverPrimarioDoGrupo(exibida, negl)).toBeNull();
   });
 });

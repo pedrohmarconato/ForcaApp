@@ -140,10 +140,19 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
           session.week_number,
         );
         if (!ativo) return;
+        // A sessão em exibição NÃO pode se declarar "de fora": ela está aberta
+        // agora, seus grupos vão ser treinados nos próximos minutos — incluí-la
+        // na lista de devidas gerava o chip "peito ficou de fora" sobre um
+        // treino prestes a começar (achado #5 do review do PR #67). O motor a
+        // tira das DEVIDAS e mantém o volume dela no molde da semana: filtrar a
+        // entrada inteira mudava o desempate e, com ele, o grupo promovido.
         const negligenciados = gruposNegligenciados(
           ctx.sessions,
           ctx.completedSetsBySession,
           diaLocal,
+          undefined,
+          undefined,
+          session.id,
         );
         setProposta(promoverPrimarioDoGrupo(replan, negligenciados));
       } catch (err) {

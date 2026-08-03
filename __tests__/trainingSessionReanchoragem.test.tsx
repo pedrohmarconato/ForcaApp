@@ -7,7 +7,12 @@ import { fireEvent, render, waitFor, within } from '@testing-library/react-nativ
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
-  useFocusEffect: jest.fn(),
+  // A tela recarrega por foco (padrão da Home): o mock dispara o callback
+  // como um focus inicial para o fetch acontecer uma vez na montagem.
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
 }));
 
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -165,6 +170,32 @@ beforeEach(() => {
 });
 
 describe('TrainingSessionScreen - Reencaixe (atraso)', () => {
+  it('botão "Gerar novo plano" navega para o questionário (achado nº 7 do review 67)', async () => {
+    // Plano na semana 4 em curso; histórico das 3 semanas fechadas sem nenhuma
+    // concluída → veredito 'abandono' → card do Nível 4 na tela.
+    const plano = [
+      sessao('s9', {
+        title: 'Sessão Semana 4',
+        week_number: 4,
+        scheduled_date: '2026-08-03',
+        order_in_week: 1,
+        status: 'pending',
+      }),
+    ];
+    const historico = [
+      sessao('h1', { week_number: 1, scheduled_date: '2026-07-13', status: 'pending' }),
+      sessao('h2', { week_number: 2, scheduled_date: '2026-07-20', status: 'pending' }),
+      sessao('h3', { week_number: 3, scheduled_date: '2026-07-27', status: 'pending' }),
+    ];
+
+    const utils = await renderTela(plano, [0, 2, 4], historico);
+
+    await waitFor(() => expect(utils.getByText('Gerar novo plano')).toBeTruthy());
+    fireEvent.press(utils.getByText('Gerar novo plano'));
+    // O botão morto (console.warn) virou navegação real para o fluxo de geração.
+    expect(mockNavigate).toHaveBeenCalledWith('Questionnaire');
+  });
+
   it('não mostra "Reencaixar" quando não há atraso', async () => {
     const utils = await renderTela(semanaSemAtraso);
     expect(utils.queryByText('Reencaixar')).toBeNull();
@@ -303,5 +334,18 @@ describe('TrainingSessionScreen - Frequência (Nível 4)', () => {
     ];
     const utils = await renderTela(semanaEmAndamento, [0, 2, 4], historicoDe([2, 2, 2]));
     expect(utils.queryByText('Sua frequência caiu')).toBeNull();
+  });
+
+  it('a janela pedida ao banco é a da CONFIG, não um 3 fixo no repositório', async () => {
+    // O card lê FREQUENCY_CONFIG.semanasFechadasMinimas para o texto e para o
+    // agregador; se a leitura continuasse com o default 3 do repositório,
+    // subir a config desligaria o Nível 4 em silêncio (semanas.length < janela
+    // → 'insuficiente_historico') em vez de mentir no texto.
+    await renderTela(semanaEmCurso, [0, 2, 4], historicoDe([2, 2, 2]));
+
+    const { FREQUENCY_CONFIG } = require('../src/engine/config');
+    expect(getHistoricoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas }),
+    );
   });
 });

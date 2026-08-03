@@ -38,6 +38,13 @@ type Props = {
   onConfirm: () => void;
   onConfirmReagendamento: () => void;
   onDecline: () => void;
+  /**
+   * Recusa do REENCAIXE. Separada de `onDecline` de propósito: o cartão de
+   * reagendamento tem precedência e esconde o corte de tempo, então usar a
+   * mesma ação gravaria o fingerprint de uma proposta que o aluno não viu —
+   * e pedir os mesmos minutos depois não traria nada de volta.
+   */
+  onDeclineReagendamento: () => void;
 };
 
 const plural = (n: number, singular: string, pluralForm: string): string =>
@@ -91,7 +98,7 @@ const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
   }
 };
 
-const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onConfirmReagendamento, onDecline }: Props) => {
+const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento }: Props) => {
   // Se há reencaixe, mostra o cartão de reencaixe.
   if (reagendamento && reagendamento.movidas.length > 0) {
     return (
@@ -168,7 +175,7 @@ const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onCo
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.declineBtn, busy && styles.btnDisabled]}
-            onPress={onDecline}
+            onPress={onDeclineReagendamento}
             disabled={busy}
             testID="replan-decline"
             accessibilityRole="button"
@@ -184,8 +191,12 @@ const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onCo
   // Nível 2 da escada de reencaixe: nada foi reencaixável (agenda sem espaço)
   // e a semana fecha com menos volume — dito sem eufemismo. Botão único
   // reconhece o fechamento; não há plano B para oferecer.
+  // Só quando NÃO há proposta ativa: um corte de tempo pedido pelo aluno
+  // (proposal.hasChanges) é a decisão em jogo — escondê-lo atrás do "Entendi"
+  // do Nível 2 faria a recusa gravar o fingerprint do corte sem o aluno vê-lo.
   if (
     proposal &&
+    !proposal.hasChanges &&
     reagendamento &&
     reagendamento.movidas.length === 0 &&
     reagendamento.semEncaixe.length > 0

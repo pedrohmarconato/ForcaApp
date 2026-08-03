@@ -4,11 +4,9 @@
 // desalinhada. Só APRESENTA — quem decide veredito e números é o motor
 // (adherenceHistory.ts); nada muda sozinho (mesmo princípio de PrioridadeCard).
 //
-// Divergência documentada (COMMIT D): o fluxo de geração do plano vive no
-// OnboardingNavigator, montado só com onboarding_completed=false — não há rota
-// alcançável da aba Plano nesta versão do app. O botão existe por contrato da
-// escada; o destino real (tela de proposta do Nível 4 completo) entra em
-// commit futuro.
+// O botão "Gerar novo plano" leva ao questionário (regeneração): o fluxo de
+// geração roda no TrainingStack (MainNavigator) com skipChat — a tela de chat
+// dispara a geração direto e, ao concluir, volta ao plano (fix do review #67).
 
 import React from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
@@ -30,6 +28,8 @@ type FrequenciaCardProps = {
   frequenciaReal: number;
   /** Dias planejados por semana (denominador do número verificável). */
   diasPlanejados: number;
+  /** Janela de semanas fechadas que o veredito considerou (FREQUENCY_CONFIG). */
+  semanasFechadasMinimas: number;
   onGerarNovoPlano: () => void;
   style?: StyleProp<ViewStyle>;
 };
@@ -38,23 +38,27 @@ const FrequenciaCard = ({
   veredito,
   frequenciaReal,
   diasPlanejados,
+  semanasFechadasMinimas,
   onGerarNovoPlano,
   style,
 }: FrequenciaCardProps) => {
+  // "3 semanas" NUNCA fica fixo: o texto segue a config (FREQUENCY_CONFIG
+  // .semanasFechadasMinimas) — mudar a config sem mexer aqui faria o card mentir.
+  const janela = semanasFechadasMinimas;
   const conteudo: { titulo: string; descricao: string } =
     veredito === 'abandono'
       ? {
-          titulo: 'Faz 3 semanas sem treinar',
-          descricao: 'Nenhum treino foi concluído nas últimas 3 semanas.',
+          titulo: `Faz ${janela} ${janela === 1 ? 'semana' : 'semanas'} sem treinar`,
+          descricao: `Nenhum treino foi concluído nas últimas ${janela} ${janela === 1 ? 'semana' : 'semanas'}.`,
         }
       : veredito === 'agenda_desalinhada'
         ? {
             titulo: 'Seus treinos não encaixam na sua agenda',
-            descricao: `Nas últimas 3 semanas você treinou ${frequenciaReal} dos ${diasPlanejados} dias planejados, mas em dias diferentes do plano.`,
+            descricao: `Nas últimas ${janela} ${janela === 1 ? 'semana' : 'semanas'} você treinou ${frequenciaReal} dos ${diasPlanejados} dias planejados, mas em dias diferentes do plano.`,
           }
         : {
             titulo: 'Sua frequência caiu',
-            descricao: `Nas últimas 3 semanas você treinou ${frequenciaReal} dos ${diasPlanejados} dias planejados.`,
+            descricao: `Nas últimas ${janela} ${janela === 1 ? 'semana' : 'semanas'} você treinou ${frequenciaReal} dos ${diasPlanejados} dias planejados.`,
           };
 
   return (

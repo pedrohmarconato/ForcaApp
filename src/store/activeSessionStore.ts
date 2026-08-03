@@ -143,6 +143,7 @@ interface ActiveSessionState {
   confirmReplan: () => Promise<boolean>;
   confirmReagendamento: () => Promise<boolean>;
   declineReplan: () => Promise<void>;
+  declineReagendamento: () => void;
   clearStorageWarning: () => void;
   clearReplanWarning: () => void;
   activateSet: (exerciseId: string, setOrder: number) => void;
@@ -890,47 +891,37 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return true;
     } catch (e) {
       if (operationEpoch !== epoch || get().draft?.sessionLogId !== sid) return false;
-      // COMMIT B: a aplicação grava SÓ o snapshot — não há insert de séries nem
-      // skip, logo não existe estado parcial a refletir. Erro → aviso e a
-      // proposta é recalculada do servidor; a sessão nunca trava.
+      // COMMIT B: a aplicação grava SÓ o snapshot — não há estágio parcial nem
+      // conflito a reconciliar. Falha = nada foi escrito; a proposta FICA DE PÉ
+      // para tentar de novo (recálculo do servidor com availableMinutes: null
+      // mataria o corte pedido — retry voltaria com sucesso sem escrever nada).
+      // O erro aparece; a sessão nunca trava.
       set({
         saveError: isReplanTransportError(e)
           ? 'Sem conexão para confirmar o replanejamento. Toque para tentar de novo.'
           : errMsg(e),
       });
-      try {
-        const refreshed = await getWeekReplanContext(
-          pr.context.userId,
-          pr.context.planId,
-          pr.context.weekNumber,
-        );
-        const depois = get().draft;
-        if (operationEpoch === epoch && depois && depois.sessionLogId === sid) {
-          const proposal = replanByRules({
-            sessions: refreshed.sessions,
-            todayISO: localTodayISO(),
-            currentSessionId: depois.plannedSessionId,
-            availableMinutes: null,
-            completedSetsBySession: refreshed.completedSetsBySession,
-          });
-          set({
-            pendingReplan: {
-              sessionLogId: sid,
-              requestedMinutes: null,
-              reagendamento: null,
-              context: refreshed,
-              proposal,
-            },
-          });
-        }
-      } catch (refreshError) {
-        // Sem recálculo a proposta antiga fica de pé para tentar de novo.
-        console.warn('[activeSession] replanejamento não recalculado (não-fatal):', refreshError);
-      }
       return false;
     } finally {
       set({ replanBusy: false });
     }
+  },
+
+  /**
+   * Recusa do REENCAIXE — só ele. Nada é escrito no servidor e NENHUM
+   * fingerprint é gravado: o cartão de reagendamento tem precedência sobre o
+   * corte de tempo, então tratar as duas recusas como a mesma ação enterrava
+   * uma proposta que o aluno nunca viu (o corte sumia e não voltava nem
+   * pedindo os mesmos minutos de novo).
+   *
+   * Ao limpar `reagendamento`, o banner cai para o próximo ramo — o cartão do
+   * corte, se houver: as duas decisões aparecem em sequência, cada uma com o
+   * seu botão.
+   */
+  declineReagendamento: () => {
+    const pr = get().pendingReplan;
+    if (!pr || !pr.reagendamento) return;
+    set({ pendingReplan: { ...pr, reagendamento: null } });
   },
 
   declineReplan: async () => {
