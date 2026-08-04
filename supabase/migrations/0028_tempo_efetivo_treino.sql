@@ -79,6 +79,9 @@ comment on column public.session_logs.active_seconds is
 -- crescente (início → completed_at das séries → fim), mais
 -- Σ max(actual_duration_seconds − 1200, 0) sobre séries de cardio/isometria.
 -- Devolve null quando a sessão não tem fim ou quando fim < início.
+-- Escopo por dono vem 100% da RLS (security invoker, como todo o projeto):
+-- sem policy, uma chamada direta com id alheio devolve null/0, nunca dado de
+-- outro usuário. Achado BAIXA do painel de revisão — registro, sem mudança.
 create or replace function public._forca_tempo_efetivo_segundos(
   p_session_log_id uuid,
   p_fim timestamptz default null
@@ -209,10 +212,21 @@ $$;
 -- ============================================================
 -- 4. Backfill das sessões já fechadas
 -- ============================================================
+-- Sessão RECUSADA (skipped) não é treino concluído e não recebe "duração". O
+-- log fechado pela skip_planned_session (0020:513-517) carimba finished_at sem
+-- active_seconds — recusas NOVAS mostram "—" no histórico. Sem a exclusão
+-- abaixo, uma recusa HISTÓRICA ganharia até 20 min plausíveis de "duração": o
+-- mesmo evento de negócio em dois comportamentos conforme a data. Achado MÉDIA
+-- do painel de revisão do PR; aqui está a correção.
 update public.session_logs
    set active_seconds = public._forca_tempo_efetivo_segundos(id)
  where finished_at is not null
-   and active_seconds is null;
+   and active_seconds is null
+   and not exists (
+     select 1 from public.planned_sessions ps
+      where ps.id = session_logs.planned_session_id
+        and ps.status = 'skipped'
+   );
 
 -- ============================================================
 -- 5. Grants — revoke de public E de anon (aprendizado da 0019), grant a authenticated

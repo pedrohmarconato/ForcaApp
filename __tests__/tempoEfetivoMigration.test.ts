@@ -43,6 +43,15 @@ describe('invariantes estruturais da migration 0028', () => {
     expect(sql).toMatch(/set active_seconds = public\._forca_tempo_efetivo_segundos\(id\)/);
   });
 
+  it('backfill NÃO dá duração a sessão recusada (skipped) — achado MÉDIA do painel', () => {
+    // O log fechado pela skip_planned_session não é treino concluído: sem esta
+    // exclusão, recusa histórica ganharia até 20 min e recusa nova mostraria
+    // "—" — o mesmo evento em dois comportamentos conforme a data.
+    expect(sql).toMatch(/not exists \(\s*select 1 from public\.planned_sessions ps/);
+    expect(sql).toMatch(/ps\.id = session_logs\.planned_session_id/);
+    expect(sql).toMatch(/ps\.status = 'skipped'/);
+  });
+
   it('mantém o revoke de public E de anon nas duas funções (aprendizado da 0019)', () => {
     expect(sql).toMatch(/revoke all on function public\._forca_tempo_efetivo_segundos\(uuid, timestamptz\) from public, anon/);
     expect(sql).toMatch(/revoke all on function public\.finish_session\(uuid\) from public, anon/);
