@@ -21,6 +21,11 @@ export type AdaptConfig = {
   /** RIR a partir do qual o fôlego vira IMPULSO no superávit: cada ponto acima
    *  de (rirBoostMinRir - 1) soma 1 rep ao desvio. Só sobe, nunca desce. */
   rirBoostMinRir: number;
+  /** RIR suficiente puxa progressão em QUALQUER ponto da faixa (não só no teto):
+   *  cumprir a prescrição e declarar folga (RIR >= rirBoostMinRir) propõe aumento
+   *  de carga mesmo no meio da faixa. OFF = volta ao antigo (só o teto dispara).
+   *  Flag de rollback — desligar aqui restaura o comportamento anterior. */
+  rirBoostOnTargetAnywhere: boolean;
   /** Passo de reps sugerido quando o exercício é de peso corporal (não tem carga). */
   bodyweightRepStep: number;
   /** Máximo de opções apresentadas ao aluno (bottom sheet). */
@@ -34,6 +39,7 @@ export const ADAPT_CONFIG: AdaptConfig = {
   deficitTiers: { moderado: 2, grande: 4 }, // 1 rep = leve; 2–3 = moderado; ≥4 = grande
   minRirForIncrease: 1, // superávit com RIR 0 (à falha) → não sobe carga
   rirBoostMinRir: 2, // fôlego >= 2 impulsiona o superávit (calibrado pelo dono 22/07) — PADRÃO A VALIDAR
+  rirBoostOnTargetAnywhere: true, // folga puxa progressão em qualquer ponto da faixa — PADRÃO A VALIDAR
   bodyweightRepStep: 2, // peso corporal: sugere ±2 reps no alvo
   maxOptions: 3,
 };
