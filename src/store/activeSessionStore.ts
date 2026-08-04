@@ -1246,9 +1246,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      // Fase 5: série fora do alvo → recomenda um ajuste. On-target não gera nada
-      // (exceto topo da faixa com fôlego). O motor mexe em CARGA: não tem o que
-      // propor para uma caminhada. Cardio conclui a série e segue.
+      // Fase 5: série fora do alvo → recomenda um ajuste. Dentro do alvo, só com
+      // fôlego declarado (RIR >= rirBoostMinRir) o motor propõe aumento — qualquer
+      // ponto da faixa, por regra rirBoostOnTargetAnywhere. O motor mexe em CARGA:
+      // não tem o que propor para uma caminhada. Cardio conclui a série e segue.
       // GUARD DE ÚLTIMA SÉRIE: sem próxima série pendente do MESMO exercício, não
       // há proposta nem decisão automática — a adaptação é intra-exercício.
       const updatedEx = novo.exercises.find((e) => e.exerciseId === exerciseId);
