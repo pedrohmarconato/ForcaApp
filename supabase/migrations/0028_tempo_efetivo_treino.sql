@@ -212,20 +212,39 @@ $$;
 -- ============================================================
 -- 4. Backfill das sessões já fechadas
 -- ============================================================
--- Sessão RECUSADA (skipped) não é treino concluído e não recebe "duração". O
--- log fechado pela skip_planned_session (0020:513-517) carimba finished_at sem
--- active_seconds — recusas NOVAS mostram "—" no histórico. Sem a exclusão
--- abaixo, uma recusa HISTÓRICA ganharia até 20 min plausíveis de "duração": o
--- mesmo evento de negócio em dois comportamentos conforme a data. Achado MÉDIA
--- do painel de revisão do PR; aqui está a correção.
+-- Recebe "duração" só quem é TREINO CONCLUÍDO de fato: log com séries, ou
+-- (sem séries) conclusão real de sessão vazia — plano 'completed' e único log.
+-- Tudo o resto é artefato de recusa e fica sem active_seconds → "—" no
+-- histórico:
+--   1. Recusa simples (plano 'skipped'): o log fechado pela skip_planned_session
+--      (0020:513-517) nunca foi um treino.
+--   2. FANTASMA da recusa desfeita: unskip volta o plano a 'pending' sem reabrir
+--      o log antigo (0020:537-539); um retreino posterior abre log novo e leva o
+--      plano a 'completed'. O log antigo — sem séries, com irmão no mesmo plano —
+--      não pode ganhar até 1200 s fabricados: filtrar pelo status ATUAL do plano
+--      não o pega (o status já virou 'completed'). Achado MÉDIA da reavaliação.
+--   3. Recusa desfeita e nunca retreinada (plano 'pending'): nada foi feito.
 update public.session_logs
    set active_seconds = public._forca_tempo_efetivo_segundos(id)
  where finished_at is not null
    and active_seconds is null
-   and not exists (
-     select 1 from public.planned_sessions ps
-      where ps.id = session_logs.planned_session_id
-        and ps.status = 'skipped'
+   and (
+     -- Log com trabalho real (séries registradas) recebe o cálculo.
+     exists (select 1 from public.set_logs sl where sl.session_log_id = session_logs.id)
+     or (
+       -- Sem séries, só é treino concluído se a sessão planejada foi de fato
+       -- concluída E não existe irmão no mesmo plano.
+       exists (
+         select 1 from public.planned_sessions ps
+          where ps.id = session_logs.planned_session_id
+            and ps.status = 'completed'
+       )
+       and not exists (
+         select 1 from public.session_logs l2
+          where l2.planned_session_id = session_logs.planned_session_id
+            and l2.id <> session_logs.id
+       )
+     )
    );
 
 -- ============================================================
