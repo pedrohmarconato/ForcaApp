@@ -224,6 +224,15 @@ $$;
 --      não pode ganhar até 1200 s fabricados: filtrar pelo status ATUAL do plano
 --      não o pega (o status já virou 'completed'). Achado MÉDIA da reavaliação.
 --   3. Recusa desfeita e nunca retreinada (plano 'pending'): nada foi feito.
+--   4. ASSIMETRIA RESIDUAL aceita (registro da 3ª avaliação): um retreino vazio
+--      LEGÍTIMO pré-deploy (skip→unskip→retreino com zero séries, concluído via
+--      finish_session) tem o fantasma como irmão e cai na regra "sem-irmão" →
+--      fica "—" no backfill; o MESMO evento pós-deploy ganha número, porque a
+--      finish_session não olha irmãos. Frequência baixíssima (exige concluir um
+--      retreino sem registrar uma série), efeito único (o backfill roda uma vez)
+--      e na direção conservadora — "—" sobre conjunto vazio nunca fabrica
+--      número. Corrigir exigiria predicado direcional (excluir só o irmão mais
+--      antigo) para um caso que talvez não exista em produção; opção deliberada.
 update public.session_logs
    set active_seconds = public._forca_tempo_efetivo_segundos(id)
  where finished_at is not null
