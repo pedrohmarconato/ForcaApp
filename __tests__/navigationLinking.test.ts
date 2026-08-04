@@ -58,4 +58,29 @@ describe('linking: ActiveSession recuperável por URL nos stacks Hoje e Plano', 
     expect(state).not.toBeNull();
     expect(rotaAtivaDoStack(state).name).toBe('HomeMain');
   });
+
+  it('regressão 04/08/2026: deep link/refresh de ActiveSession monta a PILHA com a raiz — canGoBack()==true no "Voltar ao início"', () => {
+    // Sem initialRouteName no stack, getStateFromPath reconstruía SÓ
+    // [ActiveSession]: canGoBack() dava false e o botão "Voltar ao início" do
+    // resumo não fazia nada após um refresh/abertura por URL. A raiz precisa
+    // estar presente para o popToTop da tela de resumo voltar à aba certa.
+    const home = getStateFromPath('/home/active-session/abc123', LINKING_CONFIG)!;
+    const homeStack = home.routes[0].state;
+    expect(homeStack.routes.map((r: any) => r.name)).toEqual([
+      'HomeMain',
+      'ActiveSession',
+    ]);
+    expect(homeStack.index).toBe(1);
+
+    const training = getStateFromPath(
+      '/training/active-session/def456',
+      LINKING_CONFIG,
+    )!;
+    const trainingStack = training.routes[0].state;
+    expect(trainingStack.routes.map((r: any) => r.name)).toEqual([
+      'TrainingOverview',
+      'ActiveSession',
+    ]);
+    expect(trainingStack.index).toBe(1);
+  });
 });

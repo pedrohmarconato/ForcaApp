@@ -7,6 +7,14 @@
 //
 // Paths EXPLÍCITOS por tab e por stack (nada de inferência de nome): cada URL
 // reconstrói a aba e o stack corretos com o `sessionId` exato.
+//
+// `initialRouteName` em cada stack: sem ele, o deep link / refresh do web em
+// `/home/active-session/<id>` reconstrói a pilha com SÓ [ActiveSession] — e o
+// "Voltar ao início" do resumo (canGoBack ? popToTop : nada) vira botão morto.
+// Com ele, o estado nasce [HomeMain > ActiveSession], canGoBack()==true e o
+// popToTop volta à aba certa. (Regressão reproduzida por getStateFromPath em
+// 04/08/2026: `Home[ActiveSession]` sem a correção, `Home[HomeMain >
+// ActiveSession]` com ela.)
 
 const webOrigin =
   typeof window !== 'undefined' && window.location?.origin
@@ -23,6 +31,7 @@ export const LINKING_CONFIG = {
   screens: {
     Home: {
       path: 'home',
+      initialRouteName: 'HomeMain',
       screens: {
         HomeMain: '',
         WorkoutDetail: 'workout/:sessionId',
@@ -31,6 +40,7 @@ export const LINKING_CONFIG = {
     },
     Training: {
       path: 'training',
+      initialRouteName: 'TrainingOverview',
       screens: {
         TrainingOverview: '',
         WorkoutDetail: 'workout/:sessionId',
