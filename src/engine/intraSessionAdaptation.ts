@@ -11,7 +11,12 @@
 import type { Outcome, SessionDraft } from './sessionModel';
 import { computeOutcome } from './sessionModel';
 import { ADAPT_CONFIG, type AdaptConfig } from './config';
-import { adjustsRepsNotLoad, forbidsLoadIncrease, type GuardrailContext } from './guardrails';
+import {
+  adjustsRepsNotLoad,
+  forbidsLoadIncrease,
+  forbidsProgression,
+  type GuardrailContext,
+} from './guardrails';
 
 export type DeviationTier = 'none' | 'leve' | 'moderado' | 'grande';
 
@@ -47,7 +52,10 @@ export type Recommendation = {
   /** Opções para o aluno; recomendada em 1º; no máx. `config.maxOptions`. */
   options: Adjustment[];
   /**
-   * Gatilho interno machine-readable que fez o motor disparar:
+   * Gatilho interno machine-readable que fez o motor disparar. Diagnóstico, não
+   * contrato acionável: um consumidor NÃO pode assumir que trigger ⇒ proposta
+   * de ajuste — o `recommended` pode ser `keep` quando a progressão foi
+   * CONSIDERADA e bloqueada (ex.: flag OFF sem incremento seguro, emenda A).
    * `topo_da_faixa_com_folego` — DENTRO da faixa (qualquer ponto, teto incluído)
    * com RIR suficiente para puxar progressão. Nome histórico mantido por
    * compatibilidade; semântica ampliada pela regra rirBoostOnTargetAnywhere.
@@ -211,6 +219,12 @@ export const recommendByRules = (params: {
     const noTopo = evaluated.actualReps === evaluated.targetRepsMax;
     const comFolego = rir != null && rir >= cfg.rirBoostMinRir;
     const puxaProgressao = comFolego && (cfg.rirBoostOnTargetAnywhere || noTopo);
+    // GUARDRAIL (A1): lesão NUNCA progride — nem carga nem reps. O ramo de reps
+    // (peso corporal) roda ANTES do ramo de carga, então precisa do mesmo veto;
+    // sem ele, aluno lesionado em exercício de peso corporal recebia "aumentar meta".
+    if (puxaProgressao && forbidsProgression(ctx)) {
+      return build(keep('Lesão declarada neste exercício: não aumentamos a intensidade.'));
+    }
     // Dentro da faixa com fôlego em PESO CORPORAL: progride a META DE REPS (não existe carga).
     if (puxaProgressao && adjustsRepsNotLoad(ctx)) {
       return build(
@@ -229,25 +243,50 @@ export const recommendByRules = (params: {
     // DENTRO DA FAIXA COM FÔLEGO: o aluno cumpriu a prescrição e ainda tem fôlego —
     // capacidade de progredir demonstrada. Sugerir aumento de carga quando guardrails
     // (lesão, peso corporal), carga válida E incrementos seguros permitirem. Se NENHUM
-    // passo cai dentro dos limites, resultado é keep — a progressão só é proposta
-    // quando é segura (emenda A do contrato). O RIR REPORTADO é a medida da folga
-    // (RIR 2 ≈ 2 reps de folga na escala de %).
+    // passo cai dentro dos limites, a flag ON (default) oferece o MENOR passo como
+    // sugestão (A2); só a flag OFF preserva o keep da emenda A (rollback). O RIR
+    // REPORTADO é a medida da folga (RIR 2 ≈ 2 reps de folga na escala de %).
     if (
       puxaProgressao &&
-      !forbidsLoadIncrease(ctx) &&
+      !forbidsProgression(ctx) &&
       !adjustsRepsNotLoad(ctx) &&
       currentLoadKg != null &&
       currentLoadKg > 0
     ) {
       const cands = loadCandidates(currentLoadKg, 'increase', incrementKg, cfg);
       if (cands.length === 0) {
-        return build(
-          keep(
-            'Dentro da faixa com fôlego, mas não há incremento seguro dentro dos limites — mantenha.',
-          ),
-          [],
-          'topo_da_faixa_com_folego',
+        // A2 — degrau mínimo atrás da flag (rollback): com a flag ON, espelha o
+        // superávit — o fôlego NUNCA é descartado em silêncio, mesmo quando o 1º
+        // incremento estoura o teto (15kg + 2.5 = 16.7% > 12%): oferece-se o MENOR
+        // passo (1 incremento); é sugestão, o aluno confirma, e "manter" continua
+        // disponível. Com a flag OFF, preserva-se o comportamento antigo intacto.
+        if (!cfg.rirBoostOnTargetAnywhere) {
+          return build(
+            keep(
+              'Dentro da faixa com fôlego, mas não há incremento seguro dentro dos limites — mantenha.',
+            ),
+            [],
+            'topo_da_faixa_com_folego',
+          );
+        }
+        const step = Number.isFinite(incrementKg) && incrementKg > 0 ? incrementKg : 2.5;
+        const toKg = round2(currentLoadKg + step);
+        if (toKg <= 0) {
+          return build(
+            keep('Sem passo de carga possível — mantenha.'),
+            [],
+            'topo_da_faixa_com_folego',
+          );
+        }
+        const pctReal = Math.abs(toKg - currentLoadKg) / currentLoadKg;
+        const rec = loadAdjustment(
+          'increase',
+          currentLoadKg,
+          toKg,
+          pctReal,
+          `Dentro da faixa com fôlego: o menor ajuste de carga aqui é ${round2(step)} kg.`,
         );
+        return build(rec, [], 'topo_da_faixa_com_folego');
       }
       // O RIR REPORTADO é a medida da folga (RIR 2 ≈ 2 reps de folga na escala
       // de %). Com a flag OFF (rollback), a magnitude volta à fórmula histórica

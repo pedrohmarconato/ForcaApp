@@ -329,7 +329,7 @@ describe('topo da faixa com fôlego (gatilho interno explícito)', () => {
     expect(rec.recommended.kind).toBe('keep');
   });
 
-  it('SEM incremento seguro dentro dos limites (15kg + 2.5 = 16.7% > teto) → KEEP, razão explícita', () => {
+  it('A2: sem incremento seguro (15kg + 2.5 = 16.7% > teto) + flag ON → degrau mínimo 17.5, nunca silêncio', () => {
     const rec = recommendByRules({
       evaluated: topo,
       currentLoadKg: 15,
@@ -337,8 +337,13 @@ describe('topo da faixa com fôlego (gatilho interno explícito)', () => {
       ctx: CTX,
       actualRir: 2,
     });
-    expect(rec.recommended.kind).toBe('keep');
-    expect(rec.recommended.reason.toLowerCase()).toContain('incremento seguro');
+    // flag ON (default): o fôlego NÃO é descartado — oferece o menor passo possível.
+    expect(rec.recommended.kind).toBe('load');
+    if (rec.recommended.kind === 'load') {
+      expect(rec.recommended.direction).toBe('increase');
+      expect(rec.recommended.toKg).toBe(17.5);
+      expect(rec.recommended.reason.toLowerCase()).toContain('menor ajuste');
+    }
     expect(rec.trigger).toBe('topo_da_faixa_com_folego');
   });
 
@@ -504,6 +509,92 @@ describe('fôlego em qualquer ponto da faixa (rirBoostOnTargetAnywhere)', () => 
     expect(topoRir3.recommended.kind).toBe('load');
     if (topoRir3.recommended.kind === 'load') {
       expect(topoRir3.recommended.toKg).toBe(85);
+    }
+  });
+
+  // ============================================================
+  // Fechamento dos achados do review do PR: A1 (guardrail de lesão no ramo
+  // de reps), A2 (degrau mínimo no on_target atrás da flag), classe 3
+  // (rollback flag OFF no sub-caminho sem incremento seguro) e A4 (incremento
+  // inválido degrada com passo seguro).
+  // ============================================================
+
+  it('A1: lesão + peso corporal + fôlego → KEEP nas duas flags (sem "aumentar meta")', () => {
+    const ctxLesao = { isBodyweight: true, injury: true };
+    // flag ON: meio da faixa dispara progressão → o guardrail de lesão precisa vetar.
+    const on = recommendByRules({
+      evaluated: faixa8a12_10,
+      currentLoadKg: null,
+      incrementKg: 0,
+      ctx: ctxLesao,
+      actualRir: 2,
+    });
+    expect(on.recommended.kind).toBe('keep');
+    expect(on.options.every((o) => o.kind !== 'reps' || o.direction !== 'increase')).toBe(true);
+    expect(on.options.every((o) => o.kind !== 'load' || o.direction !== 'increase')).toBe(true);
+    // flag OFF: o TETO continua disparando progressão → o guardrail vale também aqui.
+    const off = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 12, targetRepsMin: 8, targetRepsMax: 12 }),
+      currentLoadKg: null,
+      incrementKg: 0,
+      ctx: ctxLesao,
+      actualRir: 2,
+      config: { ...ADAPT_CONFIG, rirBoostOnTargetAnywhere: false },
+    });
+    expect(off.recommended.kind).toBe('keep');
+    expect(off.options.every((o) => o.kind !== 'reps' || o.direction !== 'increase')).toBe(true);
+  });
+
+  it('A2: carga leve (15kg) no MEIO da faixa + fôlego + flag ON → degrau mínimo 17.5', () => {
+    const rec = recommendByRules({
+      evaluated: faixa8a12_10,
+      currentLoadKg: 15,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+    });
+    // O cenário-motivador do PR (meio da faixa com fôlego) NÃO volta ao silêncio
+    // em carga leve: o menor passo é oferecido como sugestão.
+    expect(rec.recommended.kind).toBe('load');
+    if (rec.recommended.kind === 'load') {
+      expect(rec.recommended.direction).toBe('increase');
+      expect(rec.recommended.toKg).toBe(17.5);
+    }
+    expect(rec.trigger).toBe('topo_da_faixa_com_folego');
+  });
+
+  it('A2 + classe 3 (rollback): 15kg + fôlego + flag OFF → keep "incremento seguro" com trigger', () => {
+    const rec = recommendByRules({
+      evaluated: evaluateSet({ actualReps: 12, targetRepsMin: 8, targetRepsMax: 12 }),
+      currentLoadKg: 15,
+      incrementKg: 2.5,
+      ctx: CTX,
+      actualRir: 2,
+      config: { ...ADAPT_CONFIG, rirBoostOnTargetAnywhere: false },
+    });
+    // flag OFF preserva o comportamento antigo no sub-caminho sem incremento seguro:
+    // keep com razão explícita. O trigger sinaliza que a progressão foi considerada.
+    expect(rec.recommended.kind).toBe('keep');
+    expect(rec.recommended.reason.toLowerCase()).toContain('incremento seguro');
+    expect(rec.trigger).toBe('topo_da_faixa_com_folego');
+  });
+
+  it('A4: incremento inválido (negativo/0/NaN) nunca produz "aumentar" que reduz a carga', () => {
+    for (const incremento of [-2.5, 0, NaN]) {
+      const rec = recommendByRules({
+        evaluated: evaluateSet({ actualReps: 12, targetRepsMin: 8, targetRepsMax: 12 }),
+        currentLoadKg: 40,
+        incrementKg: incremento,
+        ctx: CTX,
+        actualRir: 2,
+      });
+      // O degrau defensivo de loadCandidates (passo seguro 2.5) segura o sinal:
+      // "aumentar" sempre sobe, nunca reduz.
+      expect(rec.recommended.kind).toBe('load');
+      if (rec.recommended.kind === 'load') {
+        expect(rec.recommended.direction).toBe('increase');
+        expect(rec.recommended.toKg).toBe(42.5);
+      }
     }
   });
 });
