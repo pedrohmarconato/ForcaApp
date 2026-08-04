@@ -385,6 +385,9 @@ const applyServerSetLogs = (
         actualDistanceM: sl.actual_distance_m ?? null,
         perceivedEffort: sl.perceived_effort ?? null,
         outcome: sl.outcome,
+        // Carimbo do servidor (0028): sem restaurar, o resumo ao vivo da sessão
+        // retomada perderia a linha do tempo e mostraria só o vão até "agora".
+        completedAt: sl.completed_at,
         // Restaura a decisão de adaptação: servidor é autoritativo; se ele ainda não a tem
         // (gravação best-effort pendente), usa a do rascunho local.
         adaptation: sl.adaptation ?? localAdapt.get(s.plannedSetId) ?? null,
@@ -1053,6 +1056,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           actualDurationSeconds: saved.actualDurationSeconds,
           actualDistanceM: saved.actualDistanceM,
           perceivedEffort: saved.perceivedEffort,
+          // Carimbo do SERVIDOR da conclusão (0028): alimenta a linha do tempo
+          // do tempo efetivo do resumo ao vivo. Nunca o relógio local.
+          completedAt: saved.completedAt,
         })),
         lastLoadByExercise: lastLoad,
       };

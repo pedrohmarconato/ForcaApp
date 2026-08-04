@@ -100,6 +100,11 @@ export type DraftSet = {
   // Null enquanto pendente; ISO string ao ativar. Opcional: rascunhos e fixtures
   // anteriores à 0012 não têm o campo (default null na leitura).
   activatedAt?: string | null;
+  // Conclusão carimbada pelo SERVIDOR (set_logs.completed_at, 0001/0028) —
+  // alimenta a linha do tempo do tempo efetivo na sessão em andamento. Null
+  // enquanto pendente. Opcional: rascunhos e fixtures antigos não têm o campo
+  // (default null na leitura).
+  completedAt?: string | null;
 };
 
 export type DraftExercise = {
@@ -387,6 +392,7 @@ export const buildDraftFromDetail = (
       setLogId: null,
       adaptation: null,
       activatedAt: null,
+      completedAt: null,
     })),
   }));
 
@@ -457,6 +463,7 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
       // Rascunho de versão anterior à Fase 5 não tem o campo → default seguro.
       adaptation: s.adaptation ?? null,
       activatedAt: s.activatedAt ?? null,
+      completedAt: s.completedAt ?? null,
     })),
   })),
 });

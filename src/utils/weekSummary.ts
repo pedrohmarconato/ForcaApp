@@ -14,6 +14,12 @@
 export type SessaoConcluida = {
   startedAt: string;
   finishedAt: string | null;
+  /**
+   * Tempo efetivo em segundos (migration 0028). Ausente/nulo enquanto a coluna
+   * não existe no banco ou a sessão não foi fechada pela nova finish_session —
+   * aí a duração é desconhecida e a tela mostra "—", nunca o relógio de parede.
+   */
+  activeSeconds?: number | null;
 };
 
 export type ResumoSemana = {
@@ -66,22 +72,23 @@ export const resumirSemana = (
   return { concluidas, diasComTreino };
 };
 
-/** Duração exata em milissegundos; `null` para dado ausente ou incoerente. */
+/**
+ * Duração exata em milissegundos; `null` quando o tempo efetivo não existe.
+ * A duração NÃO é mais o relógio de parede bruto (finished_at − started_at):
+ * o banco persiste o tempo efetivo em active_seconds (0028), calculado uma vez
+ * no fechamento. Sem a coluna, a duração é desconhecida — mostrar o relógio de
+ * parede ressuscitaria o treino de treze horas.
+ */
 const duracaoEmMs = (sessao: SessaoConcluida): number | null => {
-  if (!sessao.finishedAt) return null;
-
-  const inicio = new Date(sessao.startedAt).getTime();
-  const fim = new Date(sessao.finishedAt).getTime();
-  if (Number.isNaN(inicio) || Number.isNaN(fim)) return null;
-  if (fim < inicio) return null;
-
-  return fim - inicio;
+  if (sessao.activeSeconds == null) return null;
+  if (!Number.isFinite(sessao.activeSeconds) || sessao.activeSeconds < 0) return null;
+  return sessao.activeSeconds * 1000;
 };
 
 /**
  * Duração de uma sessão em minutos inteiros.
- * Devolve `null` quando falta o término ou quando os carimbos são incoerentes —
- * a tela mostra "—" em vez de um número derivado de dado quebrado.
+ * Devolve `null` quando falta o tempo efetivo — a tela mostra "—" em vez de um
+ * número derivado de dado ausente.
  */
 export const duracaoEmMinutos = (sessao: SessaoConcluida): number | null => {
   const ms = duracaoEmMs(sessao);
@@ -89,10 +96,10 @@ export const duracaoEmMinutos = (sessao: SessaoConcluida): number | null => {
 };
 
 /**
- * Total das durações conhecidas, em minutos. A soma é feita sobre os carimbos
- * exatos e arredondada UMA vez no fim — somar minutos já arredondados por
- * sessão acumularia o erro de arredondamento. Sem nenhuma duração conhecida,
- * devolve `null`: ausência de amostra não é zero.
+ * Total das durações conhecidas, em minutos. A soma é feita sobre os segundos
+ * exatos do tempo efetivo e arredondada UMA vez no fim — somar minutos já
+ * arredondados por sessão acumularia o erro de arredondamento. Sem nenhuma
+ * duração conhecida, devolve `null`: ausência de amostra não é zero.
  */
 export const minutosTotais = (sessoes: readonly SessaoConcluida[]): number | null => {
   let totalMs = 0;

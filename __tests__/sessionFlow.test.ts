@@ -14,6 +14,7 @@ import {
   exerciciosEmJogo,
   posicaoDoExercicio,
 } from '../src/engine/sessionFlow';
+import { montarResumoSessao } from '../src/engine/sessionSummary';
 import type { SessionDraft, DraftExercise, DraftSet } from '../src/engine/sessionModel';
 
 const serie = (setOrder: number, status: DraftSet['status']): DraftSet =>
@@ -97,5 +98,45 @@ describe('fim do exercício', () => {
 
   it('não trata exercício sem séries como concluído', () => {
     expect(exercicioConcluido(exercicio('a', 'X', []))).toBe(false);
+  });
+});
+
+describe('resumo ao vivo (tempo efetivo, 0028)', () => {
+  const T0 = new Date('2026-07-15T19:00:00.000Z');
+
+  it('rascunho ativo há 20 min mostra duração normal', () => {
+    // Sem nenhuma série concluída: o resumo ao vivo vale min(20min, teto) = 20.
+    const draft = rascunho([exercicio('a', 'Supino', ['pending', 'pending'])]);
+    draft.startedAt = new Date(T0.getTime() - 20 * 60000).toISOString();
+
+    expect(montarResumoSessao(draft, T0).duracaoMin).toBe(20);
+  });
+
+  it('rascunho retomado com 13 h de intervalo fica limitado, coerente com o histórico', () => {
+    // Início ontem 06h; uma série concluída 5 min depois; "agora" é 13 h depois.
+    // O vão de 13 h contribui no máximo o teto (20 min): 5 + 20 = 25 min —
+    // exatamente o que a finish_session gravará em active_seconds.
+    const inicio = T0.getTime() - 13 * 3600000;
+    const draft = rascunho([
+      {
+        ...exercicio('a', 'Supino', ['done', 'pending']),
+        sets: [
+          {
+            ...serie(1, 'done'),
+            setLogId: 'setlog-1',
+            completedAt: new Date(inicio + 5 * 60000).toISOString(),
+          },
+          serie(2, 'pending'),
+        ],
+      },
+    ]);
+    draft.startedAt = new Date(inicio).toISOString();
+
+    expect(montarResumoSessao(draft, T0).duracaoMin).toBe(25);
+  });
+
+  it('sem startedAt não há duração (null, nunca zero)', () => {
+    const draft = rascunho([exercicio('a', 'Supino', ['done', 'pending'])]);
+    expect(montarResumoSessao(draft, T0).duracaoMin).toBeNull();
   });
 });
