@@ -114,7 +114,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
 
 import HomeScreen from '../src/screens/HomeScreen';
 
-/** Sessão concluída hoje, com duração conhecida. */
+/** Sessão concluída hoje, com tempo efetivo conhecido (0028). */
 const concluidaHoje = (title: string, duracaoMin: number) => {
   const fim = new Date();
   const inicio = new Date(fim.getTime() - duracaoMin * 60000);
@@ -126,6 +126,7 @@ const concluidaHoje = (title: string, duracaoMin: number) => {
     muscleGroups: ['Pernas'],
     startedAt: inicio.toISOString(),
     finishedAt: fim.toISOString(),
+    activeSeconds: duracaoMin * 60,
   };
 };
 

@@ -22,7 +22,11 @@ const QUARTA = new Date(2026, 6, 15, 12, 0, 0);
 const sessaoEm = (dia: number, horaInicio: number, duracaoMin: number) => {
   const inicio = new Date(2026, 6, dia, horaInicio, 0, 0);
   const fim = new Date(inicio.getTime() + duracaoMin * 60000);
-  return { startedAt: inicio.toISOString(), finishedAt: fim.toISOString() };
+  return {
+    startedAt: inicio.toISOString(),
+    finishedAt: fim.toISOString(),
+    activeSeconds: duracaoMin * 60,
+  };
 };
 
 describe('inicioDaSemana', () => {
@@ -94,27 +98,49 @@ describe('resumirSemana', () => {
 });
 
 describe('duracaoEmMinutos', () => {
-  it('calcula a duração real a partir dos carimbos', () => {
+  it('calcula a duração real a partir do tempo efetivo', () => {
     expect(duracaoEmMinutos(sessaoEm(13, 7, 48))).toBe(48);
   });
 
-  it('devolve null quando falta o término', () => {
+  it('usa o TEMPO EFETIVO, não o relógio de parede (sessão esquecida não vira horas)', () => {
+    // Relógio de parede: 3h. Tempo efetivo gravado: 40 min. Deve mostrar 40.
+    const esquecida = {
+      startedAt: new Date(2026, 6, 13, 19, 0, 0).toISOString(),
+      finishedAt: new Date(2026, 6, 13, 22, 0, 0).toISOString(),
+      activeSeconds: 2400,
+    };
+
+    expect(duracaoEmMinutos(esquecida)).toBe(40);
+  });
+
+  it('devolve null quando falta o tempo efetivo (coluna ausente/nula)', () => {
     expect(
       duracaoEmMinutos({ startedAt: new Date().toISOString(), finishedAt: null }),
     ).toBeNull();
-  });
-
-  it('devolve null quando o término é anterior ao início (dado incoerente)', () => {
-    const inicio = new Date(2026, 6, 13, 10, 0, 0);
-    const fim = new Date(2026, 6, 13, 9, 0, 0);
-
     expect(
-      duracaoEmMinutos({ startedAt: inicio.toISOString(), finishedAt: fim.toISOString() }),
+      duracaoEmMinutos({
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        activeSeconds: null,
+      }),
     ).toBeNull();
   });
 
-  it('devolve null para carimbo inválido', () => {
-    expect(duracaoEmMinutos({ startedAt: 'x', finishedAt: 'y' })).toBeNull();
+  it('devolve null para tempo efetivo inválido (negativo/não-finito)', () => {
+    expect(
+      duracaoEmMinutos({
+        startedAt: '2026-07-13T10:00:00Z',
+        finishedAt: '2026-07-13T11:00:00Z',
+        activeSeconds: -5,
+      }),
+    ).toBeNull();
+    expect(
+      duracaoEmMinutos({
+        startedAt: '2026-07-13T10:00:00Z',
+        finishedAt: '2026-07-13T11:00:00Z',
+        activeSeconds: Number.NaN,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -137,7 +163,7 @@ describe('minutosTotais', () => {
     expect(
       minutosTotais([
         { startedAt: new Date().toISOString(), finishedAt: null },
-        { startedAt: 'x', finishedAt: 'y' },
+        { startedAt: '2026-07-13T10:00:00Z', finishedAt: '2026-07-13T11:00:00Z' },
       ]),
     ).toBeNull();
   });
@@ -148,7 +174,11 @@ describe('minutosTotais', () => {
     const sessaoDe = (inicioMin: number) => {
       const inicio = new Date(2026, 6, 13, 7, inicioMin, 0);
       const fim = new Date(inicio.getTime() + 30 * 60000 + 31000);
-      return { startedAt: inicio.toISOString(), finishedAt: fim.toISOString() };
+      return {
+        startedAt: inicio.toISOString(),
+        finishedAt: fim.toISOString(),
+        activeSeconds: 30 * 60 + 31,
+      };
     };
 
     expect(minutosTotais([sessaoDe(0), sessaoDe(40)])).toBe(61);
