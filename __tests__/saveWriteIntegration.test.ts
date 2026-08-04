@@ -136,6 +136,7 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
           actual_load_kg: '40',
           actual_rir: 2,
           outcome: 'on_target',
+          completed_at: '2026-07-15T22:00:00.000Z',
         },
         error: null,
         status: 200,
@@ -183,6 +184,8 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
   const s1 = store().draft!.exercises[0].sets[0];
   expect(s1.status).toBe('done');
   expect(s1.setLogId).toBe('setlog-1');
+  // O carimbo do servidor é guardado no rascunho — alimenta o tempo efetivo ao vivo.
+  expect(s1.completedAt).toBe('2026-07-15T22:00:00.000Z');
 
   // A 2ª série sugere a carga usada, como NÚMERO (não "40" string).
   const ex = store().draft!.exercises[0];

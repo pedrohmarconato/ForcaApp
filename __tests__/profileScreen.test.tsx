@@ -60,7 +60,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
 import ProfileScreen from '../src/screens/ProfileScreen';
 import { NO_DATA } from '../src/components/ui/Feedback';
 
-/** Sessão concluída há `diasAtras` dias, com duração conhecida. */
+/** Sessão concluída há `diasAtras` dias, com tempo efetivo conhecido. */
 const concluida = (id: string, duracaoMin: number, diasAtras = 0) => {
   const fim = new Date();
   fim.setDate(fim.getDate() - diasAtras);
@@ -73,6 +73,8 @@ const concluida = (id: string, duracaoMin: number, diasAtras = 0) => {
     muscleGroups: ['Pernas'],
     startedAt: inicio.toISOString(),
     finishedAt: fim.toISOString(),
+    // Tempo efetivo (0028): é daqui que a duração exibida passa a sair.
+    activeSeconds: duracaoMin * 60,
   };
 };
 

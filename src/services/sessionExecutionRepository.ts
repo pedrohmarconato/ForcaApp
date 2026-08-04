@@ -371,6 +371,8 @@ export const saveSetLog = async (
   actualDistanceM: number | null;
   paceSecondsPerKm: number | null;
   perceivedEffort: 'leve' | 'moderado' | 'forte' | null;
+  /** Carimbo do servidor da conclusão (set_logs.completed_at) — alimenta a linha do tempo do tempo efetivo. */
+  completedAt: string;
 }> => {
   const request = supabase.rpc('save_set_log', {
     p_session_log_id: params.sessionLogId,
@@ -404,6 +406,12 @@ export const saveSetLog = async (
   ) {
     throw new Error('save_set_log retornou uma série inválida.');
   }
+  // completed_at é not null default now() no banco — ausente aqui é quebra de
+  // contrato, não caso de uso. Não fabricamos carimbo local: a linha do tempo
+  // do tempo efetivo precisa do relógio do SERVIDOR.
+  if (typeof row.completed_at !== 'string' || row.completed_at.length === 0) {
+    throw new Error('save_set_log retornou série sem completed_at.');
+  }
   return {
     setLogId: row.id as string,
     actualReps,
@@ -415,6 +423,7 @@ export const saveSetLog = async (
     // Coluna GERADA no banco: o pace vem calculado de lá, nunca do cliente.
     paceSecondsPerKm: toNum(row.pace_seconds_per_km),
     perceivedEffort: row.perceived_effort ?? null,
+    completedAt: row.completed_at,
   };
 };
 
@@ -519,6 +528,10 @@ export type CompletedSessionSummary = {
   muscleGroups: string[];
   startedAt: string;
   finishedAt: string | null;
+  // Tempo efetivo em segundos (migration 0028). Null enquanto a coluna não
+  // existe no banco (janela de deploy) ou a sessão não foi fechada pela nova
+  // finish_session — a tela mostra "—", nunca o relógio de parede bruto.
+  activeSeconds: number | null;
 };
 
 // O PostgREST corta qualquer resposta em `max_rows` (1000 no config deste
@@ -540,7 +553,7 @@ export const getCompletedSessions = async (
     const { data, error } = await supabase
       .from('session_logs')
       .select(
-        'id, planned_session_id, started_at, finished_at, planned_sessions(title, week_number, muscle_groups)',
+        'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)',
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
@@ -561,6 +574,7 @@ export const getCompletedSessions = async (
     muscleGroups: linha.planned_sessions?.muscle_groups ?? [],
     startedAt: linha.started_at,
     finishedAt: linha.finished_at,
+    activeSeconds: toNum(linha.active_seconds),
   }));
 };
 
@@ -629,6 +643,7 @@ export type SessionLogDetail = {
   weekNumber: number | null;
   startedAt: string;
   finishedAt: string | null;
+  activeSeconds: number | null;
   exercises: HistoryExercise[];
 };
 
@@ -642,7 +657,7 @@ export const getSessionLogDetail = async (
 ): Promise<SessionLogDetail | null> => {
   const cabecalho = await supabase
     .from('session_logs')
-    .select('id, started_at, finished_at, planned_sessions(title, week_number)')
+    .select('id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)')
     .eq('id', sessionLogId)
     .single();
   if (cabecalho.error) throw cabecalho.error;
@@ -690,6 +705,7 @@ export const getSessionLogDetail = async (
     weekNumber: c.planned_sessions?.week_number ?? null,
     startedAt: c.started_at,
     finishedAt: c.finished_at,
+    activeSeconds: toNum(c.active_seconds),
     exercises,
   };
 };
