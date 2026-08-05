@@ -84,6 +84,7 @@ jest.mock('../src/services/api/claudeService', () => ({
 
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: jest.fn(async () => false),
 }));
 
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';

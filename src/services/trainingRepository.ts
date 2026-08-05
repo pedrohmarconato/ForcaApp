@@ -133,6 +133,29 @@ export const getPlanSessions = async (userId: string): Promise<PlannedSession[]>
   return data ?? [];
 };
 
+/**
+ * Há sessão do plano ativo em andamento (status 'in_progress')?
+ *
+ * Guard client-side da regeneração iniciada no Perfil: arquivar o plano ativo
+ * com um treino aberto orfanizaria a sessão em curso (o plano novo não tem
+ * aquela planned_session). False também quando não há plano ativo — o fluxo de
+ * regeneração não depende de plano prévio.
+ */
+export const hasSessionInProgress = async (userId: string): Promise<boolean> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return false;
+
+  const { data, error } = await supabase
+    .from('planned_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('plan_id', planId)
+    .eq('status', 'in_progress')
+    .limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+};
+
 /** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */
 export const getUpcomingSessions = async (
   userId: string,

@@ -81,8 +81,11 @@ jest.mock('../src/services/api/claudeService', () => ({
   callClaudeApi: jest.fn(async () => 'nunca chamado'),
 }));
 
+let mockHasSessionInProgress = jest.fn();
+
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: (...args: unknown[]) => mockHasSessionInProgress(...args),
 }));
 
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
@@ -98,6 +101,7 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
     mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
   });
 
   it('com skipChat: true e chat novo, não mostra escolha inicial e dispara geração 1×', async () => {
@@ -198,6 +202,7 @@ describe('PostQuestionnaireChat — retomada com geração em andamento (pós-mo
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockHasSessionInProgress.mockResolvedValue(false);
   });
 
   it('retoma geração COM os ajustes salvos no chat quando @chat_state_ = "generating"', async () => {
@@ -229,6 +234,7 @@ describe('PostQuestionnaireChat — "Começar" e o retorno ao stack', () => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
     mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
     (secureStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
       key.startsWith('@questionnaire_data_') ? mockQuestionario : null,
     );
@@ -262,5 +268,54 @@ describe('PostQuestionnaireChat — "Começar" e o retorno ao stack', () => {
       expect.objectContaining({ onboarding_completed: true }),
     );
     expect(mockPopToTop).not.toHaveBeenCalled();
+  });
+});
+
+describe('PostQuestionnaireChat — guard de sessão em andamento na geração', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
+  });
+
+  it('com sessão em andamento no momento da geração, NÃO gera e oferece voltar ao plano', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockResolvedValue(true);
+
+    const { findByText, getByLabelText } = render(<PostQuestionnaireChat />);
+
+    await findByText(
+      'Você tem um treino em andamento. Termine ou saia dele antes de gerar um novo plano.',
+    );
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+    // CTA de saída: retry é fútil enquanto a sessão segue em andamento — o
+    // usuário vai ao plano, onde a sessão é retomada ou abandonada.
+    fireEvent.press(getByLabelText('Voltar ao plano'));
+    expect(mockPopToTop).toHaveBeenCalledTimes(1);
+  });
+
+  it('bloqueio no skipChat encerra o chat (não reabre a conversa ao dispensar)', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockResolvedValue(true);
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+
+    // isChatEnded segue o contrato do handleConfirmEndChat: sem isto, após
+    // dispensar o aviso o chat reabriria inteiro sem indício do que houve.
+    await findByText('Chat encerrado. Toque em ✓ para gerar o treino.');
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+  });
+
+  it('com falha na checagem, NÃO gera e pede para tentar de novo', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu'));
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+
+    // Mensagem neutra: no primeiro onboarding nunca houve treino para estar
+    // em andamento.
+    await findByText('Erro ao gerar plano: não foi possível verificar sua situação atual. Tente de novo.');
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
   });
 });
