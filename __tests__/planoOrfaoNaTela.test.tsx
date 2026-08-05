@@ -80,6 +80,7 @@ jest.mock('../src/services/api/claudeService', () => ({
 
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: jest.fn(async () => false),
 }));
 
 jest.mock('../src/services/planRecovery', () => ({
@@ -208,17 +209,19 @@ describe('PostQuestionnaireChat — consolidação do chat', () => {
     fireEvent.press(await utils.findByText('Confirmar e gerar'));
   };
 
-  it('consolidação falhando COM conversa real avisa que os ajustes não entraram', async () => {
+  it('consolidação falhando COM conversa real BLOQUEIA a geração', async () => {
     mockChatSalvo = conversaComFalaDoAluno();
     mockConsolidateChat.mockRejectedValueOnce(new Error('Erro ao comunicar com o serviço de IA.'));
 
     const utils = render(<PostQuestionnaireChat />);
     await finalizarChatEGerar(utils);
 
-    // O plano sai mesmo assim — mas o aluno é avisado de que a conversa não
-    // foi aplicada, em vez de receber um plano que ignora o que ele pediu.
-    await utils.findByText(/ajustes da conversa não entraram/i);
-    expect(mockStartPlanJob).toHaveBeenCalledTimes(1);
+    // Sem as diretrizes do chat não pode haver plano: o pedido do aluno (ex.:
+    // "sem perna nas primeiras semanas") morreria num 400 do consolidate e o
+    // plano sairia ignorando a conversa (incidente 30/07/2026). Gerar é
+    // bloqueado e o erro aparece com opção de tentar de novo.
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+    await utils.findByText(/não foi possível processar sua conversa/i);
   });
 
   it('conversa consolidada com sucesso não mostra aviso nenhum', async () => {

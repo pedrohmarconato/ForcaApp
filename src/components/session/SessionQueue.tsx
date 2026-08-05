@@ -33,6 +33,10 @@ type Props = {
    * callback, a fila não oferece a ação — é como as telas antigas a renderizam.
    */
   onSolicitarRecusa?: (exercise: DraftExercise) => void;
+  /** Override para ativar série (modal fecha antes de navegar). */
+  onActivateSet?: (exerciseId: string, setOrder: number) => void;
+  /** Override para desfazer recusa (modal fecha antes de agir). */
+  onUnskipExercise?: (exerciseId: string) => void;
 };
 
 export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
@@ -57,9 +61,11 @@ export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
   return `${set.actualReps} reps ${exercise.isBodyweight ? '· ' : '× '}${carga}${folego}`;
 };
 
-const SessionQueue = ({ draft, metaFor, onSolicitarRecusa }: Props) => {
-  const activateSet = useActiveSessionStore((s) => s.activateSet);
-  const unskipExercise = useActiveSessionStore((s) => s.unskipExercise);
+const SessionQueue = ({ draft, metaFor, onSolicitarRecusa, onActivateSet, onUnskipExercise }: Props) => {
+  const storeActivateSet = useActiveSessionStore((s) => s.activateSet);
+  const storeUnskipExercise = useActiveSessionStore((s) => s.unskipExercise);
+  const activateSet = onActivateSet ?? storeActivateSet;
+  const unskipExercise = onUnskipExercise ?? storeUnskipExercise;
 
   return (
     <View>

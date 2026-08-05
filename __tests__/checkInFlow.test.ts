@@ -34,6 +34,26 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
   getWeekReplanContext: jest.fn(),
   applyConfirmedReplan: jest.fn(),
 }));
+// Fase 5: o store passou a importar agendaRepository e planEditRepository;
+// mocka para não carregar o cliente Supabase real (mesmo padrão dos demais services).
+jest.mock('../src/services/agendaRepository', () => ({
+  getAgendaDoAluno: jest.fn(async () => ({ agenda: [], origem: 'ausente' })),
+}));
+jest.mock('../src/services/planEditRepository', () => {
+  class PlanEditError extends Error {
+    code: string | null;
+    constructor(message: string, code: string | null = null) {
+      super(message);
+      this.name = 'PlanEditError';
+      this.code = code;
+    }
+  }
+  return {
+    PlanEditError,
+    isPlanoDesatualizado: jest.fn(() => false),
+    reagendarSessoesDaSemana: jest.fn(async () => ({ week: 1, moved: 0 })),
+  };
+});
 jest.mock('../src/services/sessionDraftStorage', () => ({
   saveDraft: jest.fn(),
   loadDraft: jest.fn(),

@@ -3,24 +3,19 @@
 // único (config/supabaseClient), JWT do usuário e RLS "own"; erro do banco
 // SEMPRE propaga (nunca vira sucesso silencioso).
 //
-// Decisão do dono: preservar o original SEM migration nova. A aplicação de um
-// replanejamento CONFIRMADO é só ADITIVA:
-//   1. INSERE séries novas em planned_sets (sessões futuras/atual);
-//   2. GRAVA o evento (snapshot) em session_logs.adherence_snapshot — coluna
-//      reservada à Fase 6 na migration 0001 — com os IDs inseridos, os status
-//      originais e as perdas aceitas;
-//   3. marca as sessões perdidas como 'skipped'.
-// A ordem 2-antes-de-3 é deliberada: se o passo 3 falhar, o snapshot já registra
-// as séries adicionadas, então uma nova proposta NÃO empilha volume (o teto conta
-// os adds anteriores). Se o passo 2 falhar, as séries do passo 1 são removidas
-// (rollback best-effort) e o erro propaga — nada fica aplicado sem registro.
+// COMMIT B da escada de reencaixe (jul/2026): a redistribuição de volume saiu.
+// A aplicação de um replanejamento CONFIRMADO passou a ser SÓ o registro do
+// evento em session_logs.adherence_snapshot (coluna reservada à Fase 6 na
+// migration 0001), com available_minutes quando há corte de tempo. Não há mais
+// insert em planned_sets nem marcação de skipped — logo não existe estado
+// parcial: falha no snapshot propaga, o erro aparece e a proposta fica de pé
+// para tentar de novo (o store NÃO recalcula com availableMinutes: null —
+// isso mataria o corte pedido e o retry devolveria sucesso sem escrever).
 
 import { supabase } from '../config/supabaseClient';
-import { toNum } from '../engine/sessionModel';
+import { toNum, type ExerciseMetric } from '../engine/sessionModel';
 import {
-  addedSetIdsFromSnapshots,
   parseReplanSnapshot,
-  type AddedSetRow,
   type Priority,
   type ReplanEvent,
   type ReplanSession,
@@ -30,23 +25,15 @@ import {
 } from '../engine/weeklyReplanner';
 
 /**
- * Falha na aplicação de um replanejamento confirmado, com o ESTÁGIO em que parou.
- * `replanApplied === true` (falha no skip) significa que as séries e o snapshot JÁ
- * persistiram: o chamador NÃO pode reaplicar a mesma proposta (re-inseriria as
- * mesmas séries — achado nº 2 do review); deve refletir `addedSets`, descartar a
- * proposta e recalcular do servidor. Nos estágios anteriores nada ficou aplicado.
+ * Falha no registro do snapshot de um replanejamento confirmado. A aplicação
+ * não tem estágios parciais desde o COMMIT B: ou o snapshot foi gravado, ou
+ * nada aconteceu.
  */
 export class ReplanApplyError extends Error {
-  readonly stage: 'insert' | 'snapshot' | 'skip';
-  readonly replanApplied: boolean;
-  readonly addedSets: AddedSetRow[];
+  readonly stage: 'snapshot';
   readonly cause?: unknown;
 
-  constructor(
-    stage: 'insert' | 'snapshot' | 'skip',
-    cause: unknown,
-    options: { applied: boolean; addedSets?: AddedSetRow[]; fallbackMessage?: string } ,
-  ) {
+  constructor(cause: unknown, options: { fallbackMessage?: string }) {
     const message =
       (typeof cause === 'object' && cause !== null &&
         typeof (cause as { message?: unknown }).message === 'string' &&
@@ -55,9 +42,7 @@ export class ReplanApplyError extends Error {
       'Não foi possível aplicar o replanejamento.';
     super(message);
     this.name = 'ReplanApplyError';
-    this.stage = stage;
-    this.replanApplied = options.applied;
-    this.addedSets = options.addedSets ?? [];
+    this.stage = 'snapshot';
     this.cause = cause;
   }
 }
@@ -77,6 +62,7 @@ type RawExercise = {
   muscle_group: string | null;
   priority: Priority;
   exercise_order: number;
+  metric: ExerciseMetric | null;
   planned_sets: RawPlannedSet[];
 };
 
@@ -88,6 +74,12 @@ type RawSession = {
   scheduled_date: string | null;
   status: ReplanSessionStatus;
   estimated_minutes: number | null;
+  // Quem marcou como skipped (0020): 'user' = recusa declarada do aluno.
+  skip_source?: 'user' | 'replan' | null;
+  // Vem do `select('*')` e é a ordem REAL da semana. Sem ela declarada aqui,
+  // quem precisa desempatar a fila cai no índice do array — que este select
+  // não ordena, e portanto não garante.
+  order_in_week: number;
   planned_exercises: RawExercise[];
 };
 
@@ -95,12 +87,12 @@ export type WeekReplanContext = {
   planId: string;
   weekNumber: number;
   userId: string;
-  /** Entrada do motor (com as séries de replans anteriores marcadas). */
+  /** Entrada do motor. */
   sessions: ReplanSession[];
   completedSetsBySession: Record<string, number>;
   /** Rótulo exibível por sessão (banner): "Treino B · 2026-07-18". */
   sessionLabelById: Record<string, string>;
-  /** Linhas cruas para montar os INSERTs na aplicação. */
+  /** Linhas cruas (ordem REAL da semana via order_in_week). */
   raw: RawSession[];
   /** Snapshot já existente por session_log (para MERGE de eventos, nunca sobrescrever). */
   snapshotBySessionLogId: Record<string, ReplanSnapshot>;
@@ -149,16 +141,13 @@ export const getWeekReplanContext = async (
 
   const completedSetsBySession: Record<string, number> = {};
   const snapshotBySessionLogId: Record<string, ReplanSnapshot> = {};
-  const snapshots: (ReplanSnapshot | null)[] = [];
   for (const log of logs) {
     const count = (log.set_logs ?? []).length;
     completedSetsBySession[log.planned_session_id] =
       (completedSetsBySession[log.planned_session_id] ?? 0) + count;
     const snap = parseReplanSnapshot(log.adherence_snapshot);
-    snapshots.push(snap);
     if (snap) snapshotBySessionLogId[log.id] = snap;
   }
-  const addedIds = addedSetIdsFromSnapshots(snapshots);
 
   const sessions: ReplanSession[] = raw.map((s) => ({
     id: s.id,
@@ -167,6 +156,7 @@ export const getWeekReplanContext = async (
     sessionType: s.session_type,
     scheduledDate: s.scheduled_date,
     status: s.status,
+    skipSource: s.skip_source ?? null,
     estimatedMinutes: s.estimated_minutes == null ? null : toNum(s.estimated_minutes),
     exercises: (s.planned_exercises ?? []).map((e) => ({
       id: e.id,
@@ -174,10 +164,10 @@ export const getWeekReplanContext = async (
       muscleGroup: e.muscle_group,
       priority: e.priority,
       exerciseOrder: toNum(e.exercise_order) ?? 0,
+      metric: e.metric ?? null,
       sets: (e.planned_sets ?? []).map((ps) => ({
         id: ps.id,
         setOrder: toNum(ps.set_order) ?? 0,
-        addedByReplan: addedIds.has(ps.id),
       })),
     })),
   }));
@@ -200,9 +190,10 @@ export const getWeekReplanContext = async (
 };
 
 /**
- * Aplica um replanejamento CONFIRMADO pelo aluno. Nunca é chamado sem a
- * confirmação (a proposta é overlay em memória até lá). Devolve as séries
- * inseridas para o store anexar as da sessão ativa ao rascunho.
+ * Registra um replanejamento CONFIRMADO pelo aluno. Nunca é chamado sem a
+ * confirmação (a proposta é overlay em memória até lá). COMMIT B: grava só o
+ * evento no snapshot do session_log da sessão ativa — nada é inserido em
+ * planned_sets nem marcado como skipped.
  */
 export const applyConfirmedReplan = async (params: {
   context: WeekReplanContext;
@@ -210,81 +201,16 @@ export const applyConfirmedReplan = async (params: {
   /** session_log da sessão aberta agora — recebe o snapshot e available_minutes. */
   sessionLogId: string;
   confirmedAtISO: string;
-}): Promise<{ addedSets: AddedSetRow[] }> => {
+}): Promise<void> => {
   const { context, proposal, sessionLogId } = params;
-  const { redistribution, timeCut } = proposal;
+  const { timeCut } = proposal;
 
-  // 1. INSERE as séries da redistribuição, copiando o alvo da última série
-  // ORIGINAL do exercício receptor (nada de alvo inventado).
-  const exerciseById = new Map<string, { session: RawSession; exercise: RawExercise }>();
-  for (const s of context.raw) {
-    for (const e of s.planned_exercises) exerciseById.set(e.id, { session: s, exercise: e });
-  }
-  const priorAddedIds = addedSetIdsFromSnapshots(Object.values(context.snapshotBySessionLogId));
-
-  const rowsToInsert: any[] = [];
-  for (const addition of redistribution?.additions ?? []) {
-    const alvo = exerciseById.get(addition.exerciseId);
-    if (!alvo) throw new Error('Replanejamento desatualizado: exercício receptor não encontrado.');
-    const originais = alvo.exercise.planned_sets.filter((ps) => !priorAddedIds.has(ps.id));
-    const template = originais[originais.length - 1] ?? alvo.exercise.planned_sets[alvo.exercise.planned_sets.length - 1];
-    if (!template) throw new Error('Replanejamento desatualizado: exercício receptor sem séries.');
-    const maxOrder = Math.max(...alvo.exercise.planned_sets.map((ps) => toNum(ps.set_order) ?? 0));
-    for (let i = 1; i <= addition.addSets; i++) {
-      rowsToInsert.push({
-        exercise_id: addition.exerciseId,
-        set_order: maxOrder + i,
-        target_reps_min: template.target_reps_min,
-        target_reps_max: template.target_reps_max,
-        target_load_kg: template.target_load_kg,
-        target_rir: template.target_rir,
-      });
-    }
-  }
-
-  let addedSets: AddedSetRow[] = [];
-  if (rowsToInsert.length > 0) {
-    const insertRes = await supabase
-      .from('planned_sets')
-      .insert(rowsToInsert)
-      .select('id, exercise_id, set_order, target_reps_min, target_reps_max, target_load_kg, target_rir');
-    if (insertRes.error) {
-      throw new ReplanApplyError('insert', insertRes.error, { applied: false });
-    }
-    addedSets = ((insertRes.data ?? []) as any[]).map((r) => ({
-      id: r.id,
-      sessionId: exerciseById.get(r.exercise_id)?.session.id ?? '',
-      exerciseId: r.exercise_id,
-      setOrder: toNum(r.set_order) ?? 0,
-      targetRepsMin: toNum(r.target_reps_min) ?? 0,
-      targetRepsMax: toNum(r.target_reps_max) ?? 0,
-      targetLoadKg: r.target_load_kg == null ? null : toNum(r.target_load_kg),
-      targetRir: r.target_rir == null ? null : toNum(r.target_rir),
-    }));
-  }
-
-  // 2. GRAVA o evento no snapshot do log atual (merge — nunca apaga eventos).
-  const missedById = new Map(context.sessions.map((s) => [s.id, s]));
+  // GRAVA o evento no snapshot do log atual (merge — nunca apaga eventos).
   const event: ReplanEvent = {
     confirmedAtISO: params.confirmedAtISO,
     planId: context.planId,
     weekNumber: context.weekNumber,
     adherence: proposal.adherence,
-    redistribution: redistribution
-      ? {
-          missedSessions: redistribution.missedSessionIds.map((id) => ({
-            id,
-            originalStatus: missedById.get(id)?.status ?? 'pending',
-          })),
-          addedSets: addedSets.map((r) => ({
-            id: r.id,
-            sessionId: r.sessionId,
-            exerciseId: r.exerciseId,
-            setOrder: r.setOrder,
-          })),
-          losses: redistribution.losses,
-        }
-      : null,
     timeCut: timeCut
       ? {
           sessionId: timeCut.sessionId,
@@ -312,41 +238,8 @@ export const applyConfirmedReplan = async (params: {
   const snapshotFailed =
     snapRes.error != null || !((snapRes.data ?? []) as any[]).some((r) => r?.id === sessionLogId);
   if (snapshotFailed) {
-    // Sem registro não fica nada aplicado: remove as séries recém-inseridas
-    // (best-effort) e propaga o erro. Falha do rollback não mascara a original.
-    if (addedSets.length > 0) {
-      try {
-        await supabase.from('planned_sets').delete().in('id', addedSets.map((r) => r.id));
-      } catch (rollbackError) {
-        console.warn('[weeklyReplan] rollback das séries inseridas falhou:', rollbackError);
-      }
-    }
-    throw new ReplanApplyError('snapshot', snapRes.error, {
-      applied: false,
+    throw new ReplanApplyError(snapRes.error, {
       fallbackMessage: 'Não foi possível registrar o replanejamento.',
     });
   }
-
-  // 3. Marca as sessões perdidas como 'skipped' (só as ainda pendentes — não
-  // atropela uma mudança concorrente). Falha aqui NÃO faz rollback: as séries já
-  // estão REGISTRADAS no snapshot (o teto as enxerga), então o erro sai tipado
-  // com replanApplied=true — a proposta antiga fica inutilizável para retry.
-  const missedIds = redistribution?.missedSessionIds ?? [];
-  if (missedIds.length > 0) {
-    const skipRes = await supabase
-      .from('planned_sessions')
-      // skip_source='replan' (0020): distingue "o replanejador viu a data
-      // vencida" de "o aluno declarou que não faria". Sem a autoria, a tela
-      // ofereceria "voltar a treinar hoje" numa sessão de data passada — e a
-      // agenda voltaria a apontar para o passado.
-      .update({ status: 'skipped', skip_source: 'replan', skipped_at: new Date().toISOString() })
-      .in('id', missedIds)
-      .eq('user_id', context.userId)
-      .eq('status', 'pending');
-    if (skipRes.error) {
-      throw new ReplanApplyError('skip', skipRes.error, { applied: true, addedSets });
-    }
-  }
-
-  return { addedSets };
 };

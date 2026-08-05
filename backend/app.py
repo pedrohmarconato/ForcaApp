@@ -26,6 +26,7 @@ try:
     from backend.utils.anthropic_retry import criar_mensagem_com_deadline
     from backend.services import ai_quota
     from backend.services.plan_mapper import MAX_TOTAL_SETS, mapear_plano_ia
+    from backend.services.questionario_normalizer import normalizar_questionario
     from backend.services.plan_repository import PlanPersistenceError, persistir_plano
     from backend.services.plan_expander import expandir_plano
     from backend.services.manual_plan_builder import (
@@ -307,6 +308,14 @@ def _sanitize_chat_messages(raw_messages):
     Aceita apenas itens {role: user|assistant, content: str} e limita
     quantidade e tamanho para evitar abuso de tokens/custo.
     Retorna a lista saneada ou None se inválida.
+
+    Mensagens vazias (content em branco após strip) são FILTRADAS, não
+    rejeitam o lote: o app monta o histórico com `msg.parts[0]?.text ?? ''`,
+    e uma resposta do assistente sem texto (imagem, tool call, stream
+    truncado) derrubava a conversa inteira com 400 — o pedido do aluno morria
+    antes do molde (incidente 30/07/2026). Um item malformado (não-dict, role
+    inválido, content não-str) ainda é erro: é payload de cliente, não ruído
+    do app.
     """
     if not isinstance(raw_messages, list) or not raw_messages:
         return None
@@ -321,8 +330,11 @@ def _sanitize_chat_messages(raw_messages):
             return None
         content = content.strip()
         if not content:
-            return None
+            continue
         sanitized.append({"role": role, "content": content[:MAX_MESSAGE_LENGTH]})
+
+    if not sanitized:
+        return None
 
     # A API da Anthropic exige que a conversa comece com 'user':
     # descarta mensagens iniciais do assistente (ex.: saudação de boas-vindas)
@@ -1064,25 +1076,30 @@ def handle_generate_plan():
         return jsonify({"error": "Serviço de geração de planos temporariamente indisponível."}), 503
 
     try:
+        # Normaliza o payload do questionário para ambos os formatos (app novo e legado)
+        questionario_normalizado = normalizar_questionario(questionnaire_data)
+
         dados_usuario_para_wrapper = {
             "id": str(user_id),
-            "nome": questionnaire_data.get("nome"),
-            "idade": questionnaire_data.get("idade"),
-            "peso": questionnaire_data.get("peso"),
-            "altura": questionnaire_data.get("altura"),
-            "genero": questionnaire_data.get("genero"),
-            "nivel": questionnaire_data.get("nivelExperiencia", "iniciante"),
-            "historico_treino": questionnaire_data.get("historicoTreino"),
-            "tempo_treino": questionnaire_data.get("tempoDisponivelSessao", 60),
-            "disponibilidade_semanal": questionnaire_data.get("frequenciaSemanal", 3),
-            "dias_disponiveis": questionnaire_data.get("diasPreferenciais", []),
-            "cardio": questionnaire_data.get("incluirCardio", "não"),
-            "alongamento": questionnaire_data.get("incluirAlongamento", "não"),
-            "objetivos": questionnaire_data.get("objetivos", []),
-            "restricoes": questionnaire_data.get("restricoes", []),
-            "lesoes": questionnaire_data.get("lesoes", []),
+            "nome": questionario_normalizado.get("nome"),
+            "idade": questionario_normalizado.get("idade"),
+            "peso": questionario_normalizado.get("peso"),
+            "altura": questionario_normalizado.get("altura"),
+            "genero": questionario_normalizado.get("genero"),
+            "nivel": questionario_normalizado.get("nivel", "iniciante"),
+            "historico_treino": questionario_normalizado.get("historico_treino"),
+            "tempo_treino": questionario_normalizado.get("tempo_treino", 60),
+            "disponibilidade_semanal": questionario_normalizado.get("disponibilidade_semanal", 3),
+            "dias_disponiveis": questionario_normalizado.get("dias_disponiveis") or [],
+            "cardio": questionario_normalizado.get("cardio", "não"),
+            "alongamento": questionario_normalizado.get("alongamento", "não"),
+            "objetivos": questionario_normalizado.get("objetivos", []),
+            "restricoes": questionario_normalizado.get("restricoes", []),
+            "lesoes": questionario_normalizado.get("lesoes", []),
             "conversa_chat": "\n".join([f"- {adj}" for adj in adjustments]) if adjustments else "Nenhuma interação registrada."
         }
+        # Armazena dias_disponiveis para passar ao plan_mapper
+        dias_disponiveis_final = questionario_normalizado.get("dias_disponiveis")
     except Exception as e:
         app_logger.error(f"Erro ao mapear dados do frontend para o wrapper: {e}", exc_info=True)
         return jsonify({"error": "Erro interno ao processar dados do usuário."}), 500
@@ -1106,7 +1123,11 @@ def handle_generate_plan():
             app_logger.info(f"Plano gerado com sucesso para usuário {user_id} (ID Plano: {plano_gerado.get('treinamento_id')}).")
 
             try:
-                mapeado = mapear_plano_ia(plano_gerado, user_id=str(user_id))
+                mapeado = mapear_plano_ia(
+                    plano_gerado,
+                    user_id=str(user_id),
+                    dias_disponiveis=dias_disponiveis_final
+                )
                 db_plan_id = persistir_plano(mapeado, access_token=g.access_token)
             except (ValueError, PlanPersistenceError) as e:
                 app_logger.error(
@@ -1248,6 +1269,20 @@ def handle_consolidate_chat():
     app_logger.info(f"Consolidate-chat: usuário {user_id}, {len(messages)} mensagens.")
 
     modelo_consolidacao = get_chat_model_name()
+    if FORCA_STRUCTURED_OUTPUT:
+        # Structured outputs não aceita pre-fill: a API rejeita o request com
+        # 400 se a ÚLTIMA mensagem for 'assistant'. O histórico do chat termina
+        # com a resposta do coach, então as mensagens 'assistant' finais são
+        # descartadas ANTES da chamada (homologação 03/08/2026 — o consolidate
+        # morria com 400 da API e o plano era bloqueado).
+        while messages and messages[-1]["role"] == "assistant":
+            messages = messages[:-1]
+        if not messages:
+            app_logger.warning(
+                f"Consolidate-chat: histórico sem mensagens 'user' após descartar o assistente ({user_id})."
+            )
+            return jsonify({"error": "Conversa sem falas do aluno para consolidar."}), 400
+
     kwargs_consolidacao = {
         "model": modelo_consolidacao,
         "max_tokens": CONSOLIDATE_MAX_TOKENS,

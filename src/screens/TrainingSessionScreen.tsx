@@ -7,8 +7,8 @@
 // rodapé. A busca de dados é a mesma da Fase 3.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -18,6 +18,7 @@ import {
   getTodaySession,
   getPlanSessions,
   getSessionDetail,
+  fecharSessoesDeSemanasVencidas,
   SessionDetail,
   PlannedSession,
   PlannedExercise,
@@ -26,6 +27,7 @@ import {
   EscopoReordenacao,
   isPlanoDesatualizado,
   reordenarSessoesDaSemana,
+  reagendarSessoesDaSemana,
 } from '../services/planEditRepository';
 import {
   moveItem,
@@ -34,6 +36,24 @@ import {
   previewSemana,
   resumoPropagacao,
 } from '../engine/planReorder';
+import { getAgendaDoAluno } from '../services/agendaRepository';
+import { getHistoricoDeSemanas } from '../services/adherenceHistoryRepository';
+import {
+  aderenciaPorSemana,
+  vereditoDeFrequencia,
+  frequenciaReal,
+  diasPlanejados,
+  type VereditoDeFrequencia,
+} from '../engine/adherenceHistory';
+import { FREQUENCY_CONFIG } from '../engine/config';
+import FrequenciaCard, { type VereditoDeAviso } from '../components/plan/FrequenciaCard';
+import {
+  reancorarSemana,
+  precisaReancorar,
+  type SessaoParaReancorar,
+  type OffsetDaSemana,
+} from '../engine/scheduleShift';
+import { segundaDaSemanaDe, localTodayISO } from '../engine/agendaDias';
 import { DIAS_DA_SEMANA } from '../utils/weekSummary';
 import { Screen, Card, ScreenTitle, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
@@ -91,6 +111,26 @@ const TrainingSessionScreen = () => {
   const [escopoSheetAberto, setEscopoSheetAberto] = useState(false);
   const [resumoSemana, setResumoSemana] = useState<string | null>(null);
 
+  // Reancoragem: agendaErro só esconde a ação, nunca derruba a tela
+  const [agendaCarregada, setAgendaCarregada] = useState(false);
+  const [agendaErro, setAgendaErro] = useState(false);
+  const [agenda, setAgenda] = useState<OffsetDaSemana[]>([]);
+  // Nível 4 da escada: veredito de frequência das semanas fechadas. Só é
+  // montado para os três vereditos de alerta; falha de leitura esconde o
+  // card (não-fatal, como a agenda).
+  const [frequencia, setFrequencia] = useState<{
+    veredito: VereditoDeAviso;
+    frequenciaReal: number;
+    diasPlanejados: number;
+  } | null>(null);
+  // Preview do reencaixe: mostrado no Modal antes de confirmar
+  const [previewReencaixe, setPreviewReencaixe] = useState<{
+    movidas: { id: string; de: string | null; para: string }[];
+    semEncaixe: string[];
+  } | null>(null);
+  const [salvandoReencaixe, setSalvandoReencaixe] = useState(false);
+  const [avisoReencaixe, setAvisoReencaixe] = useState<'falha' | 'desatualizado' | 'agenda_vazia' | null>(null);
+
   const fetchCurrentTraining = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -104,6 +144,12 @@ const TrainingSessionScreen = () => {
       });
 
     try {
+      // Fechamento de semanas vencidas antes de escolher o "treino de hoje":
+      // pendentes de semanas que já passaram não são oferecidas aqui. Falha
+      // NÃO derruba a tela (não-fatal) — roda de novo na próxima abertura.
+      await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
+        console.warn('[fechamento] falhou (não-fatal):', err)
+      );
       const proxima = await getTodaySession(user.id);
       if (!proxima) {
         setSession(null);
@@ -122,9 +168,91 @@ const TrainingSessionScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Foco, não montagem: voltar do fluxo de "Gerar novo plano" (popToTop) não
+  // remonta esta tela — sem refetch por foco, o plano recém-gerado não
+  // apareceria na aba Plano (mesmo padrão da Home).
+  useFocusEffect(
+    useCallback(() => {
+      fetchCurrentTraining();
+    }, [fetchCurrentTraining]),
+  );
+
+  // Busca a agenda do aluno para reencaixe
   useEffect(() => {
-    fetchCurrentTraining();
-  }, [fetchCurrentTraining]);
+    if (!user || !session) {
+      setAgendaCarregada(false);
+      return;
+    }
+    const buscarAgenda = async () => {
+      try {
+        setAgendaErro(false);
+        const resultado = await getAgendaDoAluno({
+          userId: user.id,
+          planId: session.plan_id,
+        });
+        if (resultado.agenda.length > 0) {
+          setAgenda(resultado.agenda);
+        }
+        setAgendaCarregada(true);
+      } catch (err) {
+        console.log('Agenda indisponível para reencaixe:', err?.message ?? err);
+        setAgendaErro(true);
+        setAgendaCarregada(true);
+      }
+    };
+    buscarAgenda();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, session?.plan_id]);
+
+  // Diagnóstico de frequência (Nível 4): semanas fechadas antes da semana em
+  // curso — a semana em curso nunca conta contra o aluno.
+  useEffect(() => {
+    if (!user || !session || !agendaCarregada) {
+      setFrequencia(null);
+      return;
+    }
+    const buscarFrequencia = async () => {
+      try {
+        const sessoes = await getHistoricoDeSemanas({
+          userId: user.id,
+          planId: session.plan_id,
+          ateSemana: session.week_number,
+          // A janela é UMA só: o que o banco devolve e o que o motor agrega. Com
+          // o default do repositório (3), subir a config desligaria o Nível 4 em
+          // silêncio — semanas.length < janela vira 'insuficiente_historico'.
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
+        });
+        const semanas = aderenciaPorSemana({
+          sessoes,
+          quantidade: FREQUENCY_CONFIG.semanasFechadasMinimas,
+          ateSemana: session.week_number,
+        });
+        const veredito: VereditoDeFrequencia = vereditoDeFrequencia(semanas, agenda);
+        if (veredito === 'ok' || veredito === 'insuficiente_historico') {
+          setFrequencia(null);
+          return;
+        }
+        setFrequencia({
+          veredito,
+          frequenciaReal: frequenciaReal(semanas),
+          diasPlanejados: diasPlanejados(semanas),
+        });
+      } catch (err) {
+        console.log('Histórico de frequência indisponível:', err?.message ?? err);
+        setFrequencia(null);
+      }
+    };
+    buscarFrequencia();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, session?.plan_id, session?.week_number, agendaCarregada, agenda]);
+
+  // Botão do card (Nível 4): leva ao MESMO fluxo de geração do onboarding —
+  // o questionário refeito upserta as respostas e o backend arquiva o plano
+  // atual antes de salvar o novo (0006). skipChat=true dispara a geração
+  // direto, sem chat.
+  const gerarNovoPlano = () => {
+    navigation.navigate('Questionnaire');
+  };
 
   if (loading) {
     // Direção 03: a estrutura da tela já aparece na carga — skeleton no lugar
@@ -199,6 +327,21 @@ const TrainingSessionScreen = () => {
     ? previewSemana(sessoesDaSemana, ordemSemanaDraft)
     : sessoesDaSemana;
 
+  // Verifica se o reencaixe é possível
+  const sessoesParaReancorarCheck: SessaoParaReancorar[] = sessoesDaSemana.map((s) => ({
+    id: s.id,
+    status: s.status,
+    scheduledDate: s.scheduled_date,
+    orderInWeek: s.order_in_week ?? 0,
+  }));
+  const hoje = localTodayISO();
+  // Reencaixe só é viável se: agenda foi carregada (não há erro) E tem dias configurados E há atraso
+  const podeReencaixar =
+    agendaCarregada &&
+    !agendaErro &&
+    agenda.length > 0 &&
+    precisaReancorar(sessoesParaReancorarCheck, hoje);
+
   const iniciarReordenacaoSemana = () => {
     setAvisoSemana(null);
     setResumoSemana(null);
@@ -262,6 +405,92 @@ const TrainingSessionScreen = () => {
     }
   };
 
+  // Reencaixe de sessões com atraso
+  const iniciarReencaixe = () => {
+    setAvisoReencaixe(null);
+    setPreviewReencaixe(null);
+
+    // Agenda vazia: não há dias configurados para reencaixar
+    if (agenda.length === 0) {
+      setAvisoReencaixe('agenda_vazia');
+      return;
+    }
+
+    const hoje = localTodayISO();
+    // A segunda-feira é sempre calculada a partir de hoje, não da menor data da semana
+    const segundaDaSemana = segundaDaSemanaDe(hoje);
+    if (!segundaDaSemana) {
+      // Falha ao calcular a segunda-feira: mostrar aviso visível
+      setAvisoReencaixe('falha');
+      return;
+    }
+
+    // Converte sessões para SessaoParaReancorar
+    const sessoesParaReancorar: SessaoParaReancorar[] = sessoesDaSemana.map((s) => ({
+      id: s.id,
+      status: s.status,
+      scheduledDate: s.scheduled_date,
+      orderInWeek: s.order_in_week ?? 0,
+    }));
+
+    const resultado = reancorarSemana({
+      sessoes: sessoesParaReancorar,
+      hojeISO: hoje,
+      agenda,
+      segundaDaSemanaISO: segundaDaSemana,
+    });
+
+    setPreviewReencaixe({
+      movidas: resultado.movidas,
+      semEncaixe: resultado.semEncaixe,
+    });
+  };
+
+  const cancelarReencaixe = () => {
+    setPreviewReencaixe(null);
+    setAvisoReencaixe(null);
+  };
+
+  const confirmarReencaixe = async () => {
+    if (!previewReencaixe || salvandoReencaixe) return;
+    setSalvandoReencaixe(true);
+    setAvisoReencaixe(null);
+
+    try {
+      if (previewReencaixe.movidas.length === 0) {
+        // Nada a mover
+        setPreviewReencaixe(null);
+        return;
+      }
+
+      const atribuicoes = previewReencaixe.movidas.map((m) => ({
+        sessionId: m.id,
+        scheduledDate: m.para,
+      }));
+
+      await reagendarSessoesDaSemana({
+        planId: session.plan_id,
+        weekNumber: session.week_number,
+        atribuicoes,
+      });
+
+      setPreviewReencaixe(null);
+      // Refetch obrigatório: as datas mudaram — a "sessão da vez" pode ser outra.
+      await fetchCurrentTraining();
+    } catch (err) {
+      if (isPlanoDesatualizado(err)) {
+        setPreviewReencaixe(null);
+        setAvisoReencaixe('desatualizado');
+        await fetchCurrentTraining();
+      } else {
+        console.error('Erro ao salvar reencaixe:', err);
+        setAvisoReencaixe('falha');
+      }
+    } finally {
+      setSalvandoReencaixe(false);
+    }
+  };
+
   const renderExerciseItem = ({ item, index }: { item: PlannedExercise; index: number }) => (
     <PlannedExerciseRow exercise={item} index={index} />
   );
@@ -295,6 +524,15 @@ const TrainingSessionScreen = () => {
               </View>
             ) : (
               <View style={styles.cycleTopRight}>
+                {podeReencaixar ? (
+                  <Pressable
+                    onPress={iniciarReencaixe}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                  >
+                    <Text style={styles.reorderAction}>Reencaixar</Text>
+                  </Pressable>
+                ) : null}
                 {podeReordenarTreinos ? (
                   <Pressable
                     onPress={iniciarReordenacaoSemana}
@@ -333,6 +571,31 @@ const TrainingSessionScreen = () => {
               tone="info"
               title="Ordem atualizada"
               description={resumoSemana}
+              style={styles.reorderNotice}
+            />
+          ) : null}
+
+          {avisoReencaixe === 'agenda_vazia' ? (
+            <Notice
+              tone="danger"
+              title="Dias de treino não configurados"
+              description="Configure os dias em que você treina para usar o reencaixe."
+              style={styles.reorderNotice}
+            />
+          ) : null}
+          {avisoReencaixe === 'falha' ? (
+            <Notice
+              tone="danger"
+              title="Não foi possível salvar"
+              description="Os treinos não foram reencaixados. Verifique a conexão e tente novamente."
+              style={styles.reorderNotice}
+            />
+          ) : null}
+          {avisoReencaixe === 'desatualizado' ? (
+            <Notice
+              tone="info"
+              title="Seu plano mudou em outro lugar."
+              description="Recarregamos a semana com o reencaixe cancelado."
               style={styles.reorderNotice}
             />
           ) : null}
@@ -388,6 +651,18 @@ const TrainingSessionScreen = () => {
         </View>
       ) : null}
 
+      {/* --- Aviso de frequência (Nível 4): só fora de sessão ativa ---------- */}
+      {frequencia && !emAndamento ? (
+        <FrequenciaCard
+          veredito={frequencia.veredito}
+          frequenciaReal={frequencia.frequenciaReal}
+          diasPlanejados={frequencia.diasPlanejados}
+          semanasFechadasMinimas={FREQUENCY_CONFIG.semanasFechadasMinimas}
+          onGerarNovoPlano={gerarNovoPlano}
+          style={styles.frequenciaCard}
+        />
+      ) : null}
+
       <Card elevated style={styles.summary}>
         <View style={styles.summaryTop}>
           <View style={styles.summaryCopy}>
@@ -433,6 +708,115 @@ const TrainingSessionScreen = () => {
         onChoose={aplicarReordenacaoSemana}
         onDismiss={() => setEscopoSheetAberto(false)}
       />
+
+      {/* Modal de preview para reencaixe */}
+      <Modal
+        visible={previewReencaixe != null}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelarReencaixe}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reencaixar semana</Text>
+
+            {previewReencaixe && previewReencaixe.movidas.length > 0 ? (
+              <>
+                <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                  <Text style={styles.modalSectionLabel}>Treinos que mudam de dia:</Text>
+                  {previewReencaixe.movidas.map((m) => {
+                    const sessao = sessoesDaSemana.find((s) => s.id === m.id);
+                    if (!sessao) return null;
+                    const dataDe = m.de ? new Date(`${m.de}T12:00:00`).toLocaleDateString('pt-BR') : '(sem data)';
+                    const dataPara = new Date(`${m.para}T12:00:00`).toLocaleDateString('pt-BR');
+                    const diaPara = DIAS_DA_SEMANA[(new Date(`${m.para}T12:00:00`).getDay() + 6) % 7];
+                    return (
+                      <View key={m.id} style={styles.modalItem}>
+                        <Text style={styles.modalItemTitle}>{sessao.title}</Text>
+                        <Text style={styles.modalItemSubtitle}>
+                          {dataPara} ({diaPara})
+                        </Text>
+                      </View>
+                    );
+                  })}
+
+                  {previewReencaixe.semEncaixe.length > 0 ? (
+                    <>
+                      <Text style={[styles.modalSectionLabel, { marginTop: theme.spacing.md }]}>
+                        Treinos que não cabem nesta semana:
+                      </Text>
+                      {previewReencaixe.semEncaixe.map((id) => {
+                        const sessao = sessoesDaSemana.find((s) => s.id === id);
+                        return (
+                          <View key={id} style={styles.modalItem}>
+                            <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
+                            <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
+                          </View>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                </ScrollView>
+
+                <View style={styles.modalActions}>
+                  <Button
+                    label="Cancelar"
+                    variant="ghost"
+                    compact
+                    onPress={cancelarReencaixe}
+                    disabled={salvandoReencaixe}
+                  />
+                  <Button
+                    label="Confirmar"
+                    compact
+                    loading={salvandoReencaixe}
+                    onPress={confirmarReencaixe}
+                  />
+                </View>
+              </>
+              ) : previewReencaixe && previewReencaixe.semEncaixe.length > 0 ? (
+                <>
+                  <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.modalSectionLabel}>Treinos que não cabem nesta semana:</Text>
+                    {previewReencaixe.semEncaixe.map((id) => {
+                      const sessao = sessoesDaSemana.find((s) => s.id === id);
+                      return (
+                        <View key={id} style={styles.modalItem}>
+                          <Text style={styles.modalItemTitle}>{sessao?.title ?? 'Treino'}</Text>
+                          <Text style={styles.modalItemSubtitle}>Sem espaço até domingo</Text>
+                        </View>
+                      );
+                    })}
+                    <Text style={styles.modalMessage}>
+                      A semana fecha com menos volume — estes treinos ficam de fora.
+                    </Text>
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalMessage}>Nenhum treino precisa ser reencaixado.</Text>
+                  <View style={styles.modalActions}>
+                    <Button
+                      label="Fechar"
+                      variant="ghost"
+                      compact
+                      onPress={cancelarReencaixe}
+                    />
+                  </View>
+                </>
+              )}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 };
@@ -471,6 +855,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.xs,
   },
   reorderNotice: { marginBottom: theme.spacing.md },
+  frequenciaCard: { marginBottom: theme.spacing.xl },
   // Fixas esmaecidas no modo edição: não participam da permuta.
   rowFixa: { opacity: 0.55 },
 
@@ -524,6 +909,70 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.lg,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border.subtle,
+  },
+
+  // Modal de preview para reencaixe
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: theme.colors.surface.raised,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    maxHeight: '80%',
+    width: '100%',
+  },
+  modalTitle: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.lg,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    marginBottom: theme.spacing.md,
+  },
+  modalSectionLabel: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.semiBold,
+    marginBottom: theme.spacing.sm,
+  },
+  modalScroll: {
+    marginBottom: theme.spacing.md,
+  },
+  modalItem: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    backgroundColor: theme.colors.surface.card,
+    borderRadius: theme.borderRadius.md,
+  },
+  modalItemTitle: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.medium,
+  },
+  modalItemSubtitle: {
+    color: theme.colors.text.secondary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+    marginTop: theme.spacing.xxs,
+  },
+  modalMessage: {
+    color: theme.colors.text.primary,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.sm,
+    marginBottom: theme.spacing.md,
+    textAlign: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    justifyContent: 'flex-end',
   },
 });
 

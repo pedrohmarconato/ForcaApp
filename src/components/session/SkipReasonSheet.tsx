@@ -33,6 +33,8 @@ type Props = {
   onDismiss: () => void;
   /** Gravação em curso: trava o botão e o toque duplo. */
   busy?: boolean;
+  /** Renderiza o conteúdo dentro de um Modal pai, sem criar outro Dialog nativo. */
+  inline?: boolean;
 };
 
 const NOTA_MAX = 280;
@@ -44,6 +46,7 @@ const SkipReasonSheet = ({
   onConfirm,
   onDismiss,
   busy = false,
+  inline = false,
 }: Props) => {
   const [reason, setReason] = useState<SkipReason | null>(null);
   const [note, setNote] = useState('');
@@ -59,8 +62,7 @@ const SkipReasonSheet = ({
 
   const ehSessao = escopo === 'sessao';
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
+  const content = (
       <Pressable
         style={styles.backdrop}
         onPress={busy ? undefined : onDismiss}
@@ -81,7 +83,7 @@ const SkipReasonSheet = ({
           </Text>
           <Text style={styles.description}>
             {ehSessao
-              ? 'O treino fica registrado como recusado, com o seu motivo. O volume dele não é redistribuído nas outras sessões da semana.'
+              ? 'O treino fica registrado como recusado, com o seu motivo. A semana fecha com menos volume — nada é remanejado para os outros dias.'
               : 'As séries que você já registrou continuam valendo. As que faltam saem do treino de hoje — o exercício segue nas próximas semanas.'}
           </Text>
 
@@ -143,8 +145,9 @@ const SkipReasonSheet = ({
           </TouchableOpacity>
         </Pressable>
       </Pressable>
-    </Modal>
   );
+  if (inline) return content;
+  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>{content}</Modal>;
 };
 
 const styles = StyleSheet.create({

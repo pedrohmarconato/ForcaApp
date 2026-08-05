@@ -18,5 +18,10 @@ export type GuardrailContext = {
 /** Lesão declarada: NUNCA aumentar a carga (pode manter ou reduzir). */
 export const forbidsLoadIncrease = (ctx: GuardrailContext): boolean => ctx.injury;
 
+/** Lesão declarada: NUNCA progredir — nem carga nem reps (a intensidade fica onde está).
+ *  Mais amplo que `forbidsLoadIncrease`: também veda a progressão de reps num exercício
+ *  de peso corporal com lesão (o ramo de reps roda antes do ramo de carga). */
+export const forbidsProgression = (ctx: GuardrailContext): boolean => ctx.injury;
+
 /** Peso corporal: não há carga externa para ajustar — o alvo mexido é reps. */
 export const adjustsRepsNotLoad = (ctx: GuardrailContext): boolean => ctx.isBodyweight;

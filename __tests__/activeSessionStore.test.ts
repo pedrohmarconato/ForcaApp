@@ -44,6 +44,12 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));
+jest.mock('../src/services/agendaRepository', () => ({
+  getAgendaDoAluno: jest.fn(),
+}));
+jest.mock('../src/services/planEditRepository', () => ({
+  reagendarSessoesDaSemana: jest.fn(),
+}));
 
 import {
   startSessionLog,
@@ -1010,5 +1016,74 @@ describe('trava de reentrância (F9)', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('sessão concluída/recusada não reabre (deep link/refresh)', () => {
+  const abrirComStatus = async (status: 'completed' | 'skipped') => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-antigo';
+    mock(loadDraft).mockResolvedValue(draft);
+
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: { ...makeDetail(), status },
+    });
+    await confirmarCheckInSePedido();
+  };
+
+  it('status completed → finished, draft null, draft local aposentado (tombstone)', async () => {
+    await abrirComStatus('completed');
+
+    expect(store().status).toBe('finished');
+    expect(store().draft).toBeNull();
+    // Tombstone: saveDraft com status finished antes de clearDraft.
+    expect(mock(saveDraft)).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'finished' }),
+    );
+    expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-antigo');
+    // start_session não é chamado — não reabre.
+    expect(startSessionLog).not.toHaveBeenCalled();
+  });
+
+  it('status skipped → finished, draft null, draft local aposentado', async () => {
+    await abrirComStatus('skipped');
+
+    expect(store().status).toBe('finished');
+    expect(store().draft).toBeNull();
+    expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-antigo');
+    expect(startSessionLog).not.toHaveBeenCalled();
+  });
+});
+
+describe('falha de persistência local → storageWarning não bloqueante', () => {
+  it('concluir série com saveDraft falhando → série FICA feita e aviso aparece', async () => {
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(startSessionLog).mockResolvedValue({ sessionLogId: 'sl-1', startedAt: '2026-07-20T10:00:00Z' });
+    mock(saveSetLog).mockResolvedValue({
+      setLogId: 'set-st-1',
+      actualReps: 8,
+      actualLoadKg: 40,
+      actualRir: null,
+      outcome: 'on_target',
+    });
+    // A RPC confirmou, mas o AsyncStorage falha.
+    mock(saveDraft).mockRejectedValue(new Error('storage cheio'));
+
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+    await store().completeSet('ex-1', 1);
+
+    // Série permanece feita (insert confirmado não regride) e o aviso aparece.
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+    expect(store().storageWarning).toContain('salvar localmente');
+    expect(store().status).toBe('active');
   });
 });

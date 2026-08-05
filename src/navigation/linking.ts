@@ -1,5 +1,6 @@
 // src/navigation/linking.ts
-// Treino Conjunto 2.0 — Sprint 02. Deep link do convite.
+// Deep link do app: URL tipada da sessão ativa (main) + convite do treino
+// conjunto (Sprint 02). As duas frentes nasceram separadas e se encontram aqui.
 //
 // DUAS CONFIGS, UMA FONTE SÓ — e o motivo importa:
 //
@@ -15,11 +16,28 @@
 //
 // A validação do link é a MESMA função nos dois lados. O que muda é o destino:
 // navegar agora, ou guardar para navegar quando a árvore certa existir.
+//
+// A URL TIPADA DA SESSÃO ATIVA vive em `LINKING_CONFIG`, que é a config da
+// árvore Main: a sessão (ActiveSession) precisa ser recuperável por URL nos
+// stacks Hoje (Home) e Plano (Training) — um refresh no web ou um deep link
+// reabre a MESMA sessão pelo `sessionId`, sem perder o estado de navegação.
+//
+// Paths EXPLÍCITOS por tab e por stack (nada de inferência de nome): cada URL
+// reconstrói a aba e o stack corretos com o `sessionId` exato.
+//
+// `initialRouteName` em cada stack: sem ele, o deep link / refresh do web em
+// `/home/active-session/<id>` reconstrói a pilha com SÓ [ActiveSession] — e o
+// "Voltar ao início" do resumo (canGoBack ? popToTop : nada) vira botão morto.
+// Com ele, o estado nasce [HomeMain > ActiveSession], canGoBack()==true e o
+// popToTop volta à aba certa. (Regressão reproduzida por getStateFromPath em
+// 04/08/2026: `Home[ActiveSession]` sem a correção, `Home[HomeMain >
+// ActiveSession]` com ela.)
 
 import type { LinkingOptions } from '@react-navigation/native';
 import { getStateFromPath as getStateFromPathPadrao } from '@react-navigation/native';
 import { guardarConvitePendente } from '../services/jointInvitePending';
-import { CAMINHO_CONVITE, PREFIXOS, parseInviteUrl, parseInvitePath } from './inviteLink';
+import { CAMINHO_CONVITE, parseInviteUrl, parseInvitePath } from './inviteLink';
+import { LINKING_CONFIG, LINKING_PREFIXES } from './linkingConfig';
 
 // Reexporta as puras para quem já importa daqui.
 export {
@@ -32,6 +50,11 @@ export {
   parseInviteUrl,
   parseInvitePath,
 } from './inviteLink';
+
+// Prefixos e config de rotas vivem em `linkingConfig`, que não depende de
+// storage — quem só quer a config não arrasta AsyncStorage junto. Reexportados
+// aqui para quem já os importava deste módulo.
+export { LINKING_CONFIG, LINKING_PREFIXES } from './linkingConfig';
 
 /** Estado aninhado que a árvore Main precisa montar para abrir o convite. */
 const estadoDoConvite = (codigo: string) => ({
@@ -46,25 +69,15 @@ const estadoDoConvite = (codigo: string) => ({
 });
 
 /**
- * Config da árvore MAIN — a única que tem `Home → JointJoin`.
+ * Config da árvore MAIN.
  *
  * `getStateFromPath` é registrado aqui, e é ELE que o container usa. Um parser
  * paralelo que ficasse verde enquanto o container usa outro caminho não provaria
  * nada — por isso a validação do convite acontece dentro desta função.
  */
 export const linkingMain: LinkingOptions<any> = {
-  prefixes: PREFIXOS,
-  config: {
-    screens: {
-      Home: {
-        screens: {
-          HomeMain: '',
-          JointInvite: 'treino-conjunto/novo',
-          JointJoin: `${CAMINHO_CONVITE}/:code`,
-        },
-      },
-    },
-  },
+  prefixes: LINKING_PREFIXES,
+  config: LINKING_CONFIG,
   getStateFromPath: (path, options) => {
     const codigo = parseInvitePath(path);
     if (codigo) return estadoDoConvite(codigo) as any;
@@ -85,7 +98,7 @@ export const linkingMain: LinkingOptions<any> = {
  * pendente é a árvore Main, quando ela existir.
  */
 export const linkingInterceptor: LinkingOptions<any> = {
-  prefixes: PREFIXOS,
+  prefixes: LINKING_PREFIXES,
   config: { screens: {} },
   getInitialURL: async () => {
     const url = await urlInicialDoSistema();

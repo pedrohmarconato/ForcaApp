@@ -9,6 +9,12 @@ import { render, waitFor } from '@testing-library/react-native';
 // Fase 4: TrainingSession/WorkoutDetail agora usam useNavigation (botão Iniciar).
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
+  // TrainingSession recarrega por foco (padrão da Home): o mock dispara o
+  // callback como um focus inicial — o fetch acontece uma vez na montagem.
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
 }));
 
 // Reordenação: WorkoutDetail passou a consultar o store da sessão ativa (guarda
@@ -39,6 +45,7 @@ jest.mock('../src/services/trainingRepository', () => ({
   getSessionDetail: jest.fn(async () => {
     throw new Error('relation planned_sessions does not exist');
   }),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
   formatExerciseTarget: jest.fn(() => ''),
 }));
 

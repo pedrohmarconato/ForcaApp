@@ -39,6 +39,26 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
   getWeekReplanContext: jest.fn(),
   applyConfirmedReplan: jest.fn(),
 }));
+// Fase 5: o store passou a importar agendaRepository e planEditRepository;
+// mocka para não carregar o cliente Supabase real (mesmo padrão dos demais services).
+jest.mock('../src/services/agendaRepository', () => ({
+  getAgendaDoAluno: jest.fn(async () => ({ agenda: [], origem: 'ausente' })),
+}));
+jest.mock('../src/services/planEditRepository', () => {
+  class PlanEditError extends Error {
+    code: string | null;
+    constructor(message: string, code: string | null = null) {
+      super(message);
+      this.name = 'PlanEditError';
+      this.code = code;
+    }
+  }
+  return {
+    PlanEditError,
+    isPlanoDesatualizado: jest.fn(() => false),
+    reagendarSessoesDaSemana: jest.fn(async () => ({ week: 1, moved: 0 })),
+  };
+});
 jest.mock('../src/services/sessionDraftStorage', () => ({
   saveDraft: jest.fn(),
   loadDraft: jest.fn(),
@@ -56,9 +76,7 @@ import {
 import { saveDraft, loadDraft, clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import { sessionProgress } from '../src/engine/sessionModel';
-import { planMissedRedistribution } from '../src/engine/weeklyReplanner';
 import type { SessionDetail } from '../src/services/trainingRepository';
-import type { ReplanSession } from '../src/engine/weeklyReplanner';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 const store = () => useActiveSessionStore.getState();
@@ -382,82 +400,5 @@ describe('modo de falha 3: sessão recusada com rascunho vivo', () => {
     expect(store().status).toBe('active');
     expect(clearDraft).not.toHaveBeenCalled();
     expect(store().saveError).toBe('sessão concluída não pode ser recusada');
-  });
-});
-
-describe('modo de falha 4: o replan devolve o que foi recusado', () => {
-  const semana = (): ReplanSession[] => [
-    {
-      // Perdida (data no passado): o volume dela tenta se realojar.
-      id: 's-perdida',
-      weekNumber: 1,
-      title: 'Cardio B',
-      sessionType: 'Cardio',
-      scheduledDate: '2026-07-27',
-      status: 'pending',
-      estimatedMinutes: 40,
-      exercises: [
-        {
-          id: 'p-1',
-          name: 'Corrida',
-          muscleGroup: 'Cardio',
-          priority: 'accessory',
-          exerciseOrder: 1,
-          sets: [
-            { id: 'ps-1', setOrder: 1 },
-            { id: 'ps-2', setOrder: 2 },
-            { id: 'ps-3', setOrder: 3 },
-            { id: 'ps-4', setOrder: 4 },
-          ],
-        },
-      ],
-    },
-    {
-      // Receptora futura: tem Corrida, e é para cá que a redistribuição olharia.
-      id: 's-futura',
-      weekNumber: 1,
-      title: 'Cardio C',
-      sessionType: 'Cardio',
-      scheduledDate: '2026-07-31',
-      status: 'pending',
-      estimatedMinutes: 40,
-      exercises: [
-        {
-          id: 'f-1',
-          name: 'Corrida',
-          muscleGroup: 'Cardio',
-          priority: 'accessory',
-          exerciseOrder: 1,
-          sets: [
-            { id: 'fs-1', setOrder: 1 },
-            { id: 'fs-2', setOrder: 2 },
-            { id: 'fs-3', setOrder: 3 },
-            { id: 'fs-4', setOrder: 4 },
-          ],
-        },
-      ],
-    },
-  ];
-
-  it('sem bloqueio, a Corrida da sessão futura recebe volume', () => {
-    const plano = planMissedRedistribution({
-      sessions: semana(),
-      todayISO: '2026-07-30',
-    });
-
-    expect(plano?.additions.some((a) => a.exerciseId === 'f-1')).toBe(true);
-  });
-
-  it('recusada por dor, a Corrida NÃO recebe volume — a perda é registrada', () => {
-    const plano = planMissedRedistribution({
-      sessions: semana(),
-      todayISO: '2026-07-30',
-      // Casamento por NOME: o id do exercício é outro em cada sessão.
-      blockedExerciseNames: ['Corrida'],
-    });
-
-    expect(plano?.additions ?? []).toEqual([]);
-    // Nada é maquiado: o que não coube aparece como perda.
-    expect((plano?.losses ?? []).some((l) => l.sets > 0)).toBe(true);
   });
 });

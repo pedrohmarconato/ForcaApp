@@ -57,10 +57,16 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
   }),
 }));
 
+let mockHasSessionInProgress = jest.fn();
+
+jest.mock('../src/services/trainingRepository', () => ({
+  hasSessionInProgress: (...args: unknown[]) => mockHasSessionInProgress(...args),
+}));
+
 import ProfileScreen from '../src/screens/ProfileScreen';
 import { NO_DATA } from '../src/components/ui/Feedback';
 
-/** Sessão concluída há `diasAtras` dias, com duração conhecida. */
+/** Sessão concluída há `diasAtras` dias, com tempo efetivo conhecido. */
 const concluida = (id: string, duracaoMin: number, diasAtras = 0) => {
   const fim = new Date();
   fim.setDate(fim.getDate() - diasAtras);
@@ -73,6 +79,8 @@ const concluida = (id: string, duracaoMin: number, diasAtras = 0) => {
     muscleGroups: ['Pernas'],
     startedAt: inicio.toISOString(),
     finishedAt: fim.toISOString(),
+    // Tempo efetivo (0028): é daqui que a duração exibida passa a sair.
+    activeSeconds: duracaoMin * 60,
   };
 };
 
@@ -193,5 +201,159 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
 
     // Duas linhas no histórico, mas só uma tem duração conhecida
     await waitFor(() => expect(getByText('45 min')).toBeTruthy());
+  });
+});
+
+describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFalha = null;
+    mockConcluidas = [];
+    mockHasSessionInProgress.mockResolvedValue(false);
+  });
+
+  it('guard livre: o sheet abre no estado normal de confirmação', async () => {
+    const { getByLabelText, getByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Refazer treino'));
+
+    // A checagem do guard é assíncrona: durante ela o sheet mostra o spinner e
+    // não expõe o CTA — a confirmação só aparece depois de o guard liberar.
+    await waitFor(() => expect(getByText('Refazer seu treino?')).toBeTruthy());
+    expect(getByText('Continuar para o questionário')).toBeTruthy();
+  });
+
+  it('confirmar no sheet navega para o questionário e fecha o sheet', async () => {
+    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Refazer treino'));
+    await waitFor(() => expect(getByLabelText('Continuar para o questionário')).toBeTruthy());
+    fireEvent.press(getByLabelText('Continuar para o questionário'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('Training', {
+      screen: 'Questionnaire',
+      initial: false,
+    });
+    // O modal não pode ficar por cima da aba de Treino após a navegação.
+    await waitFor(() => expect(queryByText('Refazer seu treino?')).toBeNull());
+  });
+
+  it('guard bloqueado: sheet em estado de aviso, sem CTA, sem navegação', async () => {
+    mockHasSessionInProgress.mockResolvedValue(true);
+    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Refazer treino'));
+
+    await waitFor(() => expect(getByText('Treino em andamento')).toBeTruthy());
+    expect(
+      getByText('Você tem um treino em andamento. Termine ou saia dele antes de gerar um novo plano.'),
+    ).toBeTruthy();
+    expect(queryByText('Continuar para o questionário')).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('guard com erro: Notice com retry, sem navegação, e retry libera', async () => {
+    mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu'));
+    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Refazer treino'));
+
+    await waitFor(() =>
+      expect(getByText('Não foi possível checar seu treino em andamento')).toBeTruthy(),
+    );
+    expect(queryByText('Refazer seu treino?')).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    mockHasSessionInProgress.mockResolvedValue(false);
+    fireEvent.press(getByLabelText('Checar de novo'));
+    await waitFor(() => expect(getByText('Refazer seu treino?')).toBeTruthy());
+  });
+
+  it('reabrir o sheet não herda o veredito bloqueado da rodada anterior', async () => {
+    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    // Rodada 1: guard bloqueado → aviso; usuário fecha.
+    mockHasSessionInProgress.mockResolvedValueOnce(true);
+    fireEvent.press(getByLabelText('Refazer treino'));
+    await waitFor(() => expect(getByText('Treino em andamento')).toBeTruthy());
+    fireEvent.press(getByLabelText('Fechar'));
+    await waitFor(() => expect(queryByText('Treino em andamento')).toBeNull());
+
+    // Rodada 2: a sessão terminou, guard libera — o sheet NÃO pode reabrir
+    // reapresentando o aviso da rodada anterior.
+    mockHasSessionInProgress.mockResolvedValueOnce(false);
+    fireEvent.press(getByLabelText('Refazer treino'));
+
+    await waitFor(() => expect(getByText('Refazer seu treino?')).toBeTruthy());
+    expect(queryByText('Treino em andamento')).toBeNull();
+    expect(getByText('Continuar para o questionário')).toBeTruthy();
+  });
+
+  it('métricas e guard falhando mostram dois retries com labels distintos', async () => {
+    mockFalha = new Error('rede caiu nas métricas');
+    mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu no guard'));
+    const { getByLabelText, getByText } = render(<ProfileScreen />);
+
+    await waitFor(() => expect(getByText('Não foi possível carregar seus números')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Refazer treino'));
+    await waitFor(() =>
+      expect(getByText('Não foi possível checar seu treino em andamento')).toBeTruthy(),
+    );
+
+    // Labels distintos: cada retry pertence à própria falha (a11y sem ambiguidade).
+    expect(getByLabelText('Tentar novamente')).toBeTruthy(); // métricas
+    expect(getByLabelText('Checar de novo')).toBeTruthy(); // guard
+  });
+
+  it('toque duplo durante a checagem dispara uma única consulta', async () => {
+    let resolver!: (v: boolean) => void;
+    mockHasSessionInProgress.mockImplementationOnce(
+      () => new Promise((resolve) => { resolver = resolve; }),
+    );
+    const { getByLabelText, getByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+    const botao = getByLabelText('Refazer treino');
+    fireEvent.press(botao);
+    fireEvent.press(botao);
+
+    expect(mockHasSessionInProgress).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolver(false));
+  });
+
+  it('consulta pendurada além do limite vira erro de guard, sem liberar', async () => {
+    jest.useFakeTimers();
+    let resolver: ((v: boolean) => void) | undefined;
+    try {
+      mockHasSessionInProgress.mockImplementationOnce(
+        () => new Promise((resolve) => { resolver = resolve; }),
+      );
+      const { getByLabelText, getByText } = render(<ProfileScreen />);
+      await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
+
+      fireEvent.press(getByLabelText('Refazer treino'));
+
+      // Bem além do teto de 10s: a checagem pendurada não pode deixar a ação
+      // inerte nem liberar a regeneração.
+      act(() => {
+        jest.advanceTimersByTime(15000);
+      });
+
+      await waitFor(() =>
+        expect(getByText('Não foi possível checar seu treino em andamento')).toBeTruthy(),
+      );
+      expect(mockNavigate).not.toHaveBeenCalled();
+    } finally {
+      // Encerra a promise pendente para não vazar handle, e volta ao relógio real.
+      if (resolver) await act(async () => resolver(false));
+      jest.useRealTimers();
+    }
   });
 });

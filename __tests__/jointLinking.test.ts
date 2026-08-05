@@ -25,6 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getStateFromPath } from '@react-navigation/native';
 import {
   CAMINHO_CONVITE,
+  LINKING_PREFIXES,
   PREFIXOS,
   SCHEME,
   __setLinkingBridge,
@@ -123,9 +124,17 @@ describe('K2b/K2c — config da árvore Main', () => {
     expect(registrada('', (linkingMain as any).config)).toEqual(padrao);
   });
 
-  it('a config declara os prefixos do scheme', () => {
+  // Antes da integração com a URL tipada da sessão ativa, `linkingMain.prefixes`
+  // era exatamente `PREFIXOS` (só o scheme). Agora é `LINKING_PREFIXES`: o
+  // scheme SEMPRE, mais o `window.location.origin` quando ele existe. O origin
+  // não é decoração — sem ele o container no PWA não reconhece um refresh em
+  // `/home/active-session/<id>` e a recuperação por URL morre. O scheme
+  // continua obrigatório, porque é o que `parseInviteUrl` exige do convite.
+  it('a config declara o scheme, e o origin do web quando existe', () => {
     expect(PREFIXOS).toContain(`${SCHEME}://`);
-    expect(linkingMain.prefixes).toEqual(PREFIXOS);
+    expect(linkingMain.prefixes).toEqual(LINKING_PREFIXES);
+    expect(linkingMain.prefixes).toEqual(expect.arrayContaining(PREFIXOS));
+    expect(linkingInterceptor.prefixes).toEqual(LINKING_PREFIXES);
   });
 });
 

@@ -53,24 +53,6 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
 export const isSkipReason = (v: unknown): v is SkipReason =>
   typeof v === 'string' && (SKIP_REASONS as readonly string[]).includes(v);
 
-/**
- * Motivos que representam uma escolha do aluno sobre o EXERCÍCIO em si, não
- * sobre as circunstâncias do dia. Empurrar de volta na mesma semana o que foi
- * recusado por dor ou por rejeição é insistir no que ele acabou de dispensar;
- * "sem tempo"/"cansaço" são circunstância e não bloqueiam o exercício.
- */
-export const RECUSA_BLOQUEIA_REDISTRIBUICAO: readonly SkipReason[] = [
-  'dor_ou_lesao',
-  'nao_gosto',
-  'sem_equipamento',
-] as const;
-
-/** A recusa deste motivo impede que o exercício receba volume redistribuído? */
-export const recusaBloqueiaRedistribuicao = (
-  reason: SkipReason | null | undefined,
-): boolean =>
-  reason != null && (RECUSA_BLOQUEIA_REDISTRIBUICAO as readonly string[]).includes(reason);
-
 export type DraftSet = {
   plannedSetId: string;
   setOrder: number;
@@ -100,6 +82,11 @@ export type DraftSet = {
   // Null enquanto pendente; ISO string ao ativar. Opcional: rascunhos e fixtures
   // anteriores à 0012 não têm o campo (default null na leitura).
   activatedAt?: string | null;
+  // Conclusão carimbada pelo SERVIDOR (set_logs.completed_at, 0001/0028) —
+  // alimenta a linha do tempo do tempo efetivo na sessão em andamento. Null
+  // enquanto pendente. Opcional: rascunhos e fixtures antigos não têm o campo
+  // (default null na leitura).
+  completedAt?: string | null;
 };
 
 export type DraftExercise = {
@@ -147,6 +134,10 @@ export type SessionDraft = {
   // chave do catálogo quando existe — antes disso era o nome, e "Supino com
   // Halteres (Deload)" perdia o histórico de "Supino com Halteres".
   lastLoadByExercise: Record<string, number>;
+  // Fingerprints determinísticos de propostas de replanejamento recusadas pelo
+  // aluno neste aparelho. Oculta somente a proposta idêntica; mudança de séries,
+  // minutos, cortes ou redistribuição gera fingerprint diferente (visível).
+  declinedReplanFingerprints?: string[];
 };
 
 /**
@@ -387,6 +378,7 @@ export const buildDraftFromDetail = (
       setLogId: null,
       adaptation: null,
       activatedAt: null,
+      completedAt: null,
     })),
   }));
 
@@ -401,6 +393,7 @@ export const buildDraftFromDetail = (
     status: 'active',
     exercises,
     lastLoadByExercise: { ...lastLoadSeed },
+    declinedReplanFingerprints: [],
   };
 };
 
@@ -415,6 +408,9 @@ export const buildDraftFromDetail = (
 export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
   ...draft,
   weekNumber: toNum(draft.weekNumber) ?? 0,
+  declinedReplanFingerprints: Array.isArray(draft.declinedReplanFingerprints)
+    ? draft.declinedReplanFingerprints.filter((f) => typeof f === 'string')
+    : [],
   // O mapa de última carga também alimenta a sugestão/stepper — um "40" legado aqui
   // contaminaria do mesmo jeito. Coage os valores (descarta os que não são número).
   lastLoadByExercise: Object.fromEntries(
@@ -457,6 +453,7 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
       // Rascunho de versão anterior à Fase 5 não tem o campo → default seguro.
       adaptation: s.adaptation ?? null,
       activatedAt: s.activatedAt ?? null,
+      completedAt: s.completedAt ?? null,
     })),
   })),
 });
@@ -567,20 +564,6 @@ export const isSessionComplete = (draft: SessionDraft): boolean => {
   const { done, total } = sessionProgress(draft);
   return total > 0 && done === total;
 };
-
-/**
- * Nomes dos exercícios recusados por um motivo que é sobre o EXERCÍCIO (dor,
- * rejeição, equipamento). Alimenta o bloqueio de receptores da redistribuição:
- * sem isto, recusar a Corrida por dor no joelho hoje resultava em séries de
- * Corrida acrescentadas na sessão de quinta.
- *
- * "Sem tempo" e "cansaço" NÃO entram: são circunstância do dia, não rejeição do
- * exercício — refazê-lo em outro dia é exatamente o que o aluno espera.
- */
-export const nomesBloqueadosPorRecusa = (draft: SessionDraft): string[] =>
-  draft.exercises
-    .filter((ex) => ex.skippedByUser === true && recusaBloqueiaRedistribuicao(ex.skipReason))
-    .map((ex) => ex.name);
 
 /**
  * Não sobrou nada a fazer NEM nada feito — o aluno recusou (ou o tempo cortou)

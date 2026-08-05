@@ -4,13 +4,10 @@
 // algo é escrito; "Manter plano original" recusa e nada muda. Enquanto o aluno
 // não decide, a proposta é só um overlay em memória.
 //
-// Redesign 24/07/2026 (direção do dono): a lista de bullets virou CARTÕES com
-// antes → depois. O problema da versão anterior não era falta de informação, e
-// sim excesso de delta: "+2 séries de Supino em Treino D" nunca dizia que o
-// Treino D ia de 12 para 15. Três naturezas diferentes (o que some, o que
-// cresce, o que fica de fora) dividiam o mesmo "•" cinza, e o motivo da perda
-// chegava em jargão de motor. Agora cada mudança é uma unidade com ícone,
-// número antes → depois e motivo em português — ver engine/replanChanges.
+// COMMIT B da escada de reencaixe (jul/2026): os cartões de redistribuição
+// (sessão pulada, sessão reforçada, volume sem espaço) saíram — a proposta
+// restante é o corte de tempo da sessão de hoje, num único cartão com
+// antes → depois e motivo em português — ver engine/replanChanges.
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
@@ -20,21 +17,34 @@ import FModules from '../ui/FModules';
 import {
   montarMudancas,
   resumoDasMudancas,
+  diaDaSemana,
   type MudancaDoReplan,
 } from '../../engine/replanChanges';
+import { fecharSemana } from '../../engine/weekShortfall';
 import type {
   WeeklyReplanProposal,
   ReplanSession,
 } from '../../engine/weeklyReplanner';
+import type { Reagendamento } from '../../store/activeSessionStore';
 
 type Props = {
   /** null = escondido. */
   proposal: WeeklyReplanProposal | null;
+  /** Plano de reencaixe (se houver sessões atrasadas). */
+  reagendamento: Reagendamento | null;
   /** Sessões da semana — base do "antes" de cada cartão. */
   sessions: ReplanSession[];
   busy: boolean;
   onConfirm: () => void;
+  onConfirmReagendamento: () => void;
   onDecline: () => void;
+  /**
+   * Recusa do REENCAIXE. Separada de `onDecline` de propósito: o cartão de
+   * reagendamento tem precedência e esconde o corte de tempo, então usar a
+   * mesma ação gravaria o fingerprint de uma proposta que o aluno não viu —
+   * e pedir os mesmos minutos depois não traria nada de volta.
+   */
+  onDeclineReagendamento: () => void;
 };
 
 const plural = (n: number, singular: string, pluralForm: string): string =>
@@ -43,59 +53,6 @@ const plural = (n: number, singular: string, pluralForm: string): string =>
 /** Um cartão por mudança: ícone dá a natureza, o corpo dá o antes → depois. */
 const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
   switch (mudanca.tipo) {
-    case 'sessao_pulada':
-      return (
-        <View style={styles.cartao}>
-          <View style={[styles.icone, styles.iconeNeutro]}>
-            <Feather name="x" size={14} color={theme.colors.text.quiet} />
-          </View>
-          <View style={styles.corpo}>
-            <Text style={styles.cartaoTitulo}>{mudanca.rotulo}</Text>
-            <View style={styles.transicao}>
-              <Text style={styles.antes}>pendente</Text>
-              <Feather
-                name="arrow-right"
-                size={13}
-                color={theme.colors.text.quiet}
-                style={styles.seta}
-              />
-              <Text style={styles.depoisNeutro}>pulado</Text>
-            </View>
-            {mudanca.seriesQuePerdeu > 0 ? (
-              <Text style={styles.detalhe}>
-                {plural(mudanca.seriesQuePerdeu, 'série', 'séries')} que não aconteceram
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      );
-
-    case 'sessao_reforcada':
-      return (
-        <View style={styles.cartao}>
-          <View style={[styles.icone, styles.iconeAcento]}>
-            <Feather name="arrow-up" size={14} color={theme.colors.accent.main} />
-          </View>
-          <View style={styles.corpo}>
-            <Text style={styles.cartaoTitulo}>{mudanca.rotulo}</Text>
-            <View style={styles.transicao}>
-              <Text style={styles.antes}>{mudanca.seriesAntes}</Text>
-              <Feather
-                name="arrow-right"
-                size={13}
-                color={theme.colors.text.quiet}
-                style={styles.seta}
-              />
-              <Text style={styles.depois}>{mudanca.seriesDepois} séries</Text>
-              <Text style={styles.delta}>+{mudanca.adicionadas}</Text>
-            </View>
-            <Text style={styles.detalhe}>
-              {mudanca.porGrupo.map((g) => `${g.grupo} +${g.sets}`).join(' · ')}
-            </Text>
-          </View>
-        </View>
-      );
-
     case 'corte_de_tempo':
       return (
         <View style={styles.cartao}>
@@ -136,28 +93,173 @@ const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
         </View>
       );
 
-    case 'sem_espaco':
-      return (
-        <View style={styles.cartao}>
-          <View style={[styles.icone, styles.iconeAlerta]}>
-            <Feather name="alert-triangle" size={13} color={theme.colors.status.warning} />
-          </View>
-          <View style={styles.corpo}>
-            <Text style={styles.cartaoTitulo}>{mudanca.grupo}</Text>
-            <Text style={styles.foraDeJogo}>
-              {plural(mudanca.sets, 'série fica', 'séries ficam')} de fora
-            </Text>
-            <Text style={styles.detalhe}>{mudanca.motivo}</Text>
-          </View>
-        </View>
-      );
-
     default:
       return null;
   }
 };
 
-const ReplanBanner = ({ proposal, sessions, busy, onConfirm, onDecline }: Props) => {
+const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento }: Props) => {
+  // Se há reencaixe, mostra o cartão de reencaixe.
+  if (reagendamento && reagendamento.movidas.length > 0) {
+    return (
+      <View style={styles.card} accessibilityLabel="Reagendamento de sessões">
+        {/* Direção 03: proposta do motor vira "momento do treinador" assinado. */}
+        <View style={styles.coachRow}>
+          <FModules lit={1} size={16} />
+          <Text style={styles.coachKicker}>Proposta do treinador</Text>
+        </View>
+        <Text style={styles.title} accessibilityRole="header">
+          {reagendamento.movidas.length === 1
+            ? '1 treino muda de dia'
+            : `${reagendamento.movidas.length} treinos mudam de dia`}
+        </Text>
+
+        <View style={styles.lista}>
+          {reagendamento.movidas.map((movida, i) => (
+            <View key={movida.id} style={i > 0 ? styles.comSeparador : undefined}>
+              <View style={styles.cartao}>
+                <View style={[styles.icone, styles.iconeAcento]}>
+                  <Feather name="calendar" size={14} color={theme.colors.accent.main} />
+                </View>
+                <View style={styles.corpo}>
+                  <Text style={styles.cartaoTitulo}>
+                    {sessions.find(s => s.id === movida.id)?.title || movida.id}
+                  </Text>
+                  <View style={styles.transicao}>
+                    <Text style={styles.antes}>
+                      {movida.de ? diaDaSemana(movida.de) || 'sem data' : 'sem data'}
+                    </Text>
+                    <Feather
+                      name="arrow-right"
+                      size={13}
+                      color={theme.colors.text.quiet}
+                      style={styles.seta}
+                    />
+                    <Text style={styles.depois}>
+                      {diaDaSemana(movida.para) || movida.para}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          ))}
+          {reagendamento.semEncaixe.length > 0 && (
+            <View style={styles.comSeparador}>
+              <View style={styles.cartao}>
+                <View style={[styles.icone, styles.iconeAlerta]}>
+                  <Feather name="alert-triangle" size={13} color={theme.colors.status.warning} />
+                </View>
+                <View style={styles.corpo}>
+                  <Text style={styles.cartaoTitulo}>Sem encaixe nesta semana</Text>
+                  <Text style={styles.detalhe}>
+                    {reagendamento.semEncaixe.length === 1
+                      ? '1 treino não cabe até domingo'
+                      : `${reagendamento.semEncaixe.length} treinos não cabem até domingo`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.confirmBtn, busy && styles.btnDisabled]}
+            onPress={onConfirmReagendamento}
+            disabled={busy}
+            testID="replan-confirm-reagendamento"
+            accessibilityRole="button"
+            accessibilityLabel="Reencaixar os treinos"
+          >
+            <Text style={styles.confirmText}>{busy ? 'Reencaixando...' : 'Reencaixar'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.declineBtn, busy && styles.btnDisabled]}
+            onPress={onDeclineReagendamento}
+            disabled={busy}
+            testID="replan-decline"
+            accessibilityRole="button"
+            accessibilityLabel="Recusar e manter o plano original"
+          >
+            <Text style={styles.declineText}>Manter plano original</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Nível 2 da escada de reencaixe: nada foi reencaixável (agenda sem espaço)
+  // e a semana fecha com menos volume — dito sem eufemismo. Botão único
+  // reconhece o fechamento; não há plano B para oferecer.
+  // Só quando NÃO há proposta ativa: um corte de tempo pedido pelo aluno
+  // (proposal.hasChanges) é a decisão em jogo — escondê-lo atrás do "Entendi"
+  // do Nível 2 faria a recusa gravar o fingerprint do corte sem o aluno vê-lo.
+  if (
+    proposal &&
+    !proposal.hasChanges &&
+    reagendamento &&
+    reagendamento.movidas.length === 0 &&
+    reagendamento.semEncaixe.length > 0
+  ) {
+    const fechamento = fecharSemana({
+      adherence: proposal.adherence,
+      sessions,
+      semEncaixe: reagendamento.semEncaixe,
+    });
+    return (
+      <View style={styles.card} accessibilityLabel="Semana fecha com menos volume">
+        <View style={styles.coachRow}>
+          <FModules lit={1} size={16} />
+          <Text style={styles.coachKicker}>Proposta do treinador</Text>
+        </View>
+        <Text style={styles.title} accessibilityRole="header">
+          A semana fecha com menos volume
+        </Text>
+
+        <View style={styles.lista}>
+          <View style={styles.cartao}>
+            <View style={[styles.icone, styles.iconeAlerta]}>
+              <Feather name="alert-triangle" size={13} color={theme.colors.status.warning} />
+            </View>
+            <View style={styles.corpo}>
+              <Text style={styles.cartaoTitulo}>
+                {fechamento.sessoesFeitas} de {fechamento.sessoesPrevistas} treinos
+              </Text>
+              <Text style={styles.detalhe}>
+                {fechamento.seriesFeitas} de {fechamento.seriesPrevistas} séries
+                {fechamento.seriesQueNaoAconteceram != null
+                  ? ` · ${plural(
+                      fechamento.seriesQueNaoAconteceram,
+                      'série não aconteceu',
+                      'séries não aconteceram'
+                    )}`
+                  : null}
+              </Text>
+              {fechamento.rotulosSemEncaixe.length > 0 ? (
+                <Text style={styles.detalheSaida}>
+                  {fechamento.rotulosSemEncaixe.join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.confirmBtn, busy && styles.btnDisabled]}
+            onPress={onDecline}
+            disabled={busy}
+            testID="replan-entendi"
+            accessibilityRole="button"
+            accessibilityLabel="Entendi"
+          >
+            <Text style={styles.confirmText}>Entendi</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   if (!proposal || !proposal.hasChanges) return null;
   const mudancas = montarMudancas({ proposal, sessions });
   if (mudancas.length === 0) return null;
@@ -263,7 +365,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.pill,
   },
   iconeAcento: { backgroundColor: theme.colors.accent.soft },
-  iconeNeutro: { backgroundColor: theme.colors.veil.soft },
   iconeAlerta: { backgroundColor: theme.colors.veil.soft },
   // minWidth 0: sem isto o texto longo empurra o cartão e vaza da tela
   // estreita — mesma classe de bug do campo de carga (ver sessionPlayerLayout).
@@ -297,12 +398,6 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.md,
     fontWeight: theme.typography.fontWeights.bold,
   },
-  depoisNeutro: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.md,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
   delta: {
     paddingVertical: 1,
     paddingHorizontal: theme.spacing.xs,
@@ -312,13 +407,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.xs,
     fontWeight: theme.typography.fontWeights.bold,
-  },
-  foraDeJogo: {
-    marginTop: theme.spacing.xxs,
-    color: theme.colors.status.warning,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.md,
-    fontWeight: theme.typography.fontWeights.semiBold,
   },
   detalhe: {
     marginTop: theme.spacing.xxs,

@@ -2,6 +2,7 @@ import React from 'react';
 import { stackCardStyle, stackTransition } from './navigationStyles';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { NavigatorScreenParams } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../theme/theme';
@@ -21,6 +22,8 @@ import SessionHistoryDetailScreen from '../screens/SessionHistoryDetailScreen';
 import JointInviteScreen from '../screens/JointInviteScreen';
 import JointJoinScreen from '../screens/JointJoinScreen';
 import JointLobbyScreen from '../screens/JointLobbyScreen';
+import QuestionnaireScreen from '../screens/QuestionnaireScreen';
+import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -40,6 +43,11 @@ export type TrainingStackParamList = {
   TrainingOverview: undefined;
   WorkoutDetail: { sessionId: string };
   ActiveSession: { sessionId: string };
+  // Regeneração de plano a partir da aba Plano (Nível 4): o mesmo fluxo do
+  // onboarding, montado dentro do stack de treino. skipChat=true dispara a
+  // geração direto, sem chat.
+  Questionnaire: undefined;
+  PostQuestionnaireChat: { formData?: any; skipChat?: boolean };
 };
 
 export type ProgressStackParamList = {
@@ -52,7 +60,19 @@ export type ProfileStackParamList = {
   ProfileMain: undefined;
 };
 
-const BottomTab = createBottomTabNavigator();
+/**
+ * Rotas do tab navigator do app. Cada aba é um stack; o NavigatorScreenParams
+ * deixa telas de um stack navegarem PARA OUTRA aba (ex.: "Refazer treino" do
+ * Perfil empurra Questionnaire dentro do stack de Treino).
+ */
+export type MainTabParamList = {
+  Home: NavigatorScreenParams<HomeStackParamList>;
+  Training: NavigatorScreenParams<TrainingStackParamList>;
+  Progress: NavigatorScreenParams<ProgressStackParamList>;
+  Profile: NavigatorScreenParams<ProfileStackParamList>;
+};
+
+const BottomTab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createStackNavigator<HomeStackParamList>();
 const TrainingStack = createStackNavigator<TrainingStackParamList>();
 const ProgressStack = createStackNavigator<ProgressStackParamList>();
@@ -77,6 +97,8 @@ function TrainingStackNavigator() {
       <TrainingStack.Screen name="TrainingOverview" component={TrainingSessionScreen} />
       <TrainingStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
+      <TrainingStack.Screen name="Questionnaire" component={QuestionnaireScreen} options={{ headerShown: false }} />
+      <TrainingStack.Screen name="PostQuestionnaireChat" component={PostQuestionnaireChat} />
     </TrainingStack.Navigator>
   );
 }

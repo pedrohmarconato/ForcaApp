@@ -100,6 +100,7 @@ const sessaoHoje = {
 jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(async () => sessaoHoje),
   getUpcomingSessions: jest.fn(async () => []),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
 }));
 
 jest.mock('../src/services/sessionExecutionRepository', () => ({

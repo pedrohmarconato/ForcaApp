@@ -111,10 +111,20 @@ describe('Fase 3 — montarResumoSessao (nada de número inventado)', () => {
     expect(resumo.series).toEqual({ done: 2, total: 2 });
   });
 
-  it('duração vem do startedAt real; sem carimbo é null (nunca 0 ou NaN)', () => {
+  it('duração é o TEMPO EFETIVO (soma dos intervalos reais); sem início válido é null (nunca 0 ou NaN)', () => {
+    // Linha do tempo real: 4 séries concluídas a cada 10 min a partir de
+    // 11:13, última 11:53, "agora" 12:00:30 → 10+10+10+10+8 = 48 min efetivos.
+    const base = '2026-07-24T11:13:00.000Z';
     const comInicio = draftBase(
-      [exercicioBase('Supino', [setBase(1, { status: 'done', actualReps: 10, actualLoadKg: 40 })])],
-      '2026-07-24T11:13:00.000Z',
+      [
+        exercicioBase('Supino', [
+          setBase(1, { status: 'done', actualReps: 10, actualLoadKg: 40, completedAt: '2026-07-24T11:23:00.000Z' }),
+          setBase(2, { status: 'done', actualReps: 8, actualLoadKg: 40, completedAt: '2026-07-24T11:33:00.000Z' }),
+          setBase(3, { status: 'done', actualReps: 10, actualLoadKg: 40, completedAt: '2026-07-24T11:43:00.000Z' }),
+          setBase(4, { status: 'done', actualReps: 8, actualLoadKg: 40, completedAt: '2026-07-24T11:53:00.000Z' }),
+        ]),
+      ],
+      base,
     );
     const resumo = montarResumoSessao(comInicio, new Date('2026-07-24T12:00:30.000Z'));
     expect(resumo.duracaoMin).toBe(48);

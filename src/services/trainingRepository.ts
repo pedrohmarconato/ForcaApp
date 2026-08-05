@@ -4,6 +4,7 @@
 // respeitam o RLS: o usuário só enxerga as próprias linhas.
 
 import { supabase } from '../config/supabaseClient';
+import { segundaDaSemanaDe } from '../engine/agendaDias';
 
 export type PlannedSet = {
   id: string;
@@ -87,23 +88,15 @@ export const getActivePlanId = async (userId: string): Promise<string | null> =>
 };
 
 /**
- * Sessão "de hoje": prioriza uma sessão em andamento; sem isso, a próxima
- * pendente por data — sempre DENTRO do plano ativo.
- * Retorna null quando não há plano/sessões.
+ * Sessão "de hoje": a primeira REALMENTE PENDENTE do plano ativo, por data e
+ * ordem na semana. Sessões em andamento (in_progress), concluídas ou recusadas
+ * NÃO são selecionadas automaticamente — a retomada de uma sessão abandonada é
+ * explícita (via Plano ou URL tipada), nunca um redirecionamento global.
+ * Retorna null quando não há plano/sessões pendentes.
  */
 export const getTodaySession = async (userId: string): Promise<PlannedSession | null> => {
   const planId = await getActivePlanId(userId);
   if (!planId) return null;
-
-  const emAndamento = await supabase
-    .from('planned_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('plan_id', planId)
-    .eq('status', 'in_progress')
-    .limit(1);
-  if (emAndamento.error) throw emAndamento.error;
-  if (emAndamento.data && emAndamento.data.length > 0) return emAndamento.data[0];
 
   const pendente = await supabase
     .from('planned_sessions')
@@ -138,6 +131,29 @@ export const getPlanSessions = async (userId: string): Promise<PlannedSession[]>
     .order('order_in_week', { ascending: true });
   if (error) throw error;
   return data ?? [];
+};
+
+/**
+ * Há sessão do plano ativo em andamento (status 'in_progress')?
+ *
+ * Guard client-side da regeneração iniciada no Perfil: arquivar o plano ativo
+ * com um treino aberto orfanizaria a sessão em curso (o plano novo não tem
+ * aquela planned_session). False também quando não há plano ativo — o fluxo de
+ * regeneração não depende de plano prévio.
+ */
+export const hasSessionInProgress = async (userId: string): Promise<boolean> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return false;
+
+  const { data, error } = await supabase
+    .from('planned_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('plan_id', planId)
+    .eq('status', 'in_progress')
+    .limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
 };
 
 /** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */
@@ -228,4 +244,83 @@ export const formatExerciseTarget = (exercicio: PlannedExercise): string => {
         : `${primeiraSerie.target_reps_min}-${primeiraSerie.target_reps_max}`
       : prescricaoOriginal ?? '—';
   return `${exercicio.sets_planned} séries × ${faixa} reps`;
+};
+
+/**
+ * Fechador de semanas vencidas (Fase 1 da escada de reencaixe).
+ *
+ * Sessão pendente de uma semana que já passou inteira não pode continuar na
+ * fila de "próximo treino" — a Home a ofereceria para sempre como se fosse
+ * hoje. Marca como skipped (skip_source 'replan', SEM skip_reason) o que está
+ * estritamente ANTES da segunda-feira da semana corrente. Atraso DENTRO da
+ * semana corrente continua pendente: o reencaixe é quem decide o destino.
+ *
+ * Idempotente (pendentes já fechadas não voltam à seleção). Só fecha
+ * sessões do plano ATIVO: sessões de plano arquivado são dado morto — a
+ * escrita nela seria irreversível (o unskip recusa skip_source 'replan').
+ *
+ * Trava de lote: mais de 12 pendentes vencidas sugere plano abandonado —
+ * avisa e fecha em fatias (idempotente), em vez de desistir do lote inteiro.
+ *
+ * O update repete o filtro `status = 'pending'`: entre o select e a escrita a
+ * sessão pode ter sido aberta (in_progress) — não se fecha o que começou. A
+ * contagem vem do .select() do update: o que o banco REALMENTE afetou (dois
+ * aparelhos concorrentes não contam duas vezes a mesma linha).
+ */
+const LOTE_FECHAMENTO = 12;
+
+export const fecharSessoesDeSemanasVencidas = async (
+  userId: string,
+  hojeISO: string,
+): Promise<{ fechadas: number }> => {
+  const segundaDaSemana = segundaDaSemanaDe(hojeISO);
+  if (!segundaDaSemana) return { fechadas: 0 };
+
+  const planId = await getActivePlanId(userId);
+  if (!planId) return { fechadas: 0 };
+
+  const vencidas = await supabase
+    .from('planned_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('plan_id', planId)
+    .eq('status', 'pending')
+    .lt('scheduled_date', segundaDaSemana)
+    .then(({ data, error }: { data: { id: string }[] | null; error: unknown }) => {
+      if (error) throw error;
+      return data ?? [];
+    });
+
+  if (vencidas.length === 0) return { fechadas: 0 };
+
+  const ids = vencidas.map((s) => s.id);
+  if (ids.length > LOTE_FECHAMENTO) {
+    console.warn(
+      `[fechamento] ${ids.length} pendentes vencidas no plano ativo — fechando em fatias de ${LOTE_FECHAMENTO}`,
+    );
+  }
+
+  let fechadas = 0;
+  for (let i = 0; i < ids.length; i += LOTE_FECHAMENTO) {
+    const fatia = ids.slice(i, i + LOTE_FECHAMENTO);
+    const resultado = await supabase
+      .from('planned_sessions')
+      .update({
+        status: 'skipped',
+        skip_source: 'replan',
+        skipped_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('status', 'pending')
+      .in('id', fatia)
+      .select('id')
+      .then(({ data, error }: { data: { id: string }[] | null; error: unknown }) => {
+        if (error) throw error;
+        return data ?? [];
+      });
+    fechadas += resultado.length;
+  }
+
+  return { fechadas };
 };

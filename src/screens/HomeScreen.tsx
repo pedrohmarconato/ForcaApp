@@ -21,6 +21,7 @@ import { useDiaLocal } from '../hooks/useDiaLocal';
 import {
   getTodaySession,
   getUpcomingSessions,
+  fecharSessoesDeSemanasVencidas,
   PlannedSession,
 } from '../services/trainingRepository';
 import {
@@ -35,6 +36,8 @@ import {
   DIAS_DA_SEMANA,
 } from '../utils/weekSummary';
 import { semanasConstantes } from '../engine/progressStats';
+import { localTodayISO } from '../engine/agendaDias';
+import { normalizeName } from '../engine/sessionModel';
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
@@ -83,6 +86,12 @@ const HomeScreen = () => {
     setLoading(true);
     setLoadError(false);
     try {
+      // Fechamento de semanas vencidas antes de montar a fila: pendentes de
+      // semanas que já passaram não podem ocupar o card de "hoje". Falha NÃO
+      // derruba a Home (não-fatal) — o fechador roda de novo na próxima carga.
+      await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
+        console.warn('[fechamento] falhou (não-fatal):', err)
+      );
       const [hoje, proximos] = await Promise.all([
         getTodaySession(user.id),
         getUpcomingSessions(user.id, 5),
@@ -154,6 +163,23 @@ const HomeScreen = () => {
   );
   const ultima = completed?.[0] ?? null;
 
+  // Conjunto normalizado de grupos musculares, na mesma régua dos dois lados.
+  const gruposIguais = (a: string[], b: string[]): boolean => {
+    if (a.length !== b.length) return false;
+    const na = a.map(normalizeName).sort();
+    const nb = b.map(normalizeName).sort();
+    return na.every((g, i) => g === nb[i]);
+  };
+
+  // A próxima prescrição REPETE título E grupos da última sessão concluída?
+  // Só com os dois iguais (não mera interseção acidental) o destaque precisa
+  // explicitar data e semana para comunicar que é OUTRA sessão.
+  const repeticao =
+    todaySession != null &&
+    ultima != null &&
+    normalizeName(todaySession.title) === normalizeName(ultima.title) &&
+    gruposIguais(todaySession.muscle_groups ?? [], ultima.muscleGroups ?? []);
+
   // Momentum REAL: semanas consecutivas com treino, ancoradas no dia local
   // (mesma régua da semana). Zero → o cabeçalho não exibe número nenhum.
   const streak = useMemo(
@@ -163,6 +189,12 @@ const HomeScreen = () => {
 
   const ehHoje = todaySession?.scheduled_date === hoje;
   const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
+
+  // Verifica se o treino está atrasado
+  const ehAtrasado = todaySession &&
+    todaySession.scheduled_date &&
+    todaySession.status === 'pending' &&
+    todaySession.scheduled_date < hoje;
 
   const descricaoSessao = (sessao: PlannedSession): string =>
     sessao.muscle_groups?.length
@@ -218,12 +250,25 @@ const HomeScreen = () => {
             accessibilityLabel={`Abrir o treino ${todaySession.title}`}
           >
             <View style={styles.heroTop}>
-              <Text style={styles.kicker}>{ehHoje ? 'Treino de hoje' : 'Próximo treino'}</Text>
+              <Text style={styles.kicker}>
+                {repeticao
+                  ? 'Próxima sessão'
+                  : ehHoje
+                    ? 'Treino de hoje'
+                    : 'Próximo treino'}
+              </Text>
               <Text style={styles.heroMeta}>Semana {todaySession.week_number}</Text>
             </View>
 
             <Text style={styles.heroTitle}>{todaySession.title}</Text>
             <Text style={styles.heroDescription}>{descricaoSessao(todaySession)}</Text>
+
+            {repeticao ? (
+              <Text style={styles.repeticaoNote}>
+                Você já concluiu esta sessão — confira a data e a semana: esta é
+                outra prescrição dela.
+              </Text>
+            ) : null}
 
             <View style={styles.metaRow}>
               {todaySession.estimated_minutes ? (
@@ -239,6 +284,12 @@ const HomeScreen = () => {
                 </View>
               ) : null}
             </View>
+
+            {ehAtrasado ? (
+              <View style={styles.atrasadoBadge}>
+                <Chip label="Atrasado" tone="info" />
+              </View>
+            ) : null}
 
             {/* Caminho curto (Direção 03): Começar entra DIRETO na sessão — o
                 check-in de foco recebe o aluno lá. O detalhe vira secundário. */}
@@ -471,6 +522,13 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.sm,
   },
+  repeticaoNote: {
+    marginTop: -theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+  },
   metaRow: {
     flexDirection: 'row',
     gap: theme.spacing.lg,
@@ -481,6 +539,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.xs,
+  },
+  atrasadoBadge: {
+    marginBottom: theme.spacing.lg,
   },
 
   weekTop: { marginBottom: theme.spacing.lg },

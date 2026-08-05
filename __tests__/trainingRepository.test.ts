@@ -4,7 +4,9 @@
 // - TODA leitura de sessões é escopada pelo plano ATIVO (dois planos no banco
 //   não podem misturar sessões na Home)
 // - sem plano ativo → null/[] sem sequer consultar sessões
-// - "treino de hoje" prioriza sessão em andamento e cai para a próxima pendente
+// - "treino de hoje" escolhe a PRIMEIRA sessão realmente pendente (por data e
+//   ordem na semana); in_progress/completed/skipped NÃO entram na seleção
+//   automática — a retomada de sessão abandonada é explícita (Plano/URL)
 // - erro do banco propaga (nunca vira sucesso silencioso)
 // - exercícios e séries chegam ORDENADOS mesmo se o banco devolver fora de ordem
 // - prescrição não numérica (AMRAP) é exibida como veio, sem faixa inventada
@@ -65,27 +67,38 @@ describe('getTodaySession (escopada pelo plano ativo — achado #3)', () => {
     expect(fromMock).toHaveBeenCalledWith('training_plans');
   });
 
-  it('filtra as sessões pelo plan_id do plano ativo', async () => {
-    const emAndamento = { id: 's-1', status: 'in_progress', title: 'Push A' };
-    const builderSessoes = builderComResultado({ data: [emAndamento], error: null });
+  it('consulta apenas sessões PENDENTES, escopadas pelo plan_id do plano ativo', async () => {
+    const builderRastreado = (resultado: { data: unknown; error: unknown }) => {
+      const builder: any = {
+        select: () => builder,
+        eq: jest.fn(() => builder),
+        order: jest.fn(() => builder),
+        limit: () => builder,
+        single: () => Promise.resolve(resultado),
+        then: (resolve: any, reject: any) => Promise.resolve(resultado).then(resolve, reject),
+      };
+      return builder;
+    };
+    const pendente = { id: 's-2', status: 'pending', title: 'Pull A' };
+    const builderSessoes = builderRastreado({ data: [pendente], error: null });
     fromMock
       .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
       .mockReturnValueOnce(builderSessoes);
 
     const resultado = await getTodaySession('user-1');
 
-    expect(resultado).toEqual(emAndamento);
+    expect(resultado).toEqual(pendente);
     expect(builderSessoes.eq).toHaveBeenCalledWith('plan_id', 'plan-ativo');
+    // in_progress/completed/skipped ficam FORA da seleção automática da Home.
+    expect(builderSessoes.eq).toHaveBeenCalledWith('status', 'pending');
   });
 
-  it('sem sessão em andamento, cai para a próxima pendente por data', async () => {
-    const pendente = { id: 's-2', status: 'pending', title: 'Pull A' };
+  it('sem sessão pendente, cai para null (não inventa treino)', async () => {
     fromMock
       .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
-      .mockReturnValueOnce(builderComResultado({ data: [], error: null }))
-      .mockReturnValueOnce(builderComResultado({ data: [pendente], error: null }));
+      .mockReturnValueOnce(builderComResultado({ data: [], error: null }));
 
-    expect(await getTodaySession('user-1')).toEqual(pendente);
+    expect(await getTodaySession('user-1')).toBeNull();
   });
 
   it('erro do banco propaga', async () => {
@@ -193,11 +206,9 @@ describe('fila real — desempate por order_in_week', () => {
   };
 
   it('getTodaySession ordena a pendente por scheduled_date E order_in_week', async () => {
-    const emAndamento = builderRastreado({ data: [], error: null });
     const pendente = builderRastreado({ data: [{ id: 's1' }], error: null });
     fromMock
       .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
-      .mockReturnValueOnce(emAndamento)
       .mockReturnValueOnce(pendente);
 
     await getTodaySession('user-1');
