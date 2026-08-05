@@ -28,6 +28,7 @@ jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 // PR #19); mock evita importar o cliente Supabase real no teste.
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: jest.fn(async () => false),
 }));
 
 jest.mock('../src/contexts/AuthContext', () => ({

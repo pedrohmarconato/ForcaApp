@@ -8,7 +8,9 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useDiaLocal } from '../hooks/useDiaLocal';
@@ -17,10 +19,17 @@ import {
   getCompletedSessions,
   type CompletedSessionSummary,
 } from '../services/sessionExecutionRepository';
+import { hasSessionInProgress } from '../services/trainingRepository';
 import { resumirSemana, minutosTotais, formatarDuracao } from '../utils/weekSummary';
+import { comTimeout, GUARD_TIMEOUT_MS } from '../utils/comTimeout';
 import { Screen, ScreenTitle, Card } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Metric, MetricGroup, Notice } from '../components/ui/Feedback';
+import RefazerTreinoSheet from '../components/profile/RefazerTreinoSheet';
+import {
+  ProfileStackParamList,
+  MainTabParamList,
+} from '../navigation/MainNavigator';
 
 /** Iniciais para o bloco de identidade (no máximo duas). */
 const iniciais = (nome: string): string =>
@@ -31,14 +40,32 @@ const iniciais = (nome: string): string =>
     .map((parte) => parte[0]?.toUpperCase() ?? '')
     .join('');
 
+// Navegação do Perfil é um stack DENTRO da tab "Profile". O composite permite
+// saltar para outra aba — é como "Refazer treino" empurra o Questionnaire no
+// stack de Treino sem a tela precisar conhecer o tab navigator por dentro.
+type ProfileScreenNavigationProp = CompositeNavigationProp<
+  StackNavigationProp<ProfileStackParamList, 'ProfileMain'>,
+  BottomTabNavigationProp<MainTabParamList>
+>;
+
 const ProfileScreen = () => {
   const { user, profile, signOut } = useAuth();
+  const navigation = useNavigation<ProfileScreenNavigationProp>();
 
   const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [statsError, setStatsError] = useState(false);
   // Cada carga tem uma geração; resposta de geração antiga é descartada para
   // um retry não ser sobrescrito por uma falha atrasada.
   const geracaoRef = useRef(0);
+
+  // Guard do "Refazer treino": não arquivar um plano com sessão em andamento.
+  // `checandoRef` trava o toque duplo no nível da chamada (estado assíncrono
+  // não renderiza a tempo de barrar dois toques no mesmo tick).
+  const [sheetVisivel, setSheetVisivel] = useState(false);
+  const [verificando, setVerificando] = useState(false);
+  const [bloqueadoPorSessao, setBloqueadoPorSessao] = useState(false);
+  const [guardError, setGuardError] = useState(false);
+  const checandoRef = useRef(false);
 
   const buscarHistorico = useCallback(async () => {
     if (!user) return;
@@ -57,6 +84,43 @@ const ProfileScreen = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  const abrirRefazerTreino = useCallback(async () => {
+    if (!user || checandoRef.current) return;
+    checandoRef.current = true;
+    setGuardError(false);
+    // Zera o veredito da rodada anterior: o sheet mostra o spinner de
+    // checagem e NUNCA reapresenta o estado velho enquanto a consulta roda.
+    setBloqueadoPorSessao(false);
+    setVerificando(true);
+    setSheetVisivel(true);
+    try {
+      const bloqueado = await comTimeout(hasSessionInProgress(user.id), GUARD_TIMEOUT_MS);
+      setBloqueadoPorSessao(bloqueado);
+    } catch (err) {
+      console.error('Erro ao checar treino em andamento:', err);
+      // Falha ≠ zero: sem confirmação confiável, não libera a regeneração.
+      setSheetVisivel(false);
+      setGuardError(true);
+    } finally {
+      checandoRef.current = false;
+      setVerificando(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const confirmarRefazer = useCallback(() => {
+    setSheetVisivel(false);
+    // Cross-tab: empurra o Questionnaire no stack de Treino. `initial: false`
+    // vale só no PRIMEIRO mount do stack (insere TrainingOverview como raiz
+    // quando a aba Plano ainda não foi aberta na sessão); se o stack já
+    // existe, o estado dele é preservado. Nos dois casos o popToTop() final da
+    // regeneração pousa em TrainingOverview — o back durante o questionário
+    // pode voltar a uma rota do stack de Treino, não ao Perfil.
+    navigation.navigate('Training', { screen: 'Questionnaire', initial: false });
+  }, [navigation]);
+
+  const fecharRefazer = useCallback(() => setSheetVisivel(false), []);
 
   // Foco, não montagem: voltar de uma sessão recém-concluída via popToTop não
   // remonta esta tela — sem isso, as métricas ficariam obsoletas.
@@ -112,8 +176,43 @@ const ProfileScreen = () => {
         <Metric value={metricas.semana} label="Nesta semana" />
       </MetricGroup>
 
+      {/* Regeneração do plano a partir do Perfil (acesso fixo, não só no Nível 4).
+          outline para não competir com o tonal do sheet nem com o danger do Sair. */}
+      <Button
+        label="Refazer treino"
+        variant="outline"
+        onPress={abrirRefazerTreino}
+        disabled={verificando}
+        style={styles.refazer}
+      />
+
+      {guardError ? (
+        <Notice
+          tone="danger"
+          title="Não foi possível checar seu treino em andamento"
+          description="Nada foi arquivado. Tente de novo quando a conexão voltar."
+          style={styles.guardError}
+          action={
+            <Button
+              label="Checar de novo"
+              variant="outline"
+              compact
+              onPress={abrirRefazerTreino}
+            />
+          }
+        />
+      ) : null}
+
       {/* Direção 03: o histórico virou cidadão da aba Progresso. */}
       <Button label="Sair" variant="danger" onPress={signOut} style={styles.logout} />
+
+      <RefazerTreinoSheet
+        visible={sheetVisivel}
+        bloqueadoPorSessaoEmAndamento={bloqueadoPorSessao}
+        verificando={verificando}
+        onConfirmar={confirmarRefazer}
+        onDismiss={fecharRefazer}
+      />
     </Screen>
   );
 };
@@ -155,6 +254,9 @@ const styles = StyleSheet.create({
 
   notice: { marginBottom: theme.spacing.lg },
   metrics: { marginBottom: theme.spacing.xxl },
+
+  refazer: { marginBottom: theme.spacing.md },
+  guardError: { marginBottom: theme.spacing.lg },
 
   logout: { marginTop: theme.spacing.xxl },
 });

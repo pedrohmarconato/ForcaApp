@@ -23,9 +23,10 @@ import { Feather } from '@expo/vector-icons';
 
 // Serviços e Contextos
 import { callClaudeApi, testClaudeApiConnection } from '../services/api/claudeService';
-import { requestTrainingPlanGeneration, consolidateChat, startPlanJob, waitForPlanJob, JobProgress, Diretrizes } from '../services/api/trainingPlanService';
-import { getActivePlanId } from '../services/trainingRepository';
+import { consolidateChat, startPlanJob, waitForPlanJob, JobProgress, Diretrizes } from '../services/api/trainingPlanService';
+import { getActivePlanId, hasSessionInProgress } from '../services/trainingRepository';
 import { recuperarPlanoSalvo, RECUPERACAO_TENTATIVAS } from '../services/planRecovery';
+import { comTimeout, GUARD_TIMEOUT_MS } from '../utils/comTimeout';
 import { AcompanhamentoPerdidoError } from '../services/api/planJobErrors';
 import { classifyApiError } from '../services/api/apiErrors';
 import { STORAGE_KEY_CHAT_PREFIX, STORAGE_KEY_CHAT_STATE_PREFIX } from '../services/postQuestionnaireChatStorage';
@@ -78,6 +79,17 @@ type PostQuestionnaireChatNavigationProp = StackNavigationProp<OnboardingStackPa
 const MAX_INTERACTIONS = 6;
 const STORAGE_KEY_QUESTIONNAIRE_PREFIX = '@questionnaire_data_';
 
+// Guard da regeneração (Perfil e Nível 4): erro desta classe NÃO passa pela
+// recuperação de plano salvo. O guard roda antes de qualquer job existir, e a
+// recuperação devolveria o plano ativo VELHO como se fosse o recém-gerado —
+// a tela "revelaria" um plano que não foi gerado. `bloqueio` separa o caso
+// "há sessão em andamento" (CTA de saída) da falha de consulta (retry).
+class SessaoEmAndamentoError extends Error {
+  constructor(message: string, readonly bloqueio = false) {
+    super(message);
+  }
+}
+
 const PostQuestionnaireChat = () => {
     const route = useRoute<RouteProp<{ params: ChatScreenRouteParams }, 'params'>>();
     const navigation = useNavigation<PostQuestionnaireChatNavigationProp>();
@@ -93,6 +105,10 @@ const PostQuestionnaireChat = () => {
     const [interactionsCount, setInteractionsCount] = useState(0);
     const [isChatEnded, setIsChatEnded] = useState(false);
     const [chatError, setChatError] = useState<string | null>(null);
+    // Guard de sessão em andamento bloqueou a geração: o Notice ganha um CTA
+    // de saída ("Voltar ao plano") em vez de só dispensar — quebrar o loop
+    // "dispensar → tentar de novo → mesmo aviso".
+    const [bloqueadoSessao, setBloqueadoSessao] = useState(false);
     const [questionnaireData, setQuestionnaireData] = useState<any>(null);
     const [adjustments, setAdjustments] = useState<string[]>([]);
     const [isQuestionnaireReady, setIsQuestionnaireReady] = useState(false);
@@ -169,6 +185,7 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
   isGeneratingPlanRef.current = true;
   setIsGeneratingPlan(true);
   setChatError(null);
+  setBloqueadoSessao(false);
   setAjustesNaoAplicados(false);
   setJobStage('consolidando');
   setJobProgressText('Consolidando suas preferências...');
@@ -221,6 +238,34 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
       }
     }
 
+    // Guard da regeneração: a checagem na abertura do sheet cobre só aquele
+    // instante. Entre abrir e gerar há o questionário inteiro — o usuário pode
+    // ter iniciado uma sessão no meio (ou em outro device), e a RPC arquiva o
+    // plano ativo incondicionalmente. Re-checar aqui, no último ponto antes de
+    // o job existir, reduz a janela de minutos para segundos; o residual só
+    // fecha com o check dentro da RPC (fora deste escopo). Consulta com falha
+    // ou pendurada NÃO libera a geração — mesmo princípio "falha ≠ zero" da
+    // abertura (comTimeout põe teto na checagem).
+    try {
+      const sessaoEmAndamento = await comTimeout(hasSessionInProgress(userId), GUARD_TIMEOUT_MS);
+      if (sessaoEmAndamento) {
+        throw new SessaoEmAndamentoError(
+          'Você tem um treino em andamento. Termine ou saia dele antes de gerar um novo plano.',
+          true,
+        );
+      }
+    } catch (err) {
+      if (err instanceof SessaoEmAndamentoError) throw err;
+      console.error(`[Chat ${userId}] Falha ao checar treino em andamento:`, err);
+      // Prefixo 'Erro ao gerar plano' herda o botão de retry do Notice de
+      // geração — falha de consulta é transitória e merece tentar de novo. A
+      // frase é neutra ("situação") porque no primeiro onboarding nunca houve
+      // treino algum para estar em andamento.
+      throw new SessaoEmAndamentoError(
+        'Erro ao gerar plano: não foi possível verificar sua situação atual. Tente de novo.',
+      );
+    }
+
     jobPodeExistir = true;
     const jobId = await startPlanJob(currentQuestionnaireData, diretrizes);
     console.log(`[Chat ${userId}] Job iniciado: ${jobId}`);
@@ -242,6 +287,15 @@ const completeOnboardingAndGeneratePlan = useCallback(async () => {
     }
   } catch (error: any) {
     console.error(`[Chat ${userId}] Erro ao gerar plano:`, error);
+
+    // Guard de sessão em andamento: o erro é do USUÁRIO (não da geração) e
+    // aconteceu antes de qualquer job — recuperarPlanoSalvo acharia o plano
+    // ativo VELHO e o apresentaria como novo. Mostra a mensagem e sai.
+    if (error instanceof SessaoEmAndamentoError) {
+      setChatError(error.message);
+      setBloqueadoSessao(error.bloqueio);
+      return;
+    }
 
     // Perder o acompanhamento não é o mesmo que a geração ter falhado: o job
     // segue no servidor e grava o plano. Procurar no banco antes de reportar
@@ -599,6 +653,11 @@ const handleEnterApp = useCallback(async () => {
                     if (pularChat) {
                         skipChatDispatchedRef.current = true;
                         setShowInitialChoice(false);
+                        // Mesmo contrato do handleConfirmEndChat: o chat encerra
+                        // antes de gerar. Sem isto, um bloqueio do guard deixa o
+                        // chat reaberto inteiro após "Dispensar", sem indício do
+                        // que houve (achado 3b do review adversarial).
+                        setIsChatEnded(true);
                         console.log(`[Chat ${userId}] skipChat recebido — gerando plano direto.`);
                         const systemMessage: Content = { role: 'system', parts: [{ text: "Ok, vamos gerar seu treino com base nas respostas." }] };
                         const skipMessages = [systemMessage];
@@ -857,6 +916,7 @@ const handleEnterApp = useCallback(async () => {
         },
         estado: { alignItems: 'center', paddingTop: theme.spacing.md },
         aviso: { marginTop: theme.spacing.md },
+        avisoAcoes: { flexDirection: 'row', gap: theme.spacing.sm },
 
         modalFundo: {
             flex: 1,
@@ -1238,7 +1298,25 @@ const handleEnterApp = useCallback(async () => {
                             title={chatError}
                             style={styles.aviso}
                             action={
-                                chatError.startsWith('Erro ao gerar plano') ? (
+                                bloqueadoSessao ? (
+                                    // Guard bloqueou: retry é fútil enquanto a
+                                    // sessão seguir em andamento — o CTA leva ao
+                                    // plano, onde a sessão é retomada/abandonada.
+                                    <View style={styles.avisoAcoes}>
+                                        <Button
+                                            label="Voltar ao plano"
+                                            variant="outline"
+                                            compact
+                                            onPress={() => navigation.popToTop()}
+                                        />
+                                        <Button
+                                            label="Dispensar"
+                                            variant="ghost"
+                                            compact
+                                            onPress={() => setChatError(null)}
+                                        />
+                                    </View>
+                                ) : chatError.startsWith('Erro ao gerar plano') ? (
                                     // Feature A4/B: em falha de geração, retry
                                     // além do "Dispensar" — sem isso, o modo
                                     // direto que falha vira beco sem saída.

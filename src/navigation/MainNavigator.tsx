@@ -2,6 +2,7 @@ import React from 'react';
 import { stackCardStyle, stackTransition } from './navigationStyles';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { NavigatorScreenParams } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
 import theme from '../theme/theme';
@@ -51,7 +52,19 @@ export type ProfileStackParamList = {
   ProfileMain: undefined;
 };
 
-const BottomTab = createBottomTabNavigator();
+/**
+ * Rotas do tab navigator do app. Cada aba é um stack; o NavigatorScreenParams
+ * deixa telas de um stack navegarem PARA OUTRA aba (ex.: "Refazer treino" do
+ * Perfil empurra Questionnaire dentro do stack de Treino).
+ */
+export type MainTabParamList = {
+  Home: NavigatorScreenParams<HomeStackParamList>;
+  Training: NavigatorScreenParams<TrainingStackParamList>;
+  Progress: NavigatorScreenParams<ProgressStackParamList>;
+  Profile: NavigatorScreenParams<ProfileStackParamList>;
+};
+
+const BottomTab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createStackNavigator<HomeStackParamList>();
 const TrainingStack = createStackNavigator<TrainingStackParamList>();
 const ProgressStack = createStackNavigator<ProgressStackParamList>();
