@@ -38,7 +38,21 @@ jest.mock('../src/screens/WorkoutDetailScreen', () => ({ __esModule: true, defau
 jest.mock('../src/screens/ActiveSessionScreen', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/screens/SessionHistoryScreen', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/screens/SessionHistoryDetailScreen', () => ({ __esModule: true, default: () => null }));
-jest.mock('../src/screens/JointLobbyScreen', () => ({ __esModule: true, default: () => null }));
+// JointLobby precisa de um marcador RENDERIZADO (não `default: () => null`
+// como os demais irmãos irrelevantes acima): os testes do describe "JointLobby
+// entra no gate como as demais rotas joint" (achado N4, mais abaixo) precisam
+// provar que o gate MONTA a tela embrulhada quando a flag está ON — com
+// `() => null` o queryByTestId do aviso dá null tanto se o gate deixou passar
+// quanto se travou tudo, e o teste fica verde à toa. Tudo `require`ado dentro
+// da factory porque jest.mock é hoisted para cima dos imports do arquivo.
+jest.mock('../src/screens/JointLobbyScreen', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: () => React.createElement(View, { testID: 'joint-lobby-stub' }),
+  };
+});
 jest.mock('../src/screens/QuestionnaireScreen', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/screens/PostQuestionnaireChat', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/screens/TrainingSessionScreen', () => ({ __esModule: true, default: () => null }));
@@ -260,23 +274,32 @@ describe('MainNavigator real — JointLobby entra no gate como as demais rotas j
 
   it('flag OFF: navegar direto para JointLobby NÃO monta a tela real — mostra o aviso do gate', () => {
     __setJointTrainingEnvReader(() => 'false');
-    const { getByTestId } = render(
+    const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoLobby() as any}>
         <MainNavigator />
       </NavigationContainer>,
     );
 
     expect(getByTestId('aviso-treino-conjunto-indisponivel')).toBeTruthy();
+    // Prova a metade que faltava: não basta o aviso aparecer, a tela real
+    // embrulhada (stub) tem que estar AUSENTE — senão as duas coisas
+    // poderiam estar montadas ao mesmo tempo e o teste não pegaria.
+    expect(queryByTestId('joint-lobby-stub')).toBeNull();
   });
 
   it('flag ON: navegar para JointLobby não mostra o aviso do gate (não regressão)', () => {
     __setJointTrainingEnvReader(() => 'true');
-    const { queryByTestId } = render(
+    const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoLobby() as any}>
         <MainNavigator />
       </NavigationContainer>,
     );
 
     expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
+    // Achado da auto-revisão: com `default: () => null` no mock antigo, este
+    // teste ficava verde mesmo se o gate travasse tudo — queryByTestId do
+    // aviso já dava null porque o mock não renderizava NADA, não porque o
+    // gate deixou a tela passar. Com o stub real, isto prova a montagem.
+    expect(getByTestId('joint-lobby-stub')).toBeTruthy();
   });
 });
