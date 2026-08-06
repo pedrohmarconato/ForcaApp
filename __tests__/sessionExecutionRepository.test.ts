@@ -1091,4 +1091,51 @@ describe('0026 ausente no banco — 42703 degrada sem quebrar (achado A1/A7)', (
       );
     await expect(getCompletedSessions('user-1')).rejects.toMatchObject({ code: '42P01' });
   });
+
+  // N7 (achado, mesma família do R1): estado intermediário natural do
+  // deploy — migrations aplicadas em ordem numérica, 0026 (purpose) já
+  // presente, 0028 (active_seconds) ainda ausente. A escada antiga sempre
+  // roteava o 2º degrau para (comPurpose=false, comActiveSeconds=true) —
+  // que AINDA referencia active_seconds e erraria de novo pelo mesmo motivo
+  // —, o 3º degrau então descartava purpose à toa, e a sessão joint perdia o
+  // chip 'Dupla' no Histórico sem crashar. O fix lê a MESSAGE do 1º erro: se
+  // citar active_seconds, o 2º degrau mantém purpose e derruba só
+  // active_seconds. Como o mock devolve o payload configurado independente
+  // do select pedido, a prova da ROTA é o próprio texto do select engatado
+  // no 2º degrau — não o payload.
+  it('N7: só a 0028 ausente — degrau roteia por purpose, não por active_seconds', async () => {
+    const builder1 = makeBuilder({
+      data: null,
+      error: { code: '42703', message: 'column session_logs.active_seconds does not exist' },
+    });
+    const builder2 = makeBuilder({
+      data: [
+        {
+          id: 'sl-1',
+          planned_session_id: 'ps-1',
+          started_at: '2026-08-01T09:00:00Z',
+          finished_at: '2026-08-01T10:00:00Z',
+          planned_sessions: {
+            title: 'Treino',
+            week_number: 1,
+            muscle_groups: [],
+            training_plans: { purpose: 'joint' },
+          },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(builder1).mockReturnValueOnce(builder2);
+
+    const res = await getCompletedSessions('user-1');
+
+    const selectDoSegundoDegrau = builder2.select.mock.calls[0][0];
+    expect(selectDoSegundoDegrau).toContain('training_plans(purpose)');
+    expect(selectDoSegundoDegrau).not.toContain('active_seconds');
+
+    expect(res).toHaveLength(1);
+    expect(res[0].activeSeconds).toBeNull();
+    expect(res[0].origemJoint).toBe(true);
+    expect(fromMock).toHaveBeenCalledTimes(2);
+  });
 });

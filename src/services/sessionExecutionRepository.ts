@@ -510,6 +510,16 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
 const erroDeColunaAusente = (error: unknown): boolean =>
   (error as { code?: string } | null)?.code === '42703';
 
+/**
+ * A MESSAGE de um 42703 cita a coluna que faltou (ex.: "column
+ * session_logs.active_seconds does not exist") — serve de dica de qual
+ * degrau tentar em seguida (achado N7). Dica errada só custa um degrau
+ * extra, nunca quebra: o último recurso da escada não depende dela.
+ */
+const erroCitaColuna = (error: unknown, coluna: string): boolean =>
+  typeof (error as { message?: string } | null)?.message === 'string' &&
+  (error as { message: string }).message.includes(coluna);
+
 export const getLastLoadByExercise = async (
   identities: string[],
 ): Promise<Record<string, number>> => {
@@ -601,15 +611,16 @@ const PAGINA_HISTORICO = 1000;
 export const getCompletedSessions = async (
   userId: string,
 ): Promise<CompletedSessionSummary[]> => {
+  // As duas colunas (purpose da migration 0026, active_seconds da 0028) são
+  // INDEPENDENTES uma da outra — por isso o select é montado combinando os
+  // dois flags separadamente (achado N7), em vez de 3 strings fixas onde
+  // comPurpose=true sempre arrastava active_seconds junto. Isso habilita o
+  // degrau (comPurpose=true, comActiveSeconds=false): só a 0028 ausente.
   const consulta = (comPurpose: boolean, comActiveSeconds: boolean, inicio: number) =>
     supabase
       .from('session_logs')
       .select(
-        comPurpose
-          ? 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups, training_plans(purpose))'
-          : comActiveSeconds
-            ? 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)'
-            : 'id, planned_session_id, started_at, finished_at, planned_sessions(title, week_number, muscle_groups)',
+        `id, planned_session_id, started_at, finished_at${comActiveSeconds ? ', active_seconds' : ''}, planned_sessions(title, week_number, muscle_groups${comPurpose ? ', training_plans(purpose)' : ''})`,
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
@@ -632,17 +643,27 @@ export const getCompletedSessions = async (
   // ainda selecionava active_seconds (migration 0028) — com a 0028 também
   // ausente (prod ainda na 0022), o segundo 42703 relançava sem catch e o
   // Histórico caía em erro. Cada degrau remove mais uma coluna das
-  // migrations 0026-0030: 1º com tudo, 2º sem purpose (janela 0026 ausente /
-  // 0028 presente — preserva o tempo efetivo), 3º sem purpose E sem
-  // active_seconds (active_seconds vira null no resultado). Erro não-42703
-  // em qualquer degrau segue propagando.
+  // migrations 0026-0030: 1º com tudo, 2º remove só a coluna que a MESSAGE
+  // do 42703 aponta, 3º sem purpose E sem active_seconds (último recurso,
+  // ambos viram null/false no resultado). Erro não-42703 em qualquer degrau
+  // segue propagando.
+  //
+  // N7: sem essa leitura de message, o 2º degrau sempre assumia "falta
+  // purpose" (janela mais comum) e mantinha active_seconds no select. No
+  // estado intermediário inverso — 0026 já aplicada, 0028 ainda não — esse
+  // degrau erraria de novo pelo MESMO motivo, e o 3º descartaria purpose à
+  // toa: sessão joint perdia o chip 'Dupla' sem crashar. Uma dica errada
+  // (message não citar 'active_seconds' quando na verdade é isso que falta,
+  // ou vice-versa) só custa um degrau extra — o último recurso (false,
+  // false) sempre resolve.
   let linhas: any[];
   try {
     linhas = await paginar(true, true);
   } catch (erro) {
     if (!erroDeColunaAusente(erro)) throw erro;
+    const faltaSoActiveSeconds = erroCitaColuna(erro, 'active_seconds');
     try {
-      linhas = await paginar(false, true);
+      linhas = await paginar(faltaSoActiveSeconds, !faltaSoActiveSeconds);
     } catch (erroDegrau) {
       if (!erroDeColunaAusente(erroDegrau)) throw erroDegrau;
       linhas = await paginar(false, false);
