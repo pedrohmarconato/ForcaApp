@@ -496,22 +496,50 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
  * registro solo mais antigo nunca entrava na janela. `!inner` em cada nível do
  * embed (padrão já usado em cardioGoalRepository.getCardioLogs) faz o filtro
  * de purpose excluir a linha de set_logs inteira, não só o embed.
+ *
+ * Janela de deploy (migration 0026): enquanto a coluna training_plans.purpose
+ * não existe no banco, QUALQUER SELECT que a embuta devolve 42703 — e as três
+ * leituras deste arquivo cairiam em estado de erro (Home/Progresso/Perfil/
+ * Histórico) ou perderiam a sugestão de carga em silêncio (seedLastLoads
+ * engole). Por isso cada consulta tem um segundo pente SEM o embed/filtro de
+ * purpose, acionado só no 42703 (mesmo padrão do fallback de
+ * agendaRepository.ts:43-46). O filtro anti-joint volta a valer sozinho quando
+ * a 0026 chegar ao banco — gate de flag NÃO resolve, porque estas funções
+ * rodam também para usuário solo.
  */
+const erroDeColunaAusente = (error: unknown): boolean =>
+  (error as { code?: string } | null)?.code === '42703';
+
 export const getLastLoadByExercise = async (
   identities: string[],
 ): Promise<Record<string, number>> => {
   if (identities.length === 0) return {};
   const alvo = new Set(identities);
 
-  const { data, error } = await supabase
-    .from('set_logs')
-    .select(
-      'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key, planned_sessions!inner(training_plans!inner(purpose))))',
-    )
-    .not('actual_load_kg', 'is', null)
-    .neq('planned_sets.planned_exercises.planned_sessions.training_plans.purpose', 'joint')
-    .order('completed_at', { ascending: false })
-    .limit(300);
+  const consultaCargas = (comPurpose: boolean) => {
+    const query = supabase
+      .from('set_logs')
+      .select(
+        comPurpose
+          ? 'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key, planned_sessions!inner(training_plans!inner(purpose))))'
+          : 'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key))',
+      )
+      .not('actual_load_kg', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(300);
+    return comPurpose
+      ? query.neq(
+          'planned_sets.planned_exercises.planned_sessions.training_plans.purpose',
+          'joint',
+        )
+      : query;
+  };
+
+  let { data, error } = await consultaCargas(true);
+  if (erroDeColunaAusente(error)) {
+    // 0026 ausente no banco: refaz sem o embed/filtro de purpose e segue.
+    ({ data, error } = await consultaCargas(false));
+  }
   if (error) throw error;
 
   const mapa: Record<string, number> = {};
@@ -573,23 +601,38 @@ const PAGINA_HISTORICO = 1000;
 export const getCompletedSessions = async (
   userId: string,
 ): Promise<CompletedSessionSummary[]> => {
-  const linhas: any[] = [];
-
-  for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
-    const { data, error } = await supabase
+  const consulta = (comPurpose: boolean, inicio: number) =>
+    supabase
       .from('session_logs')
       .select(
-        'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups, training_plans(purpose))',
+        comPurpose
+          ? 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups, training_plans(purpose))'
+          : 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)',
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
       .order('finished_at', { ascending: false })
       .range(inicio, inicio + PAGINA_HISTORICO - 1);
-    if (error) throw error;
 
-    const pagina = (data ?? []) as any[];
-    linhas.push(...pagina);
-    if (pagina.length < PAGINA_HISTORICO) break;
+  const paginar = async (comPurpose: boolean): Promise<any[]> => {
+    const linhas: any[] = [];
+    for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
+      const { data, error } = await consulta(comPurpose, inicio);
+      if (error) throw error;
+      const pagina = (data ?? []) as any[];
+      linhas.push(...pagina);
+      if (pagina.length < PAGINA_HISTORICO) break;
+    }
+    return linhas;
+  };
+
+  let linhas: any[];
+  try {
+    linhas = await paginar(true);
+  } catch (erro) {
+    if (!erroDeColunaAusente(erro)) throw erro;
+    // 0026 ausente no banco: pente inteiro refeito sem o embed de purpose.
+    linhas = await paginar(false);
   }
 
   return linhas.map((linha) => ({
@@ -615,23 +658,38 @@ const PAGINA_SET_LOGS = 1000;
  * Alimenta recordes e volume por semana — sempre dados reais, paginados até o fim.
  */
 export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> => {
-  const linhas: any[] = [];
-
-  for (let inicio = 0; ; inicio += PAGINA_SET_LOGS) {
-    const { data, error } = await supabase
+  const consulta = (comPurpose: boolean, inicio: number) =>
+    supabase
       .from('set_logs')
       .select(
-        'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))',
+        comPurpose
+          ? 'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))'
+          : 'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key))',
       )
       .eq('session_logs.user_id', userId)
       .not('session_logs.finished_at', 'is', null)
       .order('completed_at', { ascending: false })
       .range(inicio, inicio + PAGINA_SET_LOGS - 1);
-    if (error) throw error;
 
-    const pagina = (data ?? []) as any[];
-    linhas.push(...pagina);
-    if (pagina.length < PAGINA_SET_LOGS) break;
+  const paginar = async (comPurpose: boolean): Promise<any[]> => {
+    const linhas: any[] = [];
+    for (let inicio = 0; ; inicio += PAGINA_SET_LOGS) {
+      const { data, error } = await consulta(comPurpose, inicio);
+      if (error) throw error;
+      const pagina = (data ?? []) as any[];
+      linhas.push(...pagina);
+      if (pagina.length < PAGINA_SET_LOGS) break;
+    }
+    return linhas;
+  };
+
+  let linhas: any[];
+  try {
+    linhas = await paginar(true);
+  } catch (erro) {
+    if (!erroDeColunaAusente(erro)) throw erro;
+    // 0026 ausente no banco: pente inteiro refeito sem o embed de purpose.
+    linhas = await paginar(false);
   }
 
   const resumo: SetLogResumo[] = [];

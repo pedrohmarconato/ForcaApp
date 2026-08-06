@@ -639,30 +639,15 @@ describe('getCompletedSessions', () => {
     expect(res[0].origemJoint).toBe(true);
   });
 
-  it('coluna purpose ausente (banco sem a relação) devolve origemJoint=false, nunca quebra', async () => {
-    fromMock.mockReturnValueOnce(
-      makeBuilder({
-        data: [
-          {
-            id: 'sl-1',
-            planned_session_id: 'ps-1',
-            started_at: '2026-08-01T09:00:00Z',
-            finished_at: '2026-08-01T10:00:00Z',
-            active_seconds: 3000,
-            planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
-          },
-        ],
-        error: null,
-      }),
-    );
-    const res = await getCompletedSessions('user-1');
-    expect(res[0].origemJoint).toBe(false);
-  });
-
-  it('coluna ausente ou nula devolve activeSeconds null sem quebrar (janela de deploy)', async () => {
-    // Cenário real: migration aplicada depois do código — a coluna ainda não
-    // existe (linha sem a chave) ou existe e veio nula (sessão fechada por app
-    // antigo). A tela mostra "—"; NUNCA o relógio de parede bruto.
+  // Achado A7 (review PR #73): o teste antigo "coluna purpose ausente ...
+  // nunca quebra" mockava linha parcial com error:null — cenário que o banco
+  // NÃO produz. Com a 0026 ausente, o SELECT que embute training_plans(purpose)
+  // devolve erro 42703 (error populado, data null). O controle negativo real
+  // vive no describe "0026 ausente no banco — 42703" (no fim deste arquivo).
+  it('active_seconds nula devolve null (sessão fechada por app antigo)', async () => {
+    // Cenário real: a coluna existe (0028 aplicada), mas a sessão foi fechada
+    // por um app antigo — veio nula. A tela mostra "—"; NUNCA o relógio de
+    // parede bruto.
     fromMock.mockReturnValueOnce(
       makeBuilder({
         data: [
@@ -680,25 +665,6 @@ describe('getCompletedSessions', () => {
     );
     const res = await getCompletedSessions('user-1');
     expect(res[0].activeSeconds).toBeNull();
-
-    fromMock.mockReturnValueOnce(
-      makeBuilder({
-        data: [
-          {
-            id: 'sl-2',
-            planned_session_id: 'ps-2',
-            started_at: '2026-07-18T09:00:00Z',
-            finished_at: '2026-07-18T10:00:00Z',
-            // Coluna simplesmente não veio no select (banco sem a migration).
-            planned_sessions: { title: 'Push B', week_number: 2, muscle_groups: [] },
-          },
-        ],
-        error: null,
-      }),
-    );
-    const res2 = await getCompletedSessions('user-1');
-    expect(res2[0].activeSeconds).toBeNull();
-    expect(res2[0].sessionLogId).toBe('sl-2');
   });
 
   it('ordena pela CONCLUSÃO, não pelo início (achado #10)', async () => {
@@ -882,5 +848,111 @@ describe('getSessionLogDetail', () => {
     const res = await getSessionLogDetail('sl-2');
     expect(res?.activeSeconds).toBeNull();
     expect(res?.title).toBe('Push B');
+  });
+});
+
+describe('0026 ausente no banco — 42703 degrada sem quebrar (achado A1/A7)', () => {
+  // Modo de falha: com a migration 0026 não aplicada em produção, a coluna
+  // training_plans.purpose não existe e QUALQUER SELECT que a embuta devolve
+  // erro PostgREST 42703 com data null — nunca linha parcial com error:null
+  // (LEFT JOIN vazio é cenário que o banco não produz). Antes do fix, as três
+  // funções davam throw: Home/Progresso/Perfil/Histórico caíam em estado de
+  // erro e a sugestão de carga sumia em silêncio (activeSessionStore.
+  // seedLastLoads engole). O fallback refaz a query SEM o embed/filtro de
+  // purpose e segue — o filtro anti-joint volta a valer sozinho quando a 0026
+  // chegar ao banco.
+  it('getLastLoadByExercise refaz sem purpose e devolve a carga', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              actual_load_kg: '60',
+              completed_at: '2026-07-20T10:00:00Z',
+              planned_sets: {
+                planned_exercises: { name: 'Supino Reto', exercise_key: 'supino_reto_barra' },
+              },
+            },
+          ],
+          error: null,
+        }),
+      );
+    expect(await getLastLoadByExercise(['k:supino_reto_barra'])).toEqual({
+      'k:supino_reto_barra': 60,
+    });
+  });
+
+  it('getCompletedSessions refaz sem purpose e devolve origemJoint=false', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              id: 'sl-1',
+              planned_session_id: 'ps-1',
+              started_at: '2026-08-01T09:00:00Z',
+              finished_at: '2026-08-01T10:00:00Z',
+              active_seconds: 3000,
+              planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+            },
+          ],
+          error: null,
+        }),
+      );
+    const res = await getCompletedSessions('user-1');
+    expect(res).toHaveLength(1);
+    expect(res[0].origemJoint).toBe(false);
+  });
+
+  it('getSetLogsResumo refaz sem purpose e devolve origemJoint=false', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              actual_reps: 8,
+              actual_load_kg: '50',
+              completed_at: '2026-08-01T10:00:00Z',
+              planned_sets: {
+                planned_exercises: { name: 'Supino Reto', exercise_key: 'supino_reto_barra' },
+              },
+            },
+          ],
+          error: null,
+        }),
+      );
+    const res = await getSetLogsResumo('user-1');
+    expect(res).toHaveLength(1);
+    expect(res[0].origemJoint).toBe(false);
+  });
+
+  it('erro que NÃO é coluna ausente continua propagando (não engole)', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: null,
+        error: { code: '42P01', message: 'relation "set_logs" does not exist' },
+      }),
+    );
+    await expect(getLastLoadByExercise(['k:supino_reto_barra'])).rejects.toMatchObject({
+      code: '42P01',
+    });
   });
 });
