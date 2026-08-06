@@ -7,7 +7,7 @@
 // duas seções da aba Progresso que exibem esse dado (Recordes e Histórico).
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, within } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
@@ -46,6 +46,34 @@ jest.mock('../src/services/cardioGoalRepository', () => ({
 
 import ProgressScreen from '../src/screens/ProgressScreen';
 
+/**
+ * Sobe pela árvore de instâncias a partir do nó de texto do título até achar
+ * o ancestral mais estreito que contém `alvo` mas não `outro` — a linha
+ * (ListRow) daquele registro específico. Evita contar "quantos níveis de
+ * View/composite o RN intercala" (detalhe de implementação instável) e
+ * evita amarrar o teste a um testID que teria que ser adicionado ao
+ * ProgressScreen só para o teste existir.
+ */
+function linhaDoRegistro(node: ReturnType<typeof render>['getByText'] extends (
+  ...args: any[]
+) => infer R
+  ? R
+  : never, alvo: string, outro: string) {
+  let atual: any = node;
+  let melhor: any = null;
+  while (atual) {
+    const temAlvo = !!within(atual).queryByText(alvo);
+    const temOutro = !!within(atual).queryByText(outro);
+    if (temAlvo && !temOutro) {
+      melhor = atual;
+    } else if (temAlvo && temOutro) {
+      break;
+    }
+    atual = atual.parent;
+  }
+  return melhor;
+}
+
 describe('ProgressScreen — marcador de origem conjunta (achado A4)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -73,14 +101,24 @@ describe('ProgressScreen — marcador de origem conjunta (achado A4)', () => {
       },
     ];
 
-    const { getByText, queryByText } = render(<ProgressScreen />);
+    const { getByText, queryAllByText } = render(<ProgressScreen />);
 
     await waitFor(() => expect(getByText('Supino Reto')).toBeTruthy());
     expect(getByText('Agachamento')).toBeTruthy();
 
-    // Só o recorde de origem joint carrega o marcador — o solo não.
-    expect(queryByText('Dupla')).toBeTruthy();
-    expect(queryByText('Dupla')).not.toBeNull();
+    // Amarra o chip ao registro certo (não só "existe algum 'Dupla' na tela"):
+    // a linha do Supino Reto (origemJoint: true) carrega o marcador, e a
+    // linha do Agachamento (origemJoint: false) não.
+    const linhaSupino = linhaDoRegistro(getByText('Supino Reto'), 'Supino Reto', 'Agachamento');
+    const linhaAgachamento = linhaDoRegistro(getByText('Agachamento'), 'Agachamento', 'Supino Reto');
+    if (!linhaSupino || !linhaAgachamento) {
+      throw new Error('Não encontrou o container da linha (ListRow) do recorde.');
+    }
+    expect(within(linhaSupino).queryByText('Dupla')).toBeTruthy();
+    expect(within(linhaAgachamento).queryByText('Dupla')).toBeNull();
+
+    // E em quantidade exata: só um marcador na tela inteira.
+    expect(queryAllByText('Dupla')).toHaveLength(1);
   });
 
   it('Recordes: nenhum marcador quando TODOS os recordes são solo', async () => {

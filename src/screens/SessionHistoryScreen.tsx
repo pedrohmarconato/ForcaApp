@@ -20,7 +20,7 @@ import {
 import { duracaoEmMinutos, formatarDuracao } from '../utils/weekSummary';
 import { Screen, ScreenTitle, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
-import { EmptyState, Notice } from '../components/ui/Feedback';
+import { Chip, EmptyState, Notice } from '../components/ui/Feedback';
 
 const formatarQuando = (iso: string): string => {
   const d = new Date(iso);
@@ -75,6 +75,10 @@ const SessionHistoryScreen = () => {
         subtitle={[detalhes.join(' · '), item.muscleGroups?.join(' · ')]
           .filter(Boolean)
           .join('\n')}
+        // Achado A4 (painel): a mesma sessão já mostra "Dupla" na prévia da
+        // aba Progresso (ProgressScreen) — sem isso, ela perdia o marcador ao
+        // abrir "Ver histórico completo".
+        leading={item.origemJoint ? <Chip label="Dupla" /> : undefined}
         showChevron
         onPress={() =>
           navigation.navigate('SessionHistoryDetail', {
