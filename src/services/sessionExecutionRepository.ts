@@ -481,6 +481,13 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
  * A identidade é a chave do catálogo quando existe. Casar por NOME fazia o
  * histórico morrer em qualquer variação do rótulo: "Supino com Halteres" e
  * "Supino com Halteres (Deload)" eram exercícios diferentes para a sugestão.
+ *
+ * Exclui set_logs de planos purpose='joint' (achado A2): a cópia materializada
+ * do treino conjunto preserva o exercise_key do exercício de origem (migration
+ * 0026), então sem esse filtro uma carga registrada no treino EM DUPLA
+ * contamina a sugestão do treino SOLO. O join até training_plans usa a mesma
+ * relação já embutida (planned_sets→planned_exercises→planned_sessions→
+ * training_plans); nada de coluna denormalizada.
  */
 export const getLastLoadByExercise = async (
   identities: string[],
@@ -491,7 +498,7 @@ export const getLastLoadByExercise = async (
   const { data, error } = await supabase
     .from('set_logs')
     .select(
-      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key))',
+      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))',
     )
     .not('actual_load_kg', 'is', null)
     .order('completed_at', { ascending: false })
@@ -504,6 +511,8 @@ export const getLastLoadByExercise = async (
     const nome: string | undefined = exercicio?.name;
     const carga = linha?.actual_load_kg;
     if (!nome || carga == null) continue;
+    const purpose = exercicio?.planned_sessions?.training_plans?.purpose;
+    if (purpose === 'joint') continue;
     const chave = exerciseIdentity({
       exerciseKey: exercicio?.exercise_key ?? null,
       name: nome,

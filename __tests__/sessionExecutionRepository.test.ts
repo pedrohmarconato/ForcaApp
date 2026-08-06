@@ -441,6 +441,46 @@ describe('getLastLoadByExercise', () => {
       'rosca direta': 25,
     });
   });
+
+  // A2 (achado): a cópia joint preserva exercise_key (migration 0026), então
+  // sem filtrar por purpose o histórico do treino CONJUNTO contamina a
+  // sugestão do treino SOLO. Aqui a carga conjunta (40kg) é mais recente que
+  // a solo (60kg) — sem o fix, "primeiro visto" (ordenado por completed_at
+  // desc) vence e a sugestão solo sai errada.
+  it('ignora set_logs de plano purpose=joint na sugestão do treino solo', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_load_kg: '40',
+            completed_at: '2026-08-04T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino Reto',
+                exercise_key: 'supino_reto_barra',
+                planned_sessions: { training_plans: { purpose: 'joint' } },
+              },
+            },
+          },
+          {
+            actual_load_kg: '60',
+            completed_at: '2026-07-20T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino Reto',
+                exercise_key: 'supino_reto_barra',
+                planned_sessions: { training_plans: { purpose: 'solo' } },
+              },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(
+      await getLastLoadByExercise(['k:supino_reto_barra']),
+    ).toEqual({ 'k:supino_reto_barra': 60 });
+  });
 });
 
 describe('getCompletedSessions', () => {
