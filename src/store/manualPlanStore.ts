@@ -9,6 +9,7 @@ import { getCatalog, type CatalogEntry } from '../services/exerciseCatalogServic
 import { manualDraftFromExistingPlan } from '../services/manualPlanImport';
 import {
   clearManualPlanDraft,
+  loadManualPlanDraft,
   readManualPlanDraft,
   saveManualPlanDraft,
 } from '../services/manualPlanDraftStorage';

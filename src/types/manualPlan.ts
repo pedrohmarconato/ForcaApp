@@ -182,7 +182,6 @@ export const formatWorkDuration = (minutos: number | null): string | null => {
   const arredondado = Math.round(minutos * 10) / 10;
   return `${String(arredondado).replace('.', ',')} min`;
 };
-};
 
 // Duração declarada do treino: o mesmo intervalo do PLANO_MANUAL_SCHEMA.
 export const MANUAL_WORKOUT_MIN_MINUTES = 15;

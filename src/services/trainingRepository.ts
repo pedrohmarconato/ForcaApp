@@ -179,7 +179,6 @@ export const getTrainingPlanMetadata = async (
   if (error) throw error;
   return data ?? null;
 };
-};
 
 /** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */
 export const getUpcomingSessions = async (

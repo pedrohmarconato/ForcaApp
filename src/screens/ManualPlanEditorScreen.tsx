@@ -78,10 +78,11 @@ const ManualPlanEditorScreen = () => {
   useEffect(() => {
     if (!user?.id) return;
     // Guarda anti-rascunho-fantasma e anti-trava: após o save, o rascunho vira
-    // plano e o estado some. Sem esta guarda o efeito re-disparava logo depois
-    // do save e regravava um rascunho fantasma no aparelho, que reaparecia dias
-    // depois como se fosse trabalho em andamento do aluno.
-    if (salvouNestaTela.current || status === 'saved' || status === 'saving') return;
+    // plano e o estado some. O ref é por instância de tela — ao REABRIR o
+    // editor na mesma sessão do app, ele nasce false e o draft volta a
+    // carregar; uma guarda por `status` global nunca zeraria e travaria a tela
+    // em "Plano criado" até o app reiniciar.
+    if (salvouNestaTela.current || status === 'saving') return;
     if (fromPlanId) {
       if (
         stateUserId !== user.id ||
