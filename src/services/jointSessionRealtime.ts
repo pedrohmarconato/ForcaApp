@@ -34,7 +34,7 @@ const BACKOFF_INICIAL_MS = 1_000;
 const BACKOFF_TETO_MS = 30_000;
 
 export type JointRealtimeHandlers = {
-  onState: (state: JointSessionState) => void;
+  onState: (state: JointSessionState, selo: number) => void;
   /** Falha não fatal (heartbeat, watchdog). A sessão continua; a tela avisa. */
   onError?: (error: unknown) => void;
   onConnectionChange?: (conectado: boolean) => void;
@@ -47,6 +47,14 @@ export type JointRealtimeDeps = {
   setInterval?: (fn: () => void, ms: number) => any;
   clearInterval?: (handle: any) => void;
   ttlMs?: number;
+  /**
+   * Gerador de selo da fonte (useJointSession.proximoSelo). O selo é tirado no
+   * PEDIDO do snapshot — a ordem de pedido define quem é antigo, não a ordem
+   * de chegada (achado A2, review PR #73). Sem isto, duas respostas de
+   * snapshot concorrentes resolvendo fora de ordem faziam o estado MAIS ANTIGO
+   * vencer e o turno "voltava" na tela.
+   */
+  proximoSelo?: () => number;
 };
 
 export type JointRealtimeSubscription = {
@@ -84,18 +92,29 @@ export const subscribeToJointSession = (
   // Uma pausa por episódio de ausência: sem isto, cada tique do watchdog
   // dispararia uma chamada nova enquanto o parceiro estiver fora.
   let pausaPedida = false;
+  // Fallback de selo para consumidor sem gerador (ex.: teste unitário): um
+  // contador local monotônico já impede que a resposta antiga vença AQUI.
+  let seloLocal = 0;
+  const proximoSelo = deps.proximoSelo ?? (() => ++seloLocal);
 
-  const publicar = (proximo: JointSessionState) => {
+  const publicar = (proximo: JointSessionState, selo: number) => {
     estado = proximo;
     if (proximo.status === 'active') pausaPedida = false;
-    handlers.onState(proximo);
+    handlers.onState(proximo, selo);
   };
 
   const snapshot = async () => {
+    // Achado A2 (review PR #73): o selo é tirado ANTES da ida ao servidor —
+    // é a ordem de PEDIDO que define quem é antigo, não a ordem de chegada
+    // (mesma regra que useJointSession.buscar já documentava). snapshot() não
+    // tem trava e é disparado por três gatilhos; sem o selo no pedido, a
+    // resposta que chegava por último vencia mesmo carregando estado mais
+    // antigo: o turno "voltava" na tela e a dupla travava até ~20s.
+    const meuSelo = proximoSelo();
     const s = await getJointSessionSnapshot(jointSessionId);
     if (!vivo || !s) return;
     vistos = vistosVazios();
-    publicar(s);
+    publicar(s, meuSelo);
   };
 
   const aoReceberEvento = (evento: JointEvent) => {
@@ -106,7 +125,7 @@ export const subscribeToJointSession = (
       void snapshot().catch((e) => handlers.onError?.(e));
       return;
     }
-    if (r.aplicado) publicar(r.state);
+    if (r.aplicado) publicar(r.state, proximoSelo());
   };
 
   const agendarReconexao = () => {

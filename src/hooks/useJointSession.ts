@@ -219,16 +219,19 @@ export const useJointSession = (
       jointSessionId,
       meuUserId,
       {
-        // Evento do canal é sempre o mais novo no instante em que chega.
-        onState: (s) => aplicar(minhaGeracao, () => {
-          aplicarEstado(proximoSelo(), s);
+        // Evento do canal é sempre o mais novo no instante em que chega — mas
+        // o selo vem do realtime, tirado no PEDIDO do snapshot (achado A2,
+        // review PR #73): sem isto, uma resposta de snapshot antiga que
+        // chegasse por último venceria o estado novo.
+        onState: (s, selo) => aplicar(minhaGeracao, () => {
+          aplicarEstado(selo, s);
           setCarregando(false);
         }),
         onError: (e) => aplicar(minhaGeracao, () => setErro(mensagemDe(e))),
         onConnectionChange: (conectado) =>
           aplicar(minhaGeracao, () => setConexao(conectado ? 'conectado' : 'reconectando')),
       },
-      { agora, ttlMs },
+      { agora, ttlMs, proximoSelo },
     );
 
     // Timer de APRESENTAÇÃO: a ausência do parceiro cruza o TTL sem que evento

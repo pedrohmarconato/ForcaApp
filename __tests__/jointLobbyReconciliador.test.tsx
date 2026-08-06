@@ -194,3 +194,52 @@ describe('T1/T5 — duas TELAS reais, hooks e canais independentes', () => {
     expect(telaHost.getByTestId('modo-escolha')).toBeTruthy();
   });
 });
+
+// ============================================================
+// A2 — resposta de snapshot CONCORRENTE que chega por último NÃO vence
+// ============================================================
+describe('A2 — selo no PEDIDO do snapshot (concorrência entre gatilhos)', () => {
+  // Modo de falha (review PR #73): snapshot() não tem trava e é disparado por
+  // três gatilhos (change em joint_sessions, change em
+  // joint_session_participants — incluindo o heartbeat de 20s — e
+  // precisaSnapshot). Quando duas respostas estão em voo e o banco responde
+  // fora de ordem, a que chega por último VENCIA porque o selo era tirado na
+  // CHEGADA (onState do useJointSession chamava proximoSelo()), não no PEDIDO:
+  // o turno "voltava" na tela até o próximo evento. Este teste dispara os dois
+  // gatilhos seguidos e resolve o pedido 2 primeiro e o pedido 1 (antigo) por
+  // último — o estado antigo NÃO pode sobrescrever o novo.
+  it('vence o estado do pedido mais novo, mesmo com a resposta antiga chegando atrasada', async () => {
+    const tela = abrir(HOST);
+    await waitFor(() => expect(canais.length).toBe(1));
+    await act(async () => { canais[0].emitir('SUBSCRIBED'); });
+    await waitFor(() => expect(repo.getJointSessionSnapshot).toHaveBeenCalled());
+
+    // A partir daqui o banco segura as respostas para devolver fora de ordem.
+    const respostas: Array<(v: unknown) => void> = [];
+    (repo.getJointSessionSnapshot as jest.Mock).mockImplementation(
+      () => new Promise((resolve) => { respostas.push(resolve); }),
+    );
+
+    await act(async () => { canais[0].handlers.joint_sessions({ new: {} }); });
+    await act(async () => { canais[0].handlers.joint_session_participants({ new: {} }); });
+    expect(respostas.length).toBe(2);
+
+    // Pedido 2 (o MAIS NOVO) responde primeiro: Peito é compatível com a
+    // sessão da tela — sem aviso de incompatibilidade.
+    await act(async () => {
+      respostas[1](estado({ muscleGroup: 'Peito' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(tela.queryByTestId('incompatibilidade')).toBeNull();
+
+    // Pedido 1 (o MAIS ANTIGO) responde por ÚLTIMO: Costas é incompatível.
+    // Se o estado antigo vencer, o aviso aparece e o turno "voltou".
+    await act(async () => {
+      respostas[0](estado({ muscleGroup: 'Costas' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(tela.queryByTestId('incompatibilidade')).toBeNull();
+  });
+});

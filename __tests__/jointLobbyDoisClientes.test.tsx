@@ -123,7 +123,7 @@ describe('T2 — ação de um chega ao outro', () => {
     servidor.state = estadoBase({
       participants: [parte(HOST, 'host', { ready: true }), parte(GUEST, 'guest')],
     });
-    await act(async () => { canais[1].handlers.onState(servidor.state); });
+    await act(async () => { canais[1].handlers.onState(servidor.state, 2); });
 
     // O que importa é o estado do PARCEIRO na minha tela — não o meu.
     await waitFor(() =>
@@ -142,7 +142,7 @@ describe('T3 — buraco de seq NÃO é aplicado, e há snapshot', () => {
     // O canal real chamaria snapshot ao detectar buraco; aqui provamos que a
     // tela NÃO aceita estado que não veio do snapshot.
     servidor.state = estadoBase({ muscleGroup: 'Costas' });
-    await act(async () => { canais[0].handlers.onState(servidor.state); });
+    await act(async () => { canais[0].handlers.onState(servidor.state, 2); });
 
     // E que um refetch autoritativo é o caminho de reconciliação.
     await act(async () => { await canais[0].handlers.onConnectionChange?.(true); });
@@ -193,7 +193,7 @@ describe('T4 — conexão local × presença do parceiro', () => {
         parte(GUEST, 'guest', { lastSeenAt: new Date(agoraMs).toISOString() }),
       ],
     });
-    await act(async () => { canais[0].handlers.onState(servidor.state); });
+    await act(async () => { canais[0].handlers.onState(servidor.state, 2); });
     await waitFor(() => expect(tela.getByTestId(`presenca-${HOST}`).props.children).toBe('presente'));
 
     // 4. o timer some no unmount
@@ -211,7 +211,7 @@ describe('T5 — reconexão converge e limpa o aviso', () => {
 
     await act(async () => {
       canais[0].handlers.onConnectionChange(true);
-      canais[0].handlers.onState(servidor.state);
+      canais[0].handlers.onState(servidor.state, 2);
     });
     expect(a.getByTestId(`conexao-${HOST}`).props.children).toBe('conectado');
     expect(a.getByTestId(`pend-${HOST}`).props.children)
@@ -230,7 +230,7 @@ describe('ciclo de vida', () => {
     const { a } = await montarDupla();
     a.unmount();
     // Evento atrasado chegando num hook morto não pode explodir nem atualizar.
-    expect(() => canais[0].handlers.onState(estadoBase({ muscleGroup: 'Costas' }))).not.toThrow();
+    expect(() => canais[0].handlers.onState(estadoBase({ muscleGroup: 'Costas' }), 2)).not.toThrow();
   });
 
   it('B5b — unsubscribe NÃO chama abandon', async () => {

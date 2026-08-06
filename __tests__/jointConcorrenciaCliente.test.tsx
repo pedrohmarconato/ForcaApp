@@ -104,8 +104,9 @@ describe('F16 — respostas fora de ordem na mesma sessão', () => {
     const tela = render(<Sonda />);
     await waitFor(() => expect(canais.length).toBe(1));
 
-    // Enquanto ele não volta, chega um estado MAIS NOVO pelo canal.
-    await act(async () => { canais[0].onState(estado('Costas')); });
+    // Enquanto ele não volta, chega um estado MAIS NOVO pelo canal (o
+    // simulacro do realtime passa o selo do PEDIDO — maior que o do buscar).
+    await act(async () => { canais[0].onState(estado('Costas'), 2); });
     expect(tela.getByTestId('grupo').props.children).toBe('Costas');
 
     // Agora o snapshot antigo resolve, trazendo o estado velho.
