@@ -465,7 +465,15 @@ describe('snapshot fora de ordem (achado R3)', () => {
         Promise.resolve(estado({ turnSeq: 2, currentTurnUserId: GUEST })),
       );
     // Cursor real do banco: seq 3 já persistida quando o snapshot é aplicado.
-    jest.spyOn(repo, 'getJointLastEventSeq').mockResolvedValue(3);
+    // ACHADO N3 (endurecimento): cursores DIFERENTES por chamada — o uniforme
+    // (3/3/3) de antes não discriminava se a guarda protegia `vistos` de
+    // verdade ou só coincidia. Aqui call1 (SUBSCRIBED) não importa, call2
+    // ("atrasado", descartado) traria cursor BAIXO e call3 ("fresco", vence)
+    // traz cursor ALTO — se a guarda falhasse, vistos regrediria para o baixo.
+    jest.spyOn(repo, 'getJointLastEventSeq')
+      .mockResolvedValueOnce(0) // call 1 (SUBSCRIBED)
+      .mockResolvedValueOnce(1) // call 2 (refresh #1, "atrasado")
+      .mockResolvedValueOnce(5); // call 3 (refresh #2, "fresco", vence)
 
     const { sub, controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
@@ -482,8 +490,8 @@ describe('snapshot fora de ordem (achado R3)', () => {
     await resolverSnapshot();
     expect((onState.mock.calls.at(-1)?.[0] as JointSessionState).turnSeq).toBe(2);
 
-    // A resposta do pedido #2 (estado ANTIGO, turnSeq 1) chega por último —
-    // antes do fix, ela regredia estado E vistos (cursor 0) internos.
+    // A resposta do pedido #2 (estado ANTIGO, turnSeq 1, cursor 1) chega por
+    // último — antes do fix, ela regredia estado E vistos internos.
     onState.mockClear();
     dAtrasado.resolve(estado());
     await resolverSnapshot();
@@ -491,17 +499,94 @@ describe('snapshot fora de ordem (achado R3)', () => {
     expect(onState.mock.calls.length).toBe(0);
 
     snapshotSpy.mockClear();
-    // Evento seq 4 sobre a base nova: com vistos.ultimoSeq=3 (não regredido),
-    // 4 == 3+1 → aplica SEM snapshot. Se vistos tivesse regredido para 0,
-    // 4 > 0+1 seria "buraco" e o teste veria snapshot em cascata.
-    await emitirEvento(controle, 4, 5);
+    // Evento seq 6 sobre a base nova: com vistos.ultimoSeq=5 (cursor do
+    // snapshot "fresco", NÃO regredido pelo cursor=1 do "atrasado"
+    // descartado), 6 == 5+1 → aplica SEM snapshot extra. Se a guarda de
+    // vistos falhasse e o cursor regredisse para 1, 6 > 1+1 pareceria BURACO
+    // e pediria snapshot em cascata.
+    await emitirEvento(controle, 6, 7);
     expect(snapshotSpy).not.toHaveBeenCalled();
     const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
-    expect(ultimo.turnSeq).toBe(5);
+    expect(ultimo.turnSeq).toBe(7);
   });
 });
 
-describe('watchdog de parceiro parado', () => {  it('pausa quando o heartbeat do parceiro cessa e o TTL é cruzado', async () => {
+// N3: kinds sem case no redutor ('mode_set', 'created', 'joined',
+// 'session_confirmed', 'copy_materialized', 'ready', 'unready') caem no
+// `default` de reduzir() e devolvem a MESMA referência de estado — mas
+// aplicarEvento() ainda devolve aplicado:true (só o cursor avança). Publicar
+// esse estado idêntico com um selo NOVO "rouba" o slot de um snapshot em voo
+// mais fresco: a corrida real é o set_joint_session_mode (0026), que faz
+// UPDATE em joint_sessions + INSERT do evento 'mode_set' na MESMA transação —
+// o parceiro tem um snapshot em voo (disparado pelo listener de
+// joint_sessions) quando o evento chega e publica primeiro com selo maior; a
+// resposta do snapshot, que traria o modo novo, chega com selo MENOR e é
+// descartada pela guarda de selo (R3), mesmo sendo o dado mais fresco.
+describe('evento sem efeito não rouba o selo de um snapshot em voo (achado N3)', () => {
+  const resolverSnapshot = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  };
+
+  it('snapshot fresco com o modo novo não é descartado por um evento mode_set que não muda o estado', async () => {
+    const agenda = criarAgenda();
+    const dEmVoo = deferred<JointSessionState>();
+    // 1ª chamada (SUBSCRIBED): resolve na hora, sem modo escolhido (lobby).
+    // 2ª chamada (refresh, simulando o snapshot que o listener de
+    // joint_sessions dispara ao ver o UPDATE do set_joint_session_mode): fica
+    // EM VOO — é ela que vai trazer o modo novo.
+    snapshotSpy
+      .mockImplementationOnce(() => Promise.resolve(estado({ mode: null })))
+      .mockImplementationOnce(() => dEmVoo.promise);
+
+    const { sub, controle, onState } = assinar(agenda);
+    controle.emitirStatus('SUBSCRIBED');
+    await resolverSnapshot();
+    expect((onState.mock.calls.at(-1)?.[0] as JointSessionState).mode).toBeNull();
+
+    // Snapshot em voo disparado (selo tirado no PEDIDO, ainda pendente).
+    void sub.refresh();
+    await Promise.resolve();
+
+    // O evento 'mode_set' chega ANTES da resposta do snapshot em voo — a
+    // mesma transação do set_joint_session_mode que fez o UPDATE também
+    // insere este evento, e o INSERT costuma chegar antes da resposta HTTP
+    // do snapshot voltar.
+    controle.handlers.joint_session_events({
+      new: {
+        seq: 1,
+        actor_user_id: HOST,
+        kind: 'mode_set',
+        client_event_id: 'ev-mode-1',
+        turn_seq_after: null,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // A resposta do snapshot em voo chega por último, trazendo o modo novo.
+    dEmVoo.resolve(estado({ mode: 'each_own', muscleGroup: 'peito' }));
+    await resolverSnapshot();
+
+    const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
+    // Hoje (antes do fix): o evento 'mode_set' publicou o estado antigo
+    // (idêntico, mode:null) com um selo mais novo que o do snapshot em voo,
+    // e a resposta fresca do snapshot foi descartada pela guarda de selo.
+    expect(ultimo.mode).toBe('each_own');
+  });
+});
+
+describe('watchdog de parceiro parado', () => {
+  it('pausa quando o heartbeat do parceiro cessa e o TTL é cruzado', async () => {
     const agenda = criarAgenda();
     const { controle } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');

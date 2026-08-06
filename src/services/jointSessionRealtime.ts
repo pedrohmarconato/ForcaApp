@@ -144,13 +144,27 @@ export const subscribeToJointSession = (
 
   const aoReceberEvento = (evento: JointEvent) => {
     if (!estado) return;
+    const antes = estado;
     const r = aplicarEvento(estado, evento, vistos);
     vistos = r.vistos;
     if (r.precisaSnapshot) {
       void snapshot().catch((e) => handlers.onError?.(e));
       return;
     }
-    if (r.aplicado) publicar(r.state, proximoSelo());
+    // ACHADO N3: kinds sem case no redutor (created/joined/mode_set/
+    // session_confirmed/copy_materialized/ready/unready) caem no `default` de
+    // reduzir() e devolvem a MESMA referência de estado, mas aplicarEvento()
+    // ainda marca aplicado:true (só o cursor avança — correto, o evento foi
+    // visto). Publicar esse estado idêntico tomaria um selo NOVO e "roubaria"
+    // o slot de um snapshot em voo mais fresco: a corrida real é o
+    // set_joint_session_mode, que grava o UPDATE em joint_sessions + o INSERT
+    // do evento 'mode_set' na MESMA transação — o parceiro tem um snapshot em
+    // voo (disparado pelo listener de joint_sessions) quando o evento chega;
+    // se este publicasse, a resposta do snapshot — que traria o dado novo —
+    // chegaria com selo MENOR e seria descartada pela guarda de selo (R3),
+    // mesmo sendo a mais fresca. Só publica quando o redutor de fato mudou o
+    // estado (referência diferente da que entrou).
+    if (r.aplicado && r.state !== antes) publicar(r.state, proximoSelo());
   };
 
   const agendarReconexao = () => {
