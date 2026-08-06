@@ -24,6 +24,7 @@ import {
   vistosVazios,
 } from '../engine/jointSessionModel';
 import {
+  getJointLastEventSeq,
   getJointSessionSnapshot,
   pauseJointSession,
   touchJointPresence,
@@ -111,9 +112,17 @@ export const subscribeToJointSession = (
     // resposta que chegava por último vencia mesmo carregando estado mais
     // antigo: o turno "voltava" na tela e a dupla travava até ~20s.
     const meuSelo = proximoSelo();
-    const s = await getJointSessionSnapshot(jointSessionId);
+    const [s, ultimoSeq] = await Promise.all([
+      getJointSessionSnapshot(jointSessionId),
+      // Achado A3 (review PR #73): semear `vistos` com o cursor real. Zerado,
+      // TODO evento pós-snapshot (seq>1) virava buraco e pedia outro snapshot
+      // — o reducer incremental nunca rodava em produção. Se a leitura do
+      // cursor falhar, 0 preserva o comportamento antigo (converge pelo
+      // snapshot em vez de travar).
+      getJointLastEventSeq(jointSessionId).catch(() => 0),
+    ]);
     if (!vivo || !s) return;
-    vistos = vistosVazios();
+    vistos = { ultimoSeq, chaves: new Set() };
     publicar(s, meuSelo);
   };
 

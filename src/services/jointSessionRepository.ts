@@ -413,6 +413,33 @@ export const getJointSessionSnapshot = async (
   return paraSessao(row, participantes);
 };
 
+/**
+ * Maior `seq` já persistido de joint_session_events da sessão (0 se vazio).
+ * É o cursor que o snapshot usa para semear `vistos` no canal (achado A3,
+ * review PR #73): sem ele, o redutor tratava TODO evento real pós-snapshot
+ * como buraco (vistos zerado) e pedia outro snapshot a cada evento, em loop.
+ * Leitura barata (índice por joint_session_id, uma linha) — e não depende de
+ * migration nova: a tabela e a coluna já existem com a 0026.
+ */
+export const getJointLastEventSeq = async (jointSessionId: string): Promise<number> => {
+  let response: any;
+  try {
+    response = await supabase
+      .from('joint_session_events')
+      .select('seq')
+      .eq('joint_session_id', jointSessionId)
+      .order('seq', { ascending: false })
+      .limit(1);
+  } catch (error) {
+    throw erroDeTransporte(error);
+  }
+  if (response.error) {
+    throw new JointSessionRequestError(response.error, { status: response.status ?? null });
+  }
+  const linha = response.data?.[0];
+  return linha ? Number(linha.seq) : 0;
+};
+
 export type JointInviteDoHost = {
   inviteCode: string;
   inviteExpiresAt: string;

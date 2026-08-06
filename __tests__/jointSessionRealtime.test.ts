@@ -137,6 +137,9 @@ beforeEach(() => {
   snapshotSpy = jest
     .spyOn(repo, 'getJointSessionSnapshot')
     .mockResolvedValue(estado());
+  // Default: banco sem eventos persistidos — o BURACO de seq continua sendo
+  // gap real. Testes que semeiam cursor setam o próprio valor (A3).
+  jest.spyOn(repo, 'getJointLastEventSeq').mockResolvedValue(0);
   pauseSpy = jest.spyOn(repo, 'pauseJointSession').mockResolvedValue(estado({ status: 'paused' }));
   touchSpy = jest
     .spyOn(repo, 'touchJointPresence')
@@ -173,6 +176,9 @@ describe('assinatura', () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     expect(snapshotSpy).toHaveBeenCalledWith('js-1');
@@ -256,6 +262,9 @@ describe('eventos', () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     snapshotSpy.mockClear();
@@ -272,6 +281,9 @@ describe('eventos', () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     snapshotSpy.mockClear();
@@ -281,6 +293,35 @@ describe('eventos', () => {
     expect(snapshotSpy).toHaveBeenCalledWith('js-1');
     const aplicados = onState.mock.calls.map(([s]) => (s as JointSessionState).turnSeq);
     expect(aplicados).not.toContain(6);
+  });
+
+  // A3 (review PR #73): o snapshot aplicava `vistos = vistosVazios()`
+  // ({ultimoSeq:0}) e não trazia cursor de joint_session_events; o gate
+  // seq > ultimoSeq+1 só aceita seq===1, então TODO evento real pós-snapshot
+  // (seq>1) forçava outro snapshot — o reducer incremental nunca rodava em
+  // produção e a concorrência entre snapshots piorava. Com o cursor semeado
+  // (max(seq) real do banco, via getJointLastEventSeq), o evento seguinte ao
+  // snapshot é aplicado direto. O teste oposto — BURACO de seq REAL — segue
+  // verde acima (helper default 0).
+  it('A3: evento seguinte ao snapshot (sessão em seq>1) é aplicado, sem novo snapshot', async () => {
+    const agenda = criarAgenda();
+    // O banco já tem 3 eventos persistidos quando o snapshot é aplicado.
+    jest.spyOn(repo, 'getJointLastEventSeq').mockResolvedValue(3);
+    const { controle, onState } = assinar(agenda);
+    controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    snapshotSpy.mockClear();
+    onState.mockClear();
+
+    // seq 4 == 3+1: SEM gap. O redutor aplica e NÃO pede snapshot.
+    await emitirEvento(controle, 4, 5);
+    expect(snapshotSpy).not.toHaveBeenCalled();
+    const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
+    expect(ultimo.turnSeq).toBe(5);
   });
 
   it('ACHADO F1: mapeia payload.next_turn_user_id para o JointEvent e usa como verdade do servidor', async () => {
@@ -297,6 +338,9 @@ describe('eventos', () => {
     snapshotSpy.mockResolvedValue(estadoComFilaEncerrada);
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     onState.mockClear();
@@ -330,6 +374,9 @@ describe('eventos', () => {
     snapshotSpy.mockResolvedValue(estadoComFilaEncerrada);
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     onState.mockClear();
@@ -355,6 +402,9 @@ describe('eventos', () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     onState.mockClear();
@@ -371,6 +421,9 @@ describe('watchdog de parceiro parado', () => {
     const agenda = criarAgenda();
     const { controle } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -389,6 +442,9 @@ describe('watchdog de parceiro parado', () => {
     const agenda = criarAgenda();
     const { controle } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -403,6 +459,9 @@ describe('watchdog de parceiro parado', () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
+    // O snapshot agora resolve snapshot + cursor (Promise.all): uma microtask a
+    // mais até o estado ser publicado.
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     onState.mockClear();

@@ -37,6 +37,7 @@ jest.mock('../src/config/supabaseClient', () => ({
 jest.mock('../src/services/jointSessionRepository', () => ({
   __esModule: true,
   getJointSessionSnapshot: jest.fn(),
+  getJointLastEventSeq: jest.fn(async () => 0),
   getJointPartnerProfile: jest.fn(),
   getJointInviteForHost: jest.fn(),
   setJointSessionMode: jest.fn(),
