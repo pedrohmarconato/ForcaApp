@@ -100,17 +100,21 @@ describe('K3 — link canônico', () => {
 describe('K2b/K2c — config da árvore Main', () => {
   const registrada = linkingMain.getStateFromPath!;
 
-  it('K2c: o estado é ANINHADO — Home → JointJoin {code}', () => {
+  it('K2c: o estado é ANINHADO — Home → [HomeMain, JointJoin {code}]', () => {
+    // Achado A5 (review PR #73): a pilha ANTIGA era Home→[JointJoin] — sem
+    // HomeMain por baixo, o back do header de JointJoin ficava morto no cold
+    // start pelo link canônico. A sub-pilha agora nasce [HomeMain, JointJoin].
     const estado: any = registrada(`${CAMINHO_CONVITE}/ABC234`, (linkingMain as any).config);
     expect(estado.routes[0].name).toBe('Home');
-    const interna = estado.routes[0].state.routes[0];
-    expect(interna.name).toBe('JointJoin');
-    expect(interna.params).toEqual({ code: 'ABC234' });
+    const interna = estado.routes[0].state.routes;
+    expect(interna[0].name).toBe('HomeMain');
+    expect(interna[1].name).toBe('JointJoin');
+    expect(interna[1].params).toEqual({ code: 'ABC234' });
   });
 
   it('K2c: path com barra inicial dá o mesmo resultado', () => {
     const estado: any = registrada(`/${CAMINHO_CONVITE}/ABC234`, (linkingMain as any).config);
-    expect(estado.routes[0].state.routes[0].params).toEqual({ code: 'ABC234' });
+    expect(estado.routes[0].state.routes[1].params).toEqual({ code: 'ABC234' });
   });
 
   it('K2b: a função registrada RECUSA código inválido — não navega com param quebrado', () => {

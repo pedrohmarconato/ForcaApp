@@ -56,13 +56,24 @@ export {
 // aqui para quem já os importava deste módulo.
 export { LINKING_CONFIG, LINKING_PREFIXES } from './linkingConfig';
 
-/** Estado aninhado que a árvore Main precisa montar para abrir o convite. */
+/**
+ * Estado aninhado que a árvore Main precisa montar para abrir o convite.
+ *
+ * HomeMain vai POR BAIXO de JointJoin (achado A5, review PR #73): sem ele, o
+ * cold start pelo link canônico hidratava Home→[JointJoin] e o botão voltar
+ * do header (goBack sem guarda) ficava morto — o mesmo bug que
+ * initialRouteName:'HomeMain' resolve para a sessão ativa (ver comentário de
+ * abertura deste arquivo e linkingConfig.ts).
+ */
 const estadoDoConvite = (codigo: string) => ({
   routes: [
     {
       name: 'Home',
       state: {
-        routes: [{ name: 'JointJoin', params: { code: codigo } }],
+        routes: [
+          { name: 'HomeMain' },
+          { name: 'JointJoin', params: { code: codigo } },
+        ],
       },
     },
   ],
