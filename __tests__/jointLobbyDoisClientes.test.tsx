@@ -134,23 +134,13 @@ describe('T2 — ação de um chega ao outro', () => {
   });
 });
 
-describe('T3 — buraco de seq NÃO é aplicado, e há snapshot', () => {
-  it('o estado só muda pelo snapshot, nunca por evento com buraco', async () => {
-    const { a } = await montarDupla();
-    const chamadasAntes = (repo.getJointSessionSnapshot as jest.Mock).mock.calls.length;
-
-    // O canal real chamaria snapshot ao detectar buraco; aqui provamos que a
-    // tela NÃO aceita estado que não veio do snapshot.
-    servidor.state = estadoBase({ muscleGroup: 'Costas' });
-    await act(async () => { canais[0].handlers.onState(servidor.state, 2); });
-
-    // E que um refetch autoritativo é o caminho de reconciliação.
-    await act(async () => { await canais[0].handlers.onConnectionChange?.(true); });
-    expect((repo.getJointSessionSnapshot as jest.Mock).mock.calls.length)
-      .toBeGreaterThanOrEqual(chamadasAntes);
-    expect(a.getByTestId(`pend-${HOST}`)).toBeTruthy();
-  });
-});
+// O T3 antigo vivia AQUI e era tautológico (achado A6, review PR #73):
+// jointSessionRealtime está mockado neste arquivo (ver jest.mock no topo),
+// nenhum gap é emitido de verdade, e `toBeGreaterThanOrEqual` sobre
+// mock.calls.length não pode falhar — prova registrada no commit: com a
+// reconciliação por gap DESLIGADA em produção (mutação temporária), a suíte
+// real (jointLobbyReconciliador.test.tsx, T3) FALHA e esta passava. O T3 real
+// vive no reconciliador; nada aqui deve contar chamadas de mock com ">=".
 
 describe('T4 — conexão local × presença do parceiro', () => {
   it('quem perde o canal mostra reconectando; o outro segue conectado', async () => {
