@@ -12,6 +12,12 @@ import { fireEvent, render, waitFor, within } from '@testing-library/react-nativ
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  // A tela recarrega por foco (padrão da Home): dispara o callback como um
+  // focus inicial — o fetch acontece uma vez na montagem.
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
 }));
 
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -24,6 +30,7 @@ jest.mock('../src/services/trainingRepository', () => ({
   getTodaySession: jest.fn(),
   getPlanSessions: jest.fn(),
   getSessionDetail: jest.fn(),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
   formatExerciseTarget: jest.fn(() => '4 séries × 8 reps'),
 }));
 

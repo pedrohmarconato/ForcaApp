@@ -99,6 +99,7 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
         actual_load_kg: '40',
         actual_rir: 2,
         outcome: 'on_target',
+        completed_at: '2026-07-15T22:00:00.000Z',
       },
       error: null,
       status: 200,
@@ -123,6 +124,7 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       actualDistanceM: null,
       paceSecondsPerKm: null,
       perceivedEffort: null,
+      completedAt: '2026-07-15T22:00:00.000Z',
     });
     expect(rpcMock).toHaveBeenCalledWith('save_set_log', {
       p_session_log_id: 'sl-1',
@@ -149,6 +151,7 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
           actual_load_kg: null,
           actual_rir: null,
           outcome: 'over',
+          completed_at: '2026-07-15T22:05:00.000Z',
         },
       ],
       error: null,
@@ -171,7 +174,33 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
       actualDistanceM: null,
       paceSecondsPerKm: null,
       perceivedEffort: null,
+      completedAt: '2026-07-15T22:05:00.000Z',
     });
+  });
+
+  it('série sem completed_at NÃO vira carimbo fabricado (quebra de contrato propaga)', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: {
+        id: 'set-4',
+        actual_reps: 8,
+        actual_load_kg: '40',
+        actual_rir: 2,
+        outcome: 'on_target',
+      },
+      error: null,
+      status: 200,
+    });
+
+    await expect(
+      saveSetLog({
+        sessionLogId: 'sl-1',
+        plannedSetId: 'st-1',
+        actualReps: 8,
+        actualLoadKg: 40,
+        actualRir: 2,
+        outcome: 'on_target',
+      }),
+    ).rejects.toThrow(/sem completed_at/i);
   });
 
   it('erro do banco PROPAGA (ex.: a função recusa log finalizado/alheio)', async () => {
@@ -213,6 +242,7 @@ describe('saveSetLog (RPC save_set_log — F1: índice PARCIAL exige predicado e
         actual_load_kg: '42.5',
         actual_rir: 1,
         outcome: 'on_target',
+        completed_at: '2026-07-15T22:10:00.000Z',
       },
       error: null,
       status: 200,
@@ -414,7 +444,7 @@ describe('getLastLoadByExercise', () => {
 });
 
 describe('getCompletedSessions', () => {
-  it('mapeia sessões concluídas com título e semana', async () => {
+  it('mapeia sessões concluídas com título, semana e tempo efetivo', async () => {
     fromMock.mockReturnValueOnce(
       makeBuilder({
         data: [
@@ -423,6 +453,7 @@ describe('getCompletedSessions', () => {
             planned_session_id: 'ps-1',
             started_at: '2026-07-17T09:00:00Z',
             finished_at: '2026-07-17T10:00:00Z',
+            active_seconds: 3540,
             planned_sessions: {
               title: 'Push A',
               week_number: 2,
@@ -442,7 +473,50 @@ describe('getCompletedSessions', () => {
       muscleGroups: ['Peito'],
       startedAt: '2026-07-17T09:00:00Z',
       finishedAt: '2026-07-17T10:00:00Z',
+      activeSeconds: 3540,
     });
+  });
+
+  it('coluna ausente ou nula devolve activeSeconds null sem quebrar (janela de deploy)', async () => {
+    // Cenário real: migration aplicada depois do código — a coluna ainda não
+    // existe (linha sem a chave) ou existe e veio nula (sessão fechada por app
+    // antigo). A tela mostra "—"; NUNCA o relógio de parede bruto.
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            id: 'sl-1',
+            planned_session_id: 'ps-1',
+            started_at: '2026-07-17T09:00:00Z',
+            finished_at: '2026-07-17T10:00:00Z',
+            active_seconds: null,
+            planned_sessions: { title: 'Push A', week_number: 2, muscle_groups: [] },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res = await getCompletedSessions('user-1');
+    expect(res[0].activeSeconds).toBeNull();
+
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            id: 'sl-2',
+            planned_session_id: 'ps-2',
+            started_at: '2026-07-18T09:00:00Z',
+            finished_at: '2026-07-18T10:00:00Z',
+            // Coluna simplesmente não veio no select (banco sem a migration).
+            planned_sessions: { title: 'Push B', week_number: 2, muscle_groups: [] },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res2 = await getCompletedSessions('user-1');
+    expect(res2[0].activeSeconds).toBeNull();
+    expect(res2[0].sessionLogId).toBe('sl-2');
   });
 
   it('ordena pela CONCLUSÃO, não pelo início (achado #10)', async () => {
@@ -460,6 +534,7 @@ describe('getCompletedSessions', () => {
       planned_session_id: `ps-${i}`,
       started_at: '2026-07-17T09:00:00Z',
       finished_at: '2026-07-17T10:00:00Z',
+      active_seconds: 3600,
       planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
     });
     const paginaCheia = Array.from({ length: 1000 }, (_, i) => linha(i));
@@ -505,6 +580,7 @@ describe('getSessionLogDetail', () => {
         id: 'sl-1',
         started_at: 'T0',
         finished_at: 'T1',
+        active_seconds: 2880,
         planned_sessions: { title: 'Push A', week_number: 2 },
       },
       error: null,
@@ -541,5 +617,25 @@ describe('getSessionLogDetail', () => {
     const res = await getSessionLogDetail('sl-1');
     expect(res?.exercises[0].sets.map((s) => s.setOrder)).toEqual([1, 2]);
     expect(res?.exercises[0].sets[0].actualLoadKg).toBe(40); // number
+    expect(res?.activeSeconds).toBe(2880);
+  });
+
+  it('tempo efetivo ausente ou nulo no detalhe devolve null (janela de deploy)', async () => {
+    const cabecalho = makeBuilder({
+      data: {
+        id: 'sl-2',
+        started_at: 'T0',
+        finished_at: 'T1',
+        active_seconds: null,
+        planned_sessions: { title: 'Push B', week_number: 2 },
+      },
+      error: null,
+    });
+    const linhas = makeBuilder({ data: [], error: null });
+    fromMock.mockReturnValueOnce(cabecalho).mockReturnValueOnce(linhas);
+
+    const res = await getSessionLogDetail('sl-2');
+    expect(res?.activeSeconds).toBeNull();
+    expect(res?.title).toBe('Push B');
   });
 });

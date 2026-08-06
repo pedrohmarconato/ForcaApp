@@ -80,6 +80,7 @@ jest.mock('../src/services/api/claudeService', () => ({
 
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: jest.fn(async () => false),
 }));
 
 jest.mock('../src/services/planRecovery', () => ({

@@ -7,14 +7,29 @@
 // estado 'generating' → gerar plano), uma única vez.
 
 import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
+import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
+const mockGoBack = jest.fn();
+const mockPopToTop = jest.fn();
 const mockRouteParams: { formData?: any; skipChat?: boolean } = {};
+
+const mockAuth: {
+  user: { id: string; onboarding_completed: boolean; user_metadata: { full_name: string } };
+  updateProfile: jest.Mock;
+} = {
+  user: { id: 'user-123', onboarding_completed: false, user_metadata: { full_name: 'Pedro' } },
+  updateProfile: jest.fn(async () => ({})),
+};
 
 jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: mockRouteParams }),
-  useNavigation: () => ({ navigate: mockNavigate, addListener: jest.fn(() => jest.fn()), goBack: jest.fn() }),
+  useNavigation: () => ({
+    navigate: mockNavigate,
+    addListener: jest.fn(() => jest.fn()),
+    goBack: mockGoBack,
+    popToTop: mockPopToTop,
+  }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -25,14 +40,7 @@ jest.mock('react-native-safe-area-context', () => {
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 
 jest.mock('../src/contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-123',
-      onboarding_completed: false,
-      user_metadata: { full_name: 'Pedro' },
-    },
-    updateProfile: jest.fn(async () => ({})),
-  }),
+  useAuth: () => mockAuth,
 }));
 
 const mockQuestionario = JSON.stringify({ objetivo: 'hipertrofia', nome: 'Pedro' });
@@ -73,8 +81,11 @@ jest.mock('../src/services/api/claudeService', () => ({
   callClaudeApi: jest.fn(async () => 'nunca chamado'),
 }));
 
+let mockHasSessionInProgress = jest.fn();
+
 jest.mock('../src/services/trainingRepository', () => ({
   getActivePlanId: jest.fn(async () => null),
+  hasSessionInProgress: (...args: unknown[]) => mockHasSessionInProgress(...args),
 }));
 
 import PostQuestionnaireChat from '../src/screens/PostQuestionnaireChat';
@@ -89,6 +100,8 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
   });
 
   it('com skipChat: true e chat novo, não mostra escolha inicial e dispara geração 1×', async () => {
@@ -139,6 +152,27 @@ describe('PostQuestionnaireChat — skipChat no init', () => {
     expect(mockStartPlanJob).toHaveBeenCalledTimes(1);
   });
 
+  it('regeneração da aba Plano (skipChat com onboarding já completo): init NÃO retorna cedo — gera de novo (achado nº 7 do review 67)', async () => {
+    mockRouteParams.skipChat = true;
+    mockAuth.user.onboarding_completed = true;
+
+    render(<PostQuestionnaireChat />);
+
+    // Antes do fix, o init saía no early-return de onboarding_completed e o
+    // botão "Gerar novo plano" morria sem geração.
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
+  });
+
+  it('regeneração SEM skipChat com onboarding completo continua saindo cedo (fluxo antigo intacto)', async () => {
+    mockRouteParams.skipChat = false;
+    mockAuth.user.onboarding_completed = true;
+
+    render(<PostQuestionnaireChat />);
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+  });
+
   it('skipChat: true com chat salvo em andamento — escolha ignorada, chat normal aparece', async () => {
     const chatSalvo = JSON.stringify({
       messages: [{ role: 'model', parts: [{ text: 'Olá!' }] }],
@@ -168,6 +202,7 @@ describe('PostQuestionnaireChat — retomada com geração em andamento (pós-mo
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockHasSessionInProgress.mockResolvedValue(false);
   });
 
   it('retoma geração COM os ajustes salvos no chat quando @chat_state_ = "generating"', async () => {
@@ -191,5 +226,96 @@ describe('PostQuestionnaireChat — retomada com geração em andamento (pós-mo
     render(<PostQuestionnaireChat />);
 
     await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('PostQuestionnaireChat — "Começar" e o retorno ao stack', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
+    (secureStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
+      key.startsWith('@questionnaire_data_') ? mockQuestionario : null,
+    );
+  });
+
+  it('REGENERAÇÃO (onboarding já completo): volta ao topo do stack de treino', async () => {
+    mockRouteParams.skipChat = true;
+    mockAuth.user.onboarding_completed = true;
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
+    const botao = await findByText('Começar');
+    await act(async () => { fireEvent.press(botao); });
+
+    expect(mockPopToTop).toHaveBeenCalledTimes(1);
+  });
+
+  it('ONBOARDING original (completed=false): NÃO chama popToTop — quem troca é o RootNavigator', async () => {
+    // skipChat também é o caminho normal do onboarding ("Gerar treino direto"):
+    // guardar o popToTop por ele fazia o stack de onboarding voltar ao
+    // questionário no exato instante da troca de navigator.
+    mockRouteParams.skipChat = true;
+    mockAuth.user.onboarding_completed = false;
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
+    const botao = await findByText('Começar');
+    await act(async () => { fireEvent.press(botao); });
+
+    expect(mockAuth.updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ onboarding_completed: true }),
+    );
+    expect(mockPopToTop).not.toHaveBeenCalled();
+  });
+});
+
+describe('PostQuestionnaireChat — guard de sessão em andamento na geração', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
+  });
+
+  it('com sessão em andamento no momento da geração, NÃO gera e oferece voltar ao plano', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockResolvedValue(true);
+
+    const { findByText, getByLabelText } = render(<PostQuestionnaireChat />);
+
+    await findByText(
+      'Você tem um treino em andamento. Termine ou saia dele antes de gerar um novo plano.',
+    );
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+    // CTA de saída: retry é fútil enquanto a sessão segue em andamento — o
+    // usuário vai ao plano, onde a sessão é retomada ou abandonada.
+    fireEvent.press(getByLabelText('Voltar ao plano'));
+    expect(mockPopToTop).toHaveBeenCalledTimes(1);
+  });
+
+  it('bloqueio no skipChat encerra o chat (não reabre a conversa ao dispensar)', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockResolvedValue(true);
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+
+    // isChatEnded segue o contrato do handleConfirmEndChat: sem isto, após
+    // dispensar o aviso o chat reabriria inteiro sem indício do que houve.
+    await findByText('Chat encerrado. Toque em ✓ para gerar o treino.');
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
+  });
+
+  it('com falha na checagem, NÃO gera e pede para tentar de novo', async () => {
+    mockRouteParams.skipChat = true;
+    mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu'));
+
+    const { findByText } = render(<PostQuestionnaireChat />);
+
+    // Mensagem neutra: no primeiro onboarding nunca houve treino para estar
+    // em andamento.
+    await findByText('Erro ao gerar plano: não foi possível verificar sua situação atual. Tente de novo.');
+    expect(mockStartPlanJob).not.toHaveBeenCalled();
   });
 });

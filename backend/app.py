@@ -1269,6 +1269,20 @@ def handle_consolidate_chat():
     app_logger.info(f"Consolidate-chat: usuário {user_id}, {len(messages)} mensagens.")
 
     modelo_consolidacao = get_chat_model_name()
+    if FORCA_STRUCTURED_OUTPUT:
+        # Structured outputs não aceita pre-fill: a API rejeita o request com
+        # 400 se a ÚLTIMA mensagem for 'assistant'. O histórico do chat termina
+        # com a resposta do coach, então as mensagens 'assistant' finais são
+        # descartadas ANTES da chamada (homologação 03/08/2026 — o consolidate
+        # morria com 400 da API e o plano era bloqueado).
+        while messages and messages[-1]["role"] == "assistant":
+            messages = messages[:-1]
+        if not messages:
+            app_logger.warning(
+                f"Consolidate-chat: histórico sem mensagens 'user' após descartar o assistente ({user_id})."
+            )
+            return jsonify({"error": "Conversa sem falas do aluno para consolidar."}), 400
+
     kwargs_consolidacao = {
         "model": modelo_consolidacao,
         "max_tokens": CONSOLIDATE_MAX_TOKENS,

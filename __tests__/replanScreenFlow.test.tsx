@@ -202,13 +202,13 @@ beforeEach(() => {
   jest.clearAllMocks();
   useActiveSessionStore.getState().reset();
   mock(getWeekReplanContext).mockImplementation(async () => makeContext());
-  mock(applyConfirmedReplan).mockResolvedValue({ addedSets: [] });
+  mock(applyConfirmedReplan).mockResolvedValue(undefined);
 });
 
 const renderScreen = () =>
   render(<ActiveSessionScreen route={{ params: { sessionId: 'sess-1' } }} />);
 
-it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; aplicar reflete na tela', async () => {
+it('abrir não propõe nada (COMMIT B); recusar mantém tudo; menos tempo corta; aplicar reflete na tela', async () => {
   const screen = renderScreen();
   // Check-in obrigatório (22/07/2026): responder as 2 perguntas para o treino abrir.
   await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
@@ -217,14 +217,15 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   fireEvent.press(screen.getByLabelText('Começar treino'));
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
-  // 1. Recalculou ao abrir: banner com a falta da segunda. Redesign 24/07/2026:
-  // o título virou o resumo e a sessão perdida virou cartão com o dia da semana
-  // (2020-01-05 é um domingo).
-  await waitFor(() => expect(screen.getByText(/na sua semana/)).toBeTruthy());
-  expect(screen.getByText('Treino A · dom')).toBeTruthy();
-  expect(screen.getByText('pulado')).toBeTruthy();
+  // 1. Recalculou ao abrir: a falta NÃO gera proposta (COMMIT B) — o banner só
+  // aparece com um corte de tempo pedido.
+  expect(screen.queryByText(/na sua semana/)).toBeNull();
 
-  // 2. RECUSA: banner some, nada foi escrito, treino segue inteiro
+  // 2. RECUSA: com o corte pedido, o banner some e nada foi escrito
+  fireEvent.press(screen.getByTestId('replan-time-toggle'));
+  fireEvent.changeText(screen.getByTestId('replan-minutes-input'), '40');
+  fireEvent.press(screen.getByTestId('replan-minutes-apply'));
+  await waitFor(() => expect(screen.getByText('Hoje · menos tempo')).toBeTruthy());
   fireEvent.press(screen.getByTestId('replan-decline'));
   await waitFor(() => expect(screen.queryByText(/na sua semana/)).toBeNull());
   expect(mock(applyConfirmedReplan)).not.toHaveBeenCalled();
@@ -233,18 +234,15 @@ it('abrir mostra o banner da falta; recusar mantém tudo; menos tempo corta; apl
   await waitFor(() => expect(screen.getByText('Tríceps Corda')).toBeTruthy());
   fireEvent.press(screen.getByLabelText('Fechar andamento'));
 
-  // 3. Menos tempo hoje: 40 min → proposta de corte do acessório (sem a
-  // redistribuição recusada de volta)
-  fireEvent.press(screen.getByTestId('replan-time-toggle'));
-  fireEvent.changeText(screen.getByTestId('replan-minutes-input'), '40');
+  // 3. Menos tempo ainda (30 min): conteúdo diferente do recusado (40 min) →
+  // a proposta de corte do acessório reaparece (o input já está aberto do passo 2)
+  fireEvent.changeText(screen.getByTestId('replan-minutes-input'), '30');
   fireEvent.press(screen.getByTestId('replan-minutes-apply'));
   await waitFor(() => expect(screen.getByText('Hoje · menos tempo')).toBeTruthy());
   // Os minutos são contexto, não resultado: o motor corta por prioridade e não
   // reestima a duração do treino cortado.
-  expect(screen.getByText('você tem 40 dos 60 min estimados')).toBeTruthy();
+  expect(screen.getByText('você tem 30 dos 60 min estimados')).toBeTruthy();
   expect(screen.getByText('saem: Tríceps Corda (1)')).toBeTruthy();
-  // A redistribuição recusada não volta junto com o corte de tempo.
-  expect(screen.queryByText('Treino A · dom')).toBeNull();
 
   // 4. APLICAR: escreve via repositório e o acessório sai do caminho na tela
   fireEvent.press(screen.getByTestId('replan-confirm'));

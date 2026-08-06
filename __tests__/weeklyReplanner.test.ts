@@ -1,20 +1,15 @@
 // __tests__/weeklyReplanner.test.ts
 // Fase 6 — cobre o replanejador semanal por regras: aderência honesta (sem dado
-// inventado), escadas de tempo (~100%/66%/45%), redistribuição pós-falta com teto
-// (+25% por grupo) e recuperação (não empilhar grupo em dias consecutivos), faltas
-// múltiplas (teto sobre o TOTAL, não por falta), deload (reduz e não compensa;
-// nunca recebe) e "nada a replanejar".
+// inventado), escadas de tempo (~100%/66%/45%) e "nada a replanejar". COMMIT B:
+// redistribuição pós-falta removida — a semana fecha com menos volume.
 
 import {
   computeAdherence,
   isDeloadSession,
   planTimeCut,
-  planMissedRedistribution,
   replanByRules,
   applyTimeCutToDraft,
-  appendAddedSetsToDraft,
   parseReplanSnapshot,
-  addedSetIdsFromSnapshots,
   lastTimeCutForSession,
   replanFingerprint,
   type WeeklyReplanProposal,
@@ -30,11 +25,10 @@ import type { SessionDraft } from '../src/engine/sessionModel';
 // Fixtures compactas
 // ---------------------------------------------------------------
 
-const sets = (exerciseId: string, n: number, addedByReplan = false): ReplanSetRef[] =>
+const sets = (exerciseId: string, n: number): ReplanSetRef[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `${exerciseId}-s${i + 1}`,
     setOrder: i + 1,
-    addedByReplan,
   }));
 
 const ex = (
@@ -173,207 +167,6 @@ describe('planTimeCut', () => {
 });
 
 // ---------------------------------------------------------------
-// planMissedRedistribution — redistribuição pós-falta
-// ---------------------------------------------------------------
-
-describe('planMissedRedistribution', () => {
-  it('sem falta → null', () => {
-    const plan = planMissedRedistribution({
-      sessions: [
-        sess('a', '2026-07-13', [ex('a1', 'peito', 'primary', 4)], { status: 'completed' }),
-        sess('b', '2026-07-18', [ex('b1', 'costas', 'primary', 4)]),
-      ],
-      todayISO: '2026-07-17',
-      currentSessionId: 'b',
-    });
-    expect(plan).toBeNull();
-  });
-
-  it('falta simples: redistribui nas restantes com teto de +25% por grupo e registra a sobra', () => {
-    // Segunda perdida: 4 séries de peito. Alvos: quarta (8 séries de peito → teto 2)
-    // e sexta (4 séries de peito → teto 1). Round-robin: qua, sex, qua → sobra 1.
-    const sessions = [
-      sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
-      sess('qua', '2026-07-15', [ex('w1', 'peito', 'primary', 8)], { status: 'in_progress' }),
-      sess('sex', '2026-07-17', [ex('f1', 'peito', 'accessory', 4)]),
-    ];
-    const plan = planMissedRedistribution({
-      sessions,
-      todayISO: '2026-07-15',
-      currentSessionId: 'qua',
-    });
-    expect(plan).not.toBeNull();
-    expect(plan!.missedSessionIds).toEqual(['seg']);
-    expect(plan!.additions).toEqual([
-      expect.objectContaining({ targetSessionId: 'qua', exerciseId: 'w1', addSets: 2 }),
-      expect.objectContaining({ targetSessionId: 'sex', exerciseId: 'f1', addSets: 1 }),
-    ]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ missedSessionId: 'seg', muscleGroup: 'peito', sets: 1, reason: 'nao_coube' }),
-    ]);
-  });
-
-  it('reordenação da semana: pendente movida para slot no passado vira perdida', () => {
-    // Efeito documentado da feature "reordenar treinos" (fila real): se o
-    // usuário move uma sessão para um slot cuja data já passou, o replanejador
-    // a trata como perdida no ciclo seguinte — coerente com permutar datas de
-    // verdade. O chip de dia no modo edição torna a consequência visível.
-    const sessions = [
-      // Era a sessão de sexta; a reordenação lhe deu o slot de segunda (passado).
-      sess('movida', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
-      sess('qua', '2026-07-15', [ex('w1', 'peito', 'primary', 8)], { status: 'in_progress' }),
-      sess('sex', '2026-07-17', [ex('f1', 'peito', 'accessory', 4)]),
-    ];
-    const plan = planMissedRedistribution({
-      sessions,
-      todayISO: '2026-07-15',
-      currentSessionId: 'qua',
-    });
-    expect(plan).not.toBeNull();
-    expect(plan!.missedSessionIds).toEqual(['movida']);
-  });
-
-  it('recuperação: não empilha o mesmo grupo em dias consecutivos', () => {
-    // Falta de costas na segunda. Terça e quarta treinam costas em dias consecutivos
-    // → nenhuma das duas pode receber; sexta (isolada) recebe até o teto.
-    const sessions = [
-      sess('seg', '2026-07-13', [ex('m1', 'costas', 'primary', 4)]),
-      sess('ter', '2026-07-14', [ex('t1', 'costas', 'primary', 4)], { status: 'completed' }),
-      sess('qua', '2026-07-15', [ex('w1', 'costas', 'primary', 4)]),
-      sess('sex', '2026-07-17', [ex('f1', 'costas', 'primary', 8)]),
-    ];
-    const plan = planMissedRedistribution({
-      sessions,
-      todayISO: '2026-07-15',
-      currentSessionId: 'qua',
-    });
-    expect(plan!.additions).toEqual([
-      expect.objectContaining({ targetSessionId: 'sex', exerciseId: 'f1', addSets: 2 }),
-    ]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ muscleGroup: 'costas', sets: 2, reason: 'nao_coube' }),
-    ]);
-  });
-
-  it('faltas múltiplas NÃO empilham: o teto vale para o TOTAL redistribuído', () => {
-    // Duas faltas de peito (4+4 séries). Único alvo tem 8 séries → teto TOTAL 2.
-    const sessions = [
-      sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
-      sess('ter', '2026-07-14', [ex('m2', 'peito', 'primary', 4)]),
-      sess('sex', '2026-07-17', [ex('f1', 'peito', 'primary', 8)]),
-    ];
-    const plan = planMissedRedistribution({
-      sessions,
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    const totalAdicionado = plan!.additions.reduce((s, a) => s + a.addSets, 0);
-    expect(totalAdicionado).toBe(2);
-    const totalPerdido = plan!.losses.reduce((s, l) => s + l.sets, 0);
-    expect(totalPerdido).toBe(6);
-  });
-
-  it('séries adicionadas por replans ANTERIORES contam no teto', () => {
-    // Alvo com 8 séries originais + 2 já adicionadas por replan → teto 2 já consumido.
-    const alvo = sess('sex', '2026-07-17', [
-      { ...ex('f1', 'peito', 'primary', 8), sets: [...sets('f1', 8), ...sets('f1x', 2, true)] },
-    ]);
-    const plan = planMissedRedistribution({
-      sessions: [sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]), alvo],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    expect(plan!.additions).toEqual([]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ muscleGroup: 'peito', sets: 4, reason: 'nao_coube' }),
-    ]);
-  });
-
-  it('séries que vieram de replan anterior na sessão PERDIDA não são re-redistribuídas', () => {
-    const perdida = sess('seg', '2026-07-13', [
-      { ...ex('m1', 'peito', 'primary', 4), sets: [...sets('m1', 4), ...sets('m1x', 1, true)] },
-    ]);
-    const plan = planMissedRedistribution({
-      sessions: [perdida, sess('sex', '2026-07-17', [ex('f1', 'peito', 'primary', 8)])],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    // 4 originais → 2 vão (teto), 2 sobram; a 1 de replan anterior é perda registrada à parte.
-    expect(plan!.additions).toEqual([
-      expect.objectContaining({ targetSessionId: 'sex', addSets: 2 }),
-    ]);
-    expect(plan!.losses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ sets: 2, reason: 'nao_coube' }),
-        expect.objectContaining({ sets: 1, reason: 'replan_anterior_perdido' }),
-      ]),
-    );
-  });
-
-  it('deload perdida: reduz e NÃO compensa (perda registrada, nada redistribuído)', () => {
-    const plan = planMissedRedistribution({
-      sessions: [
-        sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)], { sessionType: 'Deload' }),
-        sess('sex', '2026-07-17', [ex('f1', 'peito', 'primary', 8)]),
-      ],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    expect(plan!.missedSessionIds).toEqual(['seg']);
-    expect(plan!.additions).toEqual([]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ missedSessionId: 'seg', sets: 4, reason: 'deload_nao_compensa' }),
-    ]);
-  });
-
-  it('deload NUNCA recebe redistribuição', () => {
-    const plan = planMissedRedistribution({
-      sessions: [
-        sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
-        sess('sex', '2026-07-17', [ex('f1', 'peito', 'primary', 8)], { sessionType: 'Deload' }),
-      ],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    expect(plan!.additions).toEqual([]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ muscleGroup: 'peito', sets: 4, reason: 'nao_coube' }),
-    ]);
-  });
-
-  it('exercício perdido sem grupo muscular → perda honesta (não adivinha o destino)', () => {
-    const plan = planMissedRedistribution({
-      sessions: [
-        sess('seg', '2026-07-13', [ex('m1', null, 'primary', 3)]),
-        sess('sex', '2026-07-17', [ex('f1', 'peito', 'primary', 8)]),
-      ],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    expect(plan!.additions).toEqual([]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ sets: 3, reason: 'sem_grupo_muscular' }),
-    ]);
-  });
-
-  it('dentro do grupo, quem recebe é o exercício de MAIOR prioridade', () => {
-    const alvo = sess('sex', '2026-07-17', [
-      ex('acc', 'peito', 'accessory', 4, { exerciseOrder: 1 }),
-      ex('pri', 'peito', 'primary', 4, { exerciseOrder: 2 }),
-    ]);
-    const plan = planMissedRedistribution({
-      sessions: [sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]), alvo],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-    });
-    // Teto do grupo na sessão: floor(0.25 × 8) = 2, aplicado no exercício primário.
-    expect(plan!.additions).toEqual([
-      expect.objectContaining({ targetSessionId: 'sex', exerciseId: 'pri', addSets: 2 }),
-    ]);
-  });
-});
-
-// ---------------------------------------------------------------
 // replanByRules — orquestração
 // ---------------------------------------------------------------
 
@@ -390,12 +183,11 @@ describe('replanByRules', () => {
       completedSetsBySession: { a: 4 },
     });
     expect(proposal.timeCut).toBeNull();
-    expect(proposal.redistribution).toBeNull();
     expect(proposal.hasChanges).toBe(false);
     expect(proposal.adherence.sessionsCompleted).toBe(1);
   });
 
-  it('falta + menos tempo hoje → as duas propostas juntas', () => {
+  it('menos tempo hoje → só o corte de tempo é proposto', () => {
     const proposal = replanByRules({
       sessions: [
         sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
@@ -408,70 +200,7 @@ describe('replanByRules', () => {
       completedSetsBySession: {},
     });
     expect(proposal.timeCut).not.toBeNull();
-    expect(proposal.redistribution).not.toBeNull();
     expect(proposal.hasChanges).toBe(true);
-  });
-
-  it('corte e redistribuição no MESMO replan: exercício CORTADO não recebe séries', () => {
-    // Falta de segunda: peito 4 + tríceps 4. Hoje (40 de 60 min) corta o acessório
-    // de tríceps (a1). O peito vai para o exercício MANTIDO de hoje (p1, teto 1);
-    // o tríceps NÃO pode cair no a1 cortado — vai para sexta (teto 2) e o resto é
-    // perda registrada. Sem o cruzamento corte×redistribuição, a1 receberia +2
-    // séries que nunca seriam executadas (achado nº 1 do review do dono).
-    const sessions = [
-      sess('seg', '2026-07-13', [
-        ex('m0', 'peito', 'primary', 4, { exerciseOrder: 1 }),
-        ex('m1', 'triceps', 'primary', 4, { exerciseOrder: 2 }),
-      ]),
-      sess(
-        'hoje',
-        '2026-07-17',
-        [
-          ex('p1', 'peito', 'primary', 4, { exerciseOrder: 1 }),
-          ex('a1', 'triceps', 'accessory', 8, { exerciseOrder: 2 }),
-        ],
-        { status: 'in_progress' },
-      ),
-      sess('sex', '2026-07-19', [ex('f1', 'triceps', 'primary', 8)]),
-    ];
-    const proposal = replanByRules({
-      sessions,
-      todayISO: '2026-07-17',
-      currentSessionId: 'hoje',
-      availableMinutes: 40,
-      completedSetsBySession: {},
-    });
-    expect(proposal.timeCut!.cutExercises.map((c) => c.exerciseId)).toEqual(['a1']);
-    // NENHUMA adição no exercício cortado
-    expect(proposal.redistribution!.additions.map((a) => a.exerciseId)).not.toContain('a1');
-    expect(proposal.redistribution!.additions).toEqual([
-      expect.objectContaining({ targetSessionId: 'hoje', exerciseId: 'p1', addSets: 1 }),
-      expect.objectContaining({ targetSessionId: 'sex', exerciseId: 'f1', addSets: 2 }),
-    ]);
-    expect(proposal.redistribution!.losses).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ muscleGroup: 'peito', sets: 3, reason: 'nao_coube' }),
-        expect.objectContaining({ muscleGroup: 'triceps', sets: 2, reason: 'nao_coube' }),
-      ]),
-    );
-  });
-
-  it('planMissedRedistribution: receptor excluído não recebe nem conta no teto do grupo', () => {
-    // Único exercício de peito da receptora está excluído (cortado) → o grupo não
-    // tem capacidade nessa sessão; tudo vira perda registrada.
-    const plan = planMissedRedistribution({
-      sessions: [
-        sess('seg', '2026-07-13', [ex('m1', 'peito', 'primary', 4)]),
-        sess('sex', '2026-07-17', [ex('f1', 'peito', 'accessory', 8)]),
-      ],
-      todayISO: '2026-07-16',
-      currentSessionId: 'sex',
-      excludedReceiverExerciseIds: ['f1'],
-    });
-    expect(plan!.additions).toEqual([]);
-    expect(plan!.losses).toEqual([
-      expect.objectContaining({ muscleGroup: 'peito', sets: 4, reason: 'nao_coube' }),
-    ]);
   });
 
   it('deload de hoje pode ser CORTADA por tempo (reduzir é permitido; compensar não)', () => {
@@ -483,7 +212,6 @@ describe('replanByRules', () => {
       completedSetsBySession: {},
     });
     expect(proposal.timeCut).not.toBeNull();
-    expect(proposal.redistribution).toBeNull();
   });
 });
 
@@ -549,33 +277,12 @@ const makeDraft = (): SessionDraft => ({
   lastLoadByExercise: {},
 });
 
-describe('applyTimeCutToDraft / appendAddedSetsToDraft', () => {
+describe('applyTimeCutToDraft', () => {
   it('corte marca só os exercícios listados; séries feitas ficam intactas', () => {
     const out = applyTimeCutToDraft(makeDraft(), ['ex-2']);
     expect(out.exercises[0].cutByReplan).toBeUndefined();
     expect(out.exercises[1].cutByReplan).toBe(true);
     expect(out.exercises[0].sets[0].status).toBe('done');
-  });
-
-  it('anexa as séries inseridas na sessão atual, ordenadas e SEM duplicar (idempotente)', () => {
-    const rows = [
-      {
-        id: 'new-1',
-        sessionId: 'sess-1',
-        exerciseId: 'ex-1',
-        setOrder: 3,
-        targetRepsMin: 8,
-        targetRepsMax: 10,
-        targetLoadKg: 42.5,
-        targetRir: 2,
-      },
-    ];
-    const once = appendAddedSetsToDraft(makeDraft(), rows);
-    const twice = appendAddedSetsToDraft(once, rows);
-    const setsEx1 = twice.exercises[0].sets;
-    expect(setsEx1.map((s) => s.plannedSetId)).toEqual(['st-1', 'st-2', 'new-1']);
-    expect(setsEx1[2]).toMatchObject({ status: 'pending', targetLoadKg: 42.5, setOrder: 3 });
-    expect(twice.exercises[1].sets).toHaveLength(1); // outro exercício intocado
   });
 });
 
@@ -592,7 +299,6 @@ describe('snapshot do replanejamento (parse defensivo)', () => {
       setsCompleted: 0,
       volumeRate: null,
     },
-    redistribution: null,
     timeCut: null,
     ...over,
   });
@@ -604,20 +310,37 @@ describe('snapshot do replanejamento (parse defensivo)', () => {
     expect(parseReplanSnapshot({ version: 1, events: 'x' })).toBeNull();
   });
 
-  it('extrai os IDs de séries adicionadas por replans anteriores de todos os snapshots', () => {
-    const snap: ReplanSnapshot = {
+  it('snapshot legado com redistribution (COMMIT A) ainda parseia e o corte é achado', () => {
+    // Campo histórico ignorado de propósito: o evento antigo tem o bloco rd, mas
+    // só o timeCut interessa para a retomada. parseReplanSnapshot é defensivo e
+    // não rejeita campos extras.
+    const legado = {
       version: 1,
       events: [
-        event({
+        {
+          confirmedAtISO: '2026-07-17T10:00:00Z',
+          planId: 'plan-1',
+          weekNumber: 1,
+          adherence: { sessionsDue: 0, sessionsCompleted: 0, sessionRate: null, setsDue: 0, setsCompleted: 0, volumeRate: null },
           redistribution: {
-            missedSessions: [],
+            missedSessions: [{ id: 'seg', originalStatus: 'pending' }],
             addedSets: [{ id: 'a1', sessionId: 's', exerciseId: 'e', setOrder: 5 }],
             losses: [],
           },
-        }),
+          timeCut: {
+            sessionId: 'sess-1',
+            availableMinutes: 30,
+            estimatedMinutes: 60,
+            keptPriorities: ['primary'],
+            cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps Corda', setsCut: 1 }],
+          },
+        },
       ],
     };
-    expect([...addedSetIdsFromSnapshots([snap, null])]).toEqual(['a1']);
+    const snap = parseReplanSnapshot(legado);
+    expect(snap).not.toBeNull();
+    expect(snap!.events).toHaveLength(1);
+    expect(lastTimeCutForSession(snap, 'sess-1')?.availableMinutes).toBe(30);
   });
 
   it('lastTimeCutForSession devolve o ÚLTIMO corte da sessão (e ignora o de outra)', () => {
@@ -655,16 +378,6 @@ describe('replanFingerprint — conteúdo canônico visível/aplicável', () => 
         { exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 },
       ],
     },
-    redistribution: {
-      kind: 'missed_redistribution',
-      missedSessionIds: ['seg'],
-      additions: [
-        { targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 },
-      ],
-      losses: [
-        { missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' },
-      ],
-    },
     hasChanges: true,
     ...overrides,
   });
@@ -672,21 +385,9 @@ describe('replanFingerprint — conteúdo canônico visível/aplicável', () => 
   it('mesma semântica em ordem diferente → fingerprint IGUAL', () => {
     const a = proposta({
       timeCut: { ...proposta().timeCut, cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 }] },
-      redistribution: {
-        ...proposta().redistribution,
-        missedSessionIds: ['seg'],
-        additions: [{ targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 }],
-        losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' }],
-      },
     });
     const b = proposta({
       timeCut: { ...proposta().timeCut, cutExercises: [{ exerciseId: 'ex-2', name: 'Tríceps Corda', priority: 'accessory', muscleGroup: 'Tríceps', setsCut: 1 }] },
-      redistribution: {
-        ...proposta().redistribution,
-        missedSessionIds: ['seg'],
-        additions: [{ targetSessionId: 'sess-1', exerciseId: 'ex-1', exerciseName: 'Supino Reto', muscleGroup: 'Peito', addSets: 1 }],
-        losses: [{ missedSessionId: 'seg', muscleGroup: 'Peito', sets: 3, reason: 'nao_coube' }],
-      },
     });
     expect(replanFingerprint(a)).toBe(replanFingerprint(b));
   });
@@ -718,31 +419,13 @@ describe('replanFingerprint — conteúdo canônico visível/aplicável', () => 
     expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
   });
 
-  it('mudar addSets ou exerciseName de uma addition → DIFERENTE', () => {
-    const p = proposta();
-    p.redistribution.additions[0] = { ...p.redistribution.additions[0], addSets: 2 };
-    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
-    const q = proposta();
-    q.redistribution.additions[0] = { ...q.redistribution.additions[0], exerciseName: 'Supino Inclinado' };
-    expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
-  });
-
-  it('mudar sets ou muscleGroup de uma loss → DIFERENTE', () => {
-    const p = proposta();
-    p.redistribution.losses[0] = { ...p.redistribution.losses[0], sets: 2 };
-    expect(replanFingerprint(p)).not.toBe(replanFingerprint(proposta()));
-    const q = proposta();
-    q.redistribution.losses[0] = { ...q.redistribution.losses[0], muscleGroup: 'Costas' };
-    expect(replanFingerprint(q)).not.toBe(replanFingerprint(proposta()));
-  });
-
   it('sem timeCut: mudar só os minutos NÃO muda o fingerprint (sem proposta visível de corte)', () => {
     const semCorte = proposta({ timeCut: null });
     const semCorte40 = proposta({ timeCut: null });
     expect(replanFingerprint(semCorte)).toBe(replanFingerprint(semCorte40));
   });
 
-  it('proposta sem timeCut nem redistribution → fingerprint estável "no-changes"', () => {
-    expect(replanFingerprint(proposta({ timeCut: null, redistribution: null, hasChanges: false }))).toBe('no-changes');
+  it('proposta sem timeCut → fingerprint estável "no-changes"', () => {
+    expect(replanFingerprint(proposta({ timeCut: null, hasChanges: false }))).toBe('no-changes');
   });
 });
