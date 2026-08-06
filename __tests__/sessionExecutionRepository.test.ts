@@ -955,4 +955,93 @@ describe('0026 ausente no banco — 42703 degrada sem quebrar (achado A1/A7)', (
       code: '42P01',
     });
   });
+
+  // R1 (review PR #73): produção está na 0022 — BOTH 0026 (purpose) e 0028
+  // (active_seconds) ausentes. O fallback antigo refazia sem purpose mas
+  // MANTINHA active_seconds no SELECT, então o segundo 42703 relançava sem
+  // catch: Histórico caía em erro em prod. A degradação agora é em degraus:
+  // 1º com tudo, 2º sem purpose (janela 0026 ausente/0028 presente), 3º sem
+  // purpose E sem active_seconds (active_seconds vira null no resultado).
+  it('R1: 42703 nos DOIS degraus (0026 e 0028 ausentes) devolve dados com active_seconds null', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column session_logs.active_seconds does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              id: 'sl-1',
+              planned_session_id: 'ps-1',
+              started_at: '2026-08-01T09:00:00Z',
+              finished_at: '2026-08-01T10:00:00Z',
+              planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+            },
+          ],
+          error: null,
+        }),
+      );
+    const res = await getCompletedSessions('user-1');
+    expect(res).toHaveLength(1);
+    expect(res[0].activeSeconds).toBeNull();
+    expect(res[0].origemJoint).toBe(false);
+    expect(fromMock).toHaveBeenCalledTimes(3);
+  });
+
+  // Janela real de deploy: 0028 já aplicada, 0026 ainda não. O degrau do meio
+  // deve PRESERVAR active_seconds — regredir o tempo efetivo a null nesse
+  // caso seria perder dado que o banco tem.
+  it('R1: só a 0026 ausente — degrau do meio preserva active_seconds', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              id: 'sl-1',
+              planned_session_id: 'ps-1',
+              started_at: '2026-08-01T09:00:00Z',
+              finished_at: '2026-08-01T10:00:00Z',
+              active_seconds: 3000,
+              planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+            },
+          ],
+          error: null,
+        }),
+      );
+    const res = await getCompletedSessions('user-1');
+    expect(res).toHaveLength(1);
+    expect(res[0].activeSeconds).toBe(3000);
+  });
+
+  it('R1: erro não-42703 no degrau intermediário continua propagando (não engole)', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42P01', message: 'relation "session_logs" does not exist' },
+        }),
+      );
+    await expect(getCompletedSessions('user-1')).rejects.toMatchObject({ code: '42P01' });
+  });
 });

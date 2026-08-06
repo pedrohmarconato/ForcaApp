@@ -601,23 +601,25 @@ const PAGINA_HISTORICO = 1000;
 export const getCompletedSessions = async (
   userId: string,
 ): Promise<CompletedSessionSummary[]> => {
-  const consulta = (comPurpose: boolean, inicio: number) =>
+  const consulta = (comPurpose: boolean, comActiveSeconds: boolean, inicio: number) =>
     supabase
       .from('session_logs')
       .select(
         comPurpose
           ? 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups, training_plans(purpose))'
-          : 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)',
+          : comActiveSeconds
+            ? 'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)'
+            : 'id, planned_session_id, started_at, finished_at, planned_sessions(title, week_number, muscle_groups)',
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
       .order('finished_at', { ascending: false })
       .range(inicio, inicio + PAGINA_HISTORICO - 1);
 
-  const paginar = async (comPurpose: boolean): Promise<any[]> => {
+  const paginar = async (comPurpose: boolean, comActiveSeconds: boolean): Promise<any[]> => {
     const linhas: any[] = [];
     for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
-      const { data, error } = await consulta(comPurpose, inicio);
+      const { data, error } = await consulta(comPurpose, comActiveSeconds, inicio);
       if (error) throw error;
       const pagina = (data ?? []) as any[];
       linhas.push(...pagina);
@@ -626,13 +628,25 @@ export const getCompletedSessions = async (
     return linhas;
   };
 
+  // R1 (review PR #73): degradação em DEGRAUS. Um só fallback sem purpose
+  // ainda selecionava active_seconds (migration 0028) — com a 0028 também
+  // ausente (prod ainda na 0022), o segundo 42703 relançava sem catch e o
+  // Histórico caía em erro. Cada degrau remove mais uma coluna das
+  // migrations 0026-0030: 1º com tudo, 2º sem purpose (janela 0026 ausente /
+  // 0028 presente — preserva o tempo efetivo), 3º sem purpose E sem
+  // active_seconds (active_seconds vira null no resultado). Erro não-42703
+  // em qualquer degrau segue propagando.
   let linhas: any[];
   try {
-    linhas = await paginar(true);
+    linhas = await paginar(true, true);
   } catch (erro) {
     if (!erroDeColunaAusente(erro)) throw erro;
-    // 0026 ausente no banco: pente inteiro refeito sem o embed de purpose.
-    linhas = await paginar(false);
+    try {
+      linhas = await paginar(false, true);
+    } catch (erroDegrau) {
+      if (!erroDeColunaAusente(erroDegrau)) throw erroDegrau;
+      linhas = await paginar(false, false);
+    }
   }
 
   return linhas.map((linha) => ({
