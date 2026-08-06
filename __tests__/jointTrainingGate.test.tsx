@@ -22,12 +22,46 @@ jest.mock('../src/services/jointSessionRepository', () => ({
   joinJointSession: jest.fn(),
 }));
 
+// Achado F2 (review 2026-08-06, BAIXA): as duas suítes acima provam o guard
+// (render direto) e a AMARRAÇÃO no MainNavigator (regex sobre o texto-fonte,
+// linhas ~60-69 daquela época). Regex só prova que a STRING está lá — um
+// refactor que mude a COMPOSIÇÃO sem mudar a string (ex.: um registro duplicado
+// e desprotegido de "JointInvite" somado ao registro correto) deixaria o texto
+// batendo com o regex e o deep link fora do guard mesmo assim. Por isso as
+// telas HomeScreen/WorkoutDetail/ActiveSession/SessionHistory(Detail)/
+// JointLobby/Questionnaire/PostQuestionnaireChat/TrainingSession/Progress/
+// Profile — irrelevantes para JointInvite/JointJoin — são mockadas aqui: o
+// MainNavigator importado abaixo é o módulo de produção de verdade, não uma
+// cópia, e só JointInviteScreen/JointJoinScreen permanecem reais.
+jest.mock('../src/screens/HomeScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/WorkoutDetailScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/ActiveSessionScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/SessionHistoryScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/SessionHistoryDetailScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/JointLobbyScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/QuestionnaireScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/PostQuestionnaireChat', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/TrainingSessionScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/ProgressScreen', () => ({ __esModule: true, default: () => null }));
+jest.mock('../src/screens/ProfileScreen', () => ({ __esModule: true, default: () => null }));
+
+// `@react-navigation/stack` monta o pan gesture da transição sobre
+// react-native-gesture-handler — precisa do mock oficial do pacote ANTES de
+// qualquer import que puxe a árvore de navegação real, senão o módulo nativo
+// (RNGestureHandlerModule.install) explode fora de app nativo. Import de
+// efeito colateral, primeiro da lista, para entrar na mesma leva de imports
+// hoisted acima dos demais.
+import 'react-native-gesture-handler/jestSetup';
+
 import React from 'react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { NavigationContainer, getStateFromPath } from '@react-navigation/native';
 import JointInviteScreen from '../src/screens/JointInviteScreen';
 import JointJoinScreen from '../src/screens/JointJoinScreen';
+import MainNavigator from '../src/navigation/MainNavigator';
+import { LINKING_CONFIG } from '../src/navigation/linkingConfig';
 
 const ler = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
 const nav = () => ({ goBack: jest.fn(), navigate: jest.fn() });
@@ -123,6 +157,79 @@ describe('withJointTrainingGate — flag ON abre o fluxo normal (não regressão
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointJoinScreen);
     const { getByTestId, queryByTestId } = render(<Gated navigation={nav()} />);
+
+    await waitFor(() => expect(getByTestId('campo-codigo')).toBeTruthy());
+    expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
+  });
+});
+
+describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJoin (achado F2)', () => {
+  // O estado inicial vem do MESMO getStateFromPath/LINKING_CONFIG que o app usa
+  // em produção (linkingMain reexporta LINKING_CONFIG sem alterar a árvore
+  // Home) — não um parser paralelo. `MainNavigator` é o componente default
+  // exportado de produção; só as telas irrelevantes ao guard estão mockadas
+  // (ver jest.mock no topo do arquivo).
+  const estadoConvite = () => getStateFromPath('/home/treino-conjunto/novo', LINKING_CONFIG);
+  const estadoEntrada = (codigo: string) => getStateFromPath(`/home/treino-conjunto/${codigo}`, LINKING_CONFIG);
+
+  it('CONTROLE: o path real resolve para Home[HomeMain, JointInvite] — se isto quebrar, o resto do bloco testa a rota errada', () => {
+    const estado: any = estadoConvite();
+    expect(estado.routes[0].name).toBe('Home');
+    const stack = estado.routes[0].state;
+    expect(stack.routes.map((r: any) => r.name)).toEqual(['HomeMain', 'JointInvite']);
+  });
+
+  it('CONTROLE: o path real resolve para Home[HomeMain, JointJoin{code}]', () => {
+    const estado: any = estadoEntrada('ABC234');
+    const stack = estado.routes[0].state;
+    const rota = stack.routes[stack.routes.length - 1];
+    expect(rota.name).toBe('JointJoin');
+    expect(rota.params).toEqual({ code: 'ABC234' });
+  });
+
+  it('flag OFF: deep link real para /home/treino-conjunto/novo NÃO abre o convite — mostra o aviso', () => {
+    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    const { getByTestId, queryByTestId } = render(
+      <NavigationContainer initialState={estadoConvite() as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByTestId('aviso-treino-conjunto-indisponivel')).toBeTruthy();
+    expect(queryByTestId('gerar-convite')).toBeNull();
+  });
+
+  it('flag OFF: deep link real para /home/treino-conjunto/:code NÃO abre a entrada — mostra o aviso', () => {
+    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    const { getByTestId, queryByTestId } = render(
+      <NavigationContainer initialState={estadoEntrada('ABC234') as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByTestId('aviso-treino-conjunto-indisponivel')).toBeTruthy();
+    expect(queryByTestId('campo-codigo')).toBeNull();
+  });
+
+  it('flag ON: deep link real para /home/treino-conjunto/novo abre o convite de verdade', async () => {
+    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    const { getByTestId, queryByTestId } = render(
+      <NavigationContainer initialState={estadoConvite() as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
+
+    await waitFor(() => expect(getByTestId('gerar-convite')).toBeTruthy());
+    expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
+  });
+
+  it('flag ON: deep link real para /home/treino-conjunto/:code abre a entrada de verdade', async () => {
+    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    const { getByTestId, queryByTestId } = render(
+      <NavigationContainer initialState={estadoEntrada('ABC234') as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
 
     await waitFor(() => expect(getByTestId('campo-codigo')).toBeTruthy());
     expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
