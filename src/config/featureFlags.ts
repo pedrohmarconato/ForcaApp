@@ -7,7 +7,7 @@
 // o lobby que ele abre (JointLobbyScreen) dependem da migration 0026, ainda
 // não aplicada em produção — lá o card quebra já na criação, e a única saída
 // do lobby encerra a sessão para os dois lados. Gate por flag até a migration
-// a produção. Decisão do dono: default OFF em QUALQUER build de release —
+// chegar a produção. Decisão do dono: default OFF em QUALQUER build de release —
 // HML incluído — até a env ser setada explicitamente no ambiente (R6, review PR #73).
 //
 // Regra: valor explícito de env ('true'/'false') sempre vence. Sem valor
