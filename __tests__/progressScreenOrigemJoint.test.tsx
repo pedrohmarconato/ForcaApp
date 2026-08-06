@@ -5,6 +5,22 @@
 // recorde ou uma sessão do histórico vindos de um treino EM DUPLA apareciam
 // como se fossem solo, sem qualquer marcador visual. Este teste cobre as
 // duas seções da aba Progresso que exibem esse dado (Recordes e Histórico).
+//
+// Investigação de flakiness (achado P5, 2026-08-06): falha relatada 1x em
+// 30+ execuções (chip "Dupla" ausente em registro solo). 100 execuções
+// seriais (--runInBand, 4 blocos de 25) rodaram sem nenhuma falha. Análise
+// estática não achou poluição de estado inequívoca: (1) RNTL 13.3.3 chama
+// afterEach(cleanup) automático, cada it já desmonta a árvore anterior;
+// (2) mockSessoes/mockSetLogs são resetados em beforeEach e as factories
+// capturam o valor no momento da chamada síncrona, sem leitura tardia;
+// (3) recordesPorExercicio (src/engine/progressStats.ts:40-71) é função
+// pura, sem cache; (4) Chip/ListRow são apresentacionais sem estado; (5) as
+// keys de React em ProgressScreen.tsx:285 são distintas nos fixtures, sem
+// colisão; (6) o único timer real (Animated.loop do Skeleton) tem cleanup
+// correto. Hipótese mais provável para o 1-em-30+: jitter transitório de
+// agendamento sob carga da máquina, não defeito determinístico.
+// Classificação: flaky de infra, não reproduzido — se falhar de novo em CI,
+// re-rodar isolado antes de suspeitar de regressão.
 
 import React from 'react';
 import { render, waitFor, within } from '@testing-library/react-native';
