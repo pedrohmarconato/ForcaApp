@@ -34,6 +34,7 @@ const makeBuilder = (result: { data?: unknown; error: unknown }) => {
   builder.update = jest.fn(chain);
   builder.select = jest.fn(chain);
   builder.eq = jest.fn(chain);
+  builder.neq = jest.fn(chain);
   builder.is = jest.fn(chain);
   builder.not = jest.fn(chain);
   builder.order = jest.fn(chain);
@@ -481,6 +482,97 @@ describe('getLastLoadByExercise', () => {
     expect(
       await getLastLoadByExercise(['k:supino_reto_barra']),
     ).toEqual({ 'k:supino_reto_barra': 60 });
+  });
+
+  // P4 (achado): .limit(300) cortava ANTES do filtro de purpose='joint', que
+  // rodava só depois, em JS. Um usuário com 300 set_logs joint mais recentes
+  // do que o único set_log solo perdia a sugestão: o registro solo antigo
+  // nunca entrava na janela dos 300 antes de o filtro de purpose ter chance
+  // de agir. O builder abaixo não reimplementa o filtro em JS de teste: ele
+  // aplica de volta, sobre um dataset de 301 linhas, EXATAMENTE os predicados
+  // (not/eq/neq) que a query de produção encadeou — e só corta pelo limit
+  // depois, como o Postgres faz (WHERE sempre antes de LIMIT, não importa a
+  // ordem de encadeamento no builder). Isso prova que o filtro de purpose
+  // está DENTRO da query, e não apenas em JS depois que o corte já aconteceu.
+  it('não perde a sugestão solo quando 300 set_logs joint recentes precedem o único solo antigo', async () => {
+    const getPath = (obj: any, path: string): any =>
+      path.split('.').reduce((acc: any, key: string) => (acc == null ? acc : acc[key]), obj);
+
+    const makeQueryEngineBuilder = (rows: any[]) => {
+      const predicates: Array<(row: any) => boolean> = [];
+      let orderCol: string | null = null;
+      let orderAsc = true;
+      let limitN: number | null = null;
+      const builder: any = {};
+      builder.select = jest.fn(() => builder);
+      builder.not = jest.fn((col: string, op: string, val: unknown) => {
+        if (op === 'is' && val === null) predicates.push((row) => getPath(row, col) != null);
+        return builder;
+      });
+      builder.eq = jest.fn((col: string, val: unknown) => {
+        predicates.push((row) => getPath(row, col) === val);
+        return builder;
+      });
+      builder.neq = jest.fn((col: string, val: unknown) => {
+        predicates.push((row) => getPath(row, col) !== val);
+        return builder;
+      });
+      builder.order = jest.fn((col: string, opts?: { ascending?: boolean }) => {
+        orderCol = col;
+        orderAsc = opts?.ascending ?? true;
+        return builder;
+      });
+      builder.limit = jest.fn((n: number) => {
+        limitN = n;
+        return builder;
+      });
+      builder.then = (resolve: any, reject: any) => {
+        let resultado = rows.filter((row) => predicates.every((p) => p(row)));
+        if (orderCol) {
+          const col = orderCol;
+          resultado = [...resultado].sort((a, b) => {
+            const av = getPath(a, col);
+            const bv = getPath(b, col);
+            if (av < bv) return orderAsc ? -1 : 1;
+            if (av > bv) return orderAsc ? 1 : -1;
+            return 0;
+          });
+        }
+        if (limitN != null) resultado = resultado.slice(0, limitN);
+        return Promise.resolve({ data: resultado, error: null }).then(resolve, reject);
+      };
+      return builder;
+    };
+
+    const linhaJoint = (indice: number) => ({
+      actual_load_kg: '40',
+      completed_at: new Date(2026, 7, 5, 12, 0, indice).toISOString(),
+      planned_sets: {
+        planned_exercises: {
+          name: 'Supino Reto',
+          exercise_key: 'supino_reto_barra',
+          planned_sessions: { training_plans: { purpose: 'joint' } },
+        },
+      },
+    });
+    const linhaSolo = {
+      actual_load_kg: '60',
+      completed_at: '2020-01-01T00:00:00Z',
+      planned_sets: {
+        planned_exercises: {
+          name: 'Supino Reto',
+          exercise_key: 'supino_reto_barra',
+          planned_sessions: { training_plans: { purpose: 'solo' } },
+        },
+      },
+    };
+    const linhas = [...Array.from({ length: 300 }, (_, i) => linhaJoint(i)), linhaSolo];
+
+    fromMock.mockReturnValueOnce(makeQueryEngineBuilder(linhas));
+
+    expect(await getLastLoadByExercise(['k:supino_reto_barra'])).toEqual({
+      'k:supino_reto_barra': 60,
+    });
   });
 });
 

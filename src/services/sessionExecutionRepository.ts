@@ -488,6 +488,14 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
  * contamina a sugestão do treino SOLO. O join até training_plans usa a mesma
  * relação já embutida (planned_sets→planned_exercises→planned_sessions→
  * training_plans); nada de coluna denormalizada.
+ *
+ * O filtro de purpose vai DENTRO da query, antes do `.limit(300)` (achado P4):
+ * um usuário com 300 set_logs joint mais recentes que o set_log solo perdia a
+ * sugestão porque o corte de 300 linhas acontecia no banco ANTES de o filtro
+ * (que só rodava depois, em JS) ter chance de excluir as linhas joint — o
+ * registro solo mais antigo nunca entrava na janela. `!inner` em cada nível do
+ * embed (padrão já usado em cardioGoalRepository.getCardioLogs) faz o filtro
+ * de purpose excluir a linha de set_logs inteira, não só o embed.
  */
 export const getLastLoadByExercise = async (
   identities: string[],
@@ -498,9 +506,10 @@ export const getLastLoadByExercise = async (
   const { data, error } = await supabase
     .from('set_logs')
     .select(
-      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))',
+      'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key, planned_sessions!inner(training_plans!inner(purpose))))',
     )
     .not('actual_load_kg', 'is', null)
+    .neq('planned_sets.planned_exercises.planned_sessions.training_plans.purpose', 'joint')
     .order('completed_at', { ascending: false })
     .limit(300);
   if (error) throw error;
