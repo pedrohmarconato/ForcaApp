@@ -14,6 +14,12 @@ export type SetLogResumo = {
   loadKg: number | null;
   reps: number | null;
   completedAt: string;
+  /**
+   * true quando a série veio de um plano purpose='joint' (achado A4: sem
+   * isso, um recorde do treino EM DUPLA aparecia como se fosse solo).
+   * Ausente/false = solo.
+   */
+  origemJoint?: boolean;
 };
 
 export type RecordeExercicio = {
@@ -22,6 +28,8 @@ export type RecordeExercicio = {
   reps: number;
   /** Carimbo da série do recorde. */
   quando: string;
+  /** true quando a série do recorde veio de um plano purpose='joint'. */
+  origemJoint: boolean;
 };
 
 /**
@@ -43,6 +51,7 @@ export const recordesPorExercicio = (
       loadKg: l.loadKg,
       reps: l.reps,
       quando: l.completedAt,
+      origemJoint: l.origemJoint === true,
     };
     if (
       !atual ||

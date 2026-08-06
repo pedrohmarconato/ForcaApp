@@ -541,6 +541,14 @@ export type CompletedSessionSummary = {
   // existe no banco (janela de deploy) ou a sessão não foi fechada pela nova
   // finish_session — a tela mostra "—", nunca o relógio de parede bruto.
   activeSeconds: number | null;
+  /**
+   * true quando a sessão veio de um plano purpose='joint' (achado A4: sem
+   * isso, uma sessão de treino EM DUPLA aparecia como se fosse solo no
+   * Histórico). training_plans é alcançado pela mesma relação já embutida
+   * (session_logs→planned_sessions→training_plans); nada de coluna
+   * denormalizada.
+   */
+  origemJoint: boolean;
 };
 
 // O PostgREST corta qualquer resposta em `max_rows` (1000 no config deste
@@ -562,7 +570,7 @@ export const getCompletedSessions = async (
     const { data, error } = await supabase
       .from('session_logs')
       .select(
-        'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)',
+        'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups, training_plans(purpose))',
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
@@ -584,6 +592,7 @@ export const getCompletedSessions = async (
     startedAt: linha.started_at,
     finishedAt: linha.finished_at,
     activeSeconds: toNum(linha.active_seconds),
+    origemJoint: linha.planned_sessions?.training_plans?.purpose === 'joint',
   }));
 };
 
@@ -603,7 +612,7 @@ export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> 
     const { data, error } = await supabase
       .from('set_logs')
       .select(
-        'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key))',
+        'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))',
       )
       .eq('session_logs.user_id', userId)
       .not('session_logs.finished_at', 'is', null)
@@ -627,6 +636,7 @@ export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> 
       loadKg: toNum(linha.actual_load_kg),
       reps: linha.actual_reps ?? null,
       completedAt: linha.completed_at,
+      origemJoint: exercicio?.planned_sessions?.training_plans?.purpose === 'joint',
     });
   }
   return resumo;

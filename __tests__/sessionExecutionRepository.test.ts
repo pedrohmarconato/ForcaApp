@@ -17,6 +17,7 @@ import {
   finishSessionLog,
   getLastLoadByExercise,
   getCompletedSessions,
+  getSetLogsResumo,
   getSessionLogDetail,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
@@ -514,7 +515,56 @@ describe('getCompletedSessions', () => {
       startedAt: '2026-07-17T09:00:00Z',
       finishedAt: '2026-07-17T10:00:00Z',
       activeSeconds: 3540,
+      origemJoint: false,
     });
+  });
+
+  // A4 (achado): sem trazer training_plans.purpose junto com planned_sessions,
+  // uma sessão de treino EM DUPLA chegava ao cliente indistinguível de uma
+  // sessão solo — o Histórico marcava as duas do mesmo jeito.
+  it('marca origemJoint=true quando o plano da sessão é purpose=joint', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            id: 'sl-joint',
+            planned_session_id: 'ps-joint',
+            started_at: '2026-08-01T09:00:00Z',
+            finished_at: '2026-08-01T10:00:00Z',
+            active_seconds: 3000,
+            planned_sessions: {
+              title: 'Treino em Dupla',
+              week_number: 1,
+              muscle_groups: ['Peito'],
+              training_plans: { purpose: 'joint' },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res = await getCompletedSessions('user-1');
+    expect(res[0].origemJoint).toBe(true);
+  });
+
+  it('coluna purpose ausente (banco sem a relação) devolve origemJoint=false, nunca quebra', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            id: 'sl-1',
+            planned_session_id: 'ps-1',
+            started_at: '2026-08-01T09:00:00Z',
+            finished_at: '2026-08-01T10:00:00Z',
+            active_seconds: 3000,
+            planned_sessions: { title: 'Treino', week_number: 1, muscle_groups: [] },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res = await getCompletedSessions('user-1');
+    expect(res[0].origemJoint).toBe(false);
   });
 
   it('coluna ausente ou nula devolve activeSeconds null sem quebrar (janela de deploy)', async () => {
@@ -610,6 +660,69 @@ describe('getCompletedSessions', () => {
 
     expect(res).toHaveLength(1);
     expect(fromMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getSetLogsResumo', () => {
+  // A4 (achado): sem trazer training_plans.purpose junto com a série, uma
+  // carga registrada num treino EM DUPLA virava recorde indistinguível de
+  // um recorde solo — recordesPorExercicio (progressStats) não tinha como
+  // marcar a origem.
+  it('marca origemJoint=true quando o plano do exercício é purpose=joint', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: 8,
+            actual_load_kg: '50',
+            completed_at: '2026-08-01T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino Reto',
+                exercise_key: 'supino_reto_barra',
+                planned_sessions: { training_plans: { purpose: 'joint' } },
+              },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res = await getSetLogsResumo('user-1');
+    expect(res[0].origemJoint).toBe(true);
+  });
+
+  it('purpose=solo (ou ausente) devolve origemJoint=false', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: 5,
+            actual_load_kg: '80',
+            completed_at: '2026-08-01T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Agachamento',
+                exercise_key: 'agachamento_livre',
+                planned_sessions: { training_plans: { purpose: 'solo' } },
+              },
+            },
+          },
+          {
+            actual_reps: 10,
+            actual_load_kg: '20',
+            completed_at: '2026-08-02T10:00:00Z',
+            planned_sets: {
+              planned_exercises: { name: 'Rosca Direta', exercise_key: 'rosca_direta' },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    const res = await getSetLogsResumo('user-1');
+    expect(res[0].origemJoint).toBe(false);
+    expect(res[1].origemJoint).toBe(false);
   });
 });
 

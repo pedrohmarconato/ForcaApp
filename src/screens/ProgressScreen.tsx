@@ -40,7 +40,7 @@ import type { CardioLog } from '../engine/cardioGoals';
 import CardioGoalsSection from '../components/progress/CardioGoalsSection';
 import { Screen, ScreenTitle, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
-import { EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
+import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 
 const SEMANAS_CONSTANCIA = 4;
 const SEMANAS_VOLUME = 8;
@@ -285,6 +285,9 @@ const ProgressScreen = () => {
               key={`${r.name}-${r.quando}`}
               title={r.name}
               subtitle={`${formatarKg(r.loadKg)} kg × ${r.reps}`}
+              // Achado A4: recorde vindo de plano purpose='joint' (treino em
+              // dupla) leva o marcador — sem isso ele parecia solo.
+              leading={r.origemJoint ? <Chip label="Dupla" /> : undefined}
               trailingLabel={formatarDataCurta(r.quando) ?? undefined}
             />
           ))
@@ -312,6 +315,9 @@ const ProgressScreen = () => {
                 ]
                   .filter(Boolean)
                   .join(' · ')}
+                // Achado A4: sessão vinda de plano purpose='joint' leva o
+                // marcador — sem isso ela parecia solo no Histórico.
+                leading={sessao.origemJoint ? <Chip label="Dupla" /> : undefined}
                 showChevron
                 onPress={() =>
                   navigation.navigate('SessionHistoryDetail', {
