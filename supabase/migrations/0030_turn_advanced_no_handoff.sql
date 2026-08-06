@@ -98,6 +98,17 @@ begin
   if v_parceiro.queue_finished_at is null then
     -- Achado P2 (0030): o turno passa para o parceiro por este UPDATE — sem o
     -- evento abaixo, a 0029 perdia o tempo de posse do parceiro a partir daqui.
+    --
+    -- Achado F1 (revisão de painel) — assimetria deliberada: ao contrário de
+    -- advance_joint_turn (0026:1336-1339, que passa v_sessao.turn_seq + 1 em
+    -- p_turn_seq_after), esta emissão NÃO recebe p_turn_seq_after — a linha do
+    -- evento grava turn_seq_after NULL mesmo com joint_sessions.turn_seq sendo
+    -- incrementado pelo UPDATE logo abaixo. A 0029 ordena por seq/created_at
+    -- (não depende deste campo) e o reducer local (jointSessionModel.ts,
+    -- caso 'turn_advanced') trata turnSeqAfter null com fallback
+    -- (?? state.turnSeq + 1); consumidor futuro que presuma turn_seq_after
+    -- sempre presente vai encontrar NULL nos dois handoffs desta migration.
+    -- Só comentário — zero mudança de comportamento neste arquivo.
     perform public._forca_joint_evento(
       p_joint_session_id, v_uid, 'turn_advanced',
       jsonb_build_object('next_turn_user_id', v_parceiro.user_id));
@@ -175,6 +186,11 @@ begin
     if v_sessao.current_turn_user_id = v_uid then
       -- Achado P2 (0030): idem — sem o evento, a 0029 perdia o tempo de posse
       -- do parceiro a partir deste handoff.
+      --
+      -- Achado F1: mesma assimetria deliberada do handoff em
+      -- mark_joint_queue_finished (ver comentário lá) — esta emissão também
+      -- não recebe p_turn_seq_after, então turn_seq_after fica NULL na linha
+      -- do evento. Só comentário — zero mudança de comportamento.
       perform public._forca_joint_evento(
         p_joint_session_id, v_uid, 'turn_advanced',
         jsonb_build_object('next_turn_user_id', v_parceiro.user_id));

@@ -283,6 +283,74 @@ describe('eventos', () => {
     expect(aplicados).not.toContain(6);
   });
 
+  it('ACHADO F1: mapeia payload.next_turn_user_id para o JointEvent e usa como verdade do servidor', async () => {
+    const agenda = criarAgenda();
+    // Parceiro (GUEST) já encerrou a fila — a heurística local (proximoTurno)
+    // manteria o turno com o ator (HOST) sozinha; o servidor manda diferente.
+    const estadoComFilaEncerrada = estado({
+      currentTurnUserId: HOST,
+      participants: [
+        estado().participants[0],
+        { ...estado().participants[1], queueFinishedAt: '2026-08-01T10:30:00Z' },
+      ],
+    });
+    snapshotSpy.mockResolvedValue(estadoComFilaEncerrada);
+    const { controle, onState } = assinar(agenda);
+    controle.emitirStatus('SUBSCRIBED');
+    await Promise.resolve();
+    await Promise.resolve();
+    onState.mockClear();
+
+    controle.handlers.joint_session_events({
+      new: {
+        seq: 1,
+        actor_user_id: HOST,
+        kind: 'turn_advanced',
+        client_event_id: 'ev-1',
+        turn_seq_after: 2,
+        payload: { next_turn_user_id: GUEST },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
+    expect(ultimo.currentTurnUserId).toBe(GUEST);
+  });
+
+  it('ACHADO F1 — defensivo: next_turn_user_id de tipo inválido no payload cai no fallback local', async () => {
+    const agenda = criarAgenda();
+    const estadoComFilaEncerrada = estado({
+      currentTurnUserId: HOST,
+      participants: [
+        estado().participants[0],
+        { ...estado().participants[1], queueFinishedAt: '2026-08-01T10:30:00Z' },
+      ],
+    });
+    snapshotSpy.mockResolvedValue(estadoComFilaEncerrada);
+    const { controle, onState } = assinar(agenda);
+    controle.emitirStatus('SUBSCRIBED');
+    await Promise.resolve();
+    await Promise.resolve();
+    onState.mockClear();
+
+    controle.handlers.joint_session_events({
+      new: {
+        seq: 1,
+        actor_user_id: HOST,
+        kind: 'turn_advanced',
+        client_event_id: 'ev-1',
+        turn_seq_after: 2,
+        payload: { next_turn_user_id: 12345 }, // tipo inválido — não é uuid string
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
+    expect(ultimo.currentTurnUserId).toBe(HOST); // heurística antiga preservada
+  });
+
   it('evento repetido não move o turno duas vezes', async () => {
     const agenda = criarAgenda();
     const { controle, onState } = assinar(agenda);

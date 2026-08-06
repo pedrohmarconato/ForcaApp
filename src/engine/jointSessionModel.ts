@@ -129,6 +129,15 @@ export type JointEvent = {
   kind: JointEventKind;
   clientEventId: string | null;
   turnSeqAfter: number | null;
+  /**
+   * `payload.next_turn_user_id` do evento, quando o emissor o populou (achado
+   * F1). É a verdade do servidor sobre para quem vai o turno — os dois
+   * handoffs novos da 0030 (mark_joint_queue_finished, complete_joint_participant)
+   * divergem da heurística `proximoTurno` num cenário real, e só este campo
+   * resolve a divergência. Ausente (undefined) em eventos antigos/sem o campo:
+   * nesse caso o redutor cai no fallback histórico.
+   */
+  nextTurnUserId?: string;
 };
 
 // ============================================================
@@ -365,7 +374,14 @@ const reduzir = (state: JointSessionState, evento: JointEvent): JointSessionStat
         turnSeq: evento.turnSeqAfter ?? 1,
       };
     case 'turn_advanced': {
-      const destino = proximoTurno(state, evento.actorUserId);
+      // ACHADO F1: a 0030 passou a emitir 'turn_advanced' também em
+      // mark_joint_queue_finished e complete_joint_participant — dois pontos
+      // em que o servidor decide o próximo turno por regra PRÓPRIA, não pela
+      // regra de advance_joint_turn que proximoTurno() reproduz. Quando o
+      // evento traz nextTurnUserId, ele É a verdade do servidor e vence.
+      // proximoTurno() fica só como fallback para evento sem o campo
+      // (histórico/defensivo) — nenhum outro comportamento muda.
+      const destino = evento.nextTurnUserId ?? proximoTurno(state, evento.actorUserId);
       return {
         ...state,
         currentTurnUserId: destino,

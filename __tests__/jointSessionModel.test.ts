@@ -247,6 +247,60 @@ describe('redutor de eventos', () => {
     expect(r.state.currentTurnUserId).toBe(GUEST);
   });
 
+  it('ACHADO F1: turn_advanced usa nextTurnUserId do servidor mesmo quando diverge da heurística local', () => {
+    // Réplica do cenário confirmado: parceiro (GUEST) já encerrou a fila, o
+    // ator (HOST) segura o turno. proximoTurno() — calibrada só para
+    // advance_joint_turn — MANTÉM o turno com o ator neste caso. Mas os
+    // handoffs novos da 0030 (mark_joint_queue_finished/complete_joint_participant)
+    // podem legitimamente passar o turno ao parceiro mesmo com a fila dele já
+    // encerrada (ex.: complete_joint_participant quando o ator conclui de vez).
+    // O servidor manda via payload.next_turn_user_id — o reducer tem de obedecer.
+    const s = estadoAtivo({
+      currentTurnUserId: HOST,
+      participants: [
+        participante(HOST, 'host'),
+        participante(GUEST, 'guest', { queueFinishedAt: '2026-08-01T10:30:00Z' }),
+      ],
+    });
+    // Documenta a divergência: a heurística sozinha erraria (manteria HOST).
+    expect(proximoTurno(s, HOST)).toBe(HOST);
+
+    const r = aplicarEvento(
+      s,
+      evento({ seq: 1, actorUserId: HOST, nextTurnUserId: GUEST, turnSeqAfter: 2 }),
+      vistosVazios(),
+    );
+    expect(r.aplicado).toBe(true);
+    expect(r.state.currentTurnUserId).toBe(GUEST);
+  });
+
+  it('ACHADO F1 — fallback: evento sem nextTurnUserId preserva a heurística antiga intacta', () => {
+    const s = estadoAtivo({
+      currentTurnUserId: HOST,
+      participants: [
+        participante(HOST, 'host'),
+        participante(GUEST, 'guest', { queueFinishedAt: '2026-08-01T10:30:00Z' }),
+      ],
+    });
+    const r = aplicarEvento(
+      s,
+      evento({ seq: 1, actorUserId: HOST, turnSeqAfter: 2 }), // nextTurnUserId ausente
+      vistosVazios(),
+    );
+    expect(r.state.currentTurnUserId).toBe(HOST); // comportamento antigo intacto
+  });
+
+  it('ACHADO F1 — caminho normal: nextTurnUserId coerente com a heurística devolve o mesmo resultado de antes', () => {
+    const s = estadoAtivo(); // alternância simples, ninguém terminou fila (advance_joint_turn)
+    const r = aplicarEvento(
+      s,
+      evento({ seq: 1, actorUserId: HOST, nextTurnUserId: GUEST, turnSeqAfter: 2 }),
+      vistosVazios(),
+    );
+    expect(r.state.currentTurnUserId).toBe(GUEST);
+    expect(r.state.currentTurnUserId).toBe(proximoTurno(s, HOST));
+  });
+
   it('terminal zera o turno', () => {
     const s = estadoAtivo();
     const r = aplicarEvento(
