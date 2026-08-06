@@ -14,6 +14,12 @@ export type SetLogResumo = {
   loadKg: number | null;
   reps: number | null;
   completedAt: string;
+  /**
+   * true quando a série veio de um plano purpose='joint' (achado A4: sem
+   * isso, um recorde do treino EM DUPLA aparecia como se fosse solo).
+   * Ausente/false = solo.
+   */
+  origemJoint?: boolean;
 };
 
 export type RecordeExercicio = {
@@ -22,12 +28,21 @@ export type RecordeExercicio = {
   reps: number;
   /** Carimbo da série do recorde. */
   quando: string;
+  /** true quando a série do recorde veio de um plano purpose='joint'. */
+  origemJoint: boolean;
 };
 
 /**
  * Melhor série por exercício: maior carga; empate decide por reps; novo empate
  * fica com a mais recente. Saída ordenada do recorde mais recente para o mais
  * antigo, limitada.
+ *
+ * R2 (review PR #73): a agregação de recorde é SOLO por definição — série de
+ * plano purpose='joint' é excluída ANTES do Map (mesmo padrão de
+ * getLastLoadByExercise). Sem isto, a série 80kg×5 em dupla apagava o recorde
+ * solo 70×5 do mesmo exercício (identidade colide) e a aba Progresso mentia.
+ * TODO (dono): exibição separada de recordes da dupla em seção própria
+ * ("Dupla"); até existir, a série joint simplesmente não aparece aqui.
  */
 export const recordesPorExercicio = (
   logs: readonly SetLogResumo[],
@@ -37,12 +52,15 @@ export const recordesPorExercicio = (
 
   for (const l of logs) {
     if (l.loadKg == null || l.reps == null) continue;
+    if (l.origemJoint === true) continue;
     const atual = melhor.get(l.identity);
     const candidato: RecordeExercicio = {
       name: l.name,
       loadKg: l.loadKg,
       reps: l.reps,
       quando: l.completedAt,
+      // Após o continue acima, só chegam séries solo — o tipo é false.
+      origemJoint: false,
     };
     if (
       !atual ||
@@ -83,6 +101,10 @@ export type VolumeSemana = {
  * Volume (reps × carga das séries com os dois valores) por semana local, da
  * mais antiga para a atual. Semanas alinhadas pela segunda-feira, como todo o
  * resto do app.
+ *
+ * R2 (review PR #73): volume SOLO não soma séries de plano purpose='joint' —
+ * o kg levantado em dupla não é evolução individual. TODO (dono): seção
+ * própria de volume da dupla; até existir, os kg joint ficam fora.
  */
 export const volumePorSemana = (
   logs: readonly SetLogResumo[],
@@ -101,6 +123,7 @@ export const volumePorSemana = (
     let volume = 0;
     for (const l of logs) {
       if (l.loadKg == null || l.reps == null) continue;
+      if (l.origemJoint === true) continue;
       const quando = new Date(l.completedAt);
       if (Number.isNaN(quando.getTime())) continue;
       if (quando < inicio || quando >= fim) continue;

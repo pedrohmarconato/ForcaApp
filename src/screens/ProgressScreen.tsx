@@ -40,7 +40,7 @@ import type { CardioLog } from '../engine/cardioGoals';
 import CardioGoalsSection from '../components/progress/CardioGoalsSection';
 import { Screen, ScreenTitle, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
-import { EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
+import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 
 const SEMANAS_CONSTANCIA = 4;
 const SEMANAS_VOLUME = 8;
@@ -285,6 +285,11 @@ const ProgressScreen = () => {
               key={`${r.name}-${r.quando}`}
               title={r.name}
               subtitle={`${formatarKg(r.loadKg)} kg × ${r.reps}`}
+              // R2 (review PR #73): o motor de recordes exclui séries de plano
+              // purpose='joint' da agregação solo — este `leading` é defesa em
+              // profundidade caso um dia chegue aqui um registro marcado.
+              // TODO (dono): seção própria "Dupla" para recordes da dupla.
+              leading={r.origemJoint ? <Chip label="Dupla" /> : undefined}
               trailingLabel={formatarDataCurta(r.quando) ?? undefined}
             />
           ))
@@ -312,6 +317,9 @@ const ProgressScreen = () => {
                 ]
                   .filter(Boolean)
                   .join(' · ')}
+                // Achado A4: sessão vinda de plano purpose='joint' leva o
+                // marcador — sem isso ela parecia solo no Histórico.
+                leading={sessao.origemJoint ? <Chip label="Dupla" /> : undefined}
                 showChevron
                 onPress={() =>
                   navigation.navigate('SessionHistoryDetail', {

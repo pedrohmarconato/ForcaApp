@@ -481,21 +481,75 @@ export const finishSessionLog = async (sessionLogId: string): Promise<void> => {
  * A identidade é a chave do catálogo quando existe. Casar por NOME fazia o
  * histórico morrer em qualquer variação do rótulo: "Supino com Halteres" e
  * "Supino com Halteres (Deload)" eram exercícios diferentes para a sugestão.
+ *
+ * Exclui set_logs de planos purpose='joint' (achado A2): a cópia materializada
+ * do treino conjunto preserva o exercise_key do exercício de origem (migration
+ * 0026), então sem esse filtro uma carga registrada no treino EM DUPLA
+ * contamina a sugestão do treino SOLO. O join até training_plans usa a mesma
+ * relação já embutida (planned_sets→planned_exercises→planned_sessions→
+ * training_plans); nada de coluna denormalizada.
+ *
+ * O filtro de purpose vai DENTRO da query, antes do `.limit(300)` (achado P4):
+ * um usuário com 300 set_logs joint mais recentes que o set_log solo perdia a
+ * sugestão porque o corte de 300 linhas acontecia no banco ANTES de o filtro
+ * (que só rodava depois, em JS) ter chance de excluir as linhas joint — o
+ * registro solo mais antigo nunca entrava na janela. `!inner` em cada nível do
+ * embed (padrão já usado em cardioGoalRepository.getCardioLogs) faz o filtro
+ * de purpose excluir a linha de set_logs inteira, não só o embed.
+ *
+ * Janela de deploy (migration 0026): enquanto a coluna training_plans.purpose
+ * não existe no banco, QUALQUER SELECT que a embuta devolve 42703 — e as três
+ * leituras deste arquivo cairiam em estado de erro (Home/Progresso/Perfil/
+ * Histórico) ou perderiam a sugestão de carga em silêncio (seedLastLoads
+ * engole). Por isso cada consulta tem um segundo pente SEM o embed/filtro de
+ * purpose, acionado só no 42703 (mesmo padrão do fallback de
+ * agendaRepository.ts:43-46). O filtro anti-joint volta a valer sozinho quando
+ * a 0026 chegar ao banco — gate de flag NÃO resolve, porque estas funções
+ * rodam também para usuário solo.
  */
+const erroDeColunaAusente = (error: unknown): boolean =>
+  (error as { code?: string } | null)?.code === '42703';
+
+/**
+ * A MESSAGE de um 42703 cita a coluna que faltou (ex.: "column
+ * session_logs.active_seconds does not exist") — serve de dica de qual
+ * degrau tentar em seguida (achado N7). Dica errada só custa um degrau
+ * extra, nunca quebra: o último recurso da escada não depende dela.
+ */
+const erroCitaColuna = (error: unknown, coluna: string): boolean =>
+  typeof (error as { message?: string } | null)?.message === 'string' &&
+  (error as { message: string }).message.includes(coluna);
+
 export const getLastLoadByExercise = async (
   identities: string[],
 ): Promise<Record<string, number>> => {
   if (identities.length === 0) return {};
   const alvo = new Set(identities);
 
-  const { data, error } = await supabase
-    .from('set_logs')
-    .select(
-      'actual_load_kg, completed_at, planned_sets(planned_exercises(name, exercise_key))',
-    )
-    .not('actual_load_kg', 'is', null)
-    .order('completed_at', { ascending: false })
-    .limit(300);
+  const consultaCargas = (comPurpose: boolean) => {
+    const query = supabase
+      .from('set_logs')
+      .select(
+        comPurpose
+          ? 'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key, planned_sessions!inner(training_plans!inner(purpose))))'
+          : 'actual_load_kg, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key))',
+      )
+      .not('actual_load_kg', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(300);
+    return comPurpose
+      ? query.neq(
+          'planned_sets.planned_exercises.planned_sessions.training_plans.purpose',
+          'joint',
+        )
+      : query;
+  };
+
+  let { data, error } = await consultaCargas(true);
+  if (erroDeColunaAusente(error)) {
+    // 0026 ausente no banco: refaz sem o embed/filtro de purpose e segue.
+    ({ data, error } = await consultaCargas(false));
+  }
   if (error) throw error;
 
   const mapa: Record<string, number> = {};
@@ -504,6 +558,8 @@ export const getLastLoadByExercise = async (
     const nome: string | undefined = exercicio?.name;
     const carga = linha?.actual_load_kg;
     if (!nome || carga == null) continue;
+    const purpose = exercicio?.planned_sessions?.training_plans?.purpose;
+    if (purpose === 'joint') continue;
     const chave = exerciseIdentity({
       exerciseKey: exercicio?.exercise_key ?? null,
       name: nome,
@@ -532,6 +588,14 @@ export type CompletedSessionSummary = {
   // existe no banco (janela de deploy) ou a sessão não foi fechada pela nova
   // finish_session — a tela mostra "—", nunca o relógio de parede bruto.
   activeSeconds: number | null;
+  /**
+   * true quando a sessão veio de um plano purpose='joint' (achado A4: sem
+   * isso, uma sessão de treino EM DUPLA aparecia como se fosse solo no
+   * Histórico). training_plans é alcançado pela mesma relação já embutida
+   * (session_logs→planned_sessions→training_plans); nada de coluna
+   * denormalizada.
+   */
+  origemJoint: boolean;
 };
 
 // O PostgREST corta qualquer resposta em `max_rows` (1000 no config deste
@@ -547,23 +611,63 @@ const PAGINA_HISTORICO = 1000;
 export const getCompletedSessions = async (
   userId: string,
 ): Promise<CompletedSessionSummary[]> => {
-  const linhas: any[] = [];
-
-  for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
-    const { data, error } = await supabase
+  // As duas colunas (purpose da migration 0026, active_seconds da 0028) são
+  // INDEPENDENTES uma da outra — por isso o select é montado combinando os
+  // dois flags separadamente (achado N7), em vez de 3 strings fixas onde
+  // comPurpose=true sempre arrastava active_seconds junto. Isso habilita o
+  // degrau (comPurpose=true, comActiveSeconds=false): só a 0028 ausente.
+  const consulta = (comPurpose: boolean, comActiveSeconds: boolean, inicio: number) =>
+    supabase
       .from('session_logs')
       .select(
-        'id, planned_session_id, started_at, finished_at, active_seconds, planned_sessions(title, week_number, muscle_groups)',
+        `id, planned_session_id, started_at, finished_at${comActiveSeconds ? ', active_seconds' : ''}, planned_sessions(title, week_number, muscle_groups${comPurpose ? ', training_plans(purpose)' : ''})`,
       )
       .eq('user_id', userId)
       .not('finished_at', 'is', null)
       .order('finished_at', { ascending: false })
       .range(inicio, inicio + PAGINA_HISTORICO - 1);
-    if (error) throw error;
 
-    const pagina = (data ?? []) as any[];
-    linhas.push(...pagina);
-    if (pagina.length < PAGINA_HISTORICO) break;
+  const paginar = async (comPurpose: boolean, comActiveSeconds: boolean): Promise<any[]> => {
+    const linhas: any[] = [];
+    for (let inicio = 0; ; inicio += PAGINA_HISTORICO) {
+      const { data, error } = await consulta(comPurpose, comActiveSeconds, inicio);
+      if (error) throw error;
+      const pagina = (data ?? []) as any[];
+      linhas.push(...pagina);
+      if (pagina.length < PAGINA_HISTORICO) break;
+    }
+    return linhas;
+  };
+
+  // R1 (review PR #73): degradação em DEGRAUS. Um só fallback sem purpose
+  // ainda selecionava active_seconds (migration 0028) — com a 0028 também
+  // ausente (prod ainda na 0022), o segundo 42703 relançava sem catch e o
+  // Histórico caía em erro. Cada degrau remove mais uma coluna das
+  // migrations 0026-0030: 1º com tudo, 2º remove só a coluna que a MESSAGE
+  // do 42703 aponta, 3º sem purpose E sem active_seconds (último recurso,
+  // ambos viram null/false no resultado). Erro não-42703 em qualquer degrau
+  // segue propagando.
+  //
+  // N7: sem essa leitura de message, o 2º degrau sempre assumia "falta
+  // purpose" (janela mais comum) e mantinha active_seconds no select. No
+  // estado intermediário inverso — 0026 já aplicada, 0028 ainda não — esse
+  // degrau erraria de novo pelo MESMO motivo, e o 3º descartaria purpose à
+  // toa: sessão joint perdia o chip 'Dupla' sem crashar. Uma dica errada
+  // (message não citar 'active_seconds' quando na verdade é isso que falta,
+  // ou vice-versa) só custa um degrau extra — o último recurso (false,
+  // false) sempre resolve.
+  let linhas: any[];
+  try {
+    linhas = await paginar(true, true);
+  } catch (erro) {
+    if (!erroDeColunaAusente(erro)) throw erro;
+    const faltaSoActiveSeconds = erroCitaColuna(erro, 'active_seconds');
+    try {
+      linhas = await paginar(faltaSoActiveSeconds, !faltaSoActiveSeconds);
+    } catch (erroDegrau) {
+      if (!erroDeColunaAusente(erroDegrau)) throw erroDegrau;
+      linhas = await paginar(false, false);
+    }
   }
 
   return linhas.map((linha) => ({
@@ -575,6 +679,7 @@ export const getCompletedSessions = async (
     startedAt: linha.started_at,
     finishedAt: linha.finished_at,
     activeSeconds: toNum(linha.active_seconds),
+    origemJoint: linha.planned_sessions?.training_plans?.purpose === 'joint',
   }));
 };
 
@@ -588,23 +693,38 @@ const PAGINA_SET_LOGS = 1000;
  * Alimenta recordes e volume por semana — sempre dados reais, paginados até o fim.
  */
 export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> => {
-  const linhas: any[] = [];
-
-  for (let inicio = 0; ; inicio += PAGINA_SET_LOGS) {
-    const { data, error } = await supabase
+  const consulta = (comPurpose: boolean, inicio: number) =>
+    supabase
       .from('set_logs')
       .select(
-        'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key))',
+        comPurpose
+          ? 'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key, planned_sessions(training_plans(purpose))))'
+          : 'actual_reps, actual_load_kg, completed_at, session_logs!inner(user_id, finished_at), planned_sets(planned_exercises(name, exercise_key))',
       )
       .eq('session_logs.user_id', userId)
       .not('session_logs.finished_at', 'is', null)
       .order('completed_at', { ascending: false })
       .range(inicio, inicio + PAGINA_SET_LOGS - 1);
-    if (error) throw error;
 
-    const pagina = (data ?? []) as any[];
-    linhas.push(...pagina);
-    if (pagina.length < PAGINA_SET_LOGS) break;
+  const paginar = async (comPurpose: boolean): Promise<any[]> => {
+    const linhas: any[] = [];
+    for (let inicio = 0; ; inicio += PAGINA_SET_LOGS) {
+      const { data, error } = await consulta(comPurpose, inicio);
+      if (error) throw error;
+      const pagina = (data ?? []) as any[];
+      linhas.push(...pagina);
+      if (pagina.length < PAGINA_SET_LOGS) break;
+    }
+    return linhas;
+  };
+
+  let linhas: any[];
+  try {
+    linhas = await paginar(true);
+  } catch (erro) {
+    if (!erroDeColunaAusente(erro)) throw erro;
+    // 0026 ausente no banco: pente inteiro refeito sem o embed de purpose.
+    linhas = await paginar(false);
   }
 
   const resumo: SetLogResumo[] = [];
@@ -618,6 +738,7 @@ export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> 
       loadKg: toNum(linha.actual_load_kg),
       reps: linha.actual_reps ?? null,
       completedAt: linha.completed_at,
+      origemJoint: exercicio?.planned_sessions?.training_plans?.purpose === 'joint',
     });
   }
   return resumo;
@@ -655,11 +776,24 @@ export type SessionLogDetail = {
 export const getSessionLogDetail = async (
   sessionLogId: string,
 ): Promise<SessionLogDetail | null> => {
-  const cabecalho = await supabase
-    .from('session_logs')
-    .select('id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)')
-    .eq('id', sessionLogId)
-    .single();
+  const consultaCabecalho = (comActiveSeconds: boolean) =>
+    supabase
+      .from('session_logs')
+      .select(
+        comActiveSeconds
+          ? 'id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)'
+          : 'id, started_at, finished_at, planned_sessions(title, week_number)',
+      )
+      .eq('id', sessionLogId)
+      .single();
+
+  // N1 (achado família R1): produção está na 0022 — active_seconds só existe
+  // a partir da 0028. Sem este degrau, o 42703 propagava cru e quebrava o
+  // Histórico ao abrir QUALQUER sessão (caminho solo, sem gate de flag).
+  let cabecalho = await consultaCabecalho(true);
+  if (erroDeColunaAusente(cabecalho.error)) {
+    cabecalho = await consultaCabecalho(false);
+  }
   if (cabecalho.error) throw cabecalho.error;
   if (!cabecalho.data) return null;
 

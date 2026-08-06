@@ -33,6 +33,7 @@
     "plugins": [
       "expo-asset",
       "expo-font"
-    ]
+    ],
+    "scheme": "forcaapp"
   }
 }

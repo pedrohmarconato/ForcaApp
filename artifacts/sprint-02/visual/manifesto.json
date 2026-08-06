@@ -1,0 +1,54 @@
+{
+  "sprint": "02",
+  "cenarios": [
+    {
+      "id": "a-home-com-treino-do-dia",
+      "viewport": "390x844",
+      "html": "a-home-com-treino-do-dia.html",
+      "png": "a-home-com-treino-do-dia.png",
+      "bytesPng": 30913
+    },
+    {
+      "id": "b-criar-ou-entrar",
+      "viewport": "390x844",
+      "html": "b-criar-ou-entrar.html",
+      "png": "b-criar-ou-entrar.png",
+      "bytesPng": 13843
+    },
+    {
+      "id": "c-host-aguardando",
+      "viewport": "390x844",
+      "html": "c-host-aguardando.html",
+      "png": "c-host-aguardando.png",
+      "bytesPng": 23461
+    },
+    {
+      "id": "d-modo-host-e-guest",
+      "viewport": "800x844",
+      "html": "d-modo-host-e-guest.html",
+      "png": "d-modo-host-e-guest.png",
+      "bytesPng": 34941
+    },
+    {
+      "id": "e-incompatibilidade-dois-papeis",
+      "viewport": "800x844",
+      "html": "e-incompatibilidade-dois-papeis.html",
+      "png": "e-incompatibilidade-dois-papeis.png",
+      "bytesPng": 29951
+    },
+    {
+      "id": "f-conexao-e-presenca",
+      "viewport": "390x844",
+      "html": "f-conexao-e-presenca.html",
+      "png": "f-conexao-e-presenca.png",
+      "bytesPng": 23275
+    },
+    {
+      "id": "g-prontidao-e-handoff",
+      "viewport": "390x844",
+      "html": "g-prontidao-e-handoff.html",
+      "png": "g-prontidao-e-handoff.png",
+      "bytesPng": 34021
+    }
+  ]
+}

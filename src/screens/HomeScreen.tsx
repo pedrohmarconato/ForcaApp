@@ -43,13 +43,13 @@ import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
+import { JointEntryCard } from '../components/joint';
+import { isJointTrainingEnabled } from '../config/featureFlags';
 
-// Tipagem da navegação dentro da HomeStack (HomeMain -> WorkoutDetail/ActiveSession)
-type HomeStackParamList = {
-  HomeMain: undefined;
-  WorkoutDetail: { sessionId: string };
-  ActiveSession: { sessionId: string };
-};
+// A tipagem da HomeStack vive em MainNavigator — fonte ÚNICA. A cópia local que
+// existia aqui só quebraria em runtime: adicionar rota lá e esquecer daqui
+// compila e falha no aparelho.
+import type { HomeStackParamList } from '../navigation/MainNavigator';
 
 const formatarData = (isoDate: string | null): string =>
   isoDate ? new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR') : '';
@@ -323,6 +323,19 @@ const HomeScreen = () => {
           </Card>
         )}
       </View>
+
+      {/* --- Treinar junto: entra DEPOIS do treino do dia, que continua sendo o
+           primeiro assunto da tela. O cartão abre a escolha; não cria convite.
+           Gate por flag (achado A1): sem a migration 0026 em produção, o card
+           quebra na criação e o lobby é beco sem saída. Ver src/config/featureFlags.ts --- */}
+      {isJointTrainingEnabled() ? (
+        <View style={styles.section}>
+          <JointEntryCard
+            onCriar={() => navigation.navigate('JointInvite')}
+            onEntrar={() => navigation.navigate('JointJoin', {})}
+          />
+        </View>
+      ) : null}
 
       {/* --- Sua semana: contagem e dias REAIS, sem meta inventada --- */}
       <View style={styles.section}>

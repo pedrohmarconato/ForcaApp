@@ -4,7 +4,10 @@
 //     modo offline está desativado;
 // (2) o questionário (dados de saúde) não pode aparecer em logs.
 
-import { requestTrainingPlanGeneration } from '../src/services/api/trainingPlanService';
+import {
+  requestTrainingPlanGeneration,
+  __setOfflineEnvReader,
+} from '../src/services/api/trainingPlanService';
 import apiClient from '../src/services/api/apiClient';
 import { logger } from '../src/utils/logger';
 
@@ -22,16 +25,12 @@ const mockedPost = apiClient.post as jest.Mock;
 const DADOS_SAUDE = { nome: 'Fulano', peso_kg: 95, lesoes_detalhes: 'lesão medular C5' };
 
 describe('trainingPlanService', () => {
-  const originalEnv = process.env;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...originalEnv };
-    delete process.env.EXPO_PUBLIC_ENABLE_OFFLINE_MODE;
-  });
-
-  afterAll(() => {
-    process.env = originalEnv;
+    // R4 (review PR #73): com o acesso estático à env, o transform já inlinou
+    // o valor no momento do build — mutar process.env em runtime não surte
+    // efeito. Os estados do gate são simulados pelo reader injetável.
+    __setOfflineEnvReader(() => undefined);
   });
 
   it('REPRODUÇÃO: erro de rede com modo offline DESATIVADO propaga erro (sem plano fictício)', async () => {
@@ -45,7 +44,7 @@ describe('trainingPlanService', () => {
   it('erro de rede com modo offline ATIVADO retorna simulado SEM planId fabricado', async () => {
     // Achado #10 do review: "offline-<timestamp>" quebrava a FK uuid de
     // profiles.current_plan_id depois de já termos reportado sucesso.
-    process.env.EXPO_PUBLIC_ENABLE_OFFLINE_MODE = 'true';
+    __setOfflineEnvReader(() => 'true');
     mockedPost.mockRejectedValueOnce({ message: 'Network Error' });
 
     const result = await requestTrainingPlanGeneration('user-1', DADOS_SAUDE, []);

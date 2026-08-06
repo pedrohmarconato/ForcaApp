@@ -5,7 +5,10 @@
 //  - getPathFromState: ida e volta estáveis (state → URL → state preserva).
 
 import { getStateFromPath, getPathFromState } from '@react-navigation/native';
-import { LINKING_CONFIG } from '../src/navigation/linking';
+// De `linkingConfig`, não de `linking`: a config de rotas é pura, e importá-la
+// pelo módulo que carrega o convite pendente arrastaria AsyncStorage para um
+// teste que não tem nada com storage.
+import { LINKING_CONFIG } from '../src/navigation/linkingConfig';
 
 // Shape do estado parcial aninhado devolvido pelo linking:
 // { routes: [ { name: 'Home', state: { routes: [ { name, params } ] } } ] }

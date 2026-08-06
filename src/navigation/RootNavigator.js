@@ -1,6 +1,8 @@
 // src/navigation/RootNavigator.js
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { linkingInterceptor, linkingMain } from './linking';
+import { consumirConvitePendente } from '../services/jointInvitePending';
 import { ActivityIndicator, View, StyleSheet, Text } from 'react-native';
 import theme from '../theme/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,14 +10,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
-import { LINKING_PREFIXES, LINKING_CONFIG } from './linking';
 import { useAuth } from '../contexts/AuthContext';
 
-// Deep link / URL tipada: a sessão ativa é recuperável por URL nos stacks Hoje
-// e Plano (ex.: /home/active-session/<id> e /training/active-session/<id>).
-const linking = {
-  prefixes: LINKING_PREFIXES,
-  config: LINKING_CONFIG,
+/**
+ * Ref da árvore MAIN. O convite pendente é despachado por aqui, e só depois de o
+ * dispatch ser ACEITO o pendente é removido — se a ref ainda não estiver pronta,
+ * o código sobrevive para a próxima tentativa.
+ */
+export const mainNavigationRef = createNavigationContainerRef();
+
+const despacharConvite = (codigo) => {
+  if (!mainNavigationRef.isReady()) return false;
+  mainNavigationRef.navigate('Home', { screen: 'JointJoin', params: { code: codigo } });
+  return true;
 };
 
 const RootNavigator = () => {
@@ -23,6 +30,12 @@ const RootNavigator = () => {
   const { session, profile, loadingSession, loadingProfile, errorProfile } = useAuth();
   const [shouldStayLoggedIn, setShouldStayLoggedIn] = useState(false);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
+
+  // Calculado aqui em cima (não perto do JSX final) porque o hook abaixo
+  // depende dele e TODO hook precisa rodar incondicionalmente, antes de
+  // qualquer `return` antecipado (loading/Auth/erro de perfil) — Rules of
+  // Hooks. `ehMain` só depende de `profile`, já disponível neste ponto.
+  const ehMain = Boolean(profile && profile.onboarding_completed);
 
   useEffect(() => {
     const checkStayLoggedInPreference = async () => {
@@ -42,6 +55,27 @@ const RootNavigator = () => {
     };
     checkStayLoggedInPreference();
   }, []); // Removida a dependência de loadingSession, geralmente não necessária aqui
+
+  // Onboarding e Main são o MESMO <NavigationContainer> (mesma posição/tipo no
+  // retorno da função, lá embaixo) — React não o desmonta quando `ehMain` vira
+  // `true`, e o `onReady` do react-navigation dispara UMA VEZ NA VIDA do
+  // componente (a promise interna de prontidão é fixada na 1ª render; ver
+  // `useThenable` em @react-navigation/native). Login/onboarding terminando no
+  // MESMO processo (sem cold start) nunca reexecutava `onReady`, e o convite
+  // guardado em `guardarConvitePendente` ficava preso até o TTL de 15 min
+  // (achado N2).
+  //
+  // Este efeito cobre esse caminho: quando `ehMain` vira `true` com o
+  // container JÁ pronto (cold start já resolvido por `onReady` abaixo), tenta
+  // consumir de novo. `mainNavigationRef.isReady()` só é `true` depois que o
+  // navigator de baixo registrou o listener de foco — se ainda não estiver,
+  // esta tentativa é um no-op seguro e o `onReady` (que só dispara quando o
+  // container fica pronto) cobre o caso restante.
+  useEffect(() => {
+    if (ehMain && mainNavigationRef.isReady()) {
+      void consumirConvitePendente(despacharConvite);
+    }
+  }, [ehMain]);
 
 
   console.log('[RootNavigator] Renderizando: session=', !!session, 'shouldStayLoggedIn=', shouldStayLoggedIn, 'loadingSession=', loadingSession, 'isLoadingPreference=', isLoadingPreference, 'loadingProfile=', loadingProfile);
@@ -64,8 +98,11 @@ const RootNavigator = () => {
         console.log('[RootNavigator] Limpando preferência @userShouldStayLoggedIn pois não há sessão.');
         AsyncStorage.removeItem('@userShouldStayLoggedIn');
     }
+    // Esta árvore NÃO tem `Home/JointJoin`. A config interceptora guarda o
+    // código do convite e devolve `null`, em vez de tentar hidratar uma rota
+    // que não existe aqui.
     return (
-      <NavigationContainer linking={linking}>
+      <NavigationContainer linking={linkingInterceptor}>
         <AuthNavigator />
       </NavigationContainer>
     );
@@ -112,9 +149,21 @@ const RootNavigator = () => {
     NavigatorComponent = <OnboardingNavigator />;
   }
 
-  // Retorna o componente navegador decidido dentro do Container
+  // O segundo container hospeda Main OU Onboarding, e só a Main tem
+  // `Home/JointJoin`. Passar `linkingMain` para o Onboarding faria ele tentar
+  // montar uma rota ausente — por isso a escolha é explícita.
+  // (`ehMain` já foi calculado no topo da função — ver comentário lá.)
+
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer
+      ref={ehMain ? mainNavigationRef : undefined}
+      linking={ehMain ? linkingMain : linkingInterceptor}
+      onReady={() => {
+        // Consome o convite que chegou antes da hora — sem entrar sozinho: a
+        // tela abre preenchida e espera a ação do usuário.
+        if (ehMain) void consumirConvitePendente(despacharConvite);
+      }}
+    >
       {NavigatorComponent}
     </NavigationContainer>
   );
