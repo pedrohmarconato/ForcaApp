@@ -90,6 +90,13 @@ export const subscribeToJointSession = (
   let vistos = vistosVazios();
   let estado: JointSessionState | null = null;
   let vivo = true;
+  // R3 (review PR #73): guarda de selo INTERNA. O hook rejeitava a resposta
+  // antiga na tela, mas estado/vistos internos não tinham guarda — duas
+  // respostas de snapshot fora de ordem regrediam a base incremental (cursor
+  // regredido → falso buraco → snapshot em cascata). Este módulo agora
+  // descarta resposta com selo menor ANTES de tocar qualquer estado; a
+  // checagem do hook vira defesa em profundidade.
+  let ultimoSeloAplicado = 0;
   // Uma pausa por episódio de ausência: sem isto, cada tique do watchdog
   // dispararia uma chamada nova enquanto o parceiro estiver fora.
   let pausaPedida = false;
@@ -99,6 +106,10 @@ export const subscribeToJointSession = (
   const proximoSelo = deps.proximoSelo ?? (() => ++seloLocal);
 
   const publicar = (proximo: JointSessionState, selo: number) => {
+    // Defesa em profundidade (R3): quem aplica primeiro define o selo de
+    // referência; um selo menor que chegue depois não regride nada.
+    if (selo < ultimoSeloAplicado) return;
+    ultimoSeloAplicado = selo;
     estado = proximo;
     if (proximo.status === 'active') pausaPedida = false;
     handlers.onState(proximo, selo);
@@ -122,6 +133,11 @@ export const subscribeToJointSession = (
       getJointLastEventSeq(jointSessionId).catch(() => 0),
     ]);
     if (!vivo || !s) return;
+    // R3: resposta de snapshot com selo menor que o último aplicado NÃO toca
+    // estado nem vistos — a ordem de PEDIDO define quem é antigo (achado A2),
+    // e a chegada atrasada não pode regredir a base incremental.
+    if (meuSelo < ultimoSeloAplicado) return;
+    ultimoSeloAplicado = meuSelo;
     vistos = { ultimoSeq, chaves: new Set() };
     publicar(s, meuSelo);
   };

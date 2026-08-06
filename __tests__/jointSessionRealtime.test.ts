@@ -416,8 +416,92 @@ describe('eventos', () => {
   });
 });
 
-describe('watchdog de parceiro parado', () => {
-  it('pausa quando o heartbeat do parceiro cessa e o TTL é cruzado', async () => {
+// R3 (review PR #73): a guarda de selo morava SÓ no hook — a tela rejeitava a
+// resposta antiga, mas a base interna do módulo (estado/vistos) não tinha
+// guarda. Duas respostas de snapshot resolvendo fora de ordem regrediam
+// vistos.ultimoSeq e estado internos; o evento incremental seguinte era
+// reduzido sobre a base regredida, e o cursor regredido gerava falso buraco
+// → snapshot em cascata.
+describe('snapshot fora de ordem (achado R3)', () => {
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  };
+
+  const resolverSnapshot = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  const emitirEvento = async (controle: Canal, seq: number, turnSeqAfter: number) => {
+    controle.handlers.joint_session_events({
+      new: {
+        seq,
+        actor_user_id: HOST,
+        kind: 'turn_advanced',
+        client_event_id: `ev-${seq}`,
+        turn_seq_after: turnSeqAfter,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  it('resposta de snapshot ANTIGA chegando por último não regride estado nem vistos; evento seguinte roda sobre a base nova', async () => {
+    const agenda = criarAgenda();
+    const dSubscribed = deferred<JointSessionState>();
+    const dAtrasado = deferred<JointSessionState>();
+    // 1ª chamada (SUBSCRIBED): resolve depois. 2ª chamada (refresh #1, selo
+    // NOVO no pedido): fica pendente. 3ª chamada (refresh #2, selo ainda mais
+    // novo): resolve primeiro com o estado mais avançado.
+    snapshotSpy
+      .mockImplementationOnce(() => dSubscribed.promise)
+      .mockImplementationOnce(() => dAtrasado.promise)
+      .mockImplementationOnce(() =>
+        Promise.resolve(estado({ turnSeq: 2, currentTurnUserId: GUEST })),
+      );
+    // Cursor real do banco: seq 3 já persistida quando o snapshot é aplicado.
+    jest.spyOn(repo, 'getJointLastEventSeq').mockResolvedValue(3);
+
+    const { sub, controle, onState } = assinar(agenda);
+    controle.emitirStatus('SUBSCRIBED');
+    await resolverSnapshot();
+
+    // Snapshot do SUBSCRIBED (o mais antigo no pedido) resolve por último.
+    dSubscribed.resolve(estado());
+    await resolverSnapshot();
+    expect((onState.mock.calls.at(-1)?.[0] as JointSessionState).turnSeq).toBe(1);
+
+    // Pedido #2 e #3: o #3 (mais novo) resolve primeiro e aplica turnSeq 2.
+    void sub.refresh();
+    void sub.refresh();
+    await resolverSnapshot();
+    expect((onState.mock.calls.at(-1)?.[0] as JointSessionState).turnSeq).toBe(2);
+
+    // A resposta do pedido #2 (estado ANTIGO, turnSeq 1) chega por último —
+    // antes do fix, ela regredia estado E vistos (cursor 0) internos.
+    onState.mockClear();
+    dAtrasado.resolve(estado());
+    await resolverSnapshot();
+    // A tela NÃO recebe o estado velho.
+    expect(onState.mock.calls.length).toBe(0);
+
+    snapshotSpy.mockClear();
+    // Evento seq 4 sobre a base nova: com vistos.ultimoSeq=3 (não regredido),
+    // 4 == 3+1 → aplica SEM snapshot. Se vistos tivesse regredido para 0,
+    // 4 > 0+1 seria "buraco" e o teste veria snapshot em cascata.
+    await emitirEvento(controle, 4, 5);
+    expect(snapshotSpy).not.toHaveBeenCalled();
+    const ultimo = onState.mock.calls.at(-1)?.[0] as JointSessionState;
+    expect(ultimo.turnSeq).toBe(5);
+  });
+});
+
+describe('watchdog de parceiro parado', () => {  it('pausa quando o heartbeat do parceiro cessa e o TTL é cruzado', async () => {
     const agenda = criarAgenda();
     const { controle } = assinar(agenda);
     controle.emitirStatus('SUBSCRIBED');
