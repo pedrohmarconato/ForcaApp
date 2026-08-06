@@ -849,6 +849,53 @@ describe('getSessionLogDetail', () => {
     expect(res?.activeSeconds).toBeNull();
     expect(res?.title).toBe('Push B');
   });
+
+  // N1 (achado família R1, review PR #73): produção está na 0022 —
+  // active_seconds só existe a partir da 0028. O cabeçalho de
+  // getSessionLogDetail selecionava active_seconds sem escada de
+  // degradação: `if (cabecalho.error) throw cabecalho.error` propagava o
+  // 42703 cru, e abrir o detalhe de QUALQUER sessão no Histórico
+  // (SessionHistoryDetailScreen.tsx:42, caminho solo sem gate de flag)
+  // quebrava. Mesma mecânica dos degraus do R1: tenta com active_seconds,
+  // em 42703 repete sem a coluna e devolve activeSeconds: null.
+  it('N1: 42703 por active_seconds no detalhe degrada sem a coluna (prod 0022)', async () => {
+    const cabecalhoComErro = makeBuilder({
+      data: null,
+      error: { code: '42703', message: 'column session_logs.active_seconds does not exist' },
+    });
+    const cabecalhoSemColuna = makeBuilder({
+      data: {
+        id: 'sl-3',
+        started_at: 'T0',
+        finished_at: 'T1',
+        planned_sessions: { title: 'Push C', week_number: 3 },
+      },
+      error: null,
+    });
+    const linhas = makeBuilder({ data: [], error: null });
+    fromMock
+      .mockReturnValueOnce(cabecalhoComErro)
+      .mockReturnValueOnce(cabecalhoSemColuna)
+      .mockReturnValueOnce(linhas);
+
+    const res = await getSessionLogDetail('sl-3');
+    expect(res?.activeSeconds).toBeNull();
+    expect(res?.title).toBe('Push C');
+    expect(res?.weekNumber).toBe(3);
+    expect(res?.sessionLogId).toBe('sl-3');
+    expect(fromMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('N1 (gêmeo): erro não-42703 no cabeçalho do detalhe propaga sem retry', async () => {
+    const cabecalhoComErro = makeBuilder({
+      data: null,
+      error: { code: '42P01', message: 'relation "session_logs" does not exist' },
+    });
+    fromMock.mockReturnValueOnce(cabecalhoComErro);
+
+    await expect(getSessionLogDetail('sl-4')).rejects.toMatchObject({ code: '42P01' });
+    expect(fromMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('0026 ausente no banco — 42703 degrada sem quebrar (achado A1/A7)', () => {

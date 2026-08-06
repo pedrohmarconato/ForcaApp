@@ -755,11 +755,24 @@ export type SessionLogDetail = {
 export const getSessionLogDetail = async (
   sessionLogId: string,
 ): Promise<SessionLogDetail | null> => {
-  const cabecalho = await supabase
-    .from('session_logs')
-    .select('id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)')
-    .eq('id', sessionLogId)
-    .single();
+  const consultaCabecalho = (comActiveSeconds: boolean) =>
+    supabase
+      .from('session_logs')
+      .select(
+        comActiveSeconds
+          ? 'id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)'
+          : 'id, started_at, finished_at, planned_sessions(title, week_number)',
+      )
+      .eq('id', sessionLogId)
+      .single();
+
+  // N1 (achado família R1): produção está na 0022 — active_seconds só existe
+  // a partir da 0028. Sem este degrau, o 42703 propagava cru e quebrava o
+  // Histórico ao abrir QUALQUER sessão (caminho solo, sem gate de flag).
+  let cabecalho = await consultaCabecalho(true);
+  if (erroDeColunaAusente(cabecalho.error)) {
+    cabecalho = await consultaCabecalho(false);
+  }
   if (cabecalho.error) throw cabecalho.error;
   if (!cabecalho.data) return null;
 
