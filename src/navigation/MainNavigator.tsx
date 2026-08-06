@@ -24,6 +24,11 @@ import JointJoinScreen from '../screens/JointJoinScreen';
 import JointLobbyScreen from '../screens/JointLobbyScreen';
 import QuestionnaireScreen from '../screens/QuestionnaireScreen';
 import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
+// Achado P1 (review 2026-08-06): a flag isJointTrainingEnabled() (achado A1)
+// só afastava o card da Home — a rota em si não tinha guard nenhum. Ver
+// src/navigation/JointTrainingGate.tsx para o porquê do guard viver aqui, no
+// registro da tela, e não dentro de JointInviteScreen/JointJoinScreen.
+import { withJointTrainingGate } from './JointTrainingGate';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -84,8 +89,8 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="WorkoutDetail" component={WorkoutDetailScreen} />
       <HomeStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
-      <HomeStack.Screen name="JointInvite" component={JointInviteScreen as any} />
-      <HomeStack.Screen name="JointJoin" component={JointJoinScreen as any} />
+      <HomeStack.Screen name="JointInvite" component={withJointTrainingGate(JointInviteScreen) as any} />
+      <HomeStack.Screen name="JointJoin" component={withJointTrainingGate(JointJoinScreen) as any} />
       <HomeStack.Screen name="JointLobby" component={JointLobbyScreen} />
     </HomeStack.Navigator>
   );
