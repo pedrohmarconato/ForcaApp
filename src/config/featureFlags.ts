@@ -13,6 +13,15 @@
 // setado, cai no __DEV__ do bundle — dev local (expo start) = ON; build de
 // release, HML incluído, = OFF até a env ser setada explicitamente no ambiente
 // (ver docs/DEPLOY_WEB.md — envs vivem no painel do projeto Vercel).
+//
+// O ACESSO À ENV É ESTÁTICO de propósito (achado A4, review PR #73): o
+// babel-preset-expo inlina member expressions ESTÁTICAS de EXPO_PUBLIC_* em
+// tempo de build (babel.config.js), e `process.env[FLAG]` com a chave em
+// variável NUNCA era substituído — em qualquer build real a env explícita era
+// ignorada e a flag caía sempre no __DEV__ (ligar pelo painel de HML não
+// funcionava). Quem precisar simular os dois estados em teste NÃO muta
+// process.env (o transform já o substituiu): injeta a leitura via
+// __setJointTrainingEnvReader.
 
 const readExplicitBooleanFlag = (envValue: string | undefined): boolean | null => {
   if (envValue === 'true') return true;
@@ -20,14 +29,14 @@ const readExplicitBooleanFlag = (envValue: string | undefined): boolean | null =
   return null;
 };
 
-// Nome em variável (não `process.env.EXPO_PUBLIC_...` direto): o babel-preset-expo
-// inlina member expressions ESTÁTICAS de EXPO_PUBLIC_* em tempo de build/transform
-// (ver babel.config.js) — inclusive no jest, travando o valor no momento do
-// transform e ignorando qualquer atribuição feita depois em runtime/teste.
-// `process.env[FLAG]` com variável escapa dessa inlinagem e mantém a leitura em
-// runtime, mesmo padrão já usado por EXPO_PUBLIC_ENABLE_OFFLINE_MODE em
-// trainingPlanService.ts.
-const JOINT_TRAINING_FLAG = 'EXPO_PUBLIC_ENABLE_JOINT_TRAINING';
+// Leitura injetável: em Jest o transform já inlinou o acesso estático, então
+// mutar process.env depois não surte efeito — os testes trocam o reader.
+let lerEnv = (): string | undefined => process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING;
+
+/** Só para teste: injeta a leitura da env (simula os dois estados do gate). */
+export const __setJointTrainingEnvReader = (fn: () => string | undefined): void => {
+  lerEnv = fn;
+};
 
 /**
  * Treino conjunto: card na Home + fluxo de convite/lobby (achado A1).
@@ -36,7 +45,7 @@ const JOINT_TRAINING_FLAG = 'EXPO_PUBLIC_ENABLE_JOINT_TRAINING';
  * chegar a produção.
  */
 export const isJointTrainingEnabled = (): boolean => {
-  const explicit = readExplicitBooleanFlag(process.env[JOINT_TRAINING_FLAG]);
+  const explicit = readExplicitBooleanFlag(lerEnv());
   if (explicit !== null) return explicit;
   return typeof __DEV__ !== 'undefined' && __DEV__;
 };

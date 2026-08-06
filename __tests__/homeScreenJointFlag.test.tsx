@@ -48,24 +48,25 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
 }));
 
 import HomeScreen from '../src/screens/HomeScreen';
+import { __setJointTrainingEnvReader } from '../src/config/featureFlags';
 
-const originalEnv = process.env;
 const originalDev = (global as any).__DEV__;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env = { ...originalEnv };
-  delete process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING;
+  // A env já foi inlinada pelo transform no momento do build/transform (achado
+  // A4): mutar process.env em runtime não surte efeito — o gate é simulado
+  // pela injeção do reader.
+  __setJointTrainingEnvReader(() => undefined);
 });
 
 afterEach(() => {
-  process.env = originalEnv;
   (global as any).__DEV__ = originalDev;
 });
 
 describe('HomeScreen — gate do card de treino conjunto (achado A1)', () => {
   it('flag OFF (env="false"): a Home NÃO renderiza o card de treino conjunto', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
 
     const { queryByTestId, queryByText } = render(<HomeScreen />);
     await waitFor(() => expect(queryByTestId('card-treino-conjunto')).toBeNull());
@@ -73,7 +74,7 @@ describe('HomeScreen — gate do card de treino conjunto (achado A1)', () => {
   });
 
   it('flag ON (env="true"): a Home renderiza o card e o fluxo de criar/entrar continua', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    __setJointTrainingEnvReader(() => 'true');
 
     const { getByTestId, getByText } = render(<HomeScreen />);
     await waitFor(() => expect(getByTestId('card-treino-conjunto')).toBeTruthy());

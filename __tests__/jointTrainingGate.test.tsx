@@ -62,30 +62,24 @@ import JointInviteScreen from '../src/screens/JointInviteScreen';
 import JointJoinScreen from '../src/screens/JointJoinScreen';
 import MainNavigator from '../src/navigation/MainNavigator';
 import { LINKING_CONFIG } from '../src/navigation/linkingConfig';
+import { __setJointTrainingEnvReader } from '../src/config/featureFlags';
 
 const ler = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
 const nav = () => ({ goBack: jest.fn(), navigate: jest.fn() });
 
-const originalEnv = process.env;
-
 beforeEach(() => {
-  process.env = { ...originalEnv };
-  delete process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING;
-});
-
-afterEach(() => {
-  process.env = originalEnv;
+  __setJointTrainingEnvReader(() => undefined);
 });
 
 describe('CONTROLE — a tela em si não se protege (o guard tem que estar no registro)', () => {
   it('JointInviteScreen renderizado direto monta o fluxo real mesmo com a flag OFF', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     const { getByTestId } = render(<JointInviteScreen navigation={nav()} />);
     expect(getByTestId('gerar-convite')).toBeTruthy();
   });
 
   it('JointJoinScreen renderizado direto monta o fluxo real mesmo com a flag OFF', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     const { getByTestId } = render(<JointJoinScreen navigation={nav()} />);
     expect(getByTestId('campo-codigo')).toBeTruthy();
   });
@@ -105,7 +99,7 @@ describe('MainNavigator registra as duas rotas através do guard central (achado
 
 describe('withJointTrainingGate — flag OFF mostra o aviso; o fluxo real NÃO monta', () => {
   it('JointInvite gateado: com a flag OFF, "gerar-convite" não monta e o aviso aparece', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointInviteScreen);
@@ -116,7 +110,7 @@ describe('withJointTrainingGate — flag OFF mostra o aviso; o fluxo real NÃO m
   });
 
   it('JointJoin gateado: com a flag OFF, "campo-codigo" não monta e o aviso aparece', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointJoinScreen);
@@ -127,7 +121,7 @@ describe('withJointTrainingGate — flag OFF mostra o aviso; o fluxo real NÃO m
   });
 
   it('o botão "Voltar à Home" do aviso navega para HomeMain, sem redirect silencioso', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointInviteScreen);
@@ -141,7 +135,7 @@ describe('withJointTrainingGate — flag OFF mostra o aviso; o fluxo real NÃO m
 
 describe('withJointTrainingGate — flag ON abre o fluxo normal (não regressão)', () => {
   it('JointInvite gateado: com a flag ON, o fluxo real monta e o aviso não aparece', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    __setJointTrainingEnvReader(() => 'true');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointInviteScreen);
@@ -152,7 +146,7 @@ describe('withJointTrainingGate — flag ON abre o fluxo normal (não regressão
   });
 
   it('JointJoin gateado: com a flag ON, o fluxo real monta e o aviso não aparece', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    __setJointTrainingEnvReader(() => 'true');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { withJointTrainingGate } = require('../src/navigation/JointTrainingGate');
     const Gated = withJointTrainingGate(JointJoinScreen);
@@ -188,7 +182,7 @@ describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJ
   });
 
   it('flag OFF: deep link real para /home/treino-conjunto/novo NÃO abre o convite — mostra o aviso', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoConvite() as any}>
         <MainNavigator />
@@ -200,7 +194,7 @@ describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJ
   });
 
   it('flag OFF: deep link real para /home/treino-conjunto/:code NÃO abre a entrada — mostra o aviso', () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'false';
+    __setJointTrainingEnvReader(() => 'false');
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoEntrada('ABC234') as any}>
         <MainNavigator />
@@ -212,7 +206,7 @@ describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJ
   });
 
   it('flag ON: deep link real para /home/treino-conjunto/novo abre o convite de verdade', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    __setJointTrainingEnvReader(() => 'true');
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoConvite() as any}>
         <MainNavigator />
@@ -224,7 +218,7 @@ describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJ
   });
 
   it('flag ON: deep link real para /home/treino-conjunto/:code abre a entrada de verdade', async () => {
-    process.env.EXPO_PUBLIC_ENABLE_JOINT_TRAINING = 'true';
+    __setJointTrainingEnvReader(() => 'true');
     const { getByTestId, queryByTestId } = render(
       <NavigationContainer initialState={estadoEntrada('ABC234') as any}>
         <MainNavigator />
