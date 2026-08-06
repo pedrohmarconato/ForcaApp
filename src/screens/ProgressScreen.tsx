@@ -285,8 +285,10 @@ const ProgressScreen = () => {
               key={`${r.name}-${r.quando}`}
               title={r.name}
               subtitle={`${formatarKg(r.loadKg)} kg × ${r.reps}`}
-              // Achado A4: recorde vindo de plano purpose='joint' (treino em
-              // dupla) leva o marcador — sem isso ele parecia solo.
+              // R2 (review PR #73): o motor de recordes exclui séries de plano
+              // purpose='joint' da agregação solo — este `leading` é defesa em
+              // profundidade caso um dia chegue aqui um registro marcado.
+              // TODO (dono): seção própria "Dupla" para recordes da dupla.
               leading={r.origemJoint ? <Chip label="Dupla" /> : undefined}
               trailingLabel={formatarDataCurta(r.quando) ?? undefined}
             />

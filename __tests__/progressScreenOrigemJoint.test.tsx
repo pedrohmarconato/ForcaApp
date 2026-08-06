@@ -23,7 +23,7 @@
 // re-rodar isolado antes de suspeitar de regressão.
 
 import React from 'react';
-import { render, waitFor, within } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
@@ -62,34 +62,6 @@ jest.mock('../src/services/cardioGoalRepository', () => ({
 
 import ProgressScreen from '../src/screens/ProgressScreen';
 
-/**
- * Sobe pela árvore de instâncias a partir do nó de texto do título até achar
- * o ancestral mais estreito que contém `alvo` mas não `outro` — a linha
- * (ListRow) daquele registro específico. Evita contar "quantos níveis de
- * View/composite o RN intercala" (detalhe de implementação instável) e
- * evita amarrar o teste a um testID que teria que ser adicionado ao
- * ProgressScreen só para o teste existir.
- */
-function linhaDoRegistro(node: ReturnType<typeof render>['getByText'] extends (
-  ...args: any[]
-) => infer R
-  ? R
-  : never, alvo: string, outro: string) {
-  let atual: any = node;
-  let melhor: any = null;
-  while (atual) {
-    const temAlvo = !!within(atual).queryByText(alvo);
-    const temOutro = !!within(atual).queryByText(outro);
-    if (temAlvo && !temOutro) {
-      melhor = atual;
-    } else if (temAlvo && temOutro) {
-      break;
-    }
-    atual = atual.parent;
-  }
-  return melhor;
-}
-
 describe('ProgressScreen — marcador de origem conjunta (achado A4)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -97,44 +69,67 @@ describe('ProgressScreen — marcador de origem conjunta (achado A4)', () => {
     mockSetLogs = [];
   });
 
-  it('Recordes: mostra "Dupla" no recorde vindo de plano joint e NÃO mostra no solo', async () => {
+  // R2 (review PR #73): a agregação de RECORDES é solo por definição — o
+  // motor exclui séries purpose='joint' (antes, a série 80kg×5 em dupla
+  // apagava o recorde solo 70×5 e aparecia marcada como "Dupla" na lista de
+  // recordes solo). Exibição separada de recordes/volume da dupla em seção
+  // própria é TODO do dono; enquanto não existir, a série joint simplesmente
+  // não aparece aqui.
+  it('Recordes: mistura joint+solo do mesmo exercício mostra o recorde SOLO, sem chip', async () => {
     mockSetLogs = [
       {
         identity: 'k:supino',
         name: 'Supino Reto',
-        loadKg: 50,
-        reps: 8,
-        completedAt: '2026-07-20T10:00:00Z',
+        loadKg: 80,
+        reps: 5,
+        completedAt: '2026-07-22T10:00:00Z',
         origemJoint: true,
+      },
+      {
+        identity: 'k:supino',
+        name: 'Supino Reto',
+        loadKg: 70,
+        reps: 5,
+        completedAt: '2026-07-20T10:00:00Z',
+        origemJoint: false,
       },
       {
         identity: 'k:agachamento',
         name: 'Agachamento',
-        loadKg: 80,
+        loadKg: 90,
         reps: 5,
         completedAt: '2026-07-21T10:00:00Z',
         origemJoint: false,
       },
     ];
 
-    const { getByText, queryAllByText } = render(<ProgressScreen />);
+    const { getByText, queryAllByText, queryByText } = render(<ProgressScreen />);
 
-    await waitFor(() => expect(getByText('Supino Reto')).toBeTruthy());
-    expect(getByText('Agachamento')).toBeTruthy();
+    await waitFor(() => expect(getByText('Agachamento')).toBeTruthy());
+    // O recorde mostrado para o Supino é o SOLO (70 kg), não o joint (80 kg).
+    expect(getByText('70 kg × 5')).toBeTruthy();
+    expect(queryByText('80 kg × 5')).toBeNull();
+    // Sem chip "Dupla": a lista de recordes é só de registros solo agora.
+    expect(queryAllByText('Dupla')).toHaveLength(0);
+  });
 
-    // Amarra o chip ao registro certo (não só "existe algum 'Dupla' na tela"):
-    // a linha do Supino Reto (origemJoint: true) carrega o marcador, e a
-    // linha do Agachamento (origemJoint: false) não.
-    const linhaSupino = linhaDoRegistro(getByText('Supino Reto'), 'Supino Reto', 'Agachamento');
-    const linhaAgachamento = linhaDoRegistro(getByText('Agachamento'), 'Agachamento', 'Supino Reto');
-    if (!linhaSupino || !linhaAgachamento) {
-      throw new Error('Não encontrou o container da linha (ListRow) do recorde.');
-    }
-    expect(within(linhaSupino).queryByText('Dupla')).toBeTruthy();
-    expect(within(linhaAgachamento).queryByText('Dupla')).toBeNull();
+  it('Recordes: série APENAS joint não gera recorde na lista solo', async () => {
+    mockSetLogs = [
+      {
+        identity: 'k:supino',
+        name: 'Supino Reto',
+        loadKg: 80,
+        reps: 5,
+        completedAt: '2026-07-22T10:00:00Z',
+        origemJoint: true,
+      },
+    ];
 
-    // E em quantidade exata: só um marcador na tela inteira.
-    expect(queryAllByText('Dupla')).toHaveLength(1);
+    const { getByText, queryByText } = render(<ProgressScreen />);
+
+    // Nenhum recorde de carga é exibido (a lista vazia tem o texto próprio).
+    await waitFor(() => expect(getByText('Seus recordes de carga aparecem aqui.')).toBeTruthy());
+    expect(queryByText('Supino Reto')).toBeNull();
   });
 
   it('Recordes: nenhum marcador quando TODOS os recordes são solo', async () => {
