@@ -431,12 +431,19 @@ const JointLobbyScreen = (props: {
 
   const userId = user?.id ?? null;
 
+  // Cada carga tem uma geração; resposta de geração antiga é descartada — dois
+  // disparos concorrentes (montagem + "Tentar de novo", ou toques repetidos)
+  // não podem deixar a resposta MAIS VELHA sobrescrever a MAIS NOVA (achado N5).
+  const geracaoRef = useRef(0);
+
   const carregarPlano = useCallback(async () => {
     if (!userId) return;
+    const geracao = ++geracaoRef.current;
     setCarregandoPlano(true);
     setErroPlano(null);
     try {
       const sessoes = await getPlanSessions(userId);
+      if (geracao !== geracaoRef.current) return;
       // Só o MEU plano ativo, mapeado para o que o modelo entende. A lista do
       // parceiro não é pedida nem recebida — a RLS não a entregaria.
       setMinhasSessoes(
@@ -449,9 +456,10 @@ const JointLobbyScreen = (props: {
         })),
       );
     } catch (e) {
+      if (geracao !== geracaoRef.current) return;
       setErroPlano(e instanceof Error ? e.message : 'Não foi possível carregar seus treinos.');
     } finally {
-      setCarregandoPlano(false);
+      if (geracao === geracaoRef.current) setCarregandoPlano(false);
     }
   }, [userId]);
 

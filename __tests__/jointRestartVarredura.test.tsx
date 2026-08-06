@@ -300,4 +300,46 @@ describe('F23 — o default export monta pela fronteira real', () => {
     const { getByTestId } = abrirRegistrado();
     await waitFor(() => expect(getByTestId('sem-sessao')).toBeTruthy());
   });
+
+  // N5: `carregarPlano` não tem guarda de reentrada. Dois disparos concorrentes
+  // (aqui, dois toques em "Tentar de novo" com a Promise anterior ainda pendente)
+  // podem responder fora de ordem — sem guarda, a resposta MAIS VELHA, chegando
+  // por último, sobrescreve a MAIS NOVA já aplicada.
+  it('N5 — resposta obsoleta de getPlanSessions não sobrescreve a mais nova', async () => {
+    const resolvers: Array<(v: any) => void> = [];
+    (getPlanSessions as jest.Mock)
+      .mockImplementationOnce(() => Promise.reject(new Error('sem conexão')))
+      .mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve); }));
+
+    const { getByTestId, queryByTestId } = abrirRegistrado();
+    await waitFor(() => expect(getByTestId('erro-plano')).toBeTruthy());
+
+    // O 1º toque já tira o botão da árvore (`carregandoPlano` some com a tela de
+    // erro) e `fireEvent` recusa evento em elemento desmontado — então a
+    // closure de `onPress` é capturada UMA vez, com tudo ainda montado, e
+    // chamada diretamente as duas vezes. É exatamente o "toques repetidos" que
+    // o achado descreve: a segunda chamada nasce antes de a primeira responder.
+    let alvo: any = getByTestId('recarregar-plano');
+    while (alvo && typeof alvo.props?.onPress !== 'function') alvo = alvo.parent;
+    const dispararRecarregar = alvo.props.onPress as () => void;
+
+    act(() => { dispararRecarregar(); }); // 1º disparo — fica pendente (a MAIS VELHA)
+    act(() => { dispararRecarregar(); }); // 2º disparo — também pendente (a MAIS NOVA)
+    await waitFor(() => expect(resolvers.length).toBe(2));
+
+    // Responde primeiro a MAIS NOVA (2º disparo)...
+    await act(async () => {
+      resolvers[1]([{ id: 'ps-novo', title: 'Peito Novo', muscle_groups: ['Peito'], status: 'pending', joint_session_id: null }]);
+    });
+    await waitFor(() => expect(getByTestId('sessao-ps-novo')).toBeTruthy());
+
+    // ...e só depois a MAIS VELHA (1º disparo), atrasada.
+    await act(async () => {
+      resolvers[0]([{ id: 'ps-velho', title: 'Peito Velho', muscle_groups: ['Peito'], status: 'pending', joint_session_id: null }]);
+    });
+
+    // A resposta velha, chegando por último, não pode reaparecer nem apagar a nova.
+    expect(getByTestId('sessao-ps-novo')).toBeTruthy();
+    expect(queryByTestId('sessao-ps-velho')).toBeNull();
+  });
 });
