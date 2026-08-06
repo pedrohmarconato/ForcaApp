@@ -3,6 +3,17 @@ import apiClient, { ENDPOINTS } from './apiClient';
 import { AcompanhamentoPerdidoError } from './planJobErrors';
 import { logger } from '../../utils/logger';
 
+// Leitura injetável da flag de modo offline (R4, review PR #73): em Jest o
+// transform já inlinou o acesso estático à env, então mutar process.env
+// depois não surte efeito — os testes trocam o reader (mesmo padrão de
+// featureFlags.ts, achado A4).
+let lerOfflineEnv = (): string | undefined => process.env.EXPO_PUBLIC_ENABLE_OFFLINE_MODE;
+
+/** Só para teste: injeta a leitura da env (simula os dois estados do gate). */
+export const __setOfflineEnvReader = (fn: (() => string | undefined) | null): void => {
+  lerOfflineEnv = fn ?? (() => process.env.EXPO_PUBLIC_ENABLE_OFFLINE_MODE);
+};
+
 // Geração de plano via LLM pode levar minutos — timeout dedicado, maior que
 // o padrão do apiClient. Cadeia ponta a ponta (achado #3 do review do PR #19):
 // auth ≤10s + Anthropic ≤150s + persistência ≤20s = ≤180s < ESTE timeout
@@ -216,8 +227,13 @@ export const requestTrainingPlanGeneration = async (
       error.response?.status || error.code || error.message,
     );
 
-    const OFFLINE_FLAG = 'EXPO_PUBLIC_ENABLE_OFFLINE_MODE';
-    const isOfflineModeEnabled = process.env[OFFLINE_FLAG] === 'true';
+    // R4 (review PR #73): acesso ESTÁTICO de propósito — `process.env[FLAG]`
+    // com a chave em variável nunca é inlinado pelo babel-preset-expo, então
+    // a env explícita era ignorada em qualquer build real (mesmo padrão de
+    // featureFlags.ts, achado A4 do review anterior). Quem precisar simular
+    // os dois estados em teste NÃO muta process.env (o transform já o
+    // substituiu): injeta a leitura via __setOfflineEnvReader.
+    const isOfflineModeEnabled = lerOfflineEnv() === 'true';
 
     if (isOfflineModeEnabled) {
       logger.warn('[TrainingPlanService] Modo offline: plano SIMULADO.');
