@@ -95,6 +95,16 @@ describe('MainNavigator registra as duas rotas através do guard central (achado
   it('JointJoin é registrado através de withJointTrainingGate', () => {
     expect(src).toMatch(/name="JointJoin"\s+component=\{withJointTrainingGate\(JointJoinScreen\)/);
   });
+
+  // Achado N4 (painel, 3 ângulos): JointInvite e JointJoin passam pelo guard,
+  // mas JointLobby era registrada crua (`component={JointLobbyScreen}`). Hoje
+  // não é explorável (sem path em linkingConfig.ts; só se chega via navigate()
+  // depois de create/join, que já vivem atrás do gate) — mas qualquer
+  // navegação futura direta bypassa a flag e quebra com erro cru de tabela
+  // inexistente (prod 0022, migration 0026 ainda não aplicada).
+  it('JointLobby é registrado através de withJointTrainingGate', () => {
+    expect(src).toMatch(/name="JointLobby"\s+component=\{withJointTrainingGate\(JointLobbyScreen\)/);
+  });
 });
 
 describe('withJointTrainingGate — flag OFF mostra o aviso; o fluxo real NÃO monta', () => {
@@ -226,6 +236,47 @@ describe('MainNavigator real — deep link ponta a ponta até JointInvite/JointJ
     );
 
     await waitFor(() => expect(getByTestId('campo-codigo')).toBeTruthy());
+    expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
+  });
+});
+
+describe('MainNavigator real — JointLobby entra no gate como as demais rotas joint (achado N4)', () => {
+  // JointLobby NÃO tem path em linkingConfig.ts (achado do painel: hoje só se
+  // chega nela por navigate() pós create/join, que já vivem atrás do gate) —
+  // por isso o estado inicial é montado à mão, no MESMO formato que
+  // getStateFromPath produz para JointInvite/JointJoin (ver describe acima),
+  // trocando só o nome da rota final e seus params.
+  const estadoLobby = () => ({
+    routes: [
+      {
+        name: 'Home',
+        state: {
+          index: 1,
+          routes: [{ name: 'HomeMain' }, { name: 'JointLobby', params: { jointSessionId: 'sessao-1' } }],
+        },
+      },
+    ],
+  });
+
+  it('flag OFF: navegar direto para JointLobby NÃO monta a tela real — mostra o aviso do gate', () => {
+    __setJointTrainingEnvReader(() => 'false');
+    const { getByTestId } = render(
+      <NavigationContainer initialState={estadoLobby() as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
+
+    expect(getByTestId('aviso-treino-conjunto-indisponivel')).toBeTruthy();
+  });
+
+  it('flag ON: navegar para JointLobby não mostra o aviso do gate (não regressão)', () => {
+    __setJointTrainingEnvReader(() => 'true');
+    const { queryByTestId } = render(
+      <NavigationContainer initialState={estadoLobby() as any}>
+        <MainNavigator />
+      </NavigationContainer>,
+    );
+
     expect(queryByTestId('aviso-treino-conjunto-indisponivel')).toBeNull();
   });
 });

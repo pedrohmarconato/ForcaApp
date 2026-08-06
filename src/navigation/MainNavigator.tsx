@@ -91,7 +91,7 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
       <HomeStack.Screen name="JointInvite" component={withJointTrainingGate(JointInviteScreen) as any} />
       <HomeStack.Screen name="JointJoin" component={withJointTrainingGate(JointJoinScreen) as any} />
-      <HomeStack.Screen name="JointLobby" component={JointLobbyScreen} />
+      <HomeStack.Screen name="JointLobby" component={withJointTrainingGate(JointLobbyScreen) as any} />
     </HomeStack.Navigator>
   );
 }
