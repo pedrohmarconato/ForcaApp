@@ -59,7 +59,8 @@ export const recordesPorExercicio = (
       loadKg: l.loadKg,
       reps: l.reps,
       quando: l.completedAt,
-      origemJoint: l.origemJoint === true,
+      // Após o continue acima, só chegam séries solo — o tipo é false.
+      origemJoint: false,
     };
     if (
       !atual ||
