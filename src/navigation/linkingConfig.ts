@@ -59,7 +59,22 @@ export const LINKING_CONFIG = {
         HomeMain: '',
         WorkoutDetail: 'workout/:sessionId',
         ActiveSession: 'active-session/:sessionId',
-        // Treino conjunto (Sprint 02).
+        // Treino conjunto (Sprint 02). NÃO são rota morta, apesar do comentário
+        // acima dizer que o link canônico "não passa por aqui": aquele é só o
+        // caminho RAIZ (`treino-conjunto/:code`, sem `/home`), interceptado por
+        // `estadoDoConvite`/`parseInvitePath` em `linking.ts`. Estas duas linhas
+        // resolvem o caminho ANINHADO `/home/treino-conjunto/...`, nos dois
+        // sentidos: `getPathFromState` (sem override em `linkingMain`, logo
+        // aplicado com ESTA config) é o que dá a URL de `/home/treino-conjunto/
+        // novo` e `/home/treino-conjunto/:code` quando o usuário navega para
+        // `JointInvite`/`JointJoin` dentro do app — e é o que a barra de
+        // endereço do PWA mostra; e um refresh NESSA url aninhada volta por
+        // aqui, porque o guard de `linkingMain.getStateFromPath` só intercepta
+        // caminho que começa em `treino-conjunto` na raiz — `/home/treino-
+        // conjunto/...` cai no fallback padrão, que usa esta config. Confirmado
+        // em 05/08/2026 com getStateFromPath/getPathFromState direto sobre esta
+        // config: `/home/treino-conjunto/novo` → Home[HomeMain, JointInvite];
+        // `/home/treino-conjunto/ABC234` → Home[HomeMain, JointJoin{code}].
         JointInvite: 'treino-conjunto/novo',
         JointJoin: `${CAMINHO_CONVITE}/:code`,
       },
