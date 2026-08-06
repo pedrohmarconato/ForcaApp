@@ -140,6 +140,24 @@ export type JointEvent = {
   nextTurnUserId?: string;
 };
 
+/**
+ * ACHADO F1: extrai `payload.next_turn_user_id` (jsonb da linha de evento) —
+ * a verdade do servidor sobre para quem vai o turno. Validação defensiva de
+ * TIPO (mesmo padrão de `String(r.actor_user_id)` nos mapeadores de linha),
+ * sem regex de formato: só string não vazia vira valor; qualquer outra coisa
+ * (ausente, número, objeto) devolve undefined e quem chama cai no fallback
+ * histórico em vez de propagar lixo como se fosse um user_id.
+ *
+ * Vive aqui — módulo puro, sem I/O — porque tanto jointSessionRealtime.ts
+ * quanto jointSessionRepository.ts precisam dela; um dos dois importar do
+ * outro criaria dependência circular entre as camadas de serviço.
+ */
+export const extrairNextTurnUserId = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const v = (payload as Record<string, unknown>).next_turn_user_id;
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+};
+
 // ============================================================
 // Transições
 // ============================================================

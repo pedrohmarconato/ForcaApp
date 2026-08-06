@@ -17,7 +17,12 @@ import type {
   JointEvent,
   JointEventKind,
 } from '../engine/jointSessionModel';
-import { isJointMode, isJointPauseReason, isJointStatus } from '../engine/jointSessionModel';
+import {
+  extrairNextTurnUserId,
+  isJointMode,
+  isJointPauseReason,
+  isJointStatus,
+} from '../engine/jointSessionModel';
 
 type RequestErrorKind = 'transport' | 'server';
 
@@ -470,7 +475,7 @@ export const getJointSessionEvents = async (
   try {
     response = await supabase
       .from('joint_session_events')
-      .select('seq, actor_user_id, kind, client_event_id, turn_seq_after')
+      .select('seq, actor_user_id, kind, client_event_id, turn_seq_after, payload')
       .eq('joint_session_id', jointSessionId)
       .gt('seq', desdeSeq)
       .order('seq', { ascending: true });
@@ -486,6 +491,7 @@ export const getJointSessionEvents = async (
     kind: e.kind as JointEventKind,
     clientEventId: texto(e.client_event_id),
     turnSeqAfter: e.turn_seq_after == null ? null : numero(e.turn_seq_after),
+    nextTurnUserId: extrairNextTurnUserId(e.payload),
   }));
 };
 

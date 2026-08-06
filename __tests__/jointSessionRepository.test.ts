@@ -26,6 +26,7 @@ import {
   confirmJointParticipantSession,
   createJointSession,
   getJointPartnerProfile,
+  getJointSessionEvents,
   getJointSessionSnapshot,
   isTransportJointError,
   joinJointSession,
@@ -337,5 +338,70 @@ describe('snapshot autoritativo', () => {
     await expect(getJointSessionSnapshot('js-1')).rejects.toMatchObject({
       motivo: 'nao_autorizado',
     });
+  });
+});
+
+// ACHADO F4 (verificador do F1): getJointSessionEvents não selecionava `payload`
+// nem mapeava `nextTurnUserId` — código sem chamador hoje, mas quem ligar esse
+// caminho de reconciliação por gap de seq alimentaria o reducer com eventos sem
+// a verdade do servidor sobre o turno, caindo no fallback local em silêncio.
+describe('eventos desde seq', () => {
+  const builder = (result: { data?: unknown; error: unknown; status?: number }) => {
+    const b: any = {};
+    const chain = () => b;
+    b.select = jest.fn(chain);
+    b.eq = jest.fn(chain);
+    b.gt = jest.fn(chain);
+    b.order = jest.fn(chain);
+    b.limit = jest.fn(chain);
+    b.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej);
+    return b;
+  };
+
+  it('leva payload.next_turn_user_id ao JointEvent (achado do verificador do F1)', async () => {
+    const b = builder({
+      data: [
+        {
+          seq: 7,
+          actor_user_id: 'u-host',
+          kind: 'turn_advanced',
+          client_event_id: 'ev-7',
+          turn_seq_after: 4,
+          payload: { next_turn_user_id: 'u-x' },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(b);
+    const [evento] = await getJointSessionEvents('js-1', 6);
+    expect(evento.nextTurnUserId).toBe('u-x');
+    expect(b.select).toHaveBeenCalledWith(expect.stringContaining('payload'));
+  });
+
+  it('payload nulo ou sem o campo devolve nextTurnUserId indefinido, sem lançar', async () => {
+    const b = builder({
+      data: [
+        {
+          seq: 8,
+          actor_user_id: 'u-guest',
+          kind: 'set_confirmed',
+          client_event_id: null,
+          turn_seq_after: null,
+          payload: null,
+        },
+        {
+          seq: 9,
+          actor_user_id: 'u-guest',
+          kind: 'set_confirmed',
+          client_event_id: null,
+          turn_seq_after: null,
+          payload: {},
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(b);
+    const eventos = await getJointSessionEvents('js-1', 6);
+    expect(eventos.map((e) => e.nextTurnUserId)).toEqual([undefined, undefined]);
   });
 });

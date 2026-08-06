@@ -16,7 +16,13 @@
 
 import { supabase } from '../config/supabaseClient';
 import type { JointEvent, JointSessionState } from '../engine/jointSessionModel';
-import { PRESENCA_TTL_MS, aplicarEvento, parceiroSumiu, vistosVazios } from '../engine/jointSessionModel';
+import {
+  PRESENCA_TTL_MS,
+  aplicarEvento,
+  extrairNextTurnUserId,
+  parceiroSumiu,
+  vistosVazios,
+} from '../engine/jointSessionModel';
 import {
   getJointSessionSnapshot,
   pauseJointSession,
@@ -26,22 +32,6 @@ import {
 const HEARTBEAT_MS = 20_000;
 const BACKOFF_INICIAL_MS = 1_000;
 const BACKOFF_TETO_MS = 30_000;
-
-/**
- * ACHADO F1: `payload.next_turn_user_id` (jsonb da linha de evento) é a
- * verdade do servidor sobre para quem vai o turno — necessário desde a 0030,
- * que passou a emitir 'turn_advanced' em dois pontos com regra própria (ver
- * jointSessionModel.ts, caso 'turn_advanced'). Validação defensiva de TIPO
- * (mesmo padrão de `actorUserId: String(r.actor_user_id)` logo abaixo, sem
- * regex de formato): só string não vazia vira valor; qualquer outra coisa
- * (ausente, número, objeto) devolve undefined e o redutor cai no fallback
- * histórico em vez de propagar lixo como se fosse um user_id.
- */
-const extrairNextTurnUserId = (payload: unknown): string | undefined => {
-  if (!payload || typeof payload !== 'object') return undefined;
-  const v = (payload as Record<string, unknown>).next_turn_user_id;
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
-};
 
 export type JointRealtimeHandlers = {
   onState: (state: JointSessionState) => void;
