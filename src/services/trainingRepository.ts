@@ -70,6 +70,18 @@ export type PlannedSession = {
 
 export type SessionDetail = PlannedSession & { planned_exercises: PlannedExercise[] };
 
+export type TrainingPlanMetadata = {
+  id: string;
+  name: string;
+  duration_weeks: number;
+  // Null nos planos afetados pela regressão corrigida na migration 0015.
+  progression_rules: unknown[] | null;
+  // Molde que originou o plano. É o único lugar que preserva a diferença entre
+  // "o aluno declarou 55 min" e "deixei o servidor estimar": o builder só grava
+  // `duracao_minutos` na sessão quando o aluno declarou um valor.
+  raw_plan?: unknown;
+};
+
 /**
  * Plano ATIVO do usuário. Todas as leituras de sessões são escopadas por ele:
  * sem isso, sessões de planos antigos/duplicados se misturariam na Home
@@ -154,6 +166,18 @@ export const hasSessionInProgress = async (userId: string): Promise<boolean> => 
     .limit(1);
   if (error) throw error;
   return (data?.length ?? 0) > 0;
+};
+/** Metadados necessários para reconstruir progressão e duração no editor. */
+export const getTrainingPlanMetadata = async (
+  planId: string,
+): Promise<TrainingPlanMetadata | null> => {
+  const { data, error } = await supabase
+    .from('training_plans')
+    .select('id, name, duration_weeks, progression_rules, raw_plan')
+    .eq('id', planId)
+    .single();
+  if (error) throw error;
+  return data ?? null;
 };
 
 /** Próximas sessões pendentes do plano ativo, em ordem de data (lista da Home). */

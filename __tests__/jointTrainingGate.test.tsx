@@ -15,6 +15,10 @@
 // porque a tela em si nunca teve — e não precisa ter — checagem própria: o
 // guard é externo, na camada de registro.
 
+jest.mock(
+  '@react-native-async-storage/async-storage',
+  () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn(), from: jest.fn() } }));
 jest.mock('../src/services/jointSessionRepository', () => ({
   __esModule: true,

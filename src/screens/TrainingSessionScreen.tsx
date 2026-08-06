@@ -648,6 +648,14 @@ const TrainingSessionScreen = () => {
               />
             );
           })}
+          <Button
+            label="Editar plano"
+            variant="ghost"
+            compact
+            icon="edit-2"
+            onPress={() => navigation.navigate('ManualPlanEditor', { fromPlanId: session.plan_id })}
+            style={styles.editPlan}
+          />
         </View>
       ) : null}
 
@@ -858,6 +866,7 @@ const styles = StyleSheet.create({
   frequenciaCard: { marginBottom: theme.spacing.xl },
   // Fixas esmaecidas no modo edição: não participam da permuta.
   rowFixa: { opacity: 0.55 },
+  editPlan: { alignSelf: 'flex-start', marginTop: theme.spacing.sm },
 
   summary: { marginBottom: theme.spacing.xl },
   summaryTop: {

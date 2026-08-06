@@ -4,17 +4,27 @@ import { createStackNavigator } from '@react-navigation/stack';
 
 import QuestionnaireScreen from '../screens/QuestionnaireScreen';
 import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
+import ManualPlanEditorScreen from '../screens/ManualPlanEditorScreen';
+import ManualWorkoutEditorScreen from '../screens/ManualWorkoutEditorScreen';
+import ExercisePickerScreen from '../screens/ExercisePickerScreen';
 import theme from '../theme/theme';
+import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
 import { stackCardStyle, stackTransition } from './navigationStyles';
 
 // Corrigido: Tipagem adequada para parâmetros de rota
 export type OnboardingStackParamList = {
   Questionnaire: undefined;
-  PostQuestionnaireChat: { 
-    formData?: any // Ou tipo mais específico para seu formulário
-    skipChat?: boolean // Feature A: gerar o treino direto sem passar pelo chat
+  PostQuestionnaireChat: {
+    formData?: ManualOnboardingQuestionnaire;
+    skipChat?: boolean;
+    manualPlanId?: string;
   };
-  // Adicione outras telas aqui
+  ManualPlanEditor: {
+    onboarding: true;
+    questionnaireData: ManualOnboardingQuestionnaire;
+  };
+  ManualWorkoutEditor: { workoutIndex: number };
+  ExercisePicker: { workoutIndex: number; exerciseIndex?: number };
 };
 
 const Stack = createStackNavigator<OnboardingStackParamList>();
@@ -56,7 +66,21 @@ const OnboardingNavigator = () => {
         component={PostQuestionnaireChat}
         options={{ title: 'Ajustes finais' }}
       />
-      {/* Adicione outras telas do onboarding aqui */}
+      <Stack.Screen
+        name="ManualPlanEditor"
+        component={ManualPlanEditorScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ManualWorkoutEditor"
+        component={ManualWorkoutEditorScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ExercisePicker"
+        component={ExercisePickerScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 };

@@ -29,6 +29,10 @@ import PostQuestionnaireChat from '../screens/PostQuestionnaireChat';
 // src/navigation/JointTrainingGate.tsx para o porquê do guard viver aqui, no
 // registro da tela, e não dentro de JointInviteScreen/JointJoinScreen.
 import { withJointTrainingGate } from './JointTrainingGate';
+import ManualPlanEditorScreen from '../screens/ManualPlanEditorScreen';
+import ManualWorkoutEditorScreen from '../screens/ManualWorkoutEditorScreen';
+import ExercisePickerScreen from '../screens/ExercisePickerScreen';
+import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
 // (ActiveSession) é registrada na Home e na aba Treino. O histórico saiu do
@@ -53,6 +57,13 @@ export type TrainingStackParamList = {
   // geração direto, sem chat.
   Questionnaire: undefined;
   PostQuestionnaireChat: { formData?: any; skipChat?: boolean };
+  ManualPlanEditor: {
+    fromPlanId?: string;
+    onboarding?: boolean;
+    questionnaireData?: ManualOnboardingQuestionnaire;
+  } | undefined;
+  ManualWorkoutEditor: { workoutIndex: number };
+  ExercisePicker: { workoutIndex: number; exerciseIndex?: number };
 };
 
 export type ProgressStackParamList = {
@@ -104,6 +115,9 @@ function TrainingStackNavigator() {
       <TrainingStack.Screen name="ActiveSession" component={ActiveSessionScreen} />
       <TrainingStack.Screen name="Questionnaire" component={QuestionnaireScreen} options={{ headerShown: false }} />
       <TrainingStack.Screen name="PostQuestionnaireChat" component={PostQuestionnaireChat} />
+      <TrainingStack.Screen name="ManualPlanEditor" component={ManualPlanEditorScreen} />
+      <TrainingStack.Screen name="ManualWorkoutEditor" component={ManualWorkoutEditorScreen} />
+      <TrainingStack.Screen name="ExercisePicker" component={ExercisePickerScreen} />
     </TrainingStack.Navigator>
   );
 }

@@ -1020,6 +1020,8 @@ Não há migration nem artefato frontend neste PR; por isso não houve novo
 deploy PWA. O Preview homologado no PR 2 continua sendo o bundle vigente, e as
 telas consumidoras entram no PR 4.
 
+---
+
 ## Reordenação de treinos e exercícios (2026-07-29)
 
 O usuário agora PODE (nunca é obrigado a) reordenar, depois do plano criado:
@@ -1351,3 +1353,224 @@ Decisão do dono: **as duas** — desempenho e consistência.
   linha não-cardio. A suíte completa acima foi rodada depois de trazer `main`.
   A validação transacional em staging descrita acima antecede estes ajustes; a
   migration 0022 permanece **não aplicada** em staging e produção.
+---
+
+## 26/07/2026 — Plano manual, PR 4: editor no app
+
+Branch `feat/plano-manual-editor`, empilhada sobre o PR #46.
+
+### Entregue no código
+
+- O rascunho TypeScript espelha o contrato do backend, inclusive a métrica
+  explícita de nomes livres. Um store Zustand dedicado coordena as três telas,
+  persiste cada mutação no AsyncStorage por usuário e só apaga o rascunho após
+  receber um `plan_id` válido.
+- `ManualPlanEditorScreen` edita nome, duração, treinos e progressão; impede
+  salvar treino vazio, explica que a carga em kg depende do que for registrado
+  e mostra somente a prévia devolvida por `/api/manual-plan/preview`.
+- `ManualWorkoutEditorScreen` oferece seleção seg→dom ou sem dia fixo,
+  aquecimento/alongamento opcionais, duração declarada opcional e exercícios
+  editáveis, removíveis e reordenáveis.
+- `ExercisePickerScreen` busca sem acento, filtra por grupo, mantém
+  Cardio/Mobilidade alcançáveis e aceita nome livre mesmo offline. Catálogo
+  continua autoritativo para métrica/equipamento; nome livre oferece seletor de
+  carga/reps, tempo ou tempo+distância. A limitação marcada alimenta o guardrail
+  já existente.
+- A progressão começa ligada com descarga na semana 4. Séries continuam
+  desligadas por padrão e exibem janela mais aviso de efeito acumulativo;
+  cardio só aparece quando existe cardio; intensidade só aparece quando existe
+  `%RM`. Desligar uma regra é preservado durante edições posteriores.
+- As rotas foram adicionadas à stack de Plano. Os dois pontos de entrada
+  (onboarding e edição de plano ativo) pertencem deliberadamente ao PR 5.
+
+### RED → GREEN e portões locais
+
+- RED inicial: quatro suítes não coletavam porque tipos, storage, store e telas
+  ainda não existiam. Depois, um RED específico reproduziu a progressão de
+  cardio sendo religada contra a escolha do aluno.
+- Novas suítes: 16 testes de rascunho, store e telas; junto do guarda Web, 26
+  testes focados. O guarda repo-wide confirmou que nenhum `TextInput` flexível
+  novo ficou sem `minWidth: 0`.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 64/64 suítes e 544/544 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
+  conhecido do urllib3/LibreSSL.
+
+### Homologação HML
+
+- **Draft PR #47** aberto, empilhado sobre o #46.
+- PWA Preview `forca-aa36owq5i-pmarconatos-projects.vercel.app`, deployment
+  `5J9KTe6K3V3Dz2rYW15CEUHKeWqr`: estado READY e raiz HTTP 200.
+- O guarda executado no build remoto confirmou um único bundle Web, ambiente
+  `preview`, host `forca-api-hml.cadastrai.com` presente e nenhum endereço de
+  LAN. O deploy não usou `--prod`.
+- Não há migration nem mudança de backend neste PR. As telas existem na stack,
+  mas não têm ponto de entrada por desenho: o onboarding e “Editar plano”
+  entram no PR 5. Portanto o smoke navegável ponta a ponta não foi fingido
+  neste PR; ele começa assim que a próxima camada publicar esses acessos.
+
+---
+
+## 26/07/2026 — Plano manual, PR 5: entradas e edição do plano ativo
+
+Branch `feat/plano-manual-entradas`, empilhada sobre o PR #47.
+
+### Entregue no código
+
+- O onboarding agora oferece “Prefiro montar meu treino” com o mesmo peso das
+  alternativas existentes. O questionário só pré-preenche dias, duração e as
+  preferências explícitas de cardio/alongamento; nenhum exercício é escolhido
+  pelo app.
+- Salvar no onboarding volta ao portão de revelação já existente. O perfil
+  continua intocado até o toque em “Começar”, quando `onboarding_completed` e
+  `current_plan_id` são atualizados juntos.
+- A aba Plano ganhou “Editar plano”. O store lê somente a semana 1 do plano
+  ativo, preserva prescrição, dia, duração, limitação e regras de progressão e
+  abre o mesmo editor manual.
+- Aquecimento Articular e Alongamento Dinâmico persistidos voltam a toggles e
+  saem da lista editável, impedindo duplicação em edições sucessivas. Planos
+  atingidos pela antiga regressão de `progression_rules` ficam com todas as
+  regras desligadas e recebem aviso explícito; nenhuma progressão é inferida.
+- A substituição exige confirmação e explica que a RPC cria um plano novo,
+  arquiva o atual e preserva os treinos já executados no histórico.
+- O rascunho persistido vence o prefill ao retomar o onboarding, evitando que
+  fechar e reabrir o app apague trabalho já digitado.
+
+### RED → GREEN e portões locais
+
+- RED inicial: o conversor não existia, a terceira opção não aparecia, o save
+  manual pulava a revelação e o aviso não exigia confirmação.
+- Três suítes novas cobrem importação/round-trip, onboarding manual e aviso de
+  substituição; testes existentes foram ampliados para o store, metadados do
+  plano e a ação na aba Plano.
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 67/67 suítes e 556/556 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 351/351 testes; apenas o warning
+  conhecido do urllib3/LibreSSL.
+
+### Homologação HML
+
+- Pendente de publicação do PWA Preview e smoke navegável deste PR. Não há
+  migration nem alteração de backend nesta camada.
+
+---
+
+## 27/07/2026 — Auditoria da pilha do plano manual (#43–#48) e remediação
+
+Auditoria adversarial das seis camadas antes do merge: oito frentes de análise
+(base/migration, molde de cardio, catálogo, backend manual, editor, entradas e
+edição, invariantes do pipeline, segurança) e refutação independente de cada
+achado. **26 achados confirmados (9 altos), 9 refutados.** Cada correção foi
+aplicada na camada mais antiga que introduziu o defeito e propagada por merge
+para as descendentes, preservando a ancestralidade.
+
+### Corrigido no PR #43 — `fix/plano-base-dia-progressao`
+
+- `_injury_flags` comparava o texto livre do aluno ("ombro") com o vocabulário
+  fechado do catálogo ("Ombros") por igualdade exata: o guardrail de lesão
+  ficava ligado e **nunca disparava**. Passa por normalização, despluralização
+  e um mapa anatômico explícito (joelho → Quadríceps + Posterior de Coxa).
+  Termo desconhecido continua não marcando nada.
+- `if regras:` tratava `[]` como ausência de dado. Molde que declara "plano sem
+  progressão" gravava NULL e a UI dizia "progressão indisponível" para um plano
+  que diz o contrário. Teste de tipo, não de verdade.
+
+### Corrigido no PR #44 — `fix/molde-cardio-sem-repeticoes`
+
+- Lacuna aberta pela própria relaxação do schema: nome FORA do catálogo com
+  duração prescrita e sem repetições caía no ramo de carga, a duração sumia e
+  `_parse_reps(None)` inventava 8–12 repetições. Agora a prescrição do molde
+  manda; item do catálogo mantém a métrica do catálogo.
+
+### Corrigido no PR #45 — `feat/catalogo-exercicios-api`
+
+- Falha de `setItem` (janela anônima do Safari) derrubava um fetch de 200 com
+  os 106 exercícios: o editor mostrava "catálogo indisponível" com a rede
+  perfeita. O cache saiu do caminho crítico.
+- A busca casava só por substring enquanto o backend casa por tokens: "supino
+  barra" não achava "Supino Reto com Barra" e o app afirmava "não está na nossa
+  lista". Além disso, a preferência de cardio/mobilidade passa a esconder o
+  grupo só da navegação, nunca do que o aluno digitou.
+- Nova rota `POST /api/exercise-catalog/resolve` (autenticada) devolve o item
+  canônico de um nome livre sem expor aliases. Offline devolve null.
+
+### Corrigido no PR #46 — `feat/plano-manual-backend`
+
+- Treino "sem dia fixo" (default de todo treino novo) colidia com treino de dia
+  explícito: o guard descartava os nulos e o mapper resolvia o nulo como
+  segunda-feira. `alocar_dias_dos_treinos` materializa o dia antes da validação
+  e da expansão.
+- **A semana 1 saía progredida.** Cardio e intensidade eram emitidos com
+  `semana_inicio: 1` e o expansor conta `semana - inicio + 1`: quem digitava
+  20 min / 70 %RM recebia 21 min / 72 %RM na semana 1. As regras manuais
+  começam na semana 2; a semana 1 é a linha de base.
+- `delta_series` multiplicava cardio e isometria (1 corrida de 20 min virava 5
+  corridas de 28 min). Ganhou o mesmo guard `_e_por_tempo` que
+  `delta_rm_percentual` já tinha.
+- Aquecimento e alongamento esticavam com a progressão de cardio — a tela
+  promete 5 min e o plano entregava 35. Blocos auto-injetados são marcados
+  `progressivel: False` e o expansor respeita a marca em todas as regras.
+- O teto de séries era pré-checado sem contar o aumento de séries; um plano
+  comum passava na validação e morria com 400 no meio do pipeline.
+- A prévia roda o pipeline inteiro sem consumir cota: ganhou teto próprio.
+- Mensagem de schema inválido deixa de ser o texto cru do jsonschema em inglês.
+- Piso de `duracao_minutos` (0,25 min) e `distancia_km` (0,01 km) nos dois
+  schemas: prancha de 45 s não cabia no contrato.
+
+### Corrigido no PR #47 — `feat/plano-manual-editor`
+
+- **Duração decimal apagava o rascunho inteiro, em silêncio.** "37,5" reprovava
+  a releitura e o store gravava um plano vazio por cima. Três travas: a tela
+  arredonda, o storage coage o campo recuperável, e o store nunca semeia por
+  cima de bytes ilegíveis.
+- Estimativa fora de 15–180 só falhava no Salvar, com texto em inglês.
+- O efeito de inicialização re-disparava após o save e regravava um rascunho
+  fantasma. Novo `status: 'saved'`.
+- `hasCardioExercise` ignorava a métrica `tempo`: HIIT/Pular Corda/Escada não
+  ofereciam progressão de cardio — e a regra chegava a ser apagada em silêncio.
+- Exercício além do teto de 30 sumia sem aviso; o picker fechava como se
+  tivesse salvado.
+- Nome livre era oferecido para exercícios que o servidor canoniza; agora o
+  picker consulta o resolvedor antes de aceitar o nome como livre.
+- Duração abaixo de 1 minuto passa a ser exibida em segundos.
+
+### Corrigido no PR #48 — `feat/plano-manual-entradas`
+
+- O dia do treino vinha de `scheduled_date`. Com a compressão deliberada da
+  semana 1, um plano criado numa sexta voltava como "sexta/sexta/sexta" e o
+  save morria em "dois treinos no mesmo dia", sem saída. Passa a vir de
+  `day_of_week`; a data é só fallback. **A trava do `start_date` não foi
+  tocada** — o comportamento continua o mesmo.
+- Duração e distância preservam o valor exato no round-trip.
+- Aquecimento/alongamento só viram toggle com a assinatura completa do bloco
+  injetado; exercício do aluno com nome parecido continua editável.
+- A progressão era reescrita sem avisar (escopo, janela, regra com campo
+  opcional ausente). Defaults do motor onde ELE já os aplica; toda diferença
+  que o editor não representa é listada e mostrada antes de salvar.
+- Falha do `updateProfile` depois do save travava a tela em erro e induzia a
+  criação de um segundo plano.
+
+### Portões locais (topo da pilha, `feat/plano-manual-entradas`)
+
+- `npx tsc --noEmit`: exit 0, 0 erros.
+- `npx jest`: exit 0, 67/67 suítes e 576/576 testes.
+- `python3 -m pytest backend/tests -q`: exit 0, 373/373 testes; apenas o
+  warning conhecido do urllib3/LibreSSL.
+
+### Estado de homologação
+
+- Backend publicado em `staging` (`f8fea4e`); a VPS recriou o container e
+  `POST /api/exercise-catalog/resolve` responde 401 sem token (rota nova no
+  ar), `/api/health` e `/api/ready` em 200.
+- PWA Preview `https://forca-nyv34m6ca-pmarconatos-projects.vercel.app`,
+  deployment `dpl_C2cXtoB8qEveNvUVBbKRKd3Lsqad`, estado READY e raiz HTTP 200.
+  `verify-web-bundle` confirmou bundle de preview apontando para
+  `forca-api-hml.cadastrai.com`, sem endereços de LAN. Não foi usado `--prod`.
+- Migrations em HML seguem em 0000→0015 (nenhuma migration nova nesta rodada).
+
+### PENDENTE — smoke navegável
+
+**O smoke ponta a ponta ainda NÃO foi executado nesta rodada.** Ele depende de
+um login com usuário descartável de homologação, que precisa ser feito pelo
+dono: o agente não cria conta nem digita senha em formulário. Enquanto o smoke
+não rodar, nenhum destes PRs deve ser mesclado.
