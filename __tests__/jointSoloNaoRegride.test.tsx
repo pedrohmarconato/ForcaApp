@@ -4,11 +4,90 @@
 // O Sprint 02 mexeu em quatro arquivos existentes. Estes testes existem para
 // que a próxima pessoa saiba, sem ler o diff, que a Home, as rotas antigas e o
 // tipo de navegação continuam como estavam.
+//
+// Achado A5 (review 2026-08-05): os describes abaixo que leem o arquivo com
+// `ler()` e comparam com regex são guarda TEXTUAL — provam que a fonte diz
+// determinada coisa, não que o app FAZ aquilo em execução. Isso é suficiente
+// para invariantes estruturais (nome de rota, export, import), mas não prova
+// que a Home renderiza nem que "Começar"/"Detalhes" navegam de verdade. O
+// describe "L1 (comportamental)" abaixo cobre essa lacuna com render real
+// (@testing-library/react-native) da HomeScreen e navegação exercitada de
+// verdade — inclusive com o JointEntryCard no ar (achado A1: a flag
+// EXPO_PUBLIC_ENABLE_JOINT_TRAINING cai em __DEV__ quando não setada, e o
+// ambiente de teste do jest-expo tem __DEV__=true por padrão, então o cartão
+// conjunto renderiza junto — o teste tem que continuar passando com ele lá).
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import React from 'react';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
 const ler = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
+
+// --- Mocks para o describe comportamental (L1). Os describes textuais abaixo
+// não importam HomeScreen nem dependem destes mocks — continuam lendo a
+// fonte crua com `ler()`. ---
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+  useFocusEffect: jest.fn((cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => {
+      const cleanup = cb();
+      return cleanup;
+    }, [cb]);
+  }),
+}));
+
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = require('react-native');
+  return { SafeAreaView: View };
+});
+
+jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
+
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-123', email: 'test@example.com' },
+    profile: { full_name: 'Atleta de Teste' },
+  }),
+}));
+
+// Prefixo "mock" é exigido pelo babel-plugin-jest-hoist: são as únicas
+// variáveis externas que uma factory de jest.mock() pode referenciar (o mock
+// é hoistado para ANTES da declaração de qualquer const comum do módulo).
+const mockSessionId = 'sess-solo-l1';
+// Data local de hoje, no mesmo formato que useDiaLocal/localTodayISO usam —
+// não importa qual data é, só que a sessão mockada exista e seja renderizável.
+const mockHojeISO = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
+
+jest.mock('../src/services/trainingRepository', () => ({
+  getTodaySession: jest.fn(async () => ({
+    id: mockSessionId,
+    plan_id: 'plan-1',
+    user_id: 'user-123',
+    week_number: 3,
+    day_of_week: 'monday',
+    order_in_week: 1,
+    title: 'Treino de Pernas',
+    session_type: 'strength',
+    scheduled_date: mockHojeISO,
+    estimated_minutes: 45,
+    status: 'pending',
+    muscle_groups: ['Quadríceps', 'Glúteos'],
+  })),
+  getUpcomingSessions: jest.fn(async () => []),
+  fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
+}));
+
+jest.mock('../src/services/sessionExecutionRepository', () => ({
+  getCompletedSessions: jest.fn(async () => []),
+}));
+
+import HomeScreen from '../src/screens/HomeScreen';
 
 describe('L4 — nenhuma rota pré-existente mudou', () => {
   const nav = ler('src/navigation/MainNavigator.tsx');
@@ -65,6 +144,41 @@ describe('L1 — ordem da Home: o treino do dia vem primeiro', () => {
 
   it('o bloco do treino do dia continua chamando ActiveSession como antes', () => {
     expect(home).toContain("navigation.navigate('ActiveSession', { sessionId: todaySession.id })");
+  });
+});
+
+describe('L1 (comportamental) — o fluxo solo executa de verdade, com o cartão conjunto ao lado', () => {
+  // Diferente do describe acima (regex sobre a fonte), este renderiza a
+  // HomeScreen de verdade e exercita a navegação. Cobre exatamente o que o
+  // nome do arquivo promete: solo não regride — inclusive com o JointEntryCard
+  // no ar por padrão no jest (achado A1 + nota do achado A5).
+
+  it('renderiza o treino do dia E o cartão de treino conjunto juntos, sem um atropelar o outro', async () => {
+    const { getByTestId, getByText } = render(<HomeScreen />);
+
+    await waitFor(() => expect(getByTestId('card-treino-destaque')).toBeTruthy());
+    expect(getByText('Treino de Pernas')).toBeTruthy();
+    // O cartão conjunto (flag ON por padrão no teste) continua no ar ao lado —
+    // é exatamente o cenário que quebraria se A1 tivesse feito o gate errado.
+    expect(getByTestId('card-treino-conjunto')).toBeTruthy();
+  });
+
+  it('"Começar" navega para ActiveSession com o id da sessão do dia', async () => {
+    const { getByTestId, getByText } = render(<HomeScreen />);
+    await waitFor(() => expect(getByTestId('card-treino-destaque')).toBeTruthy());
+
+    fireEvent.press(getByText('Começar'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('ActiveSession', { sessionId: mockSessionId });
+  });
+
+  it('"Detalhes" navega para WorkoutDetail com o id da sessão do dia', async () => {
+    const { getByTestId, getByText } = render(<HomeScreen />);
+    await waitFor(() => expect(getByTestId('card-treino-destaque')).toBeTruthy());
+
+    fireEvent.press(getByText('Detalhes'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('WorkoutDetail', { sessionId: mockSessionId });
   });
 });
 

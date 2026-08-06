@@ -1,6 +1,16 @@
 // __tests__/jointUiTokens.test.ts
 // Treino Conjunto 2.0 — Sprint 02. A regra do design system, verificada.
 //
+// GUARDA TEXTUAL, NÃO DE COMPORTAMENTO (achado A5, review 2026-08-05): todo
+// teste deste arquivo lê o CÓDIGO-FONTE com `readFileSync` e casa regex contra
+// o texto — nenhum componente é renderizado ou executado aqui. Isso prova que
+// a fonte não contém um literal visual solto ou um rótulo com gerúndio; não
+// prova que a tela renderiza certo, que o import resolve, nem que o token do
+// tema produz a cor esperada em execução. Cobertura de execução destes
+// mesmos componentes fica com jointSoloNaoRegride.test.tsx (describe "L1
+// (comportamental)") e com os testes de tela dedicados (ex.:
+// jointInviteScreen.test.tsx, jointJoinScreen.test.tsx, jointLobbyScreen.test.tsx).
+//
 // `src/components/ui/index.ts` diz: "as telas importam daqui — nunca declaram
 // cor, fonte, raio ou espaçamento próprios". Sem um teste, essa frase envelhece
 // no primeiro `#1E1E1E` que alguém cola às pressas.
