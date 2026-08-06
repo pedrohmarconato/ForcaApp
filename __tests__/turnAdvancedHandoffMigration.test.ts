@@ -5,8 +5,11 @@
 // fiel da reconstrução de posse do turno feita por
 // `_forca_tempo_efetivo_segundos` na 0029 (linhas 139-190: CTEs `turnos`,
 // `posse`, `pares`, `sobreposicoes`, `por_par`) — mesma lógica, mesmas
-// fórmulas, só trocando SQL por JS. A conferência ESTRUTURAL, abaixo, é sobre
-// o ARQUIVO .sql da 0030 aplicado.
+// fórmulas, só trocando SQL por JS. A réplica mora em
+// test-utils/tempoEfetivoConjuntoReplica.ts (compartilhada com
+// __tests__/tempoEfetivoConjuntoMigration.test.ts, achado P3, para não
+// duplicar a mesma lógica em dois arquivos). A conferência ESTRUTURAL,
+// abaixo, é sobre o ARQUIVO .sql da 0030 aplicado.
 //
 // Cenário provado: "A encerra a fila antes de B" via `mark_joint_queue_finished`
 // — o handoff da 0026 que o achado aponta como sem evento. Duas versões do
@@ -19,78 +22,11 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-
-// ---------------------------------------------------------------------------
-// Réplica fiel da reconstrução de posse (0029:139-190)
-// ---------------------------------------------------------------------------
-
-type JointEventoTurno = {
-  seq: number;
-  kind: string;
-  createdAtMs: number;
-  payload: { next_turn_user_id?: string };
-};
-
-type SegmentoPosse = {
-  holder: string;
-  desde: number; // ms; -Infinity representa '-infinity'::timestamptz
-  ate: number; // ms; +Infinity representa 'infinity'::timestamptz
-};
-
-// Espelha a CTE `turnos` + o segmento sintético da CTE `posse` (0029:139-153).
-function reconstruirPosseDoTurno(
-  eventos: JointEventoTurno[],
-  self: string,
-): SegmentoPosse[] {
-  const turnosBrutos = eventos
-    .filter((e) => e.kind === 'started' || e.kind === 'turn_advanced')
-    .slice()
-    .sort((a, b) => a.seq - b.seq);
-
-  const turnos: SegmentoPosse[] = turnosBrutos.map((e, i) => ({
-    holder: e.payload.next_turn_user_id as string,
-    desde: e.createdAtMs,
-    ate: i + 1 < turnosBrutos.length ? turnosBrutos[i + 1].createdAtMs : Infinity,
-  }));
-
-  // coalesce((select min(desde) from turnos), 'infinity'::timestamptz)
-  const minDesde = turnos.length > 0 ? Math.min(...turnos.map((t) => t.desde)) : Infinity;
-
-  const sintetico: SegmentoPosse = { holder: self, desde: -Infinity, ate: minDesde };
-
-  return [sintetico, ...turnos];
-}
-
-// Espelha `eventos`/`pares`/`sobreposicoes`/`por_par` (0029:155-190), sem o
-// ajuste de cardio (0029:193-199) — fora do escopo deste achado, já coberto
-// pelo teste estrutural da própria 0029.
-function tempoEfetivoPorPosse(
-  posse: SegmentoPosse[],
-  self: string,
-  sessionStartMs: number,
-  ownSetCompletionsMs: number[],
-  sessionEndMs: number,
-): number {
-  const eventosBruto = [sessionStartMs, ...ownSetCompletionsMs, sessionEndMs].sort(
-    (a, b) => a - b,
-  );
-
-  let total = 0;
-  for (let i = 0; i < eventosBruto.length - 1; i++) {
-    const tsA = eventosBruto[i];
-    const tsB = eventosBruto[i + 1];
-
-    let somaSobreposicoes = 0;
-    for (const seg of posse) {
-      if (seg.holder !== self) continue;
-      if (!(seg.desde < tsB && seg.ate > tsA)) continue;
-      const secs = Math.max((Math.min(tsB, seg.ate) - Math.max(tsA, seg.desde)) / 1000, 0);
-      somaSobreposicoes += secs;
-    }
-    total += Math.min(somaSobreposicoes, 1200);
-  }
-  return Math.round(total);
-}
+import {
+  reconstruirPosseDoTurno,
+  tempoEfetivoPorPosse,
+  type JointEventoTurno,
+} from '../test-utils/tempoEfetivoConjuntoReplica';
 
 // ---------------------------------------------------------------------------
 // Cenário: "A encerra a fila antes de B" (mark_joint_queue_finished)
