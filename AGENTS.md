@@ -45,8 +45,8 @@ falha fechado, então nenhuma automação atravessa esse portão sozinha.
 
 ## Estado das migrations
 
-- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0022**.
-- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0022**.
+- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0032** (conferido em 07/08/2026; a 0032 com aplicação nesta data).
+- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0032** (conferido em 07/08/2026; a 0032 com aplicação nesta data).
 - Os dois ambientes estão IGUAIS (conferido em 30/07/2026 por consulta a
   `supabase_migrations.schema_migrations` nos dois refs, e por `md5(pg_get_functiondef(...))`
   idêntico nas 14 funções do domínio). Esta seção já esteve defasada por dias — antes de
