@@ -1,6 +1,10 @@
 // src/engine/scheduleShift.ts
 // Reancoragem SEMANAL de sessões pendentes com atraso.
 //
+// Regra do dono (2026-08-08): a semana só fecha no domingo — sábado e domingo
+// contam como janela de conclusão garantida para TODOS os alunos, estejam ou
+// não na agenda. A reancoragem sempre oferece os slots do fim de semana.
+//
 // Invariante: Reancoragem empurra para frente; nunca antecipa.
 // Cada sessão tem um PISO = max(scheduledDate ?? hojeISO, hojeISO):
 // - Sessão atrasada (data < hoje) → piso = hoje: flui para frente até o primeiro slot livre.
@@ -68,6 +72,8 @@ const filaPendentes = (sessoes: SessaoParaReancorar[]): SessaoParaReancorar[] =>
 };
 
 /** Calcula os slots disponíveis (datas do calendário) com base nos offsets da agenda.
+ *  Sábado (5) e domingo (6) entram SEMPRE: a semana só fecha no domingo, então o
+ *  fim de semana inteiro é janela de conclusão garantida mesmo fora da agenda.
  *  Remove slots anteriores a hoje e ocupados por sessões não pendentes. */
 const slotsDisponiveis = (params: {
   sessoes: SessaoParaReancorar[];
@@ -78,8 +84,8 @@ const slotsDisponiveis = (params: {
   const { sessoes, agenda, segundaDaSemanaISO, hojeISO } = params;
   const today = dayIndex(hojeISO);
 
-  // Deduplica e ordena os offsets
-  const offsetsUnicos = Array.from(new Set(agenda)).sort((a, b) => a - b);
+  // Deduplica e ordena os offsets: agenda do aluno ∪ fim de semana inteiro.
+  const offsetsUnicos = Array.from(new Set([...agenda, 5, 6])).sort((a, b) => a - b);
 
   // Calcula as datas absolutas dos slots
   const slotsAbsolutos: string[] = offsetsUnicos.map((offset) =>
