@@ -930,6 +930,23 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   declineReplan: async () => {
     const pr = get().pendingReplan;
     if (!pr) return;
+    // Nível 2 da escada (semana sem espaço, sem corte pedido): "Entendi" é só
+    // reconhecimento do fechamento — não há proposta a recusar nem fingerprint
+    // a gravar. Zeras hasChanges não bastaria: o reagendamento (movidas vazias,
+    // semEncaixe cheio) manteria a condição do ramo de pé e o cartão
+    // re-renderizaria idêntico — botão no-op. Dispensa o overlay inteiro; o
+    // fechamento é recalculado na próxima abertura.
+    // MANTER EM SINCRONIA com ReplanBanner.tsx (ramo do botão "Entendi"):
+    // a condição abaixo é a condição de render daquele ramo, espelhada.
+    if (
+      pr.reagendamento &&
+      pr.reagendamento.movidas.length === 0 &&
+      pr.reagendamento.semEncaixe.length > 0 &&
+      !pr.proposal.hasChanges
+    ) {
+      set({ pendingReplan: null });
+      return;
+    }
     // Fingerprint canônico da proposta recusada: oculta somente a idêntica.
     const fp = replanFingerprint(pr.proposal);
     // Recusa = NADA é escrito no servidor; o plano original segue valendo.
