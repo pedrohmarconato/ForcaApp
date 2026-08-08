@@ -803,6 +803,38 @@ describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () =>
     store().requestTimeCut(30);
     expect(store().pendingReplan!.reagendamento!.semEncaixe).toEqual(['seg']);
   });
+
+  it('"Entendi" dispensa o cartão de fechamento (botão não é no-op)', async () => {
+    // Regressão: declineReplan só zerava hasChanges (já falso no Nível 2) e
+    // deixava o reagendamento de pé — o cartão "A semana fecha com menos
+    // volume" re-renderizava idêntico e o botão parecia morto.
+    await abrir();
+    const pr = store().pendingReplan!;
+    expect(pr.reagendamento!.movidas).toEqual([]);
+    expect(pr.reagendamento!.semEncaixe).toEqual(['seg']);
+    expect(pr.proposal.hasChanges).toBe(false);
+
+    await store().declineReplan();
+
+    expect(store().pendingReplan).toBeNull();
+  });
+
+  it('com corte pedido (hasChanges), recusar NÃO apaga o fechamento — o Entendi aparece em seguida', async () => {
+    // Guarda do ramo novo: o Nível 2 com corte pedido mostra o cartão do corte;
+    // recusá-lo segue o caminho normal (fingerprint), e o fechamento honesto
+    // continua de pé para o reconhecimento sequencial.
+    await abrir();
+    store().requestTimeCut(30);
+    expect(store().pendingReplan!.proposal.hasChanges).toBe(true);
+
+    await store().declineReplan();
+
+    const depois = store().pendingReplan!;
+    expect(depois.proposal.hasChanges).toBe(false);
+    expect(depois.reagendamento).not.toBeNull();
+    expect(depois.reagendamento!.movidas).toEqual([]);
+    expect(depois.reagendamento!.semEncaixe).toEqual(['seg']);
+  });
 });
 
 it('declineReagendamento dispensa SÓ o reencaixe: o corte pedido continua de pé e aplicável', async () => {
