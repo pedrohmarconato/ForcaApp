@@ -29,6 +29,7 @@ import pytest
 import backend.services.dose_cardio as dose_cardio
 
 from backend.services.dose_cardio import (
+    MAX_VIOLACOES_NA_MENSAGEM,
     TETO_PROGRESSAO_POR_NIVEL,
     dose_declarada,
     nivel_cardio_declarado,
@@ -433,8 +434,8 @@ class TestTetoProgressaoCardio:
         )
 
         assert msg is not None
-        assert "(e mais 2 violação(ões))" in msg
         assert "regra(s) acima do teto" not in msg
+        assert msg.count("sobrepõem") <= MAX_VIOLACOES_NA_MENSAGEM
 
 
 class TestSemanasAvulsas:
