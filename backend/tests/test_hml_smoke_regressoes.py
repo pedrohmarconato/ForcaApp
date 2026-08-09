@@ -35,7 +35,7 @@ from backend.utils.logger import WrapperLogger  # noqa: E402
 @pytest.mark.parametrize("modelo,esperado", [
     ("claude-haiku-4-5", None),
     ("claude-sonnet-5", None),
-    ("claude-opus-4-8", {"type": "adaptive"}),
+    ("claude-opus-5", {"type": "adaptive"}),
     ("claude-fable-5", {"type": "adaptive"}),
     ("", None),
     (None, None),
@@ -78,7 +78,7 @@ def test_molde_com_haiku_nao_envia_thinking(monkeypatch):
 
 
 def test_molde_com_opus_envia_thinking_adaptive(monkeypatch):
-    kwargs = _rodar_molde_capturando_chamada(monkeypatch, "claude-opus-4-8")
+    kwargs = _rodar_molde_capturando_chamada(monkeypatch, "claude-opus-5")
     assert kwargs.get("thinking") == {"type": "adaptive"}
 
 

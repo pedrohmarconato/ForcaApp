@@ -48,7 +48,7 @@ EXPOSE 5001
 
 # 1 worker com threads: o rate limit é em memória (por processo) —
 # mais workers multiplicariam o limite efetivo (ver backend/app.py).
-# --timeout 240: acima do timeout da Anthropic (job do molde Opus 4.8
+# --timeout 240: acima do timeout da Anthropic (job do molde Opus 5
 # com thinking adaptive = 240s) e abaixo do proxy_read_timeout do
 # nginx (200s → aumentado para 300s no vhost). Sem isso, o default de
 # 30s do gunicorn mataria a geração.

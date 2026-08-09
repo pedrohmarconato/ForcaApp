@@ -99,7 +99,7 @@ def test_sem_structured_output_nao_manda_output_config(flags):
 # O modelo precisa ser explícito em todo teste de effort: o gate por modelo
 # roda ANTES da checagem de valor, então chamar sem modelo faria estes testes
 # passarem pelo motivo errado (barrados pelo gate, não pela regra que testam).
-MODELO_COM_EFFORT = "claude-opus-4-8"
+MODELO_COM_EFFORT = "claude-opus-5"
 
 
 def test_effort_convive_com_o_formato_no_mesmo_output_config(monkeypatch):

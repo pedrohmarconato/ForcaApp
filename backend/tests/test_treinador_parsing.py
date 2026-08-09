@@ -71,7 +71,7 @@ def test_resposta_truncada_por_max_tokens_vira_erro_explicito(treinador):
 
 
 def test_resposta_com_bloco_thinking_extrai_o_texto(treinador):
-    """Opus 4.8 (adaptive thinking) devolve [thinking, text]; o wrapper deve
+    """Opus 5 (adaptive thinking) devolve [thinking, text]; o wrapper deve
     extrair o texto em vez de quebrar no bloco thinking (que não tem .text)."""
     resposta = mock.Mock()
     resposta.stop_reason = "end_turn"
@@ -102,11 +102,11 @@ def test_resposta_sem_bloco_texto_retorna_none(treinador):
         assert treinador._chamar_api_claude("prompt") is None
 
 
-# --- Correções pós-migração Opus 4.8 (review 20/07/2026) ---
+# --- Correções pós-migração Opus 5 (review 20/07/2026) ---
 
 def test_template_do_prompt_exemplifica_frequencia_semanal_como_inteiro(treinador):
     """Achado #4 do review: o template mandava a string
-    "Número de treinos/semana" como exemplo de frequencia_semanal; o Opus 4.8
+    "Número de treinos/semana" como exemplo de frequencia_semanal; o Opus 5
     copia o TIPO do exemplo e o schema (integer) rejeitava o plano inteiro."""
     template = json.loads(treinador._obter_template_json_str())
     plano = template["plano_principal"]
