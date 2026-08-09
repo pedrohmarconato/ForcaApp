@@ -21,10 +21,10 @@ meta com fonte única e condução guiada.
 
 ## Current Position
 
-Phase: 1 of 1 (Fluxo cardio e alongamento)
-Plan: 0 of 4 in current phase
-Status: Ready to execute (plans verified — VERIFICATION PASSED, aguardando aprovação do dono)
-Last activity: 2026-08-09 — 4 planos criados e verificados pelo plan-checker
+Phase: 1 of 3 (Fluxo cardio e alongamento)
+Plan: 4 of 4 in current phase
+Status: Executed — gate de integração verde (tsc 0 · jest 1533/1533 · pytest 566); pendem: checkpoint humano 01-04 Task 3 (foco de alongamento em geração real no HML) e verify-work
+Last activity: 2026-08-09 — Fase 1 executada (4/4); Fase 2 em planejamento (planner no ar)
 
 Progress: [░░░░░░░░░░] 0%
 
