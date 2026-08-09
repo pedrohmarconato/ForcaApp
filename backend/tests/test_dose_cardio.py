@@ -388,6 +388,10 @@ class TestNivelCardioDeclarado:
         quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 2.0}
         assert nivel_cardio_declarado(quest) == "iniciante"
 
+    def test_pratica_e_distancia_zero_e_iniciante(self):
+        quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 0}
+        assert nivel_cardio_declarado(quest) == "iniciante"
+
     def test_pratica_e_distancia_media_e_intermediario(self):
         quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 5.0}
         assert nivel_cardio_declarado(quest) == "intermediario"

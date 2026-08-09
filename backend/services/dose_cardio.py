@@ -143,7 +143,7 @@ def nivel_cardio_declarado(questionario: Any) -> Optional[str]:
       não pratica cardio hoje começa conservador, independente de qualquer
       outra resposta.
     - `cardio_pratica_atualmente is True` -> lê `cardio_distancia_confortavel_km`:
-      - não é int/float (excluindo bool) ou fora de (0, 50] -> sem distância
+      - não é int/float (excluindo bool) ou fora de [0, 50] -> sem distância
         válida -> "intermediario" (meio-termo: nem o mais conservador, nem o
         mais agressivo, dado incompleto).
       - < 3.0 km -> "iniciante"
@@ -163,7 +163,7 @@ def nivel_cardio_declarado(questionario: Any) -> Optional[str]:
     distancia = questionario.get("cardio_distancia_confortavel_km")
     if isinstance(distancia, bool) or not isinstance(distancia, (int, float)):
         return "intermediario"
-    if not (0 < distancia <= 50):
+    if not (0 <= distancia <= 50):
         return "intermediario"
 
     if distancia < 3.0:
