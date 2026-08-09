@@ -8,7 +8,7 @@ condução real integrada ao chat da IA.
 
 ## Phases
 
-- [ ] **Phase 1: Fluxo cardio e alongamento** - Registro decimal do cardio, meta coerente com o treino e alongamento guiado
+- [x] **Phase 1: Fluxo cardio e alongamento** - Registro decimal do cardio, meta coerente com o treino e alongamento guiado
 - [ ] **Phase 2: Anamnese e calibração do cardio** - Questionário captura experiência de cardio e o gerador calibra dose inicial e progressão por ela
 - [ ] **Phase 3: Intercâmbio de modalidade de cardio** - Trocar um momento de cardio por outra modalidade aceita (escada, bike, remo) preservando a dose por tempo
 
@@ -35,7 +35,7 @@ Plans:
 - [x] 01-01-PLAN.md — REQ-01: verificar em runtime e corrigir a exibição de distância decimal (ManualExerciseRow)
 - [x] 01-02-PLAN.md — REQ-02: motor cardioPrescrito.ts + repositório de leitura da prescrição semanal
 - [x] 01-03-PLAN.md — REQ-02: trocar CardioGoalsSection por CardioPrescritoSection na aba Progresso
-- [x] 01-04-PLAN.md — REQ-03: expandir catálogo de Mobilidade + reforçar prompt do molde (Tasks 1-2; Task 3 = checkpoint humano pendente)
+- [x] 01-04-PLAN.md — REQ-03: expandir catálogo de Mobilidade + reforçar prompt do molde (checkpoint humano aprovado 2026-08-09 em geração real no HML)
 
 ### Phase 2: Anamnese e calibração do cardio
 **Goal**: O gerador conhece a experiência de cardio do usuário — o questionário ganha
@@ -81,6 +81,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fluxo cardio e alongamento | 4/4 | Executed (gate verde; checkpoint humano 01-04 pendente) | - |
+| 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 0/3 | Planned | - |
 | 3. Intercâmbio de modalidade de cardio | 0/TBD | Not started | - |

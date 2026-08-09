@@ -1,12 +1,12 @@
 ---
 gsd_state_version: '1.0'
-status: planning
+status: executing
 progress:
-  total_phases: 1
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 3
+  completed_phases: 1
+  total_plans: 7
+  completed_plans: 4
+  percent: 57
 ---
 
 # Project State
@@ -21,12 +21,14 @@ meta com fonte única e condução guiada.
 
 ## Current Position
 
-Phase: 1 of 3 (Fluxo cardio e alongamento)
-Plan: 4 of 4 in current phase
-Status: Executed — gate de integração verde (tsc 0 · jest 1533/1533 · pytest 566); pendem: checkpoint humano 01-04 Task 3 (foco de alongamento em geração real no HML) e verify-work
-Last activity: 2026-08-09 — Fase 1 executada (4/4); Fase 2 em planejamento (planner no ar)
+Phase: 1 COMPLETE → 2 of 3 (Anamnese e calibração do cardio) planejada
+Plan: Fase 2 com 3 planos prontos (checker PASS sem blockers); execução aguarda /gsd-execute-phase 2
+Status: Fase 1 completa — gate verde (tsc 0 · jest 134/1535 · pytest 567), checkpoint humano 01-04
+APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
+PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
+Last activity: 2026-08-09 — checkpoint HML aprovado; PR #77 aberto, review + fixes; Fase 2 planejada
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████░░░░] 57%
 
 ## Accumulated Context
 
