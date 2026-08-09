@@ -232,6 +232,88 @@ describe('reancorarSemana', () => {
     ]);
   });
 
+  it('colisão motor×servidor: pending não-atrasada em sábado reserva o slot e não entra na atribuição', () => {
+    // Achado 1 do review do PR #76: hoje é sábado, a agenda inclui sábado e há
+    // uma sessão pending marcada para HOJE (sábado). Ela é dona legítima do dia
+    // e não entrará na atribuição (não está atrasada). Antes do fix, o slot de
+    // sábado não era reservado por ela e uma atrasada era atribuída para a data
+    // dela — o servidor rejeitaria a confirmação (Validação 8 da RPC, 55000).
+    const sessoes: SessaoParaReancorar[] = [
+      criarSessao({
+        id: 'atrasada1',
+        scheduledDate: '2026-07-29', // quarta (atrasada)
+        orderInWeek: 1,
+      }),
+      criarSessao({
+        id: 'atrasada2',
+        scheduledDate: '2026-07-30', // quinta (atrasada)
+        orderInWeek: 2,
+      }),
+      criarSessao({
+        id: 'pending-sab',
+        scheduledDate: '2026-08-01', // sábado = hoje (não-atrasada)
+        orderInWeek: 3,
+      }),
+    ];
+
+    // Agenda inclui sábado (0..5); o fim de semana entra sempre (5, 6).
+    const agenda = [0, 1, 2, 3, 4, 5] as const;
+    const hojeISO = '2026-08-01'; // hoje é sábado
+    const resultado = reancorarSemana({
+      sessoes,
+      hojeISO,
+      agenda,
+      segundaDaSemanaISO: SEGUNDA_SEMANA,
+    });
+
+    // A pending de sábado não entra na atribuição: fica mantida na data dela.
+    expect(resultado.mantidas).toContain('pending-sab');
+    expect(resultado.semEncaixe).not.toContain('pending-sab');
+
+    // Nenhuma atrasada pode cair na data da pending (o servidor rejeitaria).
+    const datasMovidas = resultado.movidas.map((m) => m.para);
+    expect(datasMovidas).not.toContain('2026-08-01');
+
+    // Com o sábado reservado, só domingo sobra: a 1ª atrasada vai para lá,
+    // a 2ª fica sem encaixe.
+    const movida1 = resultado.movidas.find((m) => m.id === 'atrasada1');
+    expect(movida1?.para).toBe('2026-08-02'); // domingo
+    expect(resultado.semEncaixe).toEqual(['atrasada2']);
+  });
+
+  it('pending ATRASADA do fim de semana libera o slot: entra na fila e não fica mantida por dona do dia', () => {
+    // Complemento da regra: só a pending não-atrasada é dona do dia. Hoje é
+    // domingo e a pending estava em SÁBADO (ontem, já atrasada): ela libera o
+    // slot, entra na fila de atribuição e pode ser movida/semEncaixe — nunca
+    // "mantida" por ser dona de um dia que já passou.
+    const sessoes: SessaoParaReancorar[] = [
+      criarSessao({
+        id: 'atrasada1',
+        scheduledDate: '2026-07-30', // quinta (atrasada)
+        orderInWeek: 1,
+      }),
+      criarSessao({
+        id: 'pending-sab',
+        scheduledDate: '2026-08-01', // sábado (atrasada — ontem)
+        orderInWeek: 2,
+      }),
+    ];
+
+    const agenda = [0, 1, 2, 3, 4, 5] as const;
+    const hojeISO = '2026-08-02'; // hoje é domingo
+    const resultado = reancorarSemana({
+      sessoes,
+      hojeISO,
+      agenda,
+      segundaDaSemanaISO: SEGUNDA_SEMANA,
+    });
+
+    expect(resultado.mantidas).not.toContain('pending-sab');
+    // Só domingo está à frente: a atrasada da semana fica com o dia, e a
+    // pending de sábado (atrasada, sem slot restante) vai para semEncaixe.
+    expect(resultado.semEncaixe).toEqual(['pending-sab']);
+  });
+
   it('slot ocupado por sessão fixa não é reatribuído', () => {
     const sessoes: SessaoParaReancorar[] = [
       criarSessao({

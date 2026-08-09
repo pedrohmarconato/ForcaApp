@@ -57,6 +57,14 @@ const adicionarDias = (isoDate: string, dias: number): string => {
   return `${y}-${m}-${d}`;
 };
 
+/** True quando a data cai em sábado (6) ou domingo (0) — dia de fim de semana. */
+const ehFimDeSemana = (isoDate: string): boolean => {
+  const ms = dayIndex(isoDate);
+  if (ms === null) return false; // malformado: não é fim de semana
+  const dow = new Date(ms * 86400000).getUTCDay();
+  return dow === 0 || dow === 6;
+};
+
 /** Fila de pendentes ordenada pela ordem da fiação real:
  *  (scheduledDate ?? '9999-12-31', orderInWeek, id). */
 const filaPendentes = (sessoes: SessaoParaReancorar[]): SessaoParaReancorar[] => {
@@ -92,12 +100,27 @@ const slotsDisponiveis = (params: {
     adicionarDias(segundaDaSemanaISO, offset),
   );
 
-  // Identifica datas ocupadas por sessões não pendentes (fixas)
+  // Identifica datas ocupadas: sessões não pendentes (fixas) + sessão pending
+  // NÃO-atrasada agendada para o fim de semana (dona legítima do dia — ela não
+  // entra na atribuição e o servidor rejeitaria (Validação 8, 55000) se uma
+  // atrasada fosse atribuída para a data dela). Pending atrasada libera o slot:
+  // entra na fila e será movida.
   // Normaliza para YYYY-MM-DD (ignora sufixo de hora) para comparar corretamente
   const ocupadas = new Set<string>();
   for (const s of sessoes) {
-    if (s.status !== 'pending' && s.scheduledDate) {
-      const normalizado = s.scheduledDate.substring(0, 10);
+    if (!s.scheduledDate) continue;
+    const normalizado = s.scheduledDate.substring(0, 10);
+    if (s.status !== 'pending') {
+      ocupadas.add(normalizado);
+      continue;
+    }
+    const data = dayIndex(normalizado);
+    if (
+      data !== null &&
+      today !== null &&
+      data >= today &&
+      ehFimDeSemana(normalizado)
+    ) {
       ocupadas.add(normalizado);
     }
   }
@@ -188,6 +211,22 @@ export const reancorarSemana = (params: {
   for (const sessao of fila) {
     // Calcula o piso da sessão: não pode ficar antes de sua data original nem de hoje
     const dataOriginal = sessao.scheduledDate ? dayIndex(sessao.scheduledDate) : null;
+
+    // Sessão pending NÃO-atrasada agendada para o fim de semana é dona do dia:
+    // o slot dela está reservado (slotsDisponiveis) e ela não entra na
+    // atribuição — permanece mantida na data original. É o contrato com o
+    // servidor: atribuir uma atrasada para a data dela seria rejeitado.
+    if (
+      sessao.status === 'pending' &&
+      dataOriginal !== null &&
+      dataOriginal >= hojeDay &&
+      sessao.scheduledDate !== null &&
+      ehFimDeSemana(sessao.scheduledDate)
+    ) {
+      mantidas.push(sessao.id);
+      continue;
+    }
+
     const pisoDay = dataOriginal !== null && dataOriginal >= hojeDay
       ? dataOriginal
       : hojeDay;
