@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
+import { formatDistance } from '../../engine/sessionModel';
 import theme from '../../theme/theme';
 import { formatWorkDuration, type ManualExerciseDraft } from '../../types/manualPlan';
 
@@ -10,7 +11,8 @@ const metricLabel = (exercise: ManualExerciseDraft): string => {
     return `${exercise.series} séries × ${exercise.repeticoes || 'reps a definir'}`;
   }
   const duration = formatWorkDuration(exercise.duracao_minutos) ?? 'tempo a definir';
-  const distance = exercise.distancia_km != null ? ` · ${exercise.distancia_km} km` : '';
+  const distance =
+    exercise.distancia_km != null ? ` · ${formatDistance(exercise.distancia_km * 1000)}` : '';
   return `${exercise.series} séries × ${duration}${distance}`;
 };
 
