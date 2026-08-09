@@ -732,6 +732,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           planId: detail.plan_id,
         });
 
+        // Aluno sem agenda: comportamento pré-existente é no-op — sem reencaixe
+        // e sem banner (decisão de produto, não um bug a corrigir aqui).
         if (agenda.agenda.length > 0) {
           const hojeISO = localTodayISO();
           // Calcula a segunda-feira da semana com base na sessão da proposta.

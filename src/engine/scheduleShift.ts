@@ -2,8 +2,10 @@
 // Reancoragem SEMANAL de sessões pendentes com atraso.
 //
 // Regra do dono (2026-08-08): a semana só fecha no domingo — sábado e domingo
-// contam como janela de conclusão garantida para TODOS os alunos, estejam ou
-// não na agenda. A reancoragem sempre oferece os slots do fim de semana.
+// contam como janela de conclusão: para alunos COM agenda, a reancoragem
+// oferece os slots do fim de semana além dos dias da agenda. Aluno com agenda
+// vazia segue o comportamento pré-existente (no-op — reancorarSemana retorna
+// cedo, sem oferecer slot algum).
 //
 // Invariante: Reancoragem empurra para frente; nunca antecipa.
 // Cada sessão tem um PISO = max(scheduledDate ?? hojeISO, hojeISO):
@@ -80,9 +82,11 @@ const filaPendentes = (sessoes: SessaoParaReancorar[]): SessaoParaReancorar[] =>
 };
 
 /** Calcula os slots disponíveis (datas do calendário) com base nos offsets da agenda.
- *  Sábado (5) e domingo (6) entram SEMPRE: a semana só fecha no domingo, então o
- *  fim de semana inteiro é janela de conclusão garantida mesmo fora da agenda.
- *  Remove slots anteriores a hoje e ocupados por sessões não pendentes. */
+ *  Sábado (5) e domingo (6) entram sempre: a semana só fecha no domingo, então o
+ *  fim de semana inteiro é janela de conclusão mesmo fora da agenda (chamado só
+ *  com agenda não vazia — agenda vazia é no-op em reancorarSemana).
+ *  Remove slots anteriores a hoje e ocupados por sessões não pendentes ou por
+ *  pending não-atrasada do fim de semana (dona do dia). */
 const slotsDisponiveis = (params: {
   sessoes: SessaoParaReancorar[];
   agenda: readonly OffsetDaSemana[];
