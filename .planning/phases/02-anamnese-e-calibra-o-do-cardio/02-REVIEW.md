@@ -2,7 +2,9 @@
 phase: 02-anamnese-e-calibra-o-do-cardio
 reviewed: 2026-08-09T00:00:00Z
 fixed_at: 2026-08-09T19:19:29Z
+verified_at: 2026-08-09T19:28:02Z
 fix_iteration: 1
+runbook_status: passed
 depth: standard
 files_reviewed: 30
 files_reviewed_list:
@@ -60,9 +62,10 @@ status: aguardando_decisao_do_dono
 - `CR-01`, `WR-01` e `WR-02`: **resolvidos** com TDD e commits atômicos.
 - `WR-03`: **`aguardando_decisao_do_dono`**. Nenhuma validação do teto foi
   implementada sem aprovação; `backend/app.py` permaneceu intacto.
-- O runbook completo não foi executado nesta etapa; os testes direcionados e a
-  suíte de `questionnaireScreen.test.tsx` ficaram verdes. Evidências completas
-  constam em `02-REVIEW-FIX.md`.
+- O runbook completo passou no checkout principal: TypeScript sem erros,
+  134/134 suítes e 1539/1539 testes Jest, 589 testes pytest e nenhum diff em
+  `backend/schemas/molde_schema.py`. Evidências completas constam em
+  `02-REVIEW-FIX.md`.
 
 Reviewed the cardio anamnesis flow (3 new questionnaire fields flowing
 `QuestionnaireScreen.tsx` → `questionnaireService.ts` → migration 0033 →

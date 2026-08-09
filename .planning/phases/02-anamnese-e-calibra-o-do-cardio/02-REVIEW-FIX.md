@@ -1,6 +1,7 @@
 ---
 phase: 02-anamnese-e-calibra-o-do-cardio
 fixed_at: 2026-08-09T19:19:29Z
+verified_at: 2026-08-09T19:28:02Z
 review_path: .planning/phases/02-anamnese-e-calibra-o-do-cardio/02-REVIEW.md
 iteration: 1
 findings_in_scope: 4
@@ -8,7 +9,9 @@ fixed: 3
 skipped: 0
 pending_owner_decision: 1
 status: partial
+runbook_status: passed
 verification_location: isolated_worktree_with_main_dependencies
+runbook_location: main_checkout
 ---
 
 # Fase 02: Relatório de correção do code review
@@ -206,8 +209,58 @@ criar link ou alterar dependências. O pytest rodou no mesmo worktree.
 teste; key duplicada `90` em `TIME_OPTIONS`; `urllib3` com LibreSSL. Nenhum deles
 fez os testes direcionados falharem e nenhum pertence ao escopo dos achados.
 
-**Não executado por pedido do dono:** runbook completo, suíte Jest global,
-`npx tsc --noEmit`, merge, ship, push ou deploy.
+## Runbook completo
+
+Executado no checkout principal após a auditoria dos commits, na branch
+`feat/anamnese-calibracao-cardio`.
+
+### TypeScript
+
+```bash
+npx tsc --noEmit
+```
+
+```text
+(sem saída; exit 0)
+```
+
+### Jest
+
+```bash
+npx jest --watchAll=false
+```
+
+```text
+Test Suites: 134 passed, 134 total
+Tests:       1539 passed, 1539 total
+Snapshots:   0 total
+Time:        19.988 s
+Ran all test suites.
+```
+
+### Pytest
+
+```bash
+python3 -m pytest backend/tests -q
+```
+
+```text
+589 passed, 1 warning in 3.01s
+```
+
+O aviso foi o `NotOpenSSLWarning` preexistente do `urllib3` com LibreSSL.
+
+### Porta de mão única
+
+```bash
+git diff 6a4d313..HEAD -- backend/schemas/molde_schema.py
+```
+
+```text
+(sem saída)
+```
+
+Merge, ship, push e deploy não foram executados.
 
 ## Commits e arquivos
 
