@@ -327,7 +327,13 @@ class TestTetoProgressaoCardio:
             "alvo": "ambos",
         }]
 
-        assert validar_dose_cardio(molde, {"inclui_cardio": False}) is None
+        assert validar_dose_cardio(
+            molde,
+            {
+                "inclui_cardio": False,
+                "cardio_pratica_atualmente": False,
+            },
+        ) is None
 
     @pytest.mark.parametrize(
         "primeira, segunda",
@@ -453,6 +459,56 @@ class TestSemanasAvulsas:
         assert msg is not None
         assert "semana_2" in msg
         assert "180 min" in msg
+
+    def test_semana_avulsa_nao_ultrapassa_o_teto_efetivo(self):
+        molde = _molde([[_sessao("A", [_forca(), _cardio("Corrida", 30)])]])
+        molde["semanas_avulsas"] = {
+            "semana_2": {
+                "semana": 2,
+                "sessoes": [_sessao("Exceção", [_forca(), _cardio("Corrida", 37)])],
+            }
+        }
+
+        msg = validar_dose_cardio(
+            molde,
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        )
+
+        assert msg is not None
+        assert "semana_2" in msg
+        assert "37" in msg
+        assert "3%" in msg
+
+
+class TestExercicioTemporalDesconhecido:
+    def test_nome_fora_do_catalogo_com_duracao_nao_escapa_da_dose(self):
+        molde = _molde([[
+            _sessao(
+                "A",
+                [
+                    _forca(),
+                    _cardio("Corrida", 30),
+                    _cardio("Cardio Personalizado ZYX", 180),
+                ],
+            )
+        ]])
+
+        msg = validar_dose_cardio(
+            molde,
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        )
+
+        assert msg is not None
+        assert "Cardio Personalizado ZYX" in msg
+        assert "catálogo" in msg
 
 
 class TestFalhaFechada:
@@ -691,6 +747,24 @@ class TestCalibracaoNoPrompt:
         import backend.app as app
 
         assert app._instrucao_calibracao_cardio({}) == ""
+
+    def test_anamnese_ausente_com_cardio_usa_teto_conservador_no_prompt(self):
+        import backend.app as app
+
+        bloco = app._instrucao_calibracao_cardio({"inclui_cardio": True})
+
+        assert "INICIANTE" in bloco
+        assert "3%" in bloco
+
+    def test_cardio_desligado_ignora_anamnese_residual_no_prompt(self):
+        import backend.app as app
+
+        bloco = app._instrucao_calibracao_cardio({
+            "inclui_cardio": False,
+            "cardio_pratica_atualmente": False,
+        })
+
+        assert bloco == ""
 
     def test_calibracao_entra_na_chamada_do_molde_na_parte_volatil(self):
         import backend.app as app

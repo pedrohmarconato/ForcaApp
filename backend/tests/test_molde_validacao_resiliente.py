@@ -272,6 +272,40 @@ def test_teto_de_cardio_reprova_e_ganha_retry_dirigido(monkeypatch):
     assert "INICIANTE" in mensagens_do_retry[2]["content"]
 
 
+def test_semana_avulsa_acima_do_teto_nao_chega_a_persistencia(monkeypatch):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    cardio_base = {
+        "nome": "Corrida",
+        "ordem": 2,
+        "series": 1,
+        "duracao_minutos": 30,
+        "prioridade": "acessorio",
+    }
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append(cardio_base)
+    sessao_avulsa = copy.deepcopy(molde["semanas_tipo"][0]["sessoes"][0])
+    sessao_avulsa["exercicios"][1]["duracao_minutos"] = 37
+    molde["semanas_avulsas"] = {
+        "semana_2": {"semana": 2, "sessoes": [sessao_avulsa]},
+    }
+    resposta_invalida = _resposta(json.dumps(molde))
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [resposta_invalida, resposta_invalida],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_dias_semana": 1,
+            "cardio_minutos_sessao": 30,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    visao = job.to_dict()
+    assert visao["status"] == "erro"
+    assert visao["error"]["code"] == "molde_dose_cardio"
+    assert chamada.call_count == 2
+
+
 def test_duas_violacoes_do_teto_terminam_sem_loop(monkeypatch):
     regra_acima_do_teto = {
         "tipo": "delta_cardio_percentual",
