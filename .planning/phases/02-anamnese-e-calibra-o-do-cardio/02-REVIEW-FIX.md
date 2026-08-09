@@ -5,10 +5,10 @@ verified_at: 2026-08-09T19:28:02Z
 review_path: .planning/phases/02-anamnese-e-calibra-o-do-cardio/02-REVIEW.md
 iteration: 1
 findings_in_scope: 4
-fixed: 3
+fixed: 4
 skipped: 0
-pending_owner_decision: 1
-status: partial
+pending_owner_decision: 0
+status: passed
 runbook_status: passed
 verification_location: isolated_worktree_with_main_dependencies
 runbook_location: main_checkout
@@ -22,9 +22,9 @@ runbook_location: main_checkout
 
 **Resumo:**
 - Achados no escopo: 4
-- Resolvidos: 3
+- Resolvidos: 4
 - Pulados: 0
-- Aguardando decisão do dono: 1 (`WR-03`)
+- Aguardando decisão do dono: 0
 
 ## Achados resolvidos
 
@@ -169,26 +169,40 @@ Test Suites: 1 passed, 1 total
 Tests: 17 passed, 17 total
 ```
 
-## Achado aguardando decisão do dono
+### WR-03: teto de progressão de cardio validado como contrato local
 
-### WR-03: teto de progressão de cardio permanece prompt-only
+**Status:** resolvido — opção A escolhida no gate `/gsd-secure-phase 2`.
+**Decisão:** o dono delegou a escolha; adotou-se validação local + retry por ser
+o único caminho que garante o teto antes da persistência. O custo adicional só
+existe quando o modelo viola o contrato e permanece limitado ao único retry já
+existente.
+**Arquivos modificados:** `backend/services/dose_cardio.py`,
+`backend/tests/test_dose_cardio.py`,
+`backend/tests/test_molde_validacao_resiliente.py`.
+**Commit:** `28b3c20`.
+**Correção aplicada:** `validar_dose_cardio()` percorre todas as regras
+`delta_cardio_percentual`, deriva o nível do aluno e reprova `valor` acima de
+`TETO_PROGRESSAO_POR_NIVEL`. A mensagem dirigida informa regra, período, valor,
+nível e teto; `_executar_geracao_molde()` reutiliza o mesmo retry limitado e só
+persiste após aprovação.
 
-**Status:** `aguardando_decisao_do_dono`
-**Código alterado:** nenhum.
-**Arquivos preservados:** `backend/app.py` e
-`backend/schemas/molde_schema.py` não foram alterados; nenhuma validação de teto
-foi adicionada em `backend/services/dose_cardio.py`.
+**RED:** 2 falhas esperadas: a validação retornava `None` para `6%` de um aluno
+iniciante e o pipeline salvava na primeira chamada.
 
-**Opções documentadas:**
+**GREEN:** 6 testes direcionados passaram após a implementação; a cobertura
+final também prova os tetos exatos dos três níveis, ausência de teto inventado
+sem anamnese, retry corretivo e encerramento após duas violações consecutivas.
 
-- **A — validar + retry como contrato da dose:** maior robustez e garantia local
-  do teto; exige mais código e testes, pode gerar retries/custo e pode rejeitar
-  regras hoje aceitas.
-- **B — manter prompt-only:** custo zero e nenhum impacto no fluxo; não oferece
-  garantia e permite persistir progressão acima do teto se o modelo ignorar o
-  prompt.
+## Follow-up do gate de segurança
 
-Nada foi implementado sem aprovação do dono.
+O auditor detectou que `cardio_objetivo` forjado era ignorado no bloco dedicado,
+mas ainda aparecia cru no JSON geral do questionário. O mesmo commit `28b3c20`
+estendeu `_questionario_para_prompt()` para sanear prática, distância e objetivo
+antes de qualquer prompt. Valor fora do tipo/faixa/vocabulário vira `None`; os
+testes provam remoção de ataque e preservação dos valores válidos.
+
+Revalidação do `gsd-security-auditor`: 6 ameaças mitigadas tecnicamente e 2
+riscos baixos fechados por aceite formal em `02-SECURITY.md`; `threats_open: 0`.
 
 ## Verificações adicionais
 
