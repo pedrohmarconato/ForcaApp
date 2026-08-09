@@ -255,3 +255,27 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
     expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(false);
   });
 });
+
+// REQ-01 (Fase 1): distância digitada com vírgula pt-BR já persiste correta
+// no player de sessão desde 925ba42. Este teste prova por EXECUÇÃO (não
+// leitura estática) que o caminho principal segue correto — decide entre as
+// duas hipóteses do RESEARCH.md (player quebrado vs. só o editor manual).
+describe('cardio: distância digitada com vírgula (REQ-01)', () => {
+  it('"2,4" no campo de distância vira actualDistanceM=2400', async () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Corrida', [serie('st-1', 1, { status: 'active' })], {
+        metric: 'tempo_distancia',
+      }),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.changeText(
+      screen.getByLabelText('Distância da série 1 em quilômetros'),
+      '2,4',
+    );
+
+    expect(
+      useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualDistanceM,
+    ).toBe(2400);
+  });
+});

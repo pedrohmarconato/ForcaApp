@@ -52,6 +52,19 @@ _TOKENS_ANATOMICOS = frozenset({
 _COBERTURA_MINIMA = 0.5
 _COBERTURA_MINIMA_FORMA_LONGA = 0.35
 
+# Um qualificador direcional presente na forma vencedora mas AUSENTE da
+# consulta veta o casamento — é o espelho de _TOKENS_ANATOMICOS: lá, um token
+# anatômico da consulta sem cobertura veta; aqui, uma forma mais específica que
+# a consulta não pode "emprestar" lado/direção que ninguém pediu. Sem isto,
+# "Alongamento de Coxa" (ambíguo: anterior ou posterior) casa silenciosamente
+# com "Alongamento Posterior de Coxa" só porque a consulta é um subconjunto de
+# tokens da forma — score alto (2/3) não significa consulta específica.
+_QUALIFICADORES_DIRECIONAIS = frozenset({
+    "anterior", "posterior", "interno", "interna", "externo", "externa",
+    "medial", "lateral", "direito", "direita", "esquerdo", "esquerda",
+    "superior", "inferior",
+})
+
 
 # Como o exercício é medido. Define o que o plano prescreve, o que o app pergunta
 # e o que o motor de adaptação pode mexer.
@@ -236,12 +249,15 @@ def _melhor_por_tokens(consulta: frozenset) -> Optional[ExercicioCanonico]:
         return None
 
     melhor_score = 0.0
-    # chave → (melhor score, entrada, união dos tokens da consulta que as formas dessa entrada cobrem)
-    candidatos: Dict[str, Tuple[float, ExercicioCanonico, frozenset]] = {}
+    # chave → (melhor score, entrada, união dos tokens da consulta que as
+    # formas dessa entrada cobrem, união dos tokens QUE A FORMA TEM A MAIS e a
+    # consulta não pediu — só populado no ramo `consulta <= tokens_forma`)
+    candidatos: Dict[str, Tuple[float, ExercicioCanonico, frozenset, frozenset]] = {}
 
     for tokens_forma, ex in _indice()["formas"]:
         if not tokens_forma:
             continue
+        extras_desta_forma: frozenset = frozenset()
         if tokens_forma <= consulta:
             score = len(tokens_forma) / len(consulta)
             minimo = (
@@ -252,12 +268,16 @@ def _melhor_por_tokens(consulta: frozenset) -> Optional[ExercicioCanonico]:
                 continue
         elif consulta <= tokens_forma:
             score = len(consulta) / len(tokens_forma)
+            # A forma é mais longa que a consulta: o que ela tem a mais fica
+            # marcado para o veto de qualificador direcional logo abaixo.
+            extras_desta_forma = tokens_forma - consulta
         else:
             continue
         anterior = candidatos.get(ex.chave)
         cobertos = (tokens_forma & consulta) | (anterior[2] if anterior else frozenset())
+        extras = extras_desta_forma | (anterior[3] if anterior else frozenset())
         melhor_da_chave = max(score, anterior[0]) if anterior else score
-        candidatos[ex.chave] = (melhor_da_chave, ex, cobertos)
+        candidatos[ex.chave] = (melhor_da_chave, ex, cobertos, extras)
         melhor_score = max(melhor_score, score)
 
     if melhor_score <= 0:
@@ -279,10 +299,19 @@ def _melhor_por_tokens(consulta: frozenset) -> Optional[ExercicioCanonico]:
 
 
 def _sem_veto_anatomico(candidato, consulta: frozenset):
-    """Devolve a entrada só se nenhum token anatômico da consulta ficou de fora."""
-    _, ex, cobertos = candidato
+    """
+    Devolve a entrada só se:
+    1. nenhum token anatômico da consulta ficou de fora ('perna' pedido e não
+       coberto veta), e
+    2. a forma vencedora não emprestou um qualificador direcional que a
+       consulta nunca pediu ('coxa' sozinho não pode virar 'posterior de
+       coxa' — a forma tem 'posterior' a mais, extras não-vazio veta).
+    """
+    _, ex, cobertos, extras = candidato
     nao_cobertos = consulta - cobertos
     if nao_cobertos & _TOKENS_ANATOMICOS:
+        return None
+    if extras & _QUALIFICADORES_DIRECIONAIS:
         return None
     return ex
 

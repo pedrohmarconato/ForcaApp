@@ -1466,7 +1466,13 @@ _INSTRUCOES_MOLDE = """INSTRUÇÕES:
    prescreva `duracao_minutos` — e `distancia_km` quando fizer sentido. NÃO use
    `repeticoes` nem `percentual_rm` nesses exercícios: eles não se medem em
    carga × repetição. "20min" escrito em repeticoes vira 20 REPETIÇÕES.
-8. Retorne SOMENTE o JSON do molde, sem texto adicional."""
+8. ALONGAMENTO COM FOCO: ao escolher exercícios do grupo Mobilidade, verifique
+   se as DIRETRIZES DO ALUNO pedem foco em um grupo muscular específico para
+   alongamento (ex.: "foco em posterior de coxa"). Quando pedirem, priorize no
+   catálogo os nomes que citam esse grupo (ex.: "Alongamento de Posterior de
+   Coxa") em vez dos genéricos ("Alongamento Dinâmico", "Aquecimento
+   Articular").
+9. Retorne SOMENTE o JSON do molde, sem texto adicional."""
 
 
 _EFFORTS_VALIDOS = ("low", "medium", "high", "xhigh", "max")

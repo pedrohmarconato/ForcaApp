@@ -54,10 +54,14 @@ jest.mock('../src/services/sessionExecutionRepository', () => ({
 
 jest.mock('../src/services/cardioGoalRepository', () => ({
   getCardioLogs: jest.fn(async () => []),
-  getMetasAtivas: jest.fn(async () => []),
-  arquivarMeta: jest.fn(),
-  definirMeta: jest.fn(),
-  registrarMetaBatida: jest.fn(),
+}));
+
+jest.mock('../src/services/cardioPrescritoRepository', () => ({
+  getPrescricaoSemanaCorrente: jest.fn(async () => ({
+    distanciaM: null,
+    duracaoSegundos: null,
+    sessoes: 0,
+  })),
 }));
 
 import ProgressScreen from '../src/screens/ProgressScreen';
