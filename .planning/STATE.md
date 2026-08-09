@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: Intercâmbio de modalidade de cardio
-status: planning
+status: verifying
 stopped_at: Planning inicializado; aguardando pesquisa e plano da Fase 1
-last_updated: "2026-08-09T18:58:54.272Z"
+last_updated: "2026-08-09T19:40:16.120Z"
 last_activity: 2026-08-09
-last_activity_desc: Phase 02 complete, transitioned to Phase 03
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 7
   completed_plans: 7
+last_activity_desc: Phase 02 complete, transitioned to Phase 03
 ---
 
 # Project State
@@ -30,10 +30,10 @@ meta com fonte única e condução guiada.
 
 Phase: 03 — Intercâmbio de modalidade de cardio
 Plan: Not started
-Status: Ready to plan
+Status: Fase 2 completa + review corrigido (CR-01/WR-01/WR-02 verificados; WR-03 aguarda decisão do dono). Branch feat/anamnese-calibracao-cardio pronta para /gsd-secure-phase 2 → /gsd-ship 2. Próxima fase: /gsd-plan-phase 3
 APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
 PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
-Last activity: 2026-08-09 — Phase 02 complete, transitioned to Phase 03
+Last activity: 2026-08-09
 
 Progress: [██████░░░░] 57%
 
