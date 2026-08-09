@@ -23,6 +23,7 @@ export type QuestionnairePayload = {
   cardio_dias_semana: number | null;
   cardio_minutos_sessao: number | null;
   cardio_modalidades: string[] | null;
+  cardio_pratica_atualmente: boolean | null;
   inclui_alongamento: boolean;
   tempo_medio_treino_min: number | null;
 };

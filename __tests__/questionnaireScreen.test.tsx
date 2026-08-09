@@ -97,6 +97,7 @@ const preencherTudo = async (utils: Utils) => {
   // cardio do que dias de treino — dose impossível seria cobrada do molde.
   fireEvent.press(getByLabelText('1 dia'));
   fireEvent.press(getByLabelText('30 min'));
+  fireEvent.press(getByLabelText('Sim, já pratico'));
   fireEvent.press(getByLabelText('Continuar'));
   // 10 — alongamento (auto)
   await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
@@ -265,6 +266,7 @@ describe('QuestionnaireScreen — submissão', () => {
         // Dose declarada (0021): é o que a validação do molde vai cobrar.
         cardio_dias_semana: 1,
         cardio_minutos_sessao: 30,
+        cardio_pratica_atualmente: true,
         // Nenhuma modalidade escolhida (o catálogo não está disponível no teste)
         // → null, nunca lista vazia: array vazio filtraria o cardápio por
         // "nada" e o aluno receberia plano sem cardio tendo pedido cardio.
