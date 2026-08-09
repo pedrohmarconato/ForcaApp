@@ -1591,18 +1591,44 @@ _TEXTO_NIVEL_CARDIO = {
 }
 
 
+# Vocabulário FECHADO (REQ-04/05, Fase 2): as 3 chaves são EXATAMENTE os
+# literais aceitos pelo CHECK `questionario_cardio_objetivo_check` (migration
+# 0033) e pelo `value` de `CARDIO_OBJETIVOS` no frontend
+# (QuestionnaireScreen.tsx) — os 3 têm de permanecer idênticos nos 3 lugares.
+# Mesma regra de `canonicalizar_modalidades_cardio` (dose_cardio.py): só o
+# texto FIXO deste dicionário pode virar instrução, nunca o valor cru do
+# aluno — um `cardio_objetivo` fora do vocabulário é ignorado em silêncio.
+_TEXTO_OBJETIVO_CARDIO = {
+    "condicionamento": (
+        "Objetivo do aluno com o cardio: CONDICIONAMENTO GERAL. Priorize "
+        "consistência e progressão suave ao longo das semanas."
+    ),
+    "completar_5k": (
+        "Objetivo do aluno com o cardio: COMPLETAR UMA CORRIDA DE 5KM. "
+        "Priorize progressão de DISTÂNCIA (`distancia_km`) ao longo das "
+        "semanas."
+    ),
+    "emagrecimento": (
+        "Objetivo do aluno com o cardio: EMAGRECIMENTO. Priorize volume "
+        "total (duração × frequência) sobre ritmo."
+    ),
+}
+
+
 def _instrucao_calibracao_cardio(questionnaire_data) -> str:
     """
-    Instrução de calibração de cardio (dose inicial + teto de progressão) por
-    NÍVEL declarado (REQ-05, Fase 2).
+    Instrução de calibração de cardio (dose inicial + teto de progressão por
+    NÍVEL declarado, e direção por OBJETIVO declarado — REQ-05, Fase 2).
 
     Vive na parte VOLÁTIL do prompt (concatenada ao mesmo `dose_cardio_str` que
     `_instrucao_dose_cardio` já usa), nunca em `_INSTRUCOES_MOLDE` (bloco
-    estável/cacheado, layout v2) — o teto de progressão é um dado POR ALUNO,
-    não uma regra fixa para todo mundo.
+    estável/cacheado, layout v2) — a calibração é um dado POR ALUNO, não uma
+    regra fixa para todo mundo.
 
-    Devolve "" quando não há nível derivável (mesmo padrão de
-    `_instrucao_dose_cardio`: ausência de dado é neutra, nunca erro).
+    Devolve "" quando não há nível derivável NEM objetivo válido (mesmo
+    padrão de `_instrucao_dose_cardio`: ausência de dado é neutra, nunca
+    erro). A linha de objetivo pode somar ao bloco mesmo sem nível derivável;
+    o oposto (nível sem objetivo válido) já funcionava antes deste plano.
     """
     from backend.services.dose_cardio import (
         TETO_PROGRESSAO_POR_NIVEL,
@@ -1610,17 +1636,31 @@ def _instrucao_calibracao_cardio(questionnaire_data) -> str:
     )
 
     nivel = nivel_cardio_declarado(questionnaire_data)
-    if nivel is None:
+
+    objetivo = (
+        questionnaire_data.get("cardio_objetivo")
+        if isinstance(questionnaire_data, dict)
+        else None
+    )
+    texto_objetivo = (
+        _TEXTO_OBJETIVO_CARDIO.get(objetivo) if isinstance(objetivo, str) else None
+    )
+
+    if nivel is None and texto_objetivo is None:
         return ""
 
-    teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
-    return (
-        "CALIBRAÇÃO DE CARDIO (dose inicial e progressão pelo nível declarado):\n"
-        f"- {_TEXTO_NIVEL_CARDIO[nivel]}\n"
-        f"- TETO DE PROGRESSÃO: o `valor` de qualquer regra "
-        f"`delta_cardio_percentual` para este aluno não deve ultrapassar "
-        f"{teto:g}% por semana."
-    )
+    linhas = ["CALIBRAÇÃO DE CARDIO (dose inicial e progressão pelo nível declarado):"]
+    if nivel is not None:
+        teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
+        linhas.append(f"- {_TEXTO_NIVEL_CARDIO[nivel]}")
+        linhas.append(
+            f"- TETO DE PROGRESSÃO: o `valor` de qualquer regra "
+            f"`delta_cardio_percentual` para este aluno não deve ultrapassar "
+            f"{teto:g}% por semana."
+        )
+    if texto_objetivo is not None:
+        linhas.append(f"- {texto_objetivo}")
+    return "\n".join(linhas)
 
 
 def _dados_do_aluno_no_prompt(
