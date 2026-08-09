@@ -177,6 +177,19 @@ def nivel_cardio_declarado(questionario: Any) -> Optional[str]:
     return "avancado"
 
 
+def nivel_cardio_efetivo(questionario: Any) -> Optional[str]:
+    """Nível usado tanto no prompt quanto no gate local de persistência."""
+    if (
+        not isinstance(questionario, dict)
+        or questionario.get("inclui_cardio") is False
+    ):
+        return None
+    nivel = nivel_cardio_declarado(questionario)
+    if nivel is not None:
+        return nivel
+    return "iniciante" if questionario.get("inclui_cardio") is True else None
+
+
 def dose_declarada(questionario: Any) -> Optional[DoseCardio]:
     """
     Lê a dose do questionário. Devolve None quando não há NADA a validar
@@ -222,6 +235,24 @@ def _e_cardio(nome: Any) -> bool:
     return _nome_cardio_canonico(nome) is not None
 
 
+def _e_temporal_fora_do_catalogo(exercicio: Dict[str, Any]) -> bool:
+    from backend.services.exercise_catalog import (
+        METRICA_TEMPO,
+        METRICA_TEMPO_DISTANCIA,
+        metrica_do_exercicio,
+        resolver_exercicio,
+    )
+
+    resultado = resolver_exercicio(
+        exercicio.get("nome"),
+        exercicio.get("equipamento"),
+    )
+    return not resultado.casou and metrica_do_exercicio(exercicio) in (
+        METRICA_TEMPO,
+        METRICA_TEMPO_DISTANCIA,
+    )
+
+
 def _minutos_do_exercicio(exercicio: Dict[str, Any]) -> Optional[float]:
     """
     Minutos que este exercício ocupa: duração × séries.
@@ -237,6 +268,21 @@ def _minutos_do_exercicio(exercicio: Dict[str, Any]) -> Optional[float]:
     series = exercicio.get("series")
     fator = series if isinstance(series, int) and not isinstance(series, bool) and series > 0 else 1
     return float(duracao) * fator
+
+
+def _distancia_do_exercicio(exercicio: Dict[str, Any]) -> Optional[float]:
+    distancia = exercicio.get("distancia_km")
+    if isinstance(distancia, bool) or not isinstance(distancia, (int, float)):
+        return None
+    if distancia <= 0:
+        return None
+    series = exercicio.get("series")
+    fator = (
+        series
+        if isinstance(series, int) and not isinstance(series, bool) and series > 0
+        else 1
+    )
+    return float(distancia) * fator
 
 
 def _exercicios(sessao: Any) -> List[Dict[str, Any]]:
@@ -275,6 +321,115 @@ def _semanas_avulsas(molde: Any) -> List[Dict[str, Any]]:
         normalizada["id"] = chave
         semanas.append(normalizada)
     return semanas
+
+
+def _totais_cardio(semana: Dict[str, Any]) -> Tuple[float, float]:
+    minutos = 0.0
+    distancia = 0.0
+    for sessao in _sessoes(semana):
+        for exercicio in _exercicios(sessao):
+            if not _e_cardio(exercicio.get("nome")):
+                continue
+            minutos += _minutos_do_exercicio(exercicio) or 0.0
+            distancia += _distancia_do_exercicio(exercicio) or 0.0
+    return minutos, distancia
+
+
+def _fator_progressao_cardio(
+    regras: List[Any],
+    semana: int,
+    dimensao: str,
+    teto: float,
+) -> float:
+    fator_regras = 1.0
+    for regra in regras:
+        if (
+            not isinstance(regra, dict)
+            or regra.get("tipo") != "delta_cardio_percentual"
+        ):
+            continue
+        inicio = regra.get("semana_inicio")
+        fim = regra.get("semana_fim")
+        valor = regra.get("valor")
+        alvo = regra.get("alvo", "ambos")
+        if (
+            isinstance(inicio, bool)
+            or not isinstance(inicio, int)
+            or isinstance(fim, bool)
+            or not isinstance(fim, int)
+            or isinstance(valor, bool)
+            or not isinstance(valor, (int, float))
+            or not (inicio <= semana <= fim)
+            or alvo not in (dimensao, "ambos")
+        ):
+            continue
+        semanas_decorridas = semana - inicio + 1
+        fator_regras *= min(1 + (valor / 100.0) * semanas_decorridas, 2.0)
+
+    fator_teto = 1 + (teto / 100.0) * max(semana - 1, 0)
+    return max(fator_regras, fator_teto)
+
+
+def _violacoes_teto_semanas_avulsas(
+    molde: Dict[str, Any],
+    nivel: str,
+    regras: List[Any],
+) -> List[str]:
+    calendario = molde.get("calendario")
+    if not isinstance(calendario, list):
+        return []
+    tipos = {
+        semana.get("id"): semana
+        for semana in _semanas_tipo(molde)
+        if isinstance(semana.get("id"), str)
+    }
+    teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
+    violacoes = []
+
+    for avulsa in _semanas_avulsas(molde):
+        numero = avulsa.get("semana")
+        if (
+            isinstance(numero, bool)
+            or not isinstance(numero, int)
+            or numero < 1
+            or numero > len(calendario)
+        ):
+            continue
+        base = tipos.get(calendario[numero - 1])
+        if not isinstance(base, dict):
+            continue
+
+        base_minutos, base_distancia = _totais_cardio(base)
+        avulsa_minutos, avulsa_distancia = _totais_cardio(avulsa)
+        comparacoes = (
+            ("duração", base_minutos, avulsa_minutos, "min", 0.1, "duracao"),
+            (
+                "distância",
+                base_distancia,
+                avulsa_distancia,
+                "km",
+                0.01,
+                "distancia",
+            ),
+        )
+        for rotulo, valor_base, valor_avulso, unidade, margem, dimensao in comparacoes:
+            if valor_avulso <= 0:
+                continue
+            limite = valor_base * _fator_progressao_cardio(
+                regras,
+                numero,
+                dimensao,
+                teto,
+            )
+            if valor_base > 0 and valor_avulso <= limite + margem:
+                continue
+            id_semana = avulsa.get("id") or f"semana_{numero}"
+            violacoes.append(
+                f"Na {id_semana}, a {rotulo} total do cardio é {valor_avulso:g} "
+                f"{unidade}, acima do máximo seguro de {limite:g} {unidade} para "
+                f"o teto de {teto:g}% do nível {nivel.upper()}."
+            )
+    return violacoes
 
 
 def _rotulo_sessao(sessao: Dict[str, Any], indice: int) -> str:
@@ -318,13 +473,7 @@ def validar_dose_cardio(molde: Any, questionario: Any) -> Optional[str]:
 
 
 def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
-    nivel = nivel_cardio_declarado(questionario)
-    if (
-        nivel is None
-        and isinstance(questionario, dict)
-        and questionario.get("inclui_cardio") is not False
-    ):
-        nivel = "iniciante"
+    nivel = nivel_cardio_efetivo(questionario)
     if nivel is None or not isinstance(molde, dict):
         return None
 
@@ -337,9 +486,21 @@ def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
 
     teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
     violacoes: List[str] = []
-    regras_por_dimensao: List[Tuple[int, int, int, Tuple[str, ...]]] = []
+    ha_outras_violacoes = False
+    intervalos: List[Tuple[int, int, int, Tuple[str, ...]]] = []
+
+    def registrar(mensagem: str) -> None:
+        nonlocal ha_outras_violacoes
+        if len(violacoes) < MAX_VIOLACOES_NA_MENSAGEM:
+            violacoes.append(mensagem)
+        else:
+            ha_outras_violacoes = True
+
     for indice, regra in enumerate(regras):
-        if not isinstance(regra, dict) or regra.get("tipo") != "delta_cardio_percentual":
+        if (
+            not isinstance(regra, dict)
+            or regra.get("tipo") != "delta_cardio_percentual"
+        ):
             continue
         valor = regra.get("valor")
         if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= 0:
@@ -353,7 +514,7 @@ def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
                 if isinstance(inicio, int) and isinstance(fim, int)
                 else "período informado"
             )
-            violacoes.append(
+            registrar(
                 f"Na regra de progressão {indice + 1} ({periodo}), "
                 f"`delta_cardio_percentual` usa {valor:g}%, acima do teto de "
                 f"{teto:g}% para o nível {nivel.upper()}. Reduza `valor` para no "
@@ -375,37 +536,46 @@ def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
             if alvo == "ambos"
             else (alvo,) if alvo in ("duracao", "distancia") else ()
         )
-        for (
-            outro_indice,
-            outro_inicio,
-            outro_fim,
-            outras_dimensoes,
-        ) in regras_por_dimensao:
-            dimensoes_comuns = [d for d in dimensoes if d in outras_dimensoes]
-            if not dimensoes_comuns or max(inicio, outro_inicio) > min(fim, outro_fim):
-                continue
-            nomes = {
-                "duracao": "duração",
-                "distancia": "distância",
-            }
-            alvo_comum = " e ".join(nomes[d] for d in dimensoes_comuns)
-            violacoes.append(
-                f"As regras de progressão {outro_indice + 1} e {indice + 1} se "
-                f"sobrepõem nas semanas {max(inicio, outro_inicio)}-"
-                f"{min(fim, outro_fim)} para {alvo_comum}. Mantenha uma única "
-                "regra por dimensão em cada semana para que os percentuais não "
-                "sejam compostos acima do teto."
-            )
-        regras_por_dimensao.append((indice, inicio, fim, dimensoes))
+        intervalos.append((indice, inicio, fim, dimensoes))
+
+    pares: Dict[Tuple[int, int], List[str]] = {}
+    for dimensao in ("duracao", "distancia"):
+        ativos = sorted(
+            (item for item in intervalos if dimensao in item[3]),
+            key=lambda item: (item[1], -item[2], item[0]),
+        )
+        anterior: Optional[Tuple[int, int, int, Tuple[str, ...]]] = None
+        for atual in ativos:
+            if anterior is not None and atual[1] <= anterior[2]:
+                par = tuple(sorted((anterior[0], atual[0])))
+                if par in pares:
+                    if dimensao not in pares[par]:
+                        pares[par].append(dimensao)
+                elif len(pares) < MAX_VIOLACOES_NA_MENSAGEM:
+                    pares[par] = [dimensao]
+                else:
+                    ha_outras_violacoes = True
+            if anterior is None or atual[2] > anterior[2]:
+                anterior = atual
+
+    nomes = {"duracao": "duração", "distancia": "distância"}
+    for (primeiro, segundo), dimensoes in pares.items():
+        registrar(
+            f"As regras de progressão {primeiro + 1} e {segundo + 1} se "
+            f"sobrepõem para {' e '.join(nomes[d] for d in dimensoes)}. "
+            "Mantenha uma única regra por dimensão em cada semana para que os "
+            "percentuais não sejam compostos acima do teto."
+        )
+
+    for mensagem in _violacoes_teto_semanas_avulsas(molde, nivel, regras):
+        registrar(mensagem)
 
     if not violacoes:
         return None
 
-    mostradas = violacoes[:MAX_VIOLACOES_NA_MENSAGEM]
-    restantes = len(violacoes) - len(mostradas)
-    corpo = " ".join(mostradas)
-    if restantes > 0:
-        corpo += f" (e mais {restantes} violação(ões))"
+    corpo = " ".join(violacoes)
+    if ha_outras_violacoes:
+        corpo += " (há outras violações)"
     return "O molde não respeita o teto de progressão do cardio declarado. " + corpo
 
 
@@ -433,11 +603,25 @@ def _validar(molde: Any, questionario: Any) -> Optional[str]:
 
         dias_com_cardio = 0
         for indice_sessao, sessao in enumerate(sessoes):
-            cardios = [e for e in _exercicios(sessao) if _e_cardio(e.get("nome"))]
+            exercicios = _exercicios(sessao)
+            rotulo = _rotulo_sessao(sessao, indice_sessao)
+            temporais_desconhecidos = [
+                e for e in exercicios if _e_temporal_fora_do_catalogo(e)
+            ]
+            if temporais_desconhecidos:
+                nomes = ", ".join(
+                    str(e.get("nome")) for e in temporais_desconhecidos
+                )
+                violacoes.append(
+                    f"Em {rotulo_semana}/{rotulo}: {nomes} usa duração ou "
+                    "distância, mas não existe no catálogo. Use uma modalidade "
+                    "catalogada para que a dose de cardio seja verificável."
+                )
+
+            cardios = [e for e in exercicios if _e_cardio(e.get("nome"))]
             if not cardios:
                 continue
             dias_com_cardio += 1
-            rotulo = _rotulo_sessao(sessao, indice_sessao)
 
             if dose.sem_cardio:
                 nomes = ", ".join(str(e.get("nome")) for e in cardios)

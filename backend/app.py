@@ -1647,17 +1647,21 @@ def _instrucao_calibracao_cardio(questionnaire_data) -> str:
     estável/cacheado, layout v2) — a calibração é um dado POR ALUNO, não uma
     regra fixa para todo mundo.
 
-    Devolve "" quando não há nível derivável NEM objetivo válido (mesmo
-    padrão de `_instrucao_dose_cardio`: ausência de dado é neutra, nunca
-    erro). A linha de objetivo pode somar ao bloco mesmo sem nível derivável;
-    o oposto (nível sem objetivo válido) já funcionava antes deste plano.
+    Devolve "" quando o cardio foi recusado ou quando não há nível efetivo NEM
+    objetivo válido. Anamnese ausente com cardio ligado usa o nível iniciante,
+    o mesmo fallback conservador aplicado pelo gate local de persistência.
     """
     from backend.services.dose_cardio import (
         TETO_PROGRESSAO_POR_NIVEL,
-        nivel_cardio_declarado,
+        nivel_cardio_efetivo,
     )
 
-    nivel = nivel_cardio_declarado(questionnaire_data)
+    nivel = nivel_cardio_efetivo(questionnaire_data)
+    if (
+        isinstance(questionnaire_data, dict)
+        and questionnaire_data.get("inclui_cardio") is False
+    ):
+        return ""
 
     objetivo = (
         questionnaire_data.get("cardio_objetivo")
