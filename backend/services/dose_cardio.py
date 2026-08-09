@@ -306,26 +306,66 @@ def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
 
     teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
     violacoes: List[str] = []
+    regras_por_dimensao: List[Tuple[int, int, int, Tuple[str, ...]]] = []
     for indice, regra in enumerate(regras):
         if not isinstance(regra, dict) or regra.get("tipo") != "delta_cardio_percentual":
             continue
         valor = regra.get("valor")
-        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= teto:
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= 0:
             continue
 
         inicio = regra.get("semana_inicio")
         fim = regra.get("semana_fim")
-        periodo = (
-            f"semanas {inicio}-{fim}"
-            if isinstance(inicio, int) and isinstance(fim, int)
-            else "período informado"
+        if valor > teto:
+            periodo = (
+                f"semanas {inicio}-{fim}"
+                if isinstance(inicio, int) and isinstance(fim, int)
+                else "período informado"
+            )
+            violacoes.append(
+                f"Na regra de progressão {indice + 1} ({periodo}), "
+                f"`delta_cardio_percentual` usa {valor:g}%, acima do teto de "
+                f"{teto:g}% para o nível {nivel.upper()}. Reduza `valor` para no "
+                "máximo esse teto."
+            )
+
+        if (
+            isinstance(inicio, bool)
+            or not isinstance(inicio, int)
+            or isinstance(fim, bool)
+            or not isinstance(fim, int)
+            or inicio > fim
+        ):
+            continue
+
+        alvo = regra.get("alvo", "ambos")
+        dimensoes = (
+            ("duracao", "distancia")
+            if alvo == "ambos"
+            else (alvo,) if alvo in ("duracao", "distancia") else ()
         )
-        violacoes.append(
-            f"Na regra de progressão {indice + 1} ({periodo}), "
-            f"`delta_cardio_percentual` usa {valor:g}%, acima do teto de "
-            f"{teto:g}% para o nível {nivel.upper()}. Reduza `valor` para no "
-            "máximo esse teto."
-        )
+        for (
+            outro_indice,
+            outro_inicio,
+            outro_fim,
+            outras_dimensoes,
+        ) in regras_por_dimensao:
+            dimensoes_comuns = [d for d in dimensoes if d in outras_dimensoes]
+            if not dimensoes_comuns or max(inicio, outro_inicio) > min(fim, outro_fim):
+                continue
+            nomes = {
+                "duracao": "duração",
+                "distancia": "distância",
+            }
+            alvo_comum = " e ".join(nomes[d] for d in dimensoes_comuns)
+            violacoes.append(
+                f"As regras de progressão {outro_indice + 1} e {indice + 1} se "
+                f"sobrepõem nas semanas {max(inicio, outro_inicio)}-"
+                f"{min(fim, outro_fim)} para {alvo_comum}. Mantenha uma única "
+                "regra por dimensão em cada semana para que os percentuais não "
+                "sejam compostos acima do teto."
+            )
+        regras_por_dimensao.append((indice, inicio, fim, dimensoes))
 
     if not violacoes:
         return None
