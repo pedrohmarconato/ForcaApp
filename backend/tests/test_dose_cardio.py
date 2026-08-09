@@ -24,7 +24,12 @@ antes da implementação:
 
 import pytest
 
-from backend.services.dose_cardio import dose_declarada, validar_dose_cardio
+from backend.services.dose_cardio import (
+    TETO_PROGRESSAO_POR_NIVEL,
+    dose_declarada,
+    nivel_cardio_declarado,
+    validar_dose_cardio,
+)
 
 
 def _sessao(nome, exercicios, dia_offset=0):
@@ -374,3 +379,72 @@ class TestDoseNoPrompt:
         estavel = str(chamada.get("system") or "")
         assert "contrato declarado pelo aluno" in volatil
         assert "contrato declarado pelo aluno" not in estavel
+
+
+class TestNivelCardioDeclarado:
+    """nivel_cardio_declarado — derivação determinística do nível (REQ-04/05)."""
+
+    def test_pratica_e_distancia_curta_e_iniciante(self):
+        quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 2.0}
+        assert nivel_cardio_declarado(quest) == "iniciante"
+
+    def test_pratica_e_distancia_media_e_intermediario(self):
+        quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 5.0}
+        assert nivel_cardio_declarado(quest) == "intermediario"
+
+    def test_pratica_e_distancia_longa_e_avancado(self):
+        quest = {"cardio_pratica_atualmente": True, "cardio_distancia_confortavel_km": 10.0}
+        assert nivel_cardio_declarado(quest) == "avancado"
+
+    def test_nao_pratica_e_sempre_iniciante_independente_da_distancia(self):
+        # Quem não pratica hoje começa conservador, mesmo que declare uma
+        # distância "confortável" alta (dado incoerente não deve virar avançado).
+        quest = {"cardio_pratica_atualmente": False, "cardio_distancia_confortavel_km": 20.0}
+        assert nivel_cardio_declarado(quest) == "iniciante"
+
+    def test_pratica_sem_distancia_e_intermediario(self):
+        quest = {"cardio_pratica_atualmente": True}
+        assert nivel_cardio_declarado(quest) == "intermediario"
+
+    def test_dict_vazio_ou_sem_dado_e_none(self):
+        assert nivel_cardio_declarado({}) is None
+        assert nivel_cardio_declarado({"cardio_pratica_atualmente": None}) is None
+        assert nivel_cardio_declarado("nao e dict") is None
+
+
+class TestCalibracaoNoPrompt:
+    """_instrucao_calibracao_cardio — bloco de calibração por nível (REQ-05)."""
+
+    def test_bloco_cita_nivel_iniciante_e_teto_para_quem_nao_pratica(self):
+        import backend.app as app
+
+        bloco = app._instrucao_calibracao_cardio({"cardio_pratica_atualmente": False})
+        assert "CALIBRAÇÃO DE CARDIO" in bloco
+        assert "INICIANTE" in bloco
+        assert "3" in bloco
+
+    def test_dict_vazio_devolve_bloco_vazio(self):
+        import backend.app as app
+
+        assert app._instrucao_calibracao_cardio({}) == ""
+
+    def test_calibracao_entra_na_chamada_do_molde_na_parte_volatil(self):
+        import backend.app as app
+
+        quest = {"cardio_pratica_atualmente": False}
+        chamada = app._montar_chamada_do_molde(
+            "{}", "{}", "Cardio: Corrida", app._instrucao_calibracao_cardio(quest)
+        )
+        volatil = "".join(
+            m["content"] if isinstance(m["content"], str) else str(m["content"])
+            for m in chamada["messages"]
+        )
+        estavel = str(chamada.get("system") or "")
+        assert "CALIBRAÇÃO DE CARDIO" in volatil
+        assert "CALIBRAÇÃO DE CARDIO" not in estavel
+
+    @pytest.mark.parametrize("nivel", ["iniciante", "intermediario", "avancado"])
+    def test_teto_por_nivel_cabe_dentro_do_limite_do_schema(self, nivel):
+        # molde_schema.py::delta_cardio_percentual aceita [1.0, 10.0] para
+        # TODOS os alunos — o teto por nível só pode restringir para baixo.
+        assert 1.0 <= TETO_PROGRESSAO_POR_NIVEL[nivel] <= 10.0
