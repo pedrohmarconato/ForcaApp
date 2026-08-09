@@ -9,7 +9,7 @@ condução real integrada ao chat da IA.
 ## Phases
 
 - [x] **Phase 1: Fluxo cardio e alongamento** - Registro decimal do cardio, meta coerente com o treino e alongamento guiado
-- [ ] **Phase 2: Anamnese e calibração do cardio** - Questionário captura experiência de cardio e o gerador calibra dose inicial e progressão por ela
+- [x] **Phase 2: Anamnese e calibração do cardio** - Questionário captura experiência de cardio e o gerador calibra dose inicial e progressão por ela (completed 2026-08-09)
 - [ ] **Phase 3: Intercâmbio de modalidade de cardio** - Trocar um momento de cardio por outra modalidade aceita (escada, bike, remo) preservando a dose por tempo
 
 ## Phase Details
@@ -100,5 +100,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
-| 2. Anamnese e calibração do cardio | 3/3 | In Progress|  |
+| 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
 | 3. Intercâmbio de modalidade de cardio | 0/TBD | Not started | - |
