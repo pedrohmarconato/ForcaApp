@@ -16,6 +16,15 @@ ao gerador) e REQ-05 (calibração de dose inicial e teto de progressão no prom
 - Intercâmbio de modalidade — é a Fase 3.
 - Qualquer mudança no schema do molde/plano gerado.
 
+> **CORREÇÃO PELA PESQUISA (2026-08-09, prevalece sobre este arquivo):** o
+> `questionario_normalizer.py` é código morto no caminho de produção
+> (`FORCA_USE_MOLDE_ARCHITECTURE=true` → `_executar_geracao_molde` lê o questionário
+> CRU). O nome da chave em `formDataForApi` (QuestionnaireScreen.tsx:388-395) tem de
+> ser IDÊNTICO ao `.get(...)` do backend — bloco some do prompt SILENCIOSAMENTE se
+> errar. E campo novo exige MIGRATION (tabela `questionario_usuario` é tipada; molde
+> byte a byte é a `0021_dose_cardio_declarada.sql`, com espelho no histórico e
+> reescrita de `snapshot_questionario()`). Detalhes no 02-RESEARCH.md.
+
 ## Diagnóstico que motiva a fase (confirmado no código)
 
 - O questionário JÁ captura a dose declarada: dias/semana, minutos/sessão, modalidades

@@ -50,10 +50,12 @@ declarado. Lição do PR #64: a pergunta nova tem de comprovadamente chegar ao g
   2. O prompt instrui dose inicial conservadora e teto de progressão por nível; planos
      gerados para iniciante × experiente diferem na dose inicial de cardio.
   3. Nenhuma mudança no schema do molde (campos km/min existentes bastam).
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — REQ-04/REQ-05: pergunta de anamnese ponta a ponta (tracer) + motor de nível/calibração no backend
+- [ ] 02-02-PLAN.md — REQ-04: migração 0033 (anamnese de cardio) + checkpoint de decisão antes de aplicar em banco vivo
+- [ ] 02-03-PLAN.md — REQ-04/REQ-05: distância confortável + objetivo do cardio na UI e no prompt + checkpoint humano de geração real
 
 ### Phase 3: Intercâmbio de modalidade de cardio
 **Goal**: Na sessão, o usuário troca um momento de cardio por outra modalidade aceita
@@ -80,5 +82,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Executed (gate verde; checkpoint humano 01-04 pendente) | - |
-| 2. Anamnese e calibração do cardio | 0/TBD | Not started | - |
+| 2. Anamnese e calibração do cardio | 0/3 | Planned | - |
 | 3. Intercâmbio de modalidade de cardio | 0/TBD | Not started | - |
