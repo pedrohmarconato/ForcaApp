@@ -319,6 +319,16 @@ const QuestionnaireScreen = () => {
     );
   };
   const getSelectedDays = () => Object.keys(trainingDays).filter(day => trainingDays[day]);
+  const distanciaCardioValida =
+    cardioDistanciaConfortavelKm !== null &&
+    cardioDistanciaConfortavelKm >= 0 &&
+    cardioDistanciaConfortavelKm <= 50;
+  const erroDistanciaCardio =
+    cardioPraticaAtualmente === true &&
+    cardioDistanciaConfortavelKm !== null &&
+    !distanciaCardioValida
+      ? 'Informe uma distância entre 0 e 50 km.'
+      : null;
   // Um bloco só conta como respondido quando passa na MESMA validação que
   // habilita o envio — os gates dos passos usam exatamente estas regras (a
   // data 99/99/2000 "tinha formato" mas nunca seria aceita).
@@ -352,7 +362,7 @@ const QuestionnaireScreen = () => {
             cardioMinutos !== null &&
             cardioPraticaAtualmente !== null &&
             cardioObjetivo !== null &&
-            (cardioPraticaAtualmente !== true || cardioDistanciaConfortavelKm !== null))),
+            (cardioPraticaAtualmente !== true || distanciaCardioValida))),
       includeStretching !== null,
       temLesoes !== null &&
         (!temLesoes || lesoes.trim() !== '' || descricaoLesao.trim() !== ''),
@@ -792,6 +802,7 @@ const QuestionnaireScreen = () => {
                     label="Distância confortável hoje (km)"
                     value={cardioDistanciaConfortavelKm}
                     onChangeNumber={setCardioDistanciaConfortavelKm}
+                    error={erroDistanciaCardio}
                     placeholder="Ex: 3,5"
                     keyboardType="numeric"
                   />
