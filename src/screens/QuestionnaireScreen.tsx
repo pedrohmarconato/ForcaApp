@@ -121,6 +121,12 @@ const QuestionnaireScreen = () => {
   const [cardioDias, setCardioDias] = useState<number | null>(null);
   const [cardioMinutos, setCardioMinutos] = useState<number | null>(null);
   const [cardioModalidades, setCardioModalidades] = useState<string[]>([]);
+  // Anamnese de cardio (Fase 2, REQ-04): já pratica corrida/caminhada rápida/
+  // pedal/outro cardio hoje? Sinal de experiência — distinto da dose declarada
+  // acima (quanto ele PRETENDE fazer no plano) — vai para formDataForApi como
+  // cardio_pratica_atualmente e é usado no backend para derivar o nível de
+  // cardio e calibrar a dose inicial/teto de progressão.
+  const [cardioPraticaAtualmente, setCardioPraticaAtualmente] = useState<boolean | null>(null);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
 
@@ -235,6 +241,9 @@ const QuestionnaireScreen = () => {
               ? data.cardio_modalidades.filter((m: unknown) => typeof m === 'string')
               : [],
           );
+          setCardioPraticaAtualmente(
+            typeof data.cardio_pratica_atualmente === 'boolean' ? data.cardio_pratica_atualmente : null,
+          );
           setIncludeStretching(data.inclui_alongamento !== undefined ? data.inclui_alongamento : null);
           setAverageTrainingTime(data.tempo_medio_treino_min || null);
         } else {
@@ -274,6 +283,7 @@ const QuestionnaireScreen = () => {
       setCardioDias(null);
       setCardioMinutos(null);
       setCardioModalidades([]);
+      setCardioPraticaAtualmente(null);
     }
   };
 
@@ -306,9 +316,11 @@ const QuestionnaireScreen = () => {
       averageTrainingTime !== null,
       // Cardio: com "sim", a DOSE faz parte da resposta — é o que transforma a
       // preferência em contrato validado no molde. Modalidade segue opcional
-      // (vazio = qualquer uma).
+      // (vazio = qualquer uma). A anamnese (já pratica hoje?) também é
+      // obrigatória — é o sinal que o backend usa para derivar o nível.
       includeCardio !== null &&
-        (includeCardio === false || (cardioDias !== null && cardioMinutos !== null)),
+        (includeCardio === false ||
+          (cardioDias !== null && cardioMinutos !== null && cardioPraticaAtualmente !== null)),
       includeStretching !== null,
       temLesoes !== null &&
         (!temLesoes || lesoes.trim() !== '' || descricaoLesao.trim() !== ''),
@@ -392,7 +404,8 @@ const QuestionnaireScreen = () => {
       cardio_dias_semana: includeCardio === true ? cardioDias : null,
       cardio_minutos_sessao: includeCardio === true ? cardioMinutos : null,
       cardio_modalidades:
-        includeCardio === true && cardioModalidades.length > 0 ? cardioModalidades : null };
+        includeCardio === true && cardioModalidades.length > 0 ? cardioModalidades : null,
+      cardio_pratica_atualmente: includeCardio === true ? cardioPraticaAtualmente : null };
     const formDataForStorage = { ...formDataForApi, nome: nome }; // Inclui o nome para o storage local
 
     try {
@@ -712,6 +725,28 @@ const QuestionnaireScreen = () => {
                   <Text style={styles.doseNota}>
                     Sem escolher nenhuma, o plano pode usar qualquer uma.
                   </Text>
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>
+                  Já pratica corrida, caminhada rápida, pedal ou outro cardio hoje?
+                </Text>
+                <View style={styles.pair}>
+                  <OptionButton
+                    label="Sim, já pratico"
+                    centered
+                    selected={cardioPraticaAtualmente === true}
+                    onPress={() => setCardioPraticaAtualmente(true)}
+                    style={styles.pairItem}
+                  />
+                  <OptionButton
+                    label="Não, ainda não"
+                    centered
+                    selected={cardioPraticaAtualmente === false}
+                    onPress={() => setCardioPraticaAtualmente(false)}
+                    style={styles.pairItem}
+                  />
+                </View>
               </View>
 
               {botaoContinuar(blocos[8])}

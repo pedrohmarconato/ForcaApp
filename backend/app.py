@@ -1574,6 +1574,55 @@ def _instrucao_dose_cardio(questionnaire_data) -> str:
     )
 
 
+_TEXTO_NIVEL_CARDIO = {
+    "iniciante": (
+        "Nível de cardio declarado: INICIANTE. Comece pelo piso da faixa aceita "
+        "e ritmo leve (caminhada ou trote leve) na semana 1, sem forçar distância "
+        "ou ritmo que o aluno ainda não demonstrou ter."
+    ),
+    "intermediario": (
+        "Nível de cardio declarado: INTERMEDIÁRIO. Dose inicial moderada, "
+        "compatível com quem já pratica cardio com alguma regularidade."
+    ),
+    "avancado": (
+        "Nível de cardio declarado: AVANÇADO. Dose inicial pode partir de um "
+        "patamar mais exigente, condizente com a experiência já demonstrada."
+    ),
+}
+
+
+def _instrucao_calibracao_cardio(questionnaire_data) -> str:
+    """
+    Instrução de calibração de cardio (dose inicial + teto de progressão) por
+    NÍVEL declarado (REQ-05, Fase 2).
+
+    Vive na parte VOLÁTIL do prompt (concatenada ao mesmo `dose_cardio_str` que
+    `_instrucao_dose_cardio` já usa), nunca em `_INSTRUCOES_MOLDE` (bloco
+    estável/cacheado, layout v2) — o teto de progressão é um dado POR ALUNO,
+    não uma regra fixa para todo mundo.
+
+    Devolve "" quando não há nível derivável (mesmo padrão de
+    `_instrucao_dose_cardio`: ausência de dado é neutra, nunca erro).
+    """
+    from backend.services.dose_cardio import (
+        TETO_PROGRESSAO_POR_NIVEL,
+        nivel_cardio_declarado,
+    )
+
+    nivel = nivel_cardio_declarado(questionnaire_data)
+    if nivel is None:
+        return ""
+
+    teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
+    return (
+        "CALIBRAÇÃO DE CARDIO (dose inicial e progressão pelo nível declarado):\n"
+        f"- {_TEXTO_NIVEL_CARDIO[nivel]}\n"
+        f"- TETO DE PROGRESSÃO: o `valor` de qualquer regra "
+        f"`delta_cardio_percentual` para este aluno não deve ultrapassar "
+        f"{teto:g}% por semana."
+    )
+
+
 def _dados_do_aluno_no_prompt(
     questionnaire_str: str,
     diretrizes_str: str,
@@ -1774,11 +1823,20 @@ def _executar_geracao_molde(
     # Cardápio respeita inclui_cardio/inclui_alongamento do aluno.
     catalogo_str = _catalogo_para_questionario(questionnaire_data)
 
+    # Dose declarada (contrato) + calibração por nível (REQ-05) somadas no MESMO
+    # bloco volátil — filter(None, ...) preserva o comportamento atual quando só
+    # a dose existe (uma delas pode devolver "" sem que a outra suma).
+    dose_cardio_str = "\n\n".join(
+        filter(None, [
+            _instrucao_dose_cardio(questionnaire_data),
+            _instrucao_calibracao_cardio(questionnaire_data),
+        ])
+    )
     chamada = _montar_chamada_do_molde(
         questionnaire_str,
         diretrizes_str,
         catalogo_str,
-        _instrucao_dose_cardio(questionnaire_data),
+        dose_cardio_str,
     )
 
     from backend.services.molde_normalizer import extrair_molde_do_texto, normalizar_molde

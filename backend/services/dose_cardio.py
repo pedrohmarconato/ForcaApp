@@ -114,6 +114,65 @@ def canonicalizar_modalidades_cardio(valor: Any) -> Tuple[str, ...]:
     return tuple(nomes)
 
 
+# Teto de progressão semanal por nível de cardio declarado (REQ-05, Fase 2).
+# Os 3 valores ficam DENTRO de [1.0, 10.0] — a faixa que
+# `molde_schema.py::delta_cardio_percentual` já aceita para TODOS os alunos.
+# O teto por nível só pode restringir para baixo, nunca pedir mais do que o
+# schema permite (senão a IA reprova por schema no retry).
+TETO_PROGRESSAO_POR_NIVEL: Dict[str, float] = {
+    "iniciante": 3.0,
+    "intermediario": 6.0,
+    "avancado": 10.0,
+}
+
+
+def nivel_cardio_declarado(questionario: Any) -> Optional[str]:
+    """
+    Deriva um nível de cardio (iniciante/intermediario/avancado) dos sinais de
+    anamnese declarados pelo aluno (REQ-04/REQ-05, Fase 2).
+
+    Segue as MESMAS duas linhas que este módulo não cruza (ver docstring do
+    módulo): nunca reprova por impossibilidade (não existe "reprovação" aqui,
+    só ausência de sinal) e nunca levanta exceção — qualquer dado malformado
+    devolve None, nunca um "raise".
+
+    Regras:
+    - questionário que não é dict, ou `cardio_pratica_atualmente` que não é
+      `bool` (isinstance estrito) -> None (sem dado suficiente).
+    - `cardio_pratica_atualmente is False` -> "iniciante" SEMPRE, direto: quem
+      não pratica cardio hoje começa conservador, independente de qualquer
+      outra resposta.
+    - `cardio_pratica_atualmente is True` -> lê `cardio_distancia_confortavel_km`:
+      - não é int/float (excluindo bool) ou fora de (0, 50] -> sem distância
+        válida -> "intermediario" (meio-termo: nem o mais conservador, nem o
+        mais agressivo, dado incompleto).
+      - < 3.0 km -> "iniciante"
+      - < 8.0 km -> "intermediario"
+      - caso contrário -> "avancado"
+    """
+    if not isinstance(questionario, dict):
+        return None
+
+    pratica = questionario.get("cardio_pratica_atualmente")
+    if not isinstance(pratica, bool):
+        return None
+
+    if pratica is False:
+        return "iniciante"
+
+    distancia = questionario.get("cardio_distancia_confortavel_km")
+    if isinstance(distancia, bool) or not isinstance(distancia, (int, float)):
+        return "intermediario"
+    if not (0 < distancia <= 50):
+        return "intermediario"
+
+    if distancia < 3.0:
+        return "iniciante"
+    if distancia < 8.0:
+        return "intermediario"
+    return "avancado"
+
+
 def dose_declarada(questionario: Any) -> Optional[DoseCardio]:
     """
     Lê a dose do questionário. Devolve None quando não há NADA a validar

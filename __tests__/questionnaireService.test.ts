@@ -32,6 +32,7 @@ const payload: QuestionnairePayload = {
   cardio_dias_semana: 2,
   cardio_minutos_sessao: 30,
   cardio_modalidades: ['Corrida'],
+  cardio_pratica_atualmente: true,
   inclui_alongamento: false,
   tempo_medio_treino_min: 60,
 };
