@@ -22,6 +22,14 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
 - **REQ-03** — O alongamento ganha condução: quais exercícios, quanto tempo ou quantos
   movimentos cada um. O pedido de foco em alongamentos específicos feito no chat da IA
   reflete na condução apresentada.
+- **REQ-04** *(Fase 2)* — O questionário captura experiência de cardio (já corre?,
+  distância/tempo confortável, objetivo) e as respostas chegam comprovadamente ao
+  gerador.
+- **REQ-05** *(Fase 2)* — O prompt do molde calibra dose inicial conservadora e teto de
+  progressão semanal pelo nível de cardio declarado — sem mudar o schema do molde.
+- **REQ-06** *(Fase 3)* — Um momento de cardio da sessão pode ser trocado por outra
+  modalidade aceita (escada, bike, remo…), preservando a dose por tempo; a distância da
+  modalidade original não vira meta da nova.
 
 ## Restrições
 
