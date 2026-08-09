@@ -10,50 +10,7 @@ import { supabase } from '../config/supabaseClient';
 import { toNum, exerciseIdentity } from '../engine/sessionModel';
 import type { CardioLog } from '../engine/cardioGoals';
 
-export type CardioGoalKind = 'desempenho' | 'consistencia';
-export type CardioGoalStatus = 'active' | 'achieved' | 'archived';
-
-export type CardioGoal = {
-  id: string;
-  kind: CardioGoalKind;
-  modality: string | null;
-  targetDistanceM: number | null;
-  targetDurationSeconds: number | null;
-  targetWeek: number | null;
-  weeklyMinutes: number | null;
-  weeklySessions: number | null;
-  status: CardioGoalStatus;
-  achievedAt: string | null;
-  createdAt: string;
-};
-
 const PAGINA = 1000;
-
-const linhaParaMeta = (linha: any): CardioGoal => ({
-  id: linha.id,
-  kind: linha.kind,
-  modality: linha.modality ?? null,
-  targetDistanceM: toNum(linha.target_distance_m),
-  targetDurationSeconds: toNum(linha.target_duration_seconds),
-  targetWeek: toNum(linha.target_week),
-  weeklyMinutes: toNum(linha.weekly_minutes),
-  weeklySessions: toNum(linha.weekly_sessions),
-  status: linha.status,
-  achievedAt: linha.achieved_at ?? null,
-  createdAt: linha.created_at,
-});
-
-/** Metas ATIVAS do usuário (no máximo uma por tipo — índice único parcial). */
-export const getMetasAtivas = async (userId: string): Promise<CardioGoal[]> => {
-  const { data, error } = await supabase
-    .from('cardio_goals')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(linhaParaMeta);
-};
 
 /**
  * Séries de CARDIO de sessões concluídas, no formato que o motor de metas
@@ -104,54 +61,4 @@ export const getCardioLogs = async (userId: string): Promise<CardioLog[]> => {
     });
   }
   return logs;
-};
-
-/**
- * Define a meta ativa de um tipo. A RPC arquiva a anterior e insere a nova na
- * mesma transação — duas telas do mesmo usuário não conseguem deixar duas metas
- * ativas do mesmo tipo (índice único parcial + advisory lock).
- */
-export const definirMeta = async (params: {
-  kind: CardioGoalKind;
-  modality?: string | null;
-  targetDistanceM?: number | null;
-  targetDurationSeconds?: number | null;
-  targetWeek?: number | null;
-  weeklyMinutes?: number | null;
-  weeklySessions?: number | null;
-}): Promise<CardioGoal> => {
-  const { data, error } = await supabase.rpc('upsert_cardio_goal', {
-    p_kind: params.kind,
-    p_modality: params.modality ?? null,
-    p_target_distance_m: params.targetDistanceM ?? null,
-    p_target_duration_seconds: params.targetDurationSeconds ?? null,
-    p_target_week: params.targetWeek ?? null,
-    p_weekly_minutes: params.weeklyMinutes ?? null,
-    p_weekly_sessions: params.weeklySessions ?? null,
-  });
-  if (error) throw error;
-  const linha = Array.isArray(data) ? data[0] : data;
-  if (!linha?.id) throw new Error('upsert_cardio_goal não retornou a meta.');
-  return linhaParaMeta(linha);
-};
-
-/** Arquiva a meta (desistência ou troca de objetivo). */
-export const arquivarMeta = async (id: string): Promise<CardioGoal> => {
-  const { data, error } = await supabase.rpc('archive_cardio_goal', { p_id: id });
-  if (error) throw error;
-  const linha = Array.isArray(data) ? data[0] : data;
-  if (!linha?.id) throw new Error('archive_cardio_goal não retornou a meta.');
-  return linhaParaMeta(linha);
-};
-
-/**
- * Registra a meta como batida. Ação do ALUNO: o cartão mostra que o dado já
- * alcança o alvo, mas quem carimba é ele — o app não conclui metas sozinho.
- */
-export const registrarMetaBatida = async (id: string): Promise<CardioGoal> => {
-  const { data, error } = await supabase.rpc('achieve_cardio_goal', { p_id: id });
-  if (error) throw error;
-  const linha = Array.isArray(data) ? data[0] : data;
-  if (!linha?.id) throw new Error('achieve_cardio_goal não retornou a meta.');
-  return linhaParaMeta(linha);
 };
