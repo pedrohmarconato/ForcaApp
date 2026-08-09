@@ -347,6 +347,44 @@ describe('QuestionnaireScreen — retomada do rascunho', () => {
     expect(await utils.findByLabelText('Peso em quilos')).toBeTruthy();
     expect(utils.getByText('Pergunta 4 de 11')).toBeTruthy();
   });
+
+  it('objetivo de cardio fora do vocabulário reabre o passo como pendente', async () => {
+    const secureStorageMock = jest.requireMock('../src/services/auth/secureStorage');
+    (secureStorageMock.getItem as jest.Mock).mockResolvedValueOnce(
+      JSON.stringify({
+        nome: 'Pedro Marconato',
+        data_nascimento: '1990-03-05',
+        genero: 'male',
+        peso_kg: 82.5,
+        altura_cm: 181,
+        experiencia_treino: 'intermediate',
+        objetivo: 'muscle_gain',
+        dias_treino: ['tue'],
+        tempo_medio_treino_min: 60,
+        inclui_cardio: true,
+        cardio_dias_semana: 1,
+        cardio_minutos_sessao: 30,
+        cardio_pratica_atualmente: true,
+        cardio_distancia_confortavel_km: 5.5,
+        cardio_objetivo: 'objetivo_legado_invalido',
+        inclui_alongamento: true,
+        tem_lesoes: false,
+      }),
+    );
+
+    const utils = render(<QuestionnaireScreen />);
+
+    expect(await utils.findByText('Incluir cardio no plano?')).toBeTruthy();
+    expect(utils.getByText('Pergunta 9 de 11')).toBeTruthy();
+    expect(utils.getByLabelText('Continuar').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+
+    fireEvent.press(utils.getByLabelText('Completar uma corrida de 5km'));
+    expect(utils.getByLabelText('Continuar').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
 });
 
 describe('QuestionnaireScreen — submissão', () => {
