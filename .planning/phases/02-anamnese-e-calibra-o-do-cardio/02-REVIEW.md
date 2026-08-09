@@ -1,6 +1,8 @@
 ---
 phase: 02-anamnese-e-calibra-o-do-cardio
 reviewed: 2026-08-09T00:00:00Z
+fixed_at: 2026-08-09T19:19:29Z
+fix_iteration: 1
 depth: standard
 files_reviewed: 30
 files_reviewed_list:
@@ -39,7 +41,9 @@ findings:
   warning: 3
   info: 0
   total: 4
-status: issues_found
+  resolved: 3
+  aguardando_decisao_do_dono: 1
+status: aguardando_decisao_do_dono
 ---
 
 # Phase 02: Code Review Report
@@ -47,9 +51,18 @@ status: issues_found
 **Reviewed:** 2026-08-09T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 30
-**Status:** issues_found
+**Status:** aguardando_decisao_do_dono
 
 ## Summary
+
+### Estado após a correção — iteração 1
+
+- `CR-01`, `WR-01` e `WR-02`: **resolvidos** com TDD e commits atômicos.
+- `WR-03`: **`aguardando_decisao_do_dono`**. Nenhuma validação do teto foi
+  implementada sem aprovação; `backend/app.py` permaneceu intacto.
+- O runbook completo não foi executado nesta etapa; os testes direcionados e a
+  suíte de `questionnaireScreen.test.tsx` ficaram verdes. Evidências completas
+  constam em `02-REVIEW-FIX.md`.
 
 Reviewed the cardio anamnesis flow (3 new questionnaire fields flowing
 `QuestionnaireScreen.tsx` → `questionnaireService.ts` → migration 0033 →
@@ -86,6 +99,18 @@ never checked against what the model actually returns).
 ## Critical Issues
 
 ### CR-01: Selecting the cardio objective auto-advances the stepper past an incomplete cardio step
+
+**Status:** resolvido
+**Commit:** `9b73654`
+**Nota GSD:** `fixed: requires human verification` por alterar a lógica de
+navegação do stepper; o comportamento está coberto por RTL com fake timers.
+**Evidência:** RED reproduziu a saída indevida para “Pergunta 10 de 11” após
+`jest.advanceTimersByTime(300)`; GREEN manteve “Pergunta 9 de 11”. O teste de
+regressão da escolha única também permaneceu verde, preservando o autoavanço
+nos passos de campo único.
+**Correção aplicada:** o objetivo do cardio agora usa `OptionButton` com setter
+simples, como dias/minutos e o toggle de prática, sem passar por
+`selecionarEAvancar`.
 
 **File:** `src/screens/QuestionnaireScreen.tsx:801-804`
 **Issue:**
@@ -166,6 +191,15 @@ one-step-at-a-time "Voltar").
 
 ### WR-01: `nivel_cardio_declarado()` treats a DB-valid distance of exactly `0` as "no data", diverging from migration 0033's inclusive bound
 
+**Status:** resolvido
+**Commit:** `ee6c9a7`
+**Nota GSD:** `fixed: requires human verification` por alterar a condição de
+classificação; o limite está coberto por pytest.
+**Evidência:** RED retornou `intermediario` para prática `true` e distância `0`;
+GREEN retornou `iniciante`, e os 7 testes de `TestNivelCardioDeclarado` passaram.
+**Correção aplicada:** a faixa passou de `(0, 50]` para `[0, 50]` no código e na
+docstring, alinhada ao `between 0 and 50` da migration 0033.
+
 **File:** `backend/services/dose_cardio.py:129-173` (see also `supabase/migrations/0033_anamnese_cardio_declarada.sql:44-48`)
 **Issue:**
 
@@ -209,6 +243,19 @@ if distancia < 3.0:              # 0 now correctly falls here
 
 ### WR-02: No client-side range validation for `cardio_distancia_confortavel_km` — DB check-constraint violation surfaces a raw error to the user
 
+**Status:** resolvido
+**Commit:** `4de4f3e`
+**Nota GSD:** `fixed: requires human verification` por alterar o gate do
+formulário; o fluxo está coberto por RTL.
+**Evidência:** RED aceitou `51`, não exibiu mensagem e deixou “Continuar”
+habilitado; GREEN exibiu “Informe uma distância entre 0 e 50 km.”, manteve o
+botão desabilitado, permaneceu na Pergunta 9 e não chamou
+`mockSaveQuestionnaire`. O mesmo teste confirmou que `0` é válido. A suíte
+direcionada de `questionnaireScreen.test.tsx` fechou com 17/17 testes verdes.
+**Correção aplicada:** validação local inclusiva `0..50`, mensagem no próprio
+`NumericField` e uso da mesma regra no gate de `blocosRespondidos`, sem alterar
+o componente global.
+
 **File:** `src/screens/QuestionnaireScreen.tsx:349-355` (gate), `src/components/ui/NumericField.tsx:43-57` (input sanitization)
 **Issue:**
 
@@ -246,6 +293,23 @@ have regex + magnitude checks in `blocosRespondidos()`).
 ```
 
 ### WR-03: The declared cardio-progression ceiling (REQ-05) is prompt-only guidance, never validated against the molde the model returns
+
+**Status:** `aguardando_decisao_do_dono`
+**Implementação:** nenhuma. `backend/app.py`, `backend/schemas/molde_schema.py` e
+a validação de teto em `backend/services/dose_cardio.py` não foram alterados.
+
+**Opções para decisão do dono:**
+
+- **A — validar + retry como contrato da dose:** maior robustez e garantia local
+  de que `delta_cardio_percentual.valor` respeita o teto por nível. Em troca,
+  aumenta código e testes, pode disparar retries e custo de IA, e cria risco de
+  rejeitar regras que o fluxo aceita hoje.
+- **B — manter prompt-only:** custo zero e nenhum impacto no fluxo atual. Em
+  troca, não há garantia de cumprimento e permanece o risco de persistir uma
+  progressão acima do teto quando o modelo ignora a instrução.
+
+Nada foi implementado sem aprovação. A escolha entre A e B permanece com o
+dono.
 
 **File:** `backend/app.py:1618-1663` (`_instrucao_calibracao_cardio`), `backend/services/dose_cardio.py:275-398` (`validar_dose_cardio`/`_validar`)
 **Issue:**
