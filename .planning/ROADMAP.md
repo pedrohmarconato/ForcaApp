@@ -27,10 +27,13 @@ tempo/movimentos) que responde a pedidos de foco feitos no chat da IA.
      tempo ou quantos movimentos em cada um.
   4. Um pedido de foco de alongamento feito no chat da IA muda a condução de alongamento
      apresentada nas sessões correspondentes.
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — REQ-01: verificar em runtime e corrigir a exibição de distância decimal (ManualExerciseRow)
+- [ ] 01-02-PLAN.md — REQ-02: motor cardioPrescrito.ts + repositório de leitura da prescrição semanal
+- [ ] 01-03-PLAN.md — REQ-02: trocar CardioGoalsSection por CardioPrescritoSection na aba Progresso
+- [ ] 01-04-PLAN.md — REQ-03: expandir catálogo de Mobilidade + reforçar prompt do molde para foco de alongamento
 
 ## Progress
 
@@ -39,4 +42,4 @@ Phases execute in numeric order: 1
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fluxo cardio e alongamento | 0/TBD | Not started | - |
+| 1. Fluxo cardio e alongamento | 0/4 | Not started | - |
