@@ -37,3 +37,4 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
 | Data | Decisão | Contexto |
 |------|---------|----------|
 | 2026-08-08 | Feature planejada via GSD, fase única | Início do uso de GSD no repo |
+| 2026-08-08 | REQ-02: meta de cardio derivada da prescrição do treino (prescrito × realizado); UI de meta manual sai | Decisão do dono via pergunta direta |

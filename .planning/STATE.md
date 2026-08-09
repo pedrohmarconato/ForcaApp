@@ -34,7 +34,7 @@ Progress: [░░░░░░░░░░] 0%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
-- REQ-02 (destino da meta de cardio no Progresso): decisão do dono pendente de registro.
+- REQ-02: meta de cardio derivada da prescrição do treino (decisão do dono, 2026-08-08).
 
 ### Pending Todos
 
