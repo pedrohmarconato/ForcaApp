@@ -319,3 +319,39 @@ describe('PostQuestionnaireChat — guard de sessão em andamento na geração',
     expect(mockStartPlanJob).not.toHaveBeenCalled();
   });
 });
+
+describe('PostQuestionnaireChat — limpeza de cópia legada no saveChatState', () => {
+  let errorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockRouteParams).forEach((k) => delete (mockRouteParams as any)[k]);
+    mockAuth.user.onboarding_completed = false;
+    mockHasSessionInProgress.mockResolvedValue(false);
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  // Regressão: o mock manual de secureStorage precisa expor
+  // removeLegacyPlaintextCopy tal como o módulo real (src/services/auth/
+  // secureStorage.ts) exporta — do contrário saveChatState (linha 167) chama
+  // undefined como função, o catch engole o TypeError e loga console.error a
+  // cada save, mascarando que a limpeza da cópia legada nunca roda no teste.
+  it('saveChatState não loga erro ao acionar removeLegacyPlaintextCopy', async () => {
+    mockRouteParams.skipChat = true;
+
+    render(<PostQuestionnaireChat />);
+
+    // handleUserDeclinesChat chama saveChatState (setItem + removeLegacyPlaintextCopy)
+    // antes de disparar a geração do plano.
+    await waitFor(() => expect(mockStartPlanJob).toHaveBeenCalledTimes(1));
+
+    const logouErroDeSalvarEstado = errorSpy.mock.calls.some(
+      (call) => typeof call[0] === 'string' && call[0].includes('Erro ao salvar estado do chat'),
+    );
+    expect(logouErroDeSalvarEstado).toBe(false);
+  });
+});
