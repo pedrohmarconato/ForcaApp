@@ -800,7 +800,16 @@ const QuestionnaireScreen = () => {
 
               <View style={styles.field}>
                 <Text style={styles.label}>Qual seu objetivo com o cardio?</Text>
-                {renderOptions(CARDIO_OBJETIVOS, cardioObjetivo, (v) => setCardioObjetivo(v as string))}
+                <View style={styles.stack}>
+                  {CARDIO_OBJETIVOS.map((option) => (
+                    <OptionButton
+                      key={option.value}
+                      label={option.label}
+                      selected={cardioObjetivo === option.value}
+                      onPress={() => setCardioObjetivo(option.value)}
+                    />
+                  ))}
+                </View>
               </View>
 
               {botaoContinuar(blocos[8])}

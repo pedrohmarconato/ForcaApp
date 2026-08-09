@@ -7,7 +7,7 @@
 //  - a submissão monta o MESMO payload de antes e reseta o chat antes de navegar.
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 const mockAddListener = jest.fn(() => jest.fn());
@@ -137,6 +137,46 @@ describe('QuestionnaireScreen — stepper e validação por passo', () => {
     fireEvent.press(getByLabelText('Masculino'));
     expect(await findByLabelText('Peso em quilos')).toBeTruthy();
     expect(utils.getByText('Pergunta 4 de 11')).toBeTruthy();
+  });
+
+  it('escolher o objetivo antes de completar a dose não avança o passo do cardio', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    await findByLabelText('Ganho de Massa Muscular');
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    await findByLabelText('Terça-feira');
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('45-60 min'));
+    await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
+    fireEvent.press(getByLabelText('Sim'));
+    await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
+
+    jest.useFakeTimers();
+    try {
+      fireEvent.press(getByLabelText('Completar uma corrida de 5km'));
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy();
+      expect(utils.getByText('Pergunta 9 de 11')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('data absurda (99/99/2000) mantém o Continuar travado — mesma validação de antes', async () => {
