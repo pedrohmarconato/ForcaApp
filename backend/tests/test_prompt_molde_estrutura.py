@@ -124,6 +124,19 @@ def test_effort_invalido_e_ignorado_em_vez_de_virar_400(monkeypatch):
     assert app._output_config_da_geracao({"format": {}}, MODELO_COM_EFFORT) == {"format": {}}
 
 
+def test_instrui_priorizar_foco_de_alongamento_junto_das_diretrizes(flags):
+    """REQ-03: a IA só usa `preferencias` para escolher Mobilidade se houver
+    uma instrução dedicada — texto solto no prompt sem instrução própria não
+    muda comportamento (RESEARCH.md, Pitfall 3)."""
+    chamada = flags()
+    conteudo = chamada["messages"][0]["content"]
+    assert "posterior de coxa" in conteudo.lower()
+    assert "priorize" in conteudo.lower()
+    # A instrução precisa conviver no MESMO bloco que carrega diretrizes_str —
+    # é o contexto que a IA lê junto para agir sobre o pedido de foco.
+    assert DIRETRIZES in conteudo
+
+
 def test_structured_output_para_de_pedir_semanas_avulsas(flags):
     """`semanas_avulsas` não cabe no schema que a API impõe. Instruir o modelo
     a usá-la seria pedir uma saída rejeitada — e queimar a única tentativa do
