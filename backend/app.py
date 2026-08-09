@@ -347,22 +347,44 @@ def _sanitize_chat_messages(raw_messages):
 
 
 def _questionario_para_prompt(questionnaire_data):
-    """Remove texto livre de ``cardio_modalidades`` de qualquer prompt.
+    """Canoniza a anamnese de cardio antes de colocá-la em qualquer prompt.
 
-    O cliente normal envia nomes canônicos, mas a linha pertence ao usuário e
-    pode conter valor legado ou forjado. Alias reconhecido vira nome canônico;
-    qualquer outro texto vira ``null``. O objeto original não é alterado.
+    O cliente normal envia os tipos e valores fechados, mas o payload pertence
+    ao usuário e pode conter valor legado ou forjado. Somente valores válidos
+    sobrevivem; os demais viram ``null``. O objeto original não é alterado.
     """
     if not isinstance(questionnaire_data, dict):
         return questionnaire_data
-    if "cardio_modalidades" not in questionnaire_data:
-        return questionnaire_data
-
-    from backend.services.dose_cardio import canonicalizar_modalidades_cardio
 
     seguro = dict(questionnaire_data)
-    modalidades = canonicalizar_modalidades_cardio(seguro.get("cardio_modalidades"))
-    seguro["cardio_modalidades"] = list(modalidades) if modalidades else None
+
+    if "cardio_modalidades" in seguro:
+        from backend.services.dose_cardio import canonicalizar_modalidades_cardio
+
+        modalidades = canonicalizar_modalidades_cardio(seguro.get("cardio_modalidades"))
+        seguro["cardio_modalidades"] = list(modalidades) if modalidades else None
+
+    if "cardio_pratica_atualmente" in seguro:
+        pratica = seguro.get("cardio_pratica_atualmente")
+        seguro["cardio_pratica_atualmente"] = pratica if isinstance(pratica, bool) else None
+
+    if "cardio_distancia_confortavel_km" in seguro:
+        distancia = seguro.get("cardio_distancia_confortavel_km")
+        distancia_valida = (
+            not isinstance(distancia, bool)
+            and isinstance(distancia, (int, float))
+            and 0 <= distancia <= 50
+        )
+        seguro["cardio_distancia_confortavel_km"] = distancia if distancia_valida else None
+
+    if "cardio_objetivo" in seguro:
+        objetivo = seguro.get("cardio_objetivo")
+        seguro["cardio_objetivo"] = (
+            objetivo
+            if isinstance(objetivo, str) and objetivo in _TEXTO_OBJETIVO_CARDIO
+            else None
+        )
+
     return seguro
 
 

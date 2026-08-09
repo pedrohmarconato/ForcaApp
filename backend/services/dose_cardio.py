@@ -7,9 +7,9 @@ canal para pedir algo diferente era texto livre na conversa — não verificáve
 depois.
 
 A decisão do dono foi CONTRATO, não preferência: além de entrar no prompt e
-filtrar o cardápio, a dose é validada localmente e um molde que a viole é
-reprovado, com mensagem dirigida para o retry (o mesmo caminho que o refinamento
-do alvo de prescrição usa em app.py).
+filtrar o cardápio, a dose e o teto de progressão por nível são validados
+localmente. Um molde que os viole é reprovado com mensagem dirigida para o retry
+(o mesmo caminho que o refinamento do alvo de prescrição usa em app.py).
 
 Duas linhas que este módulo não cruza:
 
@@ -281,10 +281,61 @@ def validar_dose_cardio(molde: Any, questionario: Any) -> Optional[str]:
     sessão, o número que veio e o alvo. Mensagem genérica não serve: com uma
     única tentativa de correção, o modelo precisa saber exatamente o que mudar.
     """
-    try:
-        return _validar(molde, questionario)
-    except Exception:  # nunca derruba a geração por causa desta checagem
+    mensagens = []
+    for validador in (_validar, _validar_teto_progressao):
+        try:
+            mensagem = validador(molde, questionario)
+        except Exception:  # nunca derruba a geração por causa desta checagem
+            continue
+        if mensagem:
+            mensagens.append(mensagem)
+    return " ".join(mensagens) or None
+
+
+def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
+    nivel = nivel_cardio_declarado(questionario)
+    if nivel is None or not isinstance(molde, dict):
         return None
+
+    progressao = molde.get("progressao")
+    if not isinstance(progressao, dict):
+        return None
+    regras = progressao.get("regras")
+    if not isinstance(regras, list):
+        return None
+
+    teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
+    violacoes: List[str] = []
+    for indice, regra in enumerate(regras):
+        if not isinstance(regra, dict) or regra.get("tipo") != "delta_cardio_percentual":
+            continue
+        valor = regra.get("valor")
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= teto:
+            continue
+
+        inicio = regra.get("semana_inicio")
+        fim = regra.get("semana_fim")
+        periodo = (
+            f"semanas {inicio}-{fim}"
+            if isinstance(inicio, int) and isinstance(fim, int)
+            else "período informado"
+        )
+        violacoes.append(
+            f"Na regra de progressão {indice + 1} ({periodo}), "
+            f"`delta_cardio_percentual` usa {valor:g}%, acima do teto de "
+            f"{teto:g}% para o nível {nivel.upper()}. Reduza `valor` para no "
+            "máximo esse teto."
+        )
+
+    if not violacoes:
+        return None
+
+    mostradas = violacoes[:MAX_VIOLACOES_NA_MENSAGEM]
+    restantes = len(violacoes) - len(mostradas)
+    corpo = " ".join(mostradas)
+    if restantes > 0:
+        corpo += f" (e mais {restantes} regra(s) acima do teto)"
+    return "O molde não respeita o teto de progressão do cardio declarado. " + corpo
 
 
 def _validar(molde: Any, questionario: Any) -> Optional[str]:
