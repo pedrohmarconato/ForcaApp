@@ -859,6 +859,63 @@ describe('semana sem espaço restante: Nível 2 (fecha com menos volume)', () =>
   });
 });
 
+it('fim de semana LIVRE: atrasadas reancoram para sáb/dom e semEncaixe fica vazio (guarda de integração do fix)', async () => {
+  // Achado 3 do review do PR #76: a guarda do fix (sáb/dom como janela de
+  // conclusão) vivia só nos testes unitários de scheduleShift. Este teste de
+  // integração passa pelo STORE real: hoje é quarta, agenda quinta/sexta
+  // ([3,4]) e quatro pendentes pressionam a fila. Com o motor revertido para
+  // main (sem os slots de fim de semana), só quinta e sexta existem e as duas
+  // últimas pendentes ficam sem encaixe — o teste falha. Com o fix, sábado e
+  // domingo absorvem o excesso e semEncaixe fica vazio.
+  const ctx = makeContext();
+  ctx.sessions[0].scheduledDate = '2020-01-06'; // seg (atrasada)
+  ctx.sessions[1].scheduledDate = '2020-01-07'; // ter (in_progress — ocupa o dia)
+  const pendenteExtra = (id: string, data: string) => ({
+    id,
+    weekNumber: 1,
+    title: `Pendente ${id}`,
+    sessionType: 'Hipertrofia',
+    scheduledDate: data,
+    status: 'pending' as const,
+    estimatedMinutes: 60,
+    exercises: [],
+  });
+  ctx.sessions.push(
+    pendenteExtra('p-ter', '2020-01-07'), // terça (atrasada)
+    pendenteExtra('p-qua', '2020-01-08'), // quarta = hoje
+    pendenteExtra('p-qui', '2020-01-09'), // quinta (futura)
+  );
+  ctx.raw = ctx.sessions.map((s, i) => ({
+    id: s.id,
+    week_number: 1,
+    title: s.title,
+    session_type: s.sessionType,
+    scheduled_date: s.scheduledDate,
+    status: s.status,
+    estimated_minutes: s.estimatedMinutes,
+    order_in_week: i + 1,
+    planned_exercises: [],
+  })) as WeekReplanContext['raw'];
+
+  jest.useFakeTimers({ advanceTimers: true });
+  jest.setSystemTime(new Date('2020-01-08T09:00:00'));
+  mock(getWeekReplanContext).mockResolvedValue(ctx);
+  // Agenda quinta/sexta: fim de semana LIVRE (nada ocupa sáb 11 e dom 12).
+  mock(getAgendaDoAluno).mockResolvedValue({ agenda: [3, 4], origem: 'plano' });
+
+  await abrir();
+  const pr = store().pendingReplan!;
+  expect(pr.reagendamento).not.toBeNull();
+
+  // Fila: seg, p-ter, p-qua, p-qui → quinta, sexta, SÁBADO, DOMINGO.
+  expect(pr.reagendamento!.semEncaixe).toEqual([]);
+  const movidas = pr.reagendamento!.movidas;
+  expect(movidas.length).toBe(4);
+  expect(movidas.find((m) => m.id === 'p-qua')?.para).toBe('2020-01-11'); // sábado
+  expect(movidas.find((m) => m.id === 'p-qui')?.para).toBe('2020-01-12'); // domingo
+  jest.useRealTimers();
+});
+
 it('declineReagendamento dispensa SÓ o reencaixe: o corte pedido continua de pé e aplicável', async () => {
   // O cartão de reagendamento tem precedência e esconde o corte. Recusar o
   // reencaixe não pode enterrar a proposta de corte junto (nem gravar o
