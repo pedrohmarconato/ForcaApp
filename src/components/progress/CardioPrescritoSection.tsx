@@ -21,7 +21,7 @@ import Button from '../ui/Button';
 import { EmptyState, Notice, ProgressTrack, Skeleton } from '../ui/Feedback';
 import { type CardioLog } from '../../engine/cardioGoals';
 import { progressoPrescrito, type PrescricaoCardio } from '../../engine/cardioPrescrito';
-import { formatDuration } from '../../engine/sessionModel';
+import { formatarDuracao } from '../../utils/weekSummary';
 
 type Props = {
   /** null = carregando; [] = confirmado vazio. */
@@ -84,7 +84,7 @@ const CardioPrescritoSection = ({ logs, prescricao, erro, onRecarregar }: Props)
           <Text style={styles.metaTitulo}>Cardio desta semana</Text>
           {prescricao.duracaoSegundos != null ? (
             <Text style={styles.detalheSecundario}>
-              {`Prescrito: ${formatDuration(prescricao.duracaoSegundos)} no total`}
+              {`Prescrito: ${formatarDuracao(Math.round(prescricao.duracaoSegundos / 60))} no total`}
             </Text>
           ) : null}
 

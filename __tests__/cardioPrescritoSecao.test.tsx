@@ -100,6 +100,26 @@ describe('prescrito × realizado', () => {
     expect(getByLabelText('Progresso dos dias de cardio prescritos')).toBeTruthy();
   });
 
+  it('total semanal prescrito usa o formatador de duração longa, não o de série (mm:ss)', () => {
+    const { getByText, queryByText } = renderSecao({
+      logs: [],
+      prescricao: prescricaoRotina({ duracaoSegundos: 7200 }), // 2h
+    });
+
+    expect(getByText('Prescrito: 2h no total')).toBeTruthy();
+    expect(queryByText(/120:00/)).toBeNull();
+  });
+
+  it('total semanal prescrito não-redondo usa "Xh Ymin" (contrato de formatarDuracao)', () => {
+    const { getByText, queryByText } = renderSecao({
+      logs: [],
+      prescricao: prescricaoRotina({ duracaoSegundos: 5400 }), // 1h30min
+    });
+
+    expect(getByText('Prescrito: 1h 30min no total')).toBeTruthy();
+    expect(queryByText(/90:00/)).toBeNull();
+  });
+
   it('eixo não prescrito não vira barra (só sessões, sem duração prescrita)', () => {
     const { queryByLabelText, getByText, queryByText } = renderSecao({
       logs: [],
