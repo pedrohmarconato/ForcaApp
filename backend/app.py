@@ -86,7 +86,7 @@ MANUAL_PLAN_ABUSE_LIMIT = int(os.environ.get("MANUAL_PLAN_ABUSE_LIMIT", "60"))
 
 # Feature flag da nova arquitetura molde+expansor+job.
 # false (default): comportamento antigo (plano direto síncrono via TreinadorEspecialista).
-# true: novo fluxo (chat → diretrizes → molde Opus 4.8 → expansor → job polling).
+# true: novo fluxo (chat → diretrizes → molde Opus 5 → expansor → job polling).
 FORCA_USE_MOLDE_ARCHITECTURE = os.environ.get("FORCA_USE_MOLDE_ARCHITECTURE", "false").strip().lower() == "true"
 
 
@@ -1360,7 +1360,7 @@ def handle_consolidate_chat():
 
 
 def _thinking_config_para_modelo(model_name):
-    """Adaptive thinking só nos modelos que o suportam (Opus 4.8+/Fable).
+    """Adaptive thinking só nos modelos que o suportam (Opus 5+/Fable).
     Haiku/Sonnet rejeitam a request inteira com 400 "adaptive thinking is not
     supported on this model" — foi o que derrubou o 1º smoke do HML, que roda
     o plano em Haiku por custo."""
@@ -1825,7 +1825,7 @@ def _executar_geracao_molde(
 ) -> None:
     """
     Pipeline de geração assíncrona no modo molde:
-    1. Chama Opus 4.8 para gerar o molde (com thinking)
+    1. Chama Opus 5 para gerar o molde (com thinking)
     2. Valida molde contra MOLDE_SCHEMA
     3. Expande deterministicamente
     4. Mapeia e persiste atomicamente

@@ -436,7 +436,7 @@ def test_cliente_anthropic_do_chat_tem_timeout_configurado(monkeypatch):
 # --- 15. max_tokens do chat compatível com adaptive thinking ---
 
 def test_chat_usa_max_tokens_compativel_com_thinking(client):
-    """Opus 4.8 effort high pensa antes de responder; 1024 truncaria. A janela
+    """Opus 5 effort high pensa antes de responder; 1024 truncaria. A janela
     de saída deve ser >= 4096 para acomodar thinking + resposta visível."""
     fake_client = _fake_anthropic_client()
     with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
@@ -450,7 +450,7 @@ def test_chat_usa_max_tokens_compativel_com_thinking(client):
     assert kwargs["max_tokens"] >= 4096
 
 
-# --- Cliente do chat não re-tenta (review Opus 4.8, 20/07/2026) ---
+# --- Cliente do chat não re-tenta (review Opus 5, 20/07/2026) ---
 
 def test_cliente_anthropic_do_chat_nao_retenta():
     """Sem max_retries=0 o SDK re-tenta timeouts 2x: 120s x 3 = 360s de

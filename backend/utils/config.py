@@ -92,8 +92,8 @@ def get_chat_model_name() -> str:
 
 
 def get_plan_model_name() -> str:
-    """Modelo da geração do molde (job async). Default opus-4-8 com thinking."""
-    return get_env_variable("PLAN_MODEL_NAME", "claude-opus-4-8") or "claude-opus-4-8"
+    """Modelo da geração do molde (job async). Default opus-5 com thinking."""
+    return get_env_variable("PLAN_MODEL_NAME", "claude-opus-5") or "claude-opus-5"
 
 
 def get_anthropic_timeout_seconds() -> float:

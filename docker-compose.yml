@@ -51,7 +51,7 @@ services:
       # Opcionais com default sensato
       CLAUDE_MODEL_NAME: ${CLAUDE_MODEL_NAME:-claude-sonnet-4-6}
       CHAT_MODEL_NAME: ${CHAT_MODEL_NAME:-claude-haiku-4-5}
-      PLAN_MODEL_NAME: ${PLAN_MODEL_NAME:-claude-opus-4-8}
+      PLAN_MODEL_NAME: ${PLAN_MODEL_NAME:-claude-opus-5}
       FORCA_USE_MOLDE_ARCHITECTURE: ${FORCA_USE_MOLDE_ARCHITECTURE:-false}
       # Prompt do molde em system (estável) + user (dados do aluno), na ordem
       # que o prompt caching exige. Default false = prompt de hoje, byte a byte.

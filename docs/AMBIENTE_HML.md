@@ -12,7 +12,7 @@ de promover à main.
 | Backend | VPS `/docker/forcaapp`, loopback 5001 | VPS `/docker/forcaapp-hml`, loopback **5002** |
 | API pública | `https://forca-api.cadastrai.com/api` | `https://forca-api-hml.cadastrai.com/api` |
 | PWA | deploy Production (`vercel deploy --prod`) | deploy Preview (`vercel deploy`) |
-| Modelos IA | Opus 4.8 no plano | **Haiku 4.5 em tudo** (barato) |
+| Modelos IA | Opus 5 no plano | **Haiku 4.5 em tudo** (barato) |
 | Deploy | manual (runbook `DEPLOY_VPS.md`) | **automático**: push em `staging` → ar em ~3 min |
 
 \* Sim, o projeto de produção chama-se `forcaapp-hml` — herança histórica
@@ -50,7 +50,7 @@ de promover à main.
 ## Testar o plano com Opus no HML
 
 O HML usa Haiku por padrão para não queimar Opus em teste de fluxo. Para um
-teste fiel do plano: na VPS, edite `PLAN_MODEL_NAME=claude-opus-4-8` em
+teste fiel do plano: na VPS, edite `PLAN_MODEL_NAME=claude-opus-5` em
 `/docker/forcaapp-hml/.env` e rode `docker compose --project-directory
 /docker/forcaapp-hml up -d` (sem rebuild). Volte o valor depois.
 

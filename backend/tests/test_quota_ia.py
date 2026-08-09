@@ -243,9 +243,9 @@ def test_rota_desconhecida_nao_vira_teto_ausente():
 # --- 4. Aritmética do custo, contra a tabela de preços publicada ---
 
 def test_custo_estimado_bate_com_a_tabela_de_precos():
-    # Opus 4.8: US$ 5,00 / 1M entrada e US$ 25,00 / 1M saída.
-    assert ai_quota.custo_estimado_usd("claude-opus-4-8", 4_000_000, 0) == pytest.approx(5.0)
-    assert ai_quota.custo_estimado_usd("claude-opus-4-8", 0, 1_000_000) == pytest.approx(25.0)
+    # Opus 5: US$ 5,00 / 1M entrada e US$ 25,00 / 1M saída.
+    assert ai_quota.custo_estimado_usd("claude-opus-5", 4_000_000, 0) == pytest.approx(5.0)
+    assert ai_quota.custo_estimado_usd("claude-opus-5", 0, 1_000_000) == pytest.approx(25.0)
     # Haiku 4.5: US$ 1,00 / 1M entrada e US$ 5,00 / 1M saída.
     assert ai_quota.custo_estimado_usd("claude-haiku-4-5", 4_000_000, 0) == pytest.approx(1.0)
     assert ai_quota.custo_estimado_usd("claude-haiku-4-5", 0, 1_000_000) == pytest.approx(5.0)
@@ -264,18 +264,18 @@ def test_custo_real_conta_tokens_de_cache_como_entrada():
         input_tokens=100_000, output_tokens=0,
         cache_creation_input_tokens=500_000, cache_read_input_tokens=400_000,
     )
-    # 1M tokens de entrada no total → US$ 5,00 em Opus 4.8.
-    assert ai_quota.custo_real_usd("claude-opus-4-8", usage) == pytest.approx(5.0)
+    # 1M tokens de entrada no total → US$ 5,00 em Opus 5.
+    assert ai_quota.custo_real_usd("claude-opus-5", usage) == pytest.approx(5.0)
 
 
 def test_usage_ausente_mantem_a_reserva_de_pior_caso():
     """Sem contagem utilizável não há acerto — e errar para cima é o lado seguro."""
-    assert ai_quota.custo_real_usd("claude-opus-4-8", None) is None
+    assert ai_quota.custo_real_usd("claude-opus-5", None) is None
     vazio = types.SimpleNamespace(
         input_tokens=0, output_tokens=0,
         cache_creation_input_tokens=0, cache_read_input_tokens=0,
     )
-    assert ai_quota.custo_real_usd("claude-opus-4-8", vazio) is None
+    assert ai_quota.custo_real_usd("claude-opus-5", vazio) is None
 
 
 # --- 5. O acerto nunca derruba a resposta do usuário ---
@@ -393,7 +393,7 @@ def _rpc_ok():
 # --- 7. A reserva cobre o gasto real (senão o teto vaza) ---
 
 def test_reserva_de_pior_caso_cobre_o_gasto_real_do_molde():
-    modelo = "claude-opus-4-8"
+    modelo = "claude-opus-5"
     caracteres = 40_000
     max_saida = 32_768
     reservado = ai_quota.custo_estimado_usd(modelo, caracteres, max_saida)
