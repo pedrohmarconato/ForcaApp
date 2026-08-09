@@ -17,11 +17,15 @@ Duas linhas que este módulo não cruza:
    a semana-tipo tem 2 sessões, o alvo efetivo é o que cabe. Reprovar aqui
    travaria TODA geração desse aluno num loop de duas tentativas perdidas.
 2. **Nunca levanta exceção.** Roda depois do schema, mas um erro aqui derrubaria
-   a geração inteira; entrada deformada devolve "sem violação".
+   a geração inteira; entrada sem contrato não inventa dose, enquanto falha
+   interna do validador reprova de forma controlada em vez de liberar persistência.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # ±25% absorve o arredondamento do modelo (25 ou 36 min contra um alvo de 30) sem
 # deixar passar um cardio de 5 min onde o aluno pediu 30 — que é o caso que fez
@@ -256,6 +260,23 @@ def _semanas_tipo(molde: Any) -> List[Dict[str, Any]]:
     return [s for s in itens if isinstance(s, dict)] if isinstance(itens, list) else []
 
 
+def _semanas_avulsas(molde: Any) -> List[Dict[str, Any]]:
+    if not isinstance(molde, dict):
+        return []
+    itens = molde.get("semanas_avulsas")
+    if not isinstance(itens, dict):
+        return []
+
+    semanas = []
+    for chave, semana in itens.items():
+        if not isinstance(semana, dict):
+            continue
+        normalizada = dict(semana)
+        normalizada["id"] = chave
+        semanas.append(normalizada)
+    return semanas
+
+
 def _rotulo_sessao(sessao: Dict[str, Any], indice: int) -> str:
     nome = sessao.get("nome")
     return nome if isinstance(nome, str) and nome.strip() else f"sessão {indice + 1}"
@@ -285,8 +306,12 @@ def validar_dose_cardio(molde: Any, questionario: Any) -> Optional[str]:
     for validador in (_validar, _validar_teto_progressao):
         try:
             mensagem = validador(molde, questionario)
-        except Exception:  # nunca derruba a geração por causa desta checagem
-            continue
+        except Exception:
+            logger.exception("Falha interna ao validar o contrato de cardio do molde.")
+            return (
+                "Não foi possível validar com segurança o contrato de cardio do "
+                "molde. Gere novamente sem persistir esta versão."
+            )
         if mensagem:
             mensagens.append(mensagem)
     return " ".join(mensagens) or None
@@ -294,6 +319,12 @@ def validar_dose_cardio(molde: Any, questionario: Any) -> Optional[str]:
 
 def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
     nivel = nivel_cardio_declarado(questionario)
+    if (
+        nivel is None
+        and isinstance(questionario, dict)
+        and questionario.get("inclui_cardio") is not False
+    ):
+        nivel = "iniciante"
     if nivel is None or not isinstance(molde, dict):
         return None
 
@@ -374,7 +405,7 @@ def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
     restantes = len(violacoes) - len(mostradas)
     corpo = " ".join(mostradas)
     if restantes > 0:
-        corpo += f" (e mais {restantes} regra(s) acima do teto)"
+        corpo += f" (e mais {restantes} violação(ões))"
     return "O molde não respeita o teto de progressão do cardio declarado. " + corpo
 
 
@@ -383,7 +414,7 @@ def _validar(molde: Any, questionario: Any) -> Optional[str]:
     if dose is None:
         return None
 
-    semanas = _semanas_tipo(molde)
+    semanas = _semanas_tipo(molde) + _semanas_avulsas(molde)
     if not semanas:
         return None
 
