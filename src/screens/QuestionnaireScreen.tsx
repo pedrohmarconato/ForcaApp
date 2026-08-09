@@ -43,6 +43,7 @@ import theme from '../theme/theme';
 import { easeImpulso } from '../utils/motion';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
+import NumericField from '../components/ui/NumericField';
 import { OptionButton, DayToggle } from '../components/ui/Controls';
 import { Notice } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
@@ -58,6 +59,15 @@ type TimeOption = { label: string; value: number };
 const GENDER_OPTIONS: Option[] = [ { label: 'Masculino', value: 'male' }, { label: 'Feminino', value: 'female' }, { label: 'Outro', value: 'other' }, { label: 'Prefiro não dizer', value: 'not_specified'} ];
 const EXPERIENCE_LEVELS: Option[] = [ { label: 'Iniciante (Nunca treinei ou < 6 meses)', value: 'beginner' }, { label: 'Intermediário (6 meses - 2 anos)', value: 'intermediate' }, { label: 'Avançado (> 2 anos)', value: 'advanced' } ];
 const GOALS: Option[] = [ { label: 'Perda de Peso', value: 'weight_loss' }, { label: 'Ganho de Massa Muscular', value: 'muscle_gain' }, { label: 'Melhorar Condicionamento Físico', value: 'fitness_improvement' }, { label: 'Saúde e Bem-estar', value: 'health_wellness' } ];
+// Vocabulário FECHADO (REQ-04/05, Fase 2): os 3 `value` são EXATAMENTE os
+// literais aceitos pelo CHECK `questionario_cardio_objetivo_check` da
+// migration 0033 e pela chave `_TEXTO_OBJETIVO_CARDIO` do backend
+// (backend/app.py) — os 3 têm de permanecer idênticos nos 3 lugares.
+const CARDIO_OBJETIVOS: Option[] = [
+  { label: 'Condicionamento geral', value: 'condicionamento' },
+  { label: 'Completar uma corrida de 5km', value: 'completar_5k' },
+  { label: 'Emagrecimento', value: 'emagrecimento' },
+];
 // Ordem seg→dom, igual à leitura natural da fileira S T Q Q S S D e à virada
 // de semana do app (useDiaLocal: a semana começa na segunda). label, value e
 // full precisam apontar para o MESMO dia — já houve deslocamento aqui (o 1º
@@ -127,6 +137,12 @@ const QuestionnaireScreen = () => {
   // cardio_pratica_atualmente e é usado no backend para derivar o nível de
   // cardio e calibrar a dose inicial/teto de progressão.
   const [cardioPraticaAtualmente, setCardioPraticaAtualmente] = useState<boolean | null>(null);
+  // Distância confortável hoje (só faz sentido — e só é coerente pela
+  // migration 0033 — para quem respondeu que já pratica cardio) e objetivo
+  // (vocabulário fechado, CARDIO_OBJETIVOS acima) — os 2 sinais que faltavam
+  // para nivel_cardio_declarado() usar a informação completa.
+  const [cardioDistanciaConfortavelKm, setCardioDistanciaConfortavelKm] = useState<number | null>(null);
+  const [cardioObjetivo, setCardioObjetivo] = useState<string | null>(null);
   const [includeStretching, setIncludeStretching] = useState<boolean | null>(null);
   const [averageTrainingTime, setAverageTrainingTime] = useState<number | null>(null);
 
@@ -244,6 +260,14 @@ const QuestionnaireScreen = () => {
           setCardioPraticaAtualmente(
             typeof data.cardio_pratica_atualmente === 'boolean' ? data.cardio_pratica_atualmente : null,
           );
+          setCardioDistanciaConfortavelKm(
+            typeof data.cardio_distancia_confortavel_km === 'number'
+              ? data.cardio_distancia_confortavel_km
+              : null,
+          );
+          setCardioObjetivo(
+            typeof data.cardio_objetivo === 'string' ? data.cardio_objetivo : null,
+          );
           setIncludeStretching(data.inclui_alongamento !== undefined ? data.inclui_alongamento : null);
           setAverageTrainingTime(data.tempo_medio_treino_min || null);
         } else {
@@ -284,6 +308,8 @@ const QuestionnaireScreen = () => {
       setCardioMinutos(null);
       setCardioModalidades([]);
       setCardioPraticaAtualmente(null);
+      setCardioDistanciaConfortavelKm(null);
+      setCardioObjetivo(null);
     }
   };
 
@@ -316,11 +342,17 @@ const QuestionnaireScreen = () => {
       averageTrainingTime !== null,
       // Cardio: com "sim", a DOSE faz parte da resposta — é o que transforma a
       // preferência em contrato validado no molde. Modalidade segue opcional
-      // (vazio = qualquer uma). A anamnese (já pratica hoje?) também é
-      // obrigatória — é o sinal que o backend usa para derivar o nível.
+      // (vazio = qualquer uma). A anamnese (já pratica hoje? / objetivo)
+      // também é obrigatória — são os sinais que o backend usa para derivar o
+      // nível. Distância só é exigida de quem já pratica hoje (mesma regra da
+      // migration 0033: distância sem prática é incoerente).
       includeCardio !== null &&
         (includeCardio === false ||
-          (cardioDias !== null && cardioMinutos !== null && cardioPraticaAtualmente !== null)),
+          (cardioDias !== null &&
+            cardioMinutos !== null &&
+            cardioPraticaAtualmente !== null &&
+            cardioObjetivo !== null &&
+            (cardioPraticaAtualmente !== true || cardioDistanciaConfortavelKm !== null))),
       includeStretching !== null,
       temLesoes !== null &&
         (!temLesoes || lesoes.trim() !== '' || descricaoLesao.trim() !== ''),
@@ -405,7 +437,12 @@ const QuestionnaireScreen = () => {
       cardio_minutos_sessao: includeCardio === true ? cardioMinutos : null,
       cardio_modalidades:
         includeCardio === true && cardioModalidades.length > 0 ? cardioModalidades : null,
-      cardio_pratica_atualmente: includeCardio === true ? cardioPraticaAtualmente : null };
+      cardio_pratica_atualmente: includeCardio === true ? cardioPraticaAtualmente : null,
+      cardio_distancia_confortavel_km:
+        includeCardio === true && cardioPraticaAtualmente === true
+          ? cardioDistanciaConfortavelKm
+          : null,
+      cardio_objetivo: includeCardio === true ? cardioObjetivo : null };
     const formDataForStorage = { ...formDataForApi, nome: nome }; // Inclui o nome para o storage local
 
     try {
@@ -747,6 +784,23 @@ const QuestionnaireScreen = () => {
                     style={styles.pairItem}
                   />
                 </View>
+              </View>
+
+              {cardioPraticaAtualmente === true && (
+                <View style={styles.field}>
+                  <NumericField
+                    label="Distância confortável hoje (km)"
+                    value={cardioDistanciaConfortavelKm}
+                    onChangeNumber={setCardioDistanciaConfortavelKm}
+                    placeholder="Ex: 3,5"
+                    keyboardType="numeric"
+                  />
+                </View>
+              )}
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Qual seu objetivo com o cardio?</Text>
+                {renderOptions(CARDIO_OBJETIVOS, cardioObjetivo, (v) => setCardioObjetivo(v as string))}
               </View>
 
               {botaoContinuar(blocos[8])}

@@ -98,6 +98,8 @@ const preencherTudo = async (utils: Utils) => {
   fireEvent.press(getByLabelText('1 dia'));
   fireEvent.press(getByLabelText('30 min'));
   fireEvent.press(getByLabelText('Sim, já pratico'));
+  fireEvent.changeText(getByLabelText('Distância confortável hoje (km)'), '5,5');
+  fireEvent.press(getByLabelText('Completar uma corrida de 5km'));
   fireEvent.press(getByLabelText('Continuar'));
   // 10 — alongamento (auto)
   await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
@@ -197,6 +199,37 @@ describe('QuestionnaireScreen — stepper e validação por passo', () => {
     expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({ disabled: true });
   });
 
+  it('quem ainda não pratica cardio não vê o campo de distância confortável', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText, queryByLabelText } = utils;
+
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '82.5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    await findByLabelText('Ganho de Massa Muscular');
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    await findByLabelText('Terça-feira');
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('Continuar'));
+    fireEvent.press(getByLabelText('45-60 min'));
+    await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
+    fireEvent.press(getByLabelText('Sim'));
+    await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
+
+    fireEvent.press(getByLabelText('Não, ainda não'));
+
+    expect(queryByLabelText('Distância confortável hoje (km)')).toBeNull();
+  });
+
   it('voltar uma pergunta preserva a resposta digitada', async () => {
     const utils = await renderQuestionario();
     const { getByLabelText } = utils;
@@ -267,6 +300,9 @@ describe('QuestionnaireScreen — submissão', () => {
         cardio_dias_semana: 1,
         cardio_minutos_sessao: 30,
         cardio_pratica_atualmente: true,
+        // Vírgula vira ponto — mesmo comportamento de numericTextToNumber (REQ-01).
+        cardio_distancia_confortavel_km: 5.5,
+        cardio_objetivo: 'completar_5k',
         // Nenhuma modalidade escolhida (o catálogo não está disponível no teste)
         // → null, nunca lista vazia: array vazio filtraria o cardápio por
         // "nada" e o aluno receberia plano sem cardio tendo pedido cardio.
