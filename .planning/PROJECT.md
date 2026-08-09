@@ -38,3 +38,5 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
 |------|---------|----------|
 | 2026-08-08 | Feature planejada via GSD, fase única | Início do uso de GSD no repo |
 | 2026-08-08 | REQ-02: meta de cardio derivada da prescrição do treino (prescrito × realizado); UI de meta manual sai | Decisão do dono via pergunta direta |
+| 2026-08-08 | REQ-02: tabela `cardio_goals` fica intacta (órfã) — sem drop/arquivamento nesta fase | Decisão do dono; limpeza pode virar fase futura |
+| 2026-08-08 | REQ-03: pedido de foco de alongamento acontece no chat de onboarding existente; canal contínuo pós-geração deferred | Decisão do dono; escopo contido, sem schema novo |

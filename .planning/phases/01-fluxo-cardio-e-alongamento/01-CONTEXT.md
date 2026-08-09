@@ -16,8 +16,14 @@ decisão REQ-02 colhida por pergunta direta.
 ### Input decimal do cardio (REQ-01)
 
 - O campo de distância aceita vírgula como separador decimal (pt-BR): usuário digita
-  `2,4`, persiste `2.4`, exibe `2,4 km`. Hoje só aceita inteiro.
-- **Locked:** o comportamento acima.
+  `2,4`, persiste `2.4`, exibe `2,4 km`.
+- **Estado real (pesquisa 2026-08-08):** o caminho principal já parseia decimal
+  (`SessionPlayer.tsx:65-70`, fix `925ba42`); o gap confirmado é exibição sem vírgula em
+  `ManualExerciseRow.tsx:13`. O relato do dono ("tive que colocar somente 2") pode vir de
+  deploy defasado — a primeira tarefa do plano DEVE verificar o comportamento no ambiente
+  implantado antes de assumir código faltante.
+- **Locked:** o comportamento-alvo acima, em TODOS os pontos de entrada/exibição de
+  distância de cardio.
 - **Claude's Discretion:** máscara/teclado numérico, validação de faixa, precisão
   (sugestão: 2 casas), tipo de coluna no banco se precisar mudar.
 
@@ -25,7 +31,9 @@ decisão REQ-02 colhida por pergunta direta.
 
 - **Derivar do treino.** A meta deixa de ser configurável à parte; passa a ser lida da
   prescrição do plano ativo. A tela Progresso mostra prescrito × realizado.
-- A UI de definição manual de meta de cardio sai.
+- A UI de definição manual de meta de cardio sai (`CardioGoalsSection`/`CardioGoalSheet`).
+- **Dados legados (decisão do dono 2026-08-08): manter a tabela `cardio_goals` intacta**
+  — nenhuma migration de drop/arquivamento nesta fase; a tabela fica órfã.
 - **Claude's Discretion:** qual agregação usar (km/semana, min/semana, sessões/semana)
   — depende do que a prescrição do plano realmente contém; a pesquisa deve responder
   isso antes do plano.
@@ -36,10 +44,15 @@ decisão REQ-02 colhida por pergunta direta.
   (segundos) ou número de movimentos.
 - Pedido de foco feito no chat da IA (ex.: "foco em posterior de coxa") reflete na
   condução de alongamento das sessões correspondentes.
-- **Claude's Discretion:** fonte dos exercícios (gerados pela IA no plano vs catálogo
-  local versionado) — **ATENÇÃO:** se o caminho exigir mudança no schema do JSON do
-  plano gerado (`TreinadorEspecialista`), isso é porta de mão única: o plano deve
-  marcar `checkpoint:decision` antes da tarefa que implementa.
+- **Canal do pedido de foco (decisão do dono 2026-08-08): o chat de onboarding
+  existente** (`PostQuestionnaireChat` → `/api/consolidate-chat` →
+  `diretrizes.preferencias`) — o foco vira preferência respeitada pela geração do plano.
+  Canal contínuo de ajuste pós-geração está FORA desta fase (deferred).
+- **Claude's Discretion:** fonte dos exercícios (expansão aditiva do
+  `catalogo_exercicios.json` é o caminho apontado pela pesquisa) — **ATENÇÃO:** se o
+  caminho exigir mudança no schema do JSON do plano gerado (`TreinadorEspecialista`),
+  isso é porta de mão única: o plano deve marcar `checkpoint:decision` antes da tarefa
+  que implementa.
 
 ### Claude's Discretion (geral)
 
