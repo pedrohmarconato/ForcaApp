@@ -148,7 +148,10 @@ type AssinaturaUrl = { remove: () => void };
 type OuvinteUrl = (evento: { url: string }) => void;
 
 let urlInicialDoSistema: () => Promise<string | null> = async () => {
-  const { Linking } = await import('react-native');
+  // `require` no call-time como em `assinarUrl` logo abaixo: `import()` dinâmico
+  // faz o Metro emitir um segundo bundle web, vetado pelo verify-web-bundle.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Linking } = require('react-native');
   return Linking.getInitialURL();
 };
 
