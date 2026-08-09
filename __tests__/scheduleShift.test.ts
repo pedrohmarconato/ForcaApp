@@ -79,7 +79,7 @@ describe('precisaReancorar', () => {
 });
 
 describe('reancorarSemana', () => {
-  it('caso típico de atraso: 5 pendentes, 4 slots disponíveis', () => {
+  it('caso típico de atraso: 5 pendentes caem nos slots da semana, incl. sábado', () => {
     const sessoes: SessaoParaReancorar[] = [
       criarSessao({
         id: 's1',
@@ -118,21 +118,21 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Slots disponíveis: terça (28), quarta (29), quinta (30), sexta (31)
-    // s1 (seg) → ter; s2 (ter) → qua; s3 (qua) → qui; s4 (qui) → sex; s5 (sex) → semEncaixe
-    expect(resultado.movidas.length).toBe(4);
+    // Slots disponíveis: terça (28), quarta (29), quinta (30), sexta (31), sábado (01)
+    // s1 (seg) → ter; s2 (ter) → qua; s3 (qua) → qui; s4 (qui) → sex; s5 (sex) → sáb
+    expect(resultado.movidas.length).toBe(5);
     expect(resultado.mantidas.length).toBe(0);
-    expect(resultado.semEncaixe).toEqual(['s5']);
+    expect(resultado.semEncaixe).toEqual([]);
 
     // Verifica as datas das movidas
     const movida1 = resultado.movidas.find((m) => m.id === 's1');
     expect(movida1?.para).toBe('2026-07-28'); // terça
 
     const movida5 = resultado.movidas.find((m) => m.id === 's5');
-    expect(movida5).toBeUndefined(); // s5 não está em movidas
+    expect(movida5?.para).toBe('2026-08-01'); // sábado, fora da agenda
   });
 
-  it('semana esgotada: nenhum slot disponível no futuro', () => {
+  it('fim de semana absorve o que cabe; o excesso vira semEncaixe', () => {
     const sessoes: SessaoParaReancorar[] = [
       criarSessao({
         id: 's1',
@@ -161,7 +161,7 @@ describe('reancorarSemana', () => {
       }),
     ];
 
-    // Agenda: segunda a sexta
+    // Agenda: segunda a sexta (sem fim de semana marcado)
     const agenda = [0, 1, 2, 3, 4] as const;
     const hojeISO = '2026-08-01'; // hoje é sábado
     const resultado = reancorarSemana({
@@ -171,12 +171,147 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Nenhum slot >= sábado. Única data disponível é sexta, mas já ocupada por s1 (completed).
-    // Todas as pendentes vão para semEncaixe.
-    expect(resultado.movidas.length).toBe(0);
+    // O fim de semana é janela de conclusão garantida: sábado (01) e domingo (02)
+    // absorvem as duas primeiras atrasadas; só o excesso (4 pendentes - 2 slots)
+    // fica sem encaixe. Antes do fix, sáb/dom eram ignorados e as 4 iam para
+    // semEncaixe (o bug do trigger: banner Nível 2 com fim de semana em aberto).
+    expect(resultado.movidas.length).toBe(2);
     expect(resultado.mantidas.length).toBe(0);
-    expect(resultado.semEncaixe.length).toBe(4);
-    expect(resultado.semEncaixe).toEqual(expect.arrayContaining(['s2', 's3', 's4', 's5']));
+    expect(resultado.semEncaixe).toEqual(['s4', 's5']);
+
+    const movida2 = resultado.movidas.find((m) => m.id === 's2');
+    expect(movida2?.para).toBe('2026-08-01'); // sábado
+
+    const movida3 = resultado.movidas.find((m) => m.id === 's3');
+    expect(movida3?.para).toBe('2026-08-02'); // domingo
+  });
+
+  it('regressão do trigger: sábado em aberto e atrasadas na semana → reancoram para sáb/dom, sem semEncaixe', () => {
+    // Cenário do bug reportado: a pessoa não treinou nos dias marcados da
+    // semana (seg-sex) e o fim de semana ainda está aberto. Antes do fix,
+    // sáb/dom ficavam de fora dos slots e o Nível 2 "A semana fecha com menos
+    // volume" disparava mesmo com o fim de semana disponível. Agora o fim de
+    // semana inteiro é janela de conclusão garantida.
+    const sessoes: SessaoParaReancorar[] = [
+      criarSessao({
+        id: 's1',
+        scheduledDate: '2026-07-28', // terça (atrasada)
+        orderInWeek: 1,
+      }),
+      criarSessao({
+        id: 's2',
+        scheduledDate: '2026-07-29', // quarta (atrasada)
+        orderInWeek: 2,
+      }),
+      criarSessao({
+        id: 's3',
+        scheduledDate: '2026-07-30', // quinta (atrasada)
+        orderInWeek: 3,
+      }),
+      criarSessao({
+        id: 's4',
+        scheduledDate: '2026-07-31', // sexta (atrasada)
+        orderInWeek: 4,
+      }),
+    ];
+
+    const agenda = [0, 1, 2, 3, 4] as const;
+    const hojeISO = '2026-08-01'; // hoje é sábado
+    const resultado = reancorarSemana({
+      sessoes,
+      hojeISO,
+      agenda,
+      segundaDaSemanaISO: SEGUNDA_SEMANA,
+    });
+
+    // 4 atrasadas, 2 slots de fim de semana: 2 reancoram e 2 excedem a janela.
+    expect(resultado.semEncaixe).toEqual(['s3', 's4']);
+    expect(resultado.movidas).toEqual([
+      { id: 's1', de: '2026-07-28', para: '2026-08-01' },
+      { id: 's2', de: '2026-07-29', para: '2026-08-02' },
+    ]);
+  });
+
+  it('colisão motor×servidor: pending não-atrasada em sábado reserva o slot e não entra na atribuição', () => {
+    // Achado 1 do review do PR #76: hoje é sábado, a agenda inclui sábado e há
+    // uma sessão pending marcada para HOJE (sábado). Ela é dona legítima do dia
+    // e não entrará na atribuição (não está atrasada). Antes do fix, o slot de
+    // sábado não era reservado por ela e uma atrasada era atribuída para a data
+    // dela — o servidor rejeitaria a confirmação (Validação 8 da RPC, 55000).
+    const sessoes: SessaoParaReancorar[] = [
+      criarSessao({
+        id: 'atrasada1',
+        scheduledDate: '2026-07-29', // quarta (atrasada)
+        orderInWeek: 1,
+      }),
+      criarSessao({
+        id: 'atrasada2',
+        scheduledDate: '2026-07-30', // quinta (atrasada)
+        orderInWeek: 2,
+      }),
+      criarSessao({
+        id: 'pending-sab',
+        scheduledDate: '2026-08-01', // sábado = hoje (não-atrasada)
+        orderInWeek: 3,
+      }),
+    ];
+
+    // Agenda inclui sábado (0..5); o fim de semana entra sempre (5, 6).
+    const agenda = [0, 1, 2, 3, 4, 5] as const;
+    const hojeISO = '2026-08-01'; // hoje é sábado
+    const resultado = reancorarSemana({
+      sessoes,
+      hojeISO,
+      agenda,
+      segundaDaSemanaISO: SEGUNDA_SEMANA,
+    });
+
+    // A pending de sábado não entra na atribuição: fica mantida na data dela.
+    expect(resultado.mantidas).toContain('pending-sab');
+    expect(resultado.semEncaixe).not.toContain('pending-sab');
+
+    // Nenhuma atrasada pode cair na data da pending (o servidor rejeitaria).
+    const datasMovidas = resultado.movidas.map((m) => m.para);
+    expect(datasMovidas).not.toContain('2026-08-01');
+
+    // Com o sábado reservado, só domingo sobra: a 1ª atrasada vai para lá,
+    // a 2ª fica sem encaixe.
+    const movida1 = resultado.movidas.find((m) => m.id === 'atrasada1');
+    expect(movida1?.para).toBe('2026-08-02'); // domingo
+    expect(resultado.semEncaixe).toEqual(['atrasada2']);
+  });
+
+  it('pending ATRASADA do fim de semana libera o slot: entra na fila e não fica mantida por dona do dia', () => {
+    // Complemento da regra: só a pending não-atrasada é dona do dia. Hoje é
+    // domingo e a pending estava em SÁBADO (ontem, já atrasada): ela libera o
+    // slot, entra na fila de atribuição e pode ser movida/semEncaixe — nunca
+    // "mantida" por ser dona de um dia que já passou.
+    const sessoes: SessaoParaReancorar[] = [
+      criarSessao({
+        id: 'atrasada1',
+        scheduledDate: '2026-07-30', // quinta (atrasada)
+        orderInWeek: 1,
+      }),
+      criarSessao({
+        id: 'pending-sab',
+        scheduledDate: '2026-08-01', // sábado (atrasada — ontem)
+        orderInWeek: 2,
+      }),
+    ];
+
+    const agenda = [0, 1, 2, 3, 4, 5] as const;
+    const hojeISO = '2026-08-02'; // hoje é domingo
+    const resultado = reancorarSemana({
+      sessoes,
+      hojeISO,
+      agenda,
+      segundaDaSemanaISO: SEGUNDA_SEMANA,
+    });
+
+    expect(resultado.mantidas).not.toContain('pending-sab');
+    // Só domingo está à frente: a atrasada da semana fica com o dia, e a
+    // pending de sábado (atrasada, sem slot restante) vai para semEncaixe.
+    expect(resultado.semEncaixe).toEqual(['pending-sab']);
   });
 
   it('slot ocupado por sessão fixa não é reatribuído', () => {
@@ -207,17 +342,19 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Slots disponíveis: apenas quarta (29)
+    // Slots disponíveis: quarta (29), sábado (01), domingo (02)
     // - segunda (27) está no passado
     // - terça (28) está ocupada por s1 (completed)
-    // Logo: s2 → quarta; s3 → semEncaixe
-    expect(resultado.movidas.length).toBe(1);
-    expect(resultado.semEncaixe.length).toBe(1);
+    // Logo: s2 → quarta; s3 → sábado (fim de semana é janela de conclusão)
+    expect(resultado.movidas.length).toBe(2);
+    expect(resultado.semEncaixe.length).toBe(0);
 
     const movida2 = resultado.movidas.find((m) => m.id === 's2');
     expect(movida2?.para).toBe('2026-07-29'); // quarta
 
-    expect(resultado.semEncaixe).toContain('s3');
+    const movida3 = resultado.movidas.find((m) => m.id === 's3');
+    expect(movida3?.para).toBe('2026-08-01'); // sábado, fora da agenda
+    expect(resultado.semEncaixe).toEqual([]);
   });
 
   it('nunca antecipa: pendentes no futuro mantêm suas datas', () => {
@@ -320,9 +457,9 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // 5 pendentes, 4 slots (terça a sexta): 4 movidas, 1 semEncaixe
-    expect(resultado.movidas.length).toBe(4);
-    expect(resultado.semEncaixe.length).toBe(1);
+    // 5 pendentes, 5 slots (terça a sábado): todas as 5 movidas, nenhuma semEncaixe
+    expect(resultado.movidas.length).toBe(5);
+    expect(resultado.semEncaixe.length).toBe(0);
 
     // Verifica que não há datas repetidas nas movidas
     const datas = resultado.movidas.map((m) => m.para);
@@ -358,15 +495,17 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Slots: terça (28), quarta (29)
+    // Slots: terça (28), quarta (29), sábado (01)
     // s1 → terça (primeiro slot)
     // s2 → quarta (segundo slot)
-    // s3 → semEncaixe
+    // s3 → sábado (terceiro slot, fim de semana é janela de conclusão)
     expect(resultado.movidas[0]?.id).toBe('s1');
     expect(resultado.movidas[0]?.para).toBe('2026-07-28');
     expect(resultado.movidas[1]?.id).toBe('s2');
     expect(resultado.movidas[1]?.para).toBe('2026-07-29');
-    expect(resultado.semEncaixe).toEqual(['s3']);
+    expect(resultado.movidas[2]?.id).toBe('s3');
+    expect(resultado.movidas[2]?.para).toBe('2026-08-01');
+    expect(resultado.semEncaixe).toEqual([]);
   });
 
   it('sessões não pendentes nunca aparecem nas listas de saída', () => {
@@ -463,7 +602,8 @@ describe('reancorarSemana', () => {
     ];
 
     // Agenda com duplicatas: [0, 1, 0, 2, 1, 3]
-    // Deve resultar em slots: segunda, terça, quarta, quinta (deduplicado e ordenado)
+    // Deve resultar em slots: segunda, terça, quarta, quinta, sábado, domingo
+    // (deduplicado e ordenado, com o fim de semana sempre presente)
     const agenda = [0, 1, 0, 2, 1, 3] as any[];
     const resultado = reancorarSemana({
       sessoes,
@@ -472,9 +612,9 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Slots: terça (28), quarta (29), quinta (30) (segunda pulada porque no passado)
-    expect(resultado.movidas.length).toBe(3);
-    expect(resultado.semEncaixe.length).toBe(1);
+    // Slots: terça (28), quarta (29), quinta (30), sábado (01) (segunda pulada porque no passado)
+    expect(resultado.movidas.length).toBe(4);
+    expect(resultado.semEncaixe.length).toBe(0);
   });
 
   it('sem atraso, nada se move: pendentes no futuro permanecem no futuro', () => {
@@ -563,11 +703,12 @@ describe('reancorarSemana', () => {
     expect(resultado.semEncaixe.length).toBe(0);
   });
 
-  it('fila espremida: múltiplas atrasadas empurram e comprimem futuras', () => {
+  it('fila espremida: múltiplas atrasadas empurram até o fim de semana', () => {
     // Hoje é quarta. Pendentes em segunda, terça, quarta, quinta, sexta.
     // Segunda e terça estão atrasadas (pisos 29).
     // Quarta tem piso=29. Quinta tem piso=30. Sexta tem piso=31.
-    // Com slots [quarta (29), quinta (30), sexta (31)], duas não cabem.
+    // Com slots [quarta (29), quinta (30), sexta (31), sábado (01), domingo (02)],
+    // todas cabem: o fim de semana absorve o que sobra dos dias da agenda.
     const sessoes: SessaoParaReancorar[] = [
       criarSessao({
         id: 's1',
@@ -605,15 +746,15 @@ describe('reancorarSemana', () => {
       segundaDaSemanaISO: SEGUNDA_SEMANA,
     });
 
-    // Slots: [quarta (29), quinta (30), sexta (31)]
+    // Slots: [quarta (29), quinta (30), sexta (31), sábado (01), domingo (02)]
     // Pisos: s1 piso=29, s2 piso=29, s3 piso=29, s4 piso=30, s5 piso=31
     // s1 (piso 29) → quarta (29) [movida de segunda]
     // s2 (piso 29) → quinta (30) [movida de terça]
     // s3 (piso 29) → sexta (31) [movida de quarta]
-    // s4 (piso 30) → nenhum slot restante → semEncaixe
-    // s5 (piso 31) → nenhum slot restante → semEncaixe
-    expect(resultado.movidas.length).toBe(3);
-    expect(resultado.semEncaixe).toEqual(['s4', 's5']);
+    // s4 (piso 30) → sábado (01) [movida de quinta]
+    // s5 (piso 31) → domingo (02) [movida de sexta]
+    expect(resultado.movidas.length).toBe(5);
+    expect(resultado.semEncaixe).toEqual([]);
   });
 
   it('sufixo de hora não quebra comparação: completed com T00:00:00', () => {
