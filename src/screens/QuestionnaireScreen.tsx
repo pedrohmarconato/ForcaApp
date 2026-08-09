@@ -68,6 +68,8 @@ const CARDIO_OBJETIVOS: Option[] = [
   { label: 'Completar uma corrida de 5km', value: 'completar_5k' },
   { label: 'Emagrecimento', value: 'emagrecimento' },
 ];
+const isCardioObjetivoValido = (valor: unknown): valor is string =>
+  typeof valor === 'string' && CARDIO_OBJETIVOS.some((opcao) => opcao.value === valor);
 // Ordem seg→dom, igual à leitura natural da fileira S T Q Q S S D e à virada
 // de semana do app (useDiaLocal: a semana começa na segunda). label, value e
 // full precisam apontar para o MESMO dia — já houve deslocamento aqui (o 1º
@@ -266,7 +268,7 @@ const QuestionnaireScreen = () => {
               : null,
           );
           setCardioObjetivo(
-            typeof data.cardio_objetivo === 'string' ? data.cardio_objetivo : null,
+            isCardioObjetivoValido(data.cardio_objetivo) ? data.cardio_objetivo : null,
           );
           setIncludeStretching(data.inclui_alongamento !== undefined ? data.inclui_alongamento : null);
           setAverageTrainingTime(data.tempo_medio_treino_min || null);
@@ -361,7 +363,7 @@ const QuestionnaireScreen = () => {
           (cardioDias !== null &&
             cardioMinutos !== null &&
             cardioPraticaAtualmente !== null &&
-            cardioObjetivo !== null &&
+            isCardioObjetivoValido(cardioObjetivo) &&
             (cardioPraticaAtualmente !== true || distanciaCardioValida))),
       includeStretching !== null,
       temLesoes !== null &&
@@ -452,7 +454,10 @@ const QuestionnaireScreen = () => {
         includeCardio === true && cardioPraticaAtualmente === true
           ? cardioDistanciaConfortavelKm
           : null,
-      cardio_objetivo: includeCardio === true ? cardioObjetivo : null };
+      cardio_objetivo:
+        includeCardio === true && isCardioObjetivoValido(cardioObjetivo)
+          ? cardioObjetivo
+          : null };
     const formDataForStorage = { ...formDataForApi, nome: nome }; // Inclui o nome para o storage local
 
     try {
