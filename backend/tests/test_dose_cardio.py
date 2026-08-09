@@ -301,6 +301,85 @@ class TestTetoProgressaoCardio:
 
         assert validar_dose_cardio(molde, {"inclui_cardio": True}) is None
 
+    @pytest.mark.parametrize(
+        "primeira, segunda",
+        [
+            (
+                {"semana_inicio": 2, "semana_fim": 8, "alvo": "ambos"},
+                {"semana_inicio": 2, "semana_fim": 8, "alvo": "ambos"},
+            ),
+            (
+                {"semana_inicio": 2, "semana_fim": 4, "alvo": "duracao"},
+                {"semana_inicio": 4, "semana_fim": 8, "alvo": "ambos"},
+            ),
+        ],
+    )
+    def test_regras_sobrepostas_na_mesma_dimensao_sao_reprovadas(
+        self, primeira, segunda
+    ):
+        molde = _molde([[_sessao("A", [_forca()])]])
+        molde["progressao"]["regras"] = [
+            {"tipo": "delta_cardio_percentual", "valor": 3, **primeira},
+            {"tipo": "delta_cardio_percentual", "valor": 3, **segunda},
+        ]
+
+        msg = validar_dose_cardio(
+            molde,
+            {"inclui_cardio": True, "cardio_pratica_atualmente": False},
+        )
+
+        assert msg is not None
+        assert "regras de progressão 1 e 2" in msg
+        assert "sobrepõem" in msg
+
+    def test_regras_sobrepostas_em_dimensoes_distintas_sao_aceitas(self):
+        molde = _molde([[_sessao("A", [_forca()])]])
+        molde["progressao"]["regras"] = [
+            {
+                "tipo": "delta_cardio_percentual",
+                "semana_inicio": 2,
+                "semana_fim": 8,
+                "valor": 3,
+                "alvo": "duracao",
+            },
+            {
+                "tipo": "delta_cardio_percentual",
+                "semana_inicio": 2,
+                "semana_fim": 8,
+                "valor": 3,
+                "alvo": "distancia",
+            },
+        ]
+
+        assert validar_dose_cardio(
+            molde,
+            {"inclui_cardio": True, "cardio_pratica_atualmente": False},
+        ) is None
+
+    def test_regras_da_mesma_dimensao_em_periodos_distintos_sao_aceitas(self):
+        molde = _molde([[_sessao("A", [_forca()])]])
+        molde["progressao"]["regras"] = [
+            {
+                "tipo": "delta_cardio_percentual",
+                "semana_inicio": 2,
+                "semana_fim": 4,
+                "valor": 3,
+                "alvo": "ambos",
+            },
+            {
+                "tipo": "delta_cardio_percentual",
+                "semana_inicio": 5,
+                "semana_fim": 8,
+                "valor": 3,
+                "alvo": "ambos",
+            },
+        ]
+
+        assert validar_dose_cardio(
+            molde,
+            {"inclui_cardio": True, "cardio_pratica_atualmente": False},
+        ) is None
+
 
 class TestRobustez:
     @pytest.mark.parametrize("molde", [
