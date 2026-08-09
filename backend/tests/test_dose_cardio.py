@@ -22,7 +22,11 @@ antes da implementação:
     o que corrigir — foi o que queimou as duas tentativas no caso do alvo.
 """
 
+from unittest import mock
+
 import pytest
+
+import backend.services.dose_cardio as dose_cardio
 
 from backend.services.dose_cardio import (
     TETO_PROGRESSAO_POR_NIVEL,
@@ -289,7 +293,14 @@ class TestTetoProgressaoCardio:
 
         assert validar_dose_cardio(molde, questionario) is None
 
-    def test_sem_nivel_declarado_nao_inventa_teto(self):
+    @pytest.mark.parametrize(
+        "questionario",
+        [
+            {"inclui_cardio": True},
+            {"inclui_cardio": True, "cardio_pratica_atualmente": "false"},
+        ],
+    )
+    def test_anamnese_ausente_ou_malformada_usa_teto_conservador(self, questionario):
         molde = _molde([[_sessao("A", [_forca()])]])
         molde["progressao"]["regras"] = [{
             "tipo": "delta_cardio_percentual",
@@ -299,7 +310,24 @@ class TestTetoProgressaoCardio:
             "alvo": "ambos",
         }]
 
-        assert validar_dose_cardio(molde, {"inclui_cardio": True}) is None
+        msg = validar_dose_cardio(molde, questionario)
+
+        assert msg is not None
+        assert "10%" in msg
+        assert "3%" in msg
+        assert "INICIANTE" in msg
+
+    def test_cardio_desligado_nao_aplica_teto_conservador(self):
+        molde = _molde([[_sessao("A", [_forca()])]])
+        molde["progressao"]["regras"] = [{
+            "tipo": "delta_cardio_percentual",
+            "semana_inicio": 2,
+            "semana_fim": 8,
+            "valor": 10,
+            "alvo": "ambos",
+        }]
+
+        assert validar_dose_cardio(molde, {"inclui_cardio": False}) is None
 
     @pytest.mark.parametrize(
         "primeira, segunda",
@@ -379,6 +407,70 @@ class TestTetoProgressaoCardio:
             molde,
             {"inclui_cardio": True, "cardio_pratica_atualmente": False},
         ) is None
+
+    def test_resumo_de_sobreposicoes_nao_diz_que_valores_estao_acima_do_teto(self):
+        molde = _molde([[_sessao("A", [_forca()])]])
+        molde["progressao"]["regras"] = [
+            {
+                "tipo": "delta_cardio_percentual",
+                "semana_inicio": 2,
+                "semana_fim": 8,
+                "valor": 3,
+                "alvo": "ambos",
+            }
+            for _ in range(4)
+        ]
+
+        msg = validar_dose_cardio(
+            molde,
+            {"inclui_cardio": True, "cardio_pratica_atualmente": False},
+        )
+
+        assert msg is not None
+        assert "(e mais 2 violação(ões))" in msg
+        assert "regra(s) acima do teto" not in msg
+
+
+class TestSemanasAvulsas:
+    def test_semana_avulsa_tambem_respeita_a_dose_declarada(self):
+        molde = _molde([[_sessao("A", [_forca(), _cardio("Corrida", 30)])]])
+        molde["semanas_avulsas"] = {
+            "semana_2": {
+                "semana": 2,
+                "sessoes": [_sessao("Exceção", [_forca(), _cardio("Corrida", 180)])],
+            }
+        }
+
+        msg = validar_dose_cardio(
+            molde,
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        )
+
+        assert msg is not None
+        assert "semana_2" in msg
+        assert "180 min" in msg
+
+
+class TestFalhaFechada:
+    def test_excecao_no_validador_de_teto_impede_aprovacao(self):
+        molde = _molde([[_sessao("A", [_forca()])]])
+
+        with mock.patch.object(
+            dose_cardio,
+            "_validar_teto_progressao",
+            side_effect=RuntimeError("falha interna"),
+        ):
+            msg = validar_dose_cardio(
+                molde,
+                {"inclui_cardio": True, "cardio_pratica_atualmente": False},
+            )
+
+        assert msg is not None
+        assert "não foi possível validar" in msg.lower()
 
 
 class TestRobustez:
