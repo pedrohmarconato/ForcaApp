@@ -61,13 +61,13 @@ declarado. Lição do PR #64: a pergunta nova tem de comprovadamente chegar ao g
 
   3. Nenhuma mudança no schema do molde (campos km/min existentes bastam).
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 
 - [x] 02-01-PLAN.md — REQ-04/REQ-05: pergunta de anamnese ponta a ponta (tracer) + motor de nível/calibração no backend
 - [x] 02-02-PLAN.md — REQ-04: migração 0033 (anamnese de cardio) + checkpoint de decisão antes de aplicar em banco vivo
-- [ ] 02-03-PLAN.md — REQ-04/REQ-05: distância confortável + objetivo do cardio na UI e no prompt + checkpoint humano de geração real
+- [x] 02-03-PLAN.md — REQ-04/REQ-05: distância confortável + objetivo do cardio na UI e no prompt + checkpoint humano de geração real
 
 ### Phase 3: Intercâmbio de modalidade de cardio
 
@@ -100,5 +100,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
-| 2. Anamnese e calibração do cardio | 2/3 | In Progress|  |
+| 2. Anamnese e calibração do cardio | 3/3 | In Progress|  |
 | 3. Intercâmbio de modalidade de cardio | 0/TBD | Not started | - |
