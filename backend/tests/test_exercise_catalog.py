@@ -292,6 +292,21 @@ class TestNaoInventa:
         r = resolver_exercicio("Rosca")
         assert not r.casou
 
+    def test_alongamento_de_coxa_ambiguo_nao_casa_com_posterior(self):
+        """
+        'Alongamento de Coxa' não diz se é quadríceps (anterior) ou
+        isquiotibiais (posterior) — a IA escreve esse nome genérico quando não
+        foi pedido foco explícito. Antes deste catálogo ganhar a entrada
+        'alongamento_posterior_coxa', a consulta não casava com nada
+        (`casou=False`); grupo muscular errado é pior que ausente, então o
+        comportamento correto é continuar sem casar.
+        """
+        r = resolver_exercicio("Alongamento de Coxa")
+        assert not r.casou, (
+            f"'Alongamento de Coxa' casou silenciosamente com '{r.chave}' "
+            f"({r.grupo_muscular}) — grupo ambíguo não pode ser decidido pelo catálogo"
+        )
+
     def test_nome_vazio_nao_explode(self):
         r = resolver_exercicio(None)
         assert not r.casou and r.nome == "Exercício"
