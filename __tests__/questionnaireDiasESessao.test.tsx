@@ -99,6 +99,8 @@ const preencherFormularioValido = async (utils: Utils) => {
   await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
   fireEvent.press(getByLabelText('1 dia'));
   fireEvent.press(getByLabelText('30 min'));
+  // Anamnese de cardio (02-01): obrigatória para liberar o Continuar do passo.
+  fireEvent.press(getByLabelText('Sim, já pratico'));
   fireEvent.press(getByLabelText('Continuar'));
   await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
   fireEvent.press(getByLabelText('Sim')); // alongamento
