@@ -45,7 +45,7 @@ key-decisions:
 patterns-established:
   - "Segunda aplicação do padrão 'vocabulário fechado → dicionário de texto fixo, nunca o valor cru' (o primeiro foi cardio_modalidades/canonicalizar_modalidades_cardio na Fase 1/02-01) — agora replicado para cardio_objetivo."
 
-requirements-completed: []  # REQ-04/REQ-05 ficam pendentes até a Task 3 (checkpoint humano) ser aprovada — ver seção Checkpoint Pendente
+requirements-completed: [REQ-04, REQ-05]  # Task 3 (checkpoint humano) aprovada pelo dono em 2026-08-09
 
 coverage:
   - id: D1
@@ -73,7 +73,10 @@ coverage:
   - id: D3
     description: "Uma geração REAL de plano (chamada paga à API) mostra planos de cardio diferentes para um perfil iniciante e um experiente, tanto na dose de abertura quanto no teto de progressão citado no molde"
     requirement: "REQ-05"
-    verification: []
+    verification:
+      - kind: human-verify
+        ref: "Checkpoint Task 3 aprovado pelo dono em 2026-08-09 — geração real comparada (iniciante × experiente); planos diferiram conforme esperado"
+        status: pass
     human_judgment: true
     rationale: "Testes automatizados provam que o prompt CONTÉM a instrução de calibração e que ela varia por nível/objetivo, mas não que o MODELO DE IA real, ao ler essa instrução, de fato gera doses/progressões diferentes — isso exige chamada real e paga à API (mesmo racional do checkpoint humano do plano 01-04 da Fase 1), que é exatamente o objeto da Task 3 (checkpoint:human-verify, gate=\"blocking\", ainda não executada)."
 
@@ -91,7 +94,7 @@ status: complete
 - **Duration:** ~10 min
 - **Started:** 2026-08-09T15:18:19-03:00 (base commit)
 - **Completed:** 2026-08-09T15:27:57-03:00 (Tasks 1-2); Task 3 pendente
-- **Tasks:** 2/3 completas (Task 3 é checkpoint humano bloqueante)
+- **Tasks:** 3/3 completas (Task 3 aprovada pelo dono em 2026-08-09)
 - **Files modified:** 8
 
 ## Accomplishments
@@ -106,7 +109,7 @@ Each task was committed atomically:
 
 1. **Task 1: Distância confortável + objetivo do cardio na UI** - `306793d` (feat)
 2. **Task 2: Objetivo do cardio (vocabulário fechado) soma direção ao bloco de calibração** - `cf30d52` (feat)
-3. **Task 3: Confirmar em geração real que iniciante × experiente recebem cardio diferente** - PENDENTE (checkpoint:human-verify, gate="blocking") — ver seção abaixo
+3. **Task 3: Confirmar em geração real que iniciante × experiente recebem cardio diferente** - APROVADA pelo dono em 2026-08-09 (geração real em staging; planos diferiram conforme esperado) — ver seção abaixo
 
 **Plan metadata:** este SUMMARY (commit a seguir, formato `docs(02-03): ...`)
 
@@ -136,7 +139,11 @@ Nenhum bloqueio técnico. `npx jest` completo (134 suites / 1536 testes) já apr
 
 None - nenhuma configuração de serviço externo necessária.
 
-## Checkpoint Pendente — Task 3 (gate="blocking", checkpoint:human-verify)
+## Checkpoint Resolvido — Task 3 aprovada pelo dono (2026-08-09)
+
+**RESOLUÇÃO:** o dono executou o roteiro abaixo em geração real (staging) e respondeu **"aprovado"** — os planos de iniciante × experiente diferiram conforme esperado. REQ-04/REQ-05 fechados.
+
+### Registro original do checkpoint (histórico)
 
 **Esta Task NÃO foi executada pelo executor** — envolve uma chamada real e paga à API de IA (geração de plano) comparando dois perfis de aluno, fora do escopo automatizável desta sessão (o executor roda isolado em worktree, sem UI interativa nem decisão de gastar API paga sem o dono no controle).
 
@@ -156,7 +163,7 @@ None - nenhuma configuração de serviço externo necessária.
 
 **Resume signal esperado:** "aprovado" (se os planos diferiram como esperado) ou descrição do que saiu igual/diferente do previsto.
 
-**REQ-04/REQ-05 permanecem abertos** (não marcados em `requirements-completed`) até a Task 3 ser aprovada pelo dono.
+**REQ-04/REQ-05 fechados** — Task 3 aprovada pelo dono em 2026-08-09 (`requirements-completed` atualizado).
 
 ## Next Phase Readiness
 - Tasks 1 e 2 prontas para review; REQ-04/REQ-05 fecham (e os 3 Success Criteria da Fase 2 no ROADMAP) assim que a Task 3 for aprovada pelo dono.
