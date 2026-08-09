@@ -75,8 +75,8 @@ class TestIntegridadeDoCatalogo:
         payload = exercise_catalog.catalogo_serializavel()
 
         assert payload["versao"] == 2
-        assert len(payload["exercicios"]) == 106
-        assert len({item["chave"] for item in payload["exercicios"]}) == 106
+        assert len(payload["exercicios"]) == 112
+        assert len({item["chave"] for item in payload["exercicios"]}) == 112
         for item in payload["exercicios"]:
             assert set(item) == {
                 "chave",
@@ -100,6 +100,19 @@ class TestIntegridadeDoCatalogo:
                     f"alias '{forma}' colide entre '{vistos.get(n)}' e '{ex.chave}'"
                 )
                 vistos[n] = ex.chave
+
+    def test_alongamento_tem_entradas_nomeadas_por_grupo_muscular(self):
+        """O alongamento genérico não basta para condução com foco (REQ-03)."""
+        nomes_mobilidade = exercise_catalog.nomes_por_grupo()["Mobilidade"]
+        assert "Alongamento de Posterior de Coxa" in nomes_mobilidade
+        outros_nomeados = {
+            "Alongamento de Peito",
+            "Alongamento Lombar",
+            "Alongamento de Panturrilha",
+            "Alongamento de Glúteos",
+            "Alongamento de Quadríceps",
+        }
+        assert len(outros_nomeados & set(nomes_mobilidade)) >= 2
 
 
 def test_endpoint_catalogo_tem_etag_estavel_cache_privado_e_304():
@@ -127,7 +140,7 @@ def test_endpoint_catalogo_tem_etag_estavel_cache_privado_e_304():
         )
 
     assert primeira.status_code == 200
-    assert len(primeira.get_json()["exercicios"]) == 106
+    assert len(primeira.get_json()["exercicios"]) == 112
     assert primeira.headers["ETag"] == segunda.headers["ETag"]
     assert "private" in primeira.headers["Cache-Control"]
     assert "max-age=86400" in primeira.headers["Cache-Control"]
