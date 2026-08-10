@@ -86,7 +86,7 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
   3. O realizado na modalidade trocada conta normalmente no realizado do Progresso.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -102,7 +102,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-04-PLAN.md — REQ-06: entry point 2 — evolução de `SkipReasonSheet` (motivo `sem_equipamento` oferece substituição)
+- [x] 03-04-PLAN.md — REQ-06: entry point 2 — evolução de `SkipReasonSheet` (motivo `sem_equipamento` oferece substituição)
 
 ## Progress
 
@@ -113,4 +113,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
-| 3. Intercâmbio de modalidade de cardio | 5/6 | In Progress|  |
+| 3. Intercâmbio de modalidade de cardio | 6/6 | In Progress|  |
