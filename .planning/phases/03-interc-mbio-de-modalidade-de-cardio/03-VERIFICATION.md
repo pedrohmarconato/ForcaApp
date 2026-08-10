@@ -1,49 +1,22 @@
 ---
 phase: 03-interc-mbio-de-modalidade-de-cardio
-verified: 2026-08-10T13:16:09Z
-status: gaps_found
-score: 3/6 must-haves verified
+verified: 2026-08-10T13:59:02Z
+status: human_needed
+score: 5/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "Trocar modalidade não corrompe séries de cardio já concluídas (invariante que o próprio codebase declara para a função irmã applyExerciseSkipToDraft, duas linhas acima: 'séries já concluídas não são tocadas — histórico não se reescreve')."
-    status: failed
-    reason: "applyCardioSwapToDraft (src/engine/sessionModel.ts:604-623) reescreve `name` no nível do EXERCÍCIO (não da série) e mapeia `targetDistanceM: null` sobre TODAS as séries de ex.sets, sem filtrar por status === 'done'. O botão 'Trocar modalidade' na fila (SessionQueue.tsx:138-149) só é gated por `!foraDeJogo && isTimeBased(metricOf(ex))` — nada verifica se alguma série já foi concluída. Num exercício de cardio com mais de uma série (ex.: intervalos de HIIT), completar a série 1 como 'Corrida' e depois trocar para 'Remo Ergômetro' antes da série 2 relabela silenciosamente o resultado já gravado da série 1 como se fosse Remo Ergômetro — tanto na fila ativa (doneLine usa ex.name) quanto no histórico (getSessionLogDetail agrupa por planned_exercise_id e aplica o único to_modality da linha ao grupo inteiro). Servidor: cardio_exercise_swaps é `unique (session_log_id, planned_exercise_id)` com um único to_modality — não há como reconstruir sob qual modalidade uma série específica foi de fato realizada depois de uma troca no meio do exercício. Nem client nem RPC (swap_session_exercise) guardam contra troca pós-conclusão parcial. Achado independentemente confirmado por leitura direta do código (03-REVIEW.md CR-01)."
-    artifacts:
-      - path: "src/engine/sessionModel.ts"
-        issue: "applyCardioSwapToDraft:604-623 não distingue sets já 'done' dos pendentes ao zerar targetDistanceM e ao renomear o exercício"
-      - path: "src/components/session/SessionQueue.tsx"
-        issue: "Botão 'Trocar modalidade' (linha ~138) não é desabilitado quando alguma série do exercício já está status: 'done'"
-      - path: "supabase/migrations/0034_troca_modalidade_cardio.sql"
-        issue: "RPC swap_session_exercise não rejeita troca quando já existe set_logs gravado para o planned_exercise_id (nenhuma guarda de 'já iniciado')"
-    missing:
-      - "Guardar client-side: desabilitar 'Trocar modalidade' quando qualquer série do exercício já está 'done' (ou implementar atribuição de modalidade por série em vez de por exercício)."
-      - "Guardar server-side em swap_session_exercise: rejeitar (ou registrar sem afetar séries já gravadas) quando já existir set_logs para o planned_exercise_id."
-      - "Teste de regressão: uma série 'done' antes da troca mantém seu name/rótulo original após a troca do exercício (nenhum teste em cardioSwap.test.ts, cardioSwapFluxo.test.ts ou activeSessionScreen.test.tsx cobre esse cenário — confirmado por leitura direta dos 3 arquivos)."
-  - truth: "SwapModalitySheet nunca apresenta uma lista vazia/travada sem explicação quando D-02 filtra a única modalidade aceita do usuário para fora da oferta (a modalidade aceita é igual à modalidade atual do exercício)."
-    status: failed
-    reason: "O estado vazio (EmptyState 'Nenhuma modalidade cadastrada') só dispara em `modalidades.length === 0` (SwapModalitySheet.tsx:119), mas a lista de fato renderizada é `opcoes` (linha 72: `modalidades.filter((m) => m !== exercicioAtualNome)`, linha 127). Quando o usuário tem exatamente 1 modalidade aceita e ela é igual à modalidade atual do exercício (cenário plausível: o exercício prescrito costuma vir da própria lista aceita), `modalidades.length === 1 > 0`, então o código cai no ramo ScrollView com `opcoes = []` — área rolável vazia, sem texto explicativo. O botão 'Trocar modalidade' (linha 151: `modalidades !== null && modalidades.length > 0`) permanece renderizado e permanentemente `disabled` (toModality nunca pode ser setado), sem caminho adiante além de 'Voltar'. Achado independentemente confirmado por leitura direta do código (03-REVIEW.md CR-02); não coberto por __tests__/swapModalitySheet.test.tsx, que só testa modalidades=[] e modalidades com 2+ itens distintos do exercício atual."
-    artifacts:
-      - path: "src/components/session/SwapModalitySheet.tsx"
-        issue: "Condição do EmptyState (linha 119) usa modalidades.length === 0 (pré-filtro); condição do botão de confirmação (linha 151) usa modalidades.length > 0 — nenhuma das duas usa opcoes.length (pós-filtro), a lista efetivamente renderizada"
-    missing:
-      - "Trocar a condição do EmptyState (e a do botão de confirmação) para basear-se em opcoes.length === 0 em vez de modalidades.length === 0."
-      - "Mensagem distinta para esse caso ('Você só tem esta modalidade cadastrada — nada para trocar') vs. o caso de lista global vazia."
-      - "Teste com modalidades=['Caminhada'] e exercicioAtualNome='Caminhada' cobrindo o estado vazio pós-filtro e a ausência do botão de confirmação."
-  - truth: "A troca de modalidade funciona ponta a ponta contra um banco vivo — RPC swap_session_exercise e tabela cardio_exercise_swaps existem em pelo menos um ambiente (staging)."
-    status: failed
-    reason: "supabase/migrations/0034_troca_modalidade_cardio.sql existe só como ARQUIVO — não foi aplicada a staging (forcaapp-staging, mjdjtiujhwklchalquhc) nem a produção (forcaapp-prod, zanqygwsgxkyjiuhrzju). Confirmado por leitura direta de 03-01-SUMMARY.md ('Decisão do Checkpoint'): dono escolheu option-a (aplicar agora, staging primeiro), execução foi DELEGADA a outra sessão e o próprio SUMMARY declara 'a migration NÃO está aplicada em nenhum banco'. AGENTS.md (linhas 48-49) só confirma 0000→0032 aplicadas nos dois ambientes; nada confirma 0033 nem 0034. Toda a evidência de comportamento desta fase (testes verdes: 140/140 suítes, 1605/1605 testes, reconfirmado nesta verificação) exercita swap_session_exercise/cardio_exercise_swaps só contra MOCKS de supabase-js — nunca contra Postgres real. Até a migration ser aplicada, qualquer usuário que tentar confirmar uma troca em staging ou produção recebe erro 'function does not exist' (PostgREST 42883) — a funcionalidade central da Fase 3 (Success Criteria 1-3 do ROADMAP) é inoperante em qualquer ambiente compartilhado hoje, mesmo com todo o código e testes corretos."
-    artifacts:
-      - path: "supabase/migrations/0034_troca_modalidade_cardio.sql"
-        issue: "Arquivo pronto e testado localmente (harness sem banco), mas nunca aplicado via supabase db push a staging ou produção"
-    missing:
-      - "Rodar scripts/supabase-preflight.sh hml && supabase db push em staging, confirmar via information_schema/migration list."
-      - "Rodar scripts/supabase-preflight.sh prod && supabase db push em produção (com a confirmação PRODUCAO), confirmar aplicação."
-      - "Confirmar também o status de 0033_anamnese_cardio_declarada.sql antes do push (Known Open Risk registrado em 03-01-SUMMARY.md — não confirmada como aplicada em nenhum dos dois ambientes)."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 3/6
+  gaps_closed:
+    - "Trocar modalidade não corrompe séries de cardio já concluídas (CR-01) — agora bloqueado antes da RPC, com teste de regressão."
+    - "SwapModalitySheet nunca apresenta uma lista vazia/travada sem explicação (CR-02) — estado vazio agora usa `opcoes.length`, com mensagem distinta e teste de regressão."
+  gaps_remaining: []
+  regressions: []
 human_verification:
-  - test: "Confirmar visualmente, numa sessão real em staging (após a migration 0034 ser aplicada), que trocar a modalidade de um exercício de cardio na fila e via SkipReasonSheet (sem_equipamento) funciona ponta a ponta contra o servidor real, e que o rótulo 'Trocado de X' aparece na sessão ativa e no histórico."
-    expected: "Troca é persistida no servidor (não só no mock), a sessão ativa e o histórico mostram 'Trocado de X', e o realizado soma corretamente no Progresso."
-    why_human: "Depende de a migration 0034 estar aplicada a um banco vivo — impossível de verificar programaticamente nesta sessão (nenhum comando supabase deve ser executado pelo verificador) e a interação de UI real (toques, animações, navegação) não é coberta por teste automatizado de componente isolado."
+  - test: "Confirmar visualmente, numa sessão real em staging/produção, que trocar a modalidade de um exercício de cardio na fila e via SkipReasonSheet (sem_equipamento) funciona ponta a ponta contra o servidor real (RPC swap_session_exercise / tabela cardio_exercise_swaps aplicadas pela migration 0034+0035), e que o rótulo 'Trocado de X' aparece na sessão ativa e no histórico."
+    expected: "Troca é persistida no servidor (não só no mock), a sessão ativa e o histórico mostram 'Trocado de X', e o realizado soma corretamente no Progresso — comportamento idêntico ao que os testes com mock preveem."
+    why_human: "AGENTS.md e o commit f69f45f registram a aplicação de 0033/0034/0035 em staging (mjdjtiujhwklchalquhc, 10/08/2026) e de 0034/0035 em produção (zanqygwsgxkyjiuhrzju, 10/08/2026), mas este verificador está proibido de rodar qualquer comando `supabase` e não pode confirmar independentemente o estado do banco vivo. A reivindicação é tratada como reportada-e-registrada, não como provada por este relatório. Também depende de interação de UI real (toques, animações, navegação) que teste de componente isolado não cobre plenamente."
 ---
 
 # Phase 3: Intercâmbio de modalidade de cardio Verification Report
@@ -52,9 +25,9 @@ human_verification:
 (escada, bike, remo…) preservando a dose por tempo (`target_duration_seconds`); evolui o
 fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
-**Verified:** 2026-08-10T13:16:09Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-08-10T13:59:02Z
+**Status:** human_needed
+**Re-verification:** Yes — após fechamento de gaps (6 commits fora do fluxo GSD: f227129, 5a86d88, 4333d9b, 853ba26, 6a38c34, f69f45f)
 
 ## Goal Achievement
 
@@ -62,100 +35,94 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | ROADMAP SC1 — Um exercício de cardio da sessão oferece "trocar modalidade" listando só as modalidades aceitas do usuário | ✓ VERIFIED (com ressalva) | `SessionQueue.tsx:138-149` (botão gated por `isTimeBased`/`!foraDeJogo`), `SwapModalitySheet.tsx` consome `getModalidadesAceitas` (D-02 estrito, nunca oferece as 9 do catálogo quando vazio — `cardioModalidadesAceitasRepository.ts:38-45`). Ressalva: ver Gap #2 (CR-02) — lista pode ficar vazia sem explicação num caso de borda plausível. |
-| 2 | ROADMAP SC2 — A troca preserva a duração-alvo; a distância prescrita da original NÃO é exibida como meta da nova (sem dado inventado) | ✓ VERIFIED | `applyCardioSwapToDraft` (`sessionModel.ts:604-623`) preserva `targetDurationSeconds` (nunca tocado, sobrevive pelo spread) e zera `targetDistanceM` em toda série do exercício alvo — `__tests__/cardioSwap.test.ts` cobre D-01/D-04/D-08 (7+ casos, incluindo imutabilidade e troca dupla). |
-| 3 | ROADMAP SC3 — O realizado na modalidade trocada conta normalmente no realizado do Progresso | ✓ VERIFIED | `distanciaRealizadaSemanaM` (`cardioGoals.ts:246`) soma distância de QUALQUER modalidade; `progressoPrescrito.realizadoKm/fracaoKm` (`cardioPrescrito.ts:89-124`) consome essa soma; `CardioPrescritoSection.tsx` renderiza "X de Y km" com barra; `__tests__/cardioGoals.test.ts`/`cardioPrescrito.test.ts`/`cardioPrescritoSecao.test.tsx` verdes. Lado prescrito (D-06) confirmadamente intocado (`git diff` de `cardioPrescritoRepository.ts` vazio, per acceptance criteria de 03-06). |
-| 4 | Trocar modalidade nunca corrompe/relabela silenciosamente uma série de cardio já concluída (invariante que o próprio `sessionModel.ts` declara duas linhas acima, para `applyExerciseSkipToDraft`) | ✗ FAILED | Ver Gap #1 (CR-01) — `applyCardioSwapToDraft` reescreve `name` no nível do exercício e zera `targetDistanceM` de TODAS as séries, incluindo `status: 'done'`; nenhuma guarda client ou server-side; nenhum teste cobre o cenário. |
-| 5 | A lista de troca (D-02) nunca apresenta um estado travado/vazio sem explicação ao usuário | ✗ FAILED | Ver Gap #2 (CR-02) — `SwapModalitySheet` confunde `modalidades.length` (pré-filtro) com `opcoes.length` (pós-filtro, o que é de fato renderizado). |
-| 6 | A troca funciona ponta a ponta contra um banco vivo (não só contra mocks de teste) | ✗ FAILED | Ver Gap #3 — migration 0034 existe só como arquivo; não aplicada em staging nem produção (confirmado em `03-01-SUMMARY.md` e `AGENTS.md`). |
+| 1 | ROADMAP SC1 — Um exercício de cardio da sessão oferece "trocar modalidade" listando só as modalidades aceitas do usuário | ✓ VERIFIED | `SessionQueue.tsx:117-121` (botão gated por `isTimeBased`/`!foraDeJogo`), `SwapModalitySheet.tsx` consome `getModalidadesAceitas` (D-02 estrito). Ressalva anterior (CR-02) resolvida — ver truth 5. |
+| 2 | ROADMAP SC2 — A troca preserva a duração-alvo; a distância prescrita da original NÃO é exibida como meta da nova | ✓ VERIFIED | `applyCardioSwapToDraft` (`sessionModel.ts:635-656`) preserva `targetDurationSeconds` e zera `targetDistanceM` só nas séries pendentes (`s.status === 'done' ? s : {...}`); `__tests__/cardioSwap.test.ts` cobre D-01/D-04/D-08 + CR-01. |
+| 3 | ROADMAP SC3 — O realizado na modalidade trocada conta normalmente no realizado do Progresso | ✓ VERIFIED | `distanciaRealizadaSemanaM`/`progressoPrescrito` somam qualquer modalidade; inalterado desde a verificação anterior; testes verdes. |
+| 4 | Trocar modalidade nunca corrompe/relabela silenciosamente uma série de cardio já concluída (CR-01) | ✓ VERIFIED (fechado) | `activeSessionStore.swapExercise` (linhas 1518-1521) recusa a troca **antes** de chamar a RPC quando `alvo.sets.some(s => s.status === 'done')`, gravando `saveError`. `applyCardioSwapToDraft` (engine) também preserva sets `done` como defesa em profundidade. Teste de regressão dedicado: `cardioSwap.test.ts:150` ("CR-01 (decisão a): série já CONCLUÍDA não tem o alvo reescrito pela troca") e `cardioSwapFluxo.test.ts:224` ("CR-01 (decisão a): troca bloqueada com série concluída") — ambos passam (rodados isoladamente nesta verificação: 22/22 nos 3 arquivos de teste do swap). Sequenciamento arquitetural fecha o caso de reconciliação (`applyServerSetLogs`/`comTrocas`): como o guard client-side impede qualquer troca enquanto existir set `done`, todo evento de troca vindo do servidor, por construção, ocorreu com 0 séries concluídas — logo qualquer série `done` associada a esse exercício foi necessariamente concluída DEPOIS da troca, sob a modalidade nova, e o rótulo de nível de exercício aplicado por `comTrocas` na retomada é coerente com a realidade. |
+| 5 | A lista de troca (D-02) nunca apresenta um estado travado/vazio sem explicação ao usuário (CR-02) | ✓ VERIFIED (fechado) | `SwapModalitySheet.tsx:132-137` agora usa `opcoes.length === 0` (pós-filtro) para um segundo `EmptyState` distinto ("Nenhuma outra modalidade disponível" vs. "Nenhuma modalidade cadastrada"), e o botão de confirmação (linha 164) gateia em `opcoes.length > 0`. Teste de regressão: `swapModalitySheet.test.tsx:113` (`modalidades=['Caminhada']`, `exercicioAtualNome='Caminhada'`) confirma o texto e a ausência do botão — passa. |
+| 6 | A troca funciona ponta a ponta contra um banco vivo (não só contra mocks de teste) | ? UNCERTAIN — rotado para verificação humana | `AGENTS.md` (linhas 48-49) e o commit `f69f45f` registram aplicação de 0033/0034/0035 em staging e 0034/0035 em produção, ambos em 10/08/2026. Este verificador NÃO pode rodar comandos `supabase` e não confirma o estado do banco de forma independente — a reivindicação é registrada, não provada por este relatório. Ver Human Verification abaixo. |
 
-**Score:** 3/6 truths verified (0 present, behavior-unverified)
+**Score:** 5/6 truths verified (0 present, behavior-unverified) — a truth 6 permanece pendente de confirmação humana, não como falha.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `supabase/migrations/0034_troca_modalidade_cardio.sql` | Tabela satélite + RPC + vocabulário fechado, testados | ⚠️ EXISTS mas NÃO APLICADO | Harness `cardioSwapMigration.test.ts` (12 testes) verde; arquivo nunca rodou contra Postgres real (nem staging nem produção) — ver Gap #3 |
-| `src/engine/sessionModel.ts` (applyCardioSwapToDraft, formatCardioSetResult) | D-01/D-04/D-08 no motor puro | ⚠️ VERIFIED com defeito (CR-01) | Existe, testado, wired — mas com o defeito do Gap #1 |
-| `src/services/sessionExecutionRepository.ts` (swapSessionExercise, OpenSessionLog.exerciseSwaps, getSessionLogDetail estendido) | Persistência servidor-primeiro + leitura de histórico | ✓ VERIFIED | Testado (`sessionExecutionRepository.test.ts`), wired ao store e ao histórico |
-| `src/store/activeSessionStore.ts` (swapExercise) | Servidor primeiro, reconciliação na retomada | ✓ VERIFIED | `swapExercise` implementado espelhando `skipExercise`; `applyServerSetLogs` reaplica `exerciseSwaps` via `comTrocas` |
-| `src/services/cardioModalidadesAceitasRepository.ts` | Leitura de `cardio_modalidades`, fallback estrito D-02 | ✓ VERIFIED | `getModalidadesAceitas` nunca devolve as 9 quando vazio; filtra nomes fora do catálogo |
-| `src/components/session/SwapModalitySheet.tsx` | Sheet de escolha, 3 estados (erro/carregando/vazio) + lista | ⚠️ VERIFIED com defeito (CR-02) | Existe, testado (7 testes), wired em 2 entry points — mas com o defeito do Gap #2 |
-| `src/components/session/SessionQueue.tsx` (botão + "Trocado de X") | Entry point 1 | ✓ VERIFIED | `testID="swap-<id>"`, rótulo `ex.swappedFrom` renderizado |
-| `src/components/session/SkipReasonSheet.tsx` (ramo sem_equipamento) | Entry point 2 | ✓ VERIFIED | `ofereceTroca` gated por `escopo/reason/ehCardio`; "Recusar mesmo assim" preserva o caminho antigo; `onSolicitarTroca` nunca chama `onConfirm` (testado) |
-| `src/screens/ActiveSessionScreen.tsx` (fiação dos 2 entry points) | Estado troca/trocaBusy + roteamento | ⚠️ VERIFIED com código morto (WR-02) | Ambos entry points funcionam via o `SwapModalitySheet` INLINE (dentro do Modal "Ver andamento"); o bloco standalone (linhas 577-586, `visible={troca != null && modalContent !== 'swap_modality'}`) é logicamente inalcançável porque `troca` e `modalContent` sempre mudam juntos — não afeta o usuário, é dead code |
-| `src/screens/SessionHistoryDetailScreen.tsx` (D-08 histórico + Pitfall 2) | Cardio legível + "Trocado de X" | ✓ VERIFIED | `descreveSerie`/`formatCardioSetResult` cobrem cardio; `section.swappedFrom` renderizado |
-| `src/engine/cardioGoals.ts`/`cardioPrescrito.ts`/`CardioPrescritoSection.tsx` | D-05/D-06 | ✓ VERIFIED | Ver truth 3 acima |
+| `supabase/migrations/0034_troca_modalidade_cardio.sql` | Tabela satélite + RPC + vocabulário fechado, testados | ✓ VERIFIED (código) / ? UNCERTAIN (deploy) | Arquivo confirmado byte-idêntico ao commit original (`git diff 08862b6 HEAD` vazio para este arquivo) — não foi editado; migration 0035 sobrepõe (create or replace) sem tocar 0034, conforme comentário na própria 0035. Aplicação em banco vivo: reportada, não confirmada por este verificador. |
+| `supabase/migrations/0035_guarda_metric_troca_cardio.sql` (NOVO) | Estreita a guarda de cardio da RPC para só `metric` (WR-03/IN-02) | ✓ VERIFIED | Arquivo lido integralmente: `create or replace function public.swap_session_exercise` troca só o predicado da guarda (`pe.metric in ('tempo','tempo_distancia')`, remove `or pe.muscle_group = 'Cardio'`), preserva grants (`revoke ... from public, anon` + `grant ... to authenticated`) e adiciona asserção runtime que falha se a guarda antiga reaparecer. |
+| `src/engine/sessionModel.ts` (`applyCardioSwapToDraft`, `doneLine`, `formatCardioSetResult`) | D-01/D-04/D-08 + CR-01 no motor puro | ✓ VERIFIED | `applyCardioSwapToDraft` agora preserva sets `done`; `doneLine` foi MOVIDO para o motor (antes vivia só em `SessionQueue.tsx`) e reexportado de lá para compatibilidade — single source of truth (WR-01). |
+| `src/store/activeSessionStore.ts` (`swapExercise`) | Servidor primeiro, reconciliação na retomada, bloqueio CR-01 | ✓ VERIFIED | Guard `alvo.sets.some(s.status === 'done')` confirmado nas linhas 1518-1521, antes de qualquer chamada de rede. |
+| `src/components/session/SwapModalitySheet.tsx` | Sheet de escolha, estados de erro/carregando/vazio×2/lista + CR-02 | ✓ VERIFIED | Segundo `EmptyState` (`opcoes.length === 0`) e condição do botão corrigida; testado. |
+| `src/components/session/SessionQueue.tsx` | Entry point 1 + reexporta `doneLine` | ✓ VERIFIED | `export { doneLine }` na linha 47 para não quebrar imports existentes. |
+| `src/screens/ActiveSessionScreen.tsx` | Fiação dos 2 entry points, sem código morto (WR-02) | ✓ VERIFIED | Bloco standalone `<SwapModalitySheet visible={troca != null && modalContent !== 'swap_modality'}>` removido; só resta o ramo `modalContent === 'swap_modality' && troca != null ? (<SwapModalitySheet ...` dentro do switch de conteúdo do modal (linha 600) — confirmado por grep, nenhuma segunda ocorrência de `<SwapModalitySheet` no arquivo. |
+| `src/components/progress/CardioPrescritoSection.tsx` | D-05/D-06 + IN-01 renomeação | ✓ VERIFIED | `formatarMinutos` renomeada para `formatarNumeroCompacto` (linha 35), sem ocorrências residuais do nome antigo. |
+| `__tests__/sessionExecutionRepository.test.ts` | Paridade histórico↔fila via a função REAL (WR-01) | ✓ VERIFIED | Importa `doneLine` de `src/engine/sessionModel` (linha 27) e chama a função real no teste de paridade (linha 109) — a réplica manual (`doneLineReplica`) foi removida. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `SessionQueue` (botão) | `ActiveSessionScreen` (estado troca) | `onSolicitarTroca` callback | ✓ WIRED | Código confirmado |
-| `ActiveSessionScreen` | `SwapModalitySheet` | props `modalidades`/`onConfirm` | ✓ WIRED | Duas renderizações (inline funcional + standalone morto, WR-02) |
-| `SwapModalitySheet.onConfirm` | `activeSessionStore.swapExercise` | `onConfirmarTroca` | ✓ WIRED | Confirmado em `activeSessionScreen.test.tsx` |
-| `activeSessionStore.swapExercise` | `sessionExecutionRepository.swapSessionExercise` | chamada servidor-primeiro | ✓ WIRED (código) / ✗ NOT_WIRED (deploy) | Código correto; RPC não existe em nenhum banco vivo (Gap #3) |
-| `sessionExecutionRepository.swapSessionExercise` | RPC `swap_session_exercise` (migration 0034) | `supabase.rpc(...)` | ✓ WIRED (código) / ✗ NOT_WIRED (deploy) | Idem — RPC não aplicada |
-| `SkipReasonSheet` (sem_equipamento + ehCardio) | `SwapModalitySheet` (mesmo componente) | `onSolicitarTrocaAPartirDaRecusa` | ✓ WIRED | Confirmado: `skipSessionExercise` nunca chamado nesse caminho (testado) |
-| `getSessionLogDetail` | `cardio_exercise_swaps` (embed) | `.select('...cardio_exercise_swaps(planned_exercise_id, to_modality)')` | ✓ WIRED (código) / ✗ NOT_WIRED (deploy) | Query correta; tabela não existe em nenhum banco vivo (Gap #3) |
-| `cardioGoalRepository.getCardioLogs` | `cardioGoals.distanciaRealizadaSemanaM` | `progressoPrescrito` | ✓ WIRED | Confirmado por teste |
+| `SessionQueue` (botão) | `ActiveSessionScreen` (estado troca) | `onSolicitarTroca` callback | ✓ WIRED | Inalterado, confirmado. |
+| `ActiveSessionScreen` | `SwapModalitySheet` | props `modalidades`/`onConfirm` | ✓ WIRED | Uma única renderização agora (dead code do WR-02 removido). |
+| `SwapModalitySheet.onConfirm` | `activeSessionStore.swapExercise` | `onConfirmarTroca` | ✓ WIRED | Inalterado. |
+| `activeSessionStore.swapExercise` (guard CR-01) | bloqueio antes da RPC | `alvo.sets.some(s.status === 'done')` | ✓ WIRED | Confirmado por leitura direta + testes de regressão (22/22). |
+| `activeSessionStore.swapExercise` | `sessionExecutionRepository.swapSessionExercise` | chamada servidor-primeiro | ✓ WIRED (código) / ? UNCERTAIN (deploy) | Código correto; existência da RPC em banco vivo não confirmada por este verificador. |
+| `sessionExecutionRepository.swapSessionExercise` | RPC `swap_session_exercise` (migration 0034 + 0035) | `supabase.rpc(...)` | ✓ WIRED (código) / ? UNCERTAIN (deploy) | Idem. |
+| `SkipReasonSheet` (sem_equipamento + ehCardio) | `SwapModalitySheet` (mesmo componente) | `onSolicitarTrocaAPartirDaRecusa` | ✓ WIRED | Inalterado. |
+| `getSessionLogDetail` | `cardio_exercise_swaps` (embed) | `.select('...cardio_exercise_swaps(...)')` | ✓ WIRED (código) / ? UNCERTAIN (deploy) | Idem. |
+| `applyServerSetLogs` (reconciliação de retomada) | `applyCardioSwapToDraft` via `comTrocas` | `(aberta.exerciseSwaps ?? []).reduce(...)` | ✓ WIRED | Set logs (`exercises`) são aplicados ANTES de `comTrocas` na função; ordem confirmada por leitura direta (linhas 372-461) — consistente com a invariante descrita na truth 4 acima. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Suíte completa (única execução, per regra de "rodar 1x") | `npx jest` | `Test Suites: 140 passed, 140 total` / `Tests: 1605 passed, 1605 total` | ✓ PASS |
-| Verificação de tipos | `npx tsc --noEmit` | sem erros | ✓ PASS |
-| Regressão cross-fase (Fases 1+2) | incluída na execução acima (`recusaDeclarada*.test.ts`, `cardioPrescrito*.test.ts` etc.) | verde | ✓ PASS |
-
-Nota: toda a evidência acima exercita o comportamento contra **mocks** de `sessionExecutionRepository`/`supabase-js`, nunca contra Postgres real — ver Gap #3.
+| Testes de regressão dos 2 gaps fechados (execução isolada, não a suíte inteira) | `npx jest __tests__/cardioSwap.test.ts __tests__/cardioSwapFluxo.test.ts __tests__/swapModalitySheet.test.tsx --ci` | `Test Suites: 3 passed, 3 total` / `Tests: 22 passed, 22 total` | ✓ PASS |
+| Suíte completa (reconfirmada pelo orquestrador nesta sessão, não re-executada por este verificador para não duplicar) | `npx jest --ci` | `140 suítes / 1609 testes passaram` (piso anterior era 140/1605 — 4 testes novos, todos de regressão dos gaps) | ✓ PASS (evidência do orquestrador, consistente com a subamostra rodada acima) |
+| Verificação de tipos (reconfirmada pelo orquestrador) | `npx tsc --noEmit` | sem erros | ✓ PASS |
+| Migration 0034 não editada desde o commit original | `git diff 08862b6 HEAD -- supabase/migrations/0034_troca_modalidade_cardio.sql` | diff vazio | ✓ PASS |
+| Migration 0035 contém asserção runtime anti-regressão da guarda antiga | leitura direta do arquivo | bloco `do $$ ... raise exception 'asserção falhou...' $$` presente | ✓ PASS |
 
 ### Probe Execution
 
-Não aplicável — esta fase não declara nem usa `scripts/*/tests/probe-*.sh`; a evidência de comportamento vem de `npx jest`/`npx tsc --noEmit` (Behavioral Spot-Checks acima).
+Não aplicável — esta fase não declara nem usa `scripts/*/tests/probe-*.sh`.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| REQ-06 | 03-01..03-06 (todos) | Um momento de cardio da sessão pode ser trocado por outra modalidade aceita, preservando a dose por tempo; a distância da original não vira meta da nova (per `PROJECT.md`, único requisito declarado para a Fase 3 — não existe `.planning/REQUIREMENTS.md` separado neste projeto, `PROJECT.md` é a fonte canônica de requisitos) | ⚠️ PARCIALMENTE SATISFEITO | Código completo e testado (mocks) para as 3 Success Criteria do ROADMAP; SATISFEITO no nível de código, mas BLOQUEADO no nível operacional (Gap #3 — RPC/tabela não existem em nenhum ambiente vivo) e com 2 defeitos confirmados (Gaps #1/#2) que a Success Criteria 1/2 não previa explicitamente mas que violam invariantes do próprio codebase |
+| REQ-06 | 03-01..03-06 (todos) | Um momento de cardio da sessão pode ser trocado por outra modalidade aceita, preservando a dose por tempo; a distância da original não vira meta da nova | ✓ SATISFEITO no código, com verificação operacional pendente | As 3 Success Criteria do ROADMAP estão implementadas e testadas; os 2 defeitos críticos (CR-01/CR-02) que bloqueavam a verificação anterior estão fechados com teste de regressão dedicado. Resta apenas a confirmação humana de que a migration está de fato viva em staging/produção (truth 6) — reportada em `AGENTS.md`, não provada por este verificador. |
 
-Nenhum requisito órfão: REQ-06 é o único requisito mapeado à Fase 3 em `PROJECT.md`/`ROADMAP.md`, e todos os 6 plans o declaram em `requirements:` no frontmatter.
+Nenhum requisito órfão: REQ-06 é o único requisito mapeado à Fase 3.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `src/engine/sessionModel.ts` | 604-623 | Mutação de dado histórico via troca não-guardada (CR-01) | 🛑 Blocker | Ver Gap #1 |
-| `src/components/session/SwapModalitySheet.tsx` | 72, 119, 151 | Condição de estado vazio usa a lista errada (pré-filtro em vez de pós-filtro) (CR-02) | 🛑 Blocker | Ver Gap #2 |
-| `supabase/migrations/0034_troca_modalidade_cardio.sql` | — (arquivo inteiro) | Artefato não aplicado a nenhum ambiente vivo | 🛑 Blocker | Ver Gap #3 |
-| `supabase/migrations/0034_troca_modalidade_cardio.sql` | 212 | Guarda de "exercício é cardio" na RPC usa `OR muscle_group = 'Cardio'`, mais permissiva que o `isTimeBased` do cliente (WR-03 do 03-REVIEW.md) | ⚠️ Warning | Defesa em profundidade mais fraca que o documentado; não bloqueia o goal da fase, mas é uma inconsistência real entre client e servidor |
-| `src/screens/ActiveSessionScreen.tsx` | 577-586 | `SwapModalitySheet` standalone logicamente inalcançável (WR-02 do 03-REVIEW.md) | ⚠️ Warning | Código morto, sem impacto funcional (o caminho INLINE funciona) |
-| `__tests__/sessionExecutionRepository.test.ts` | 61-107 | Teste "anti-drift" compara contra uma réplica manual de `doneLine`, não a função real (WR-01 do 03-REVIEW.md) | ⚠️ Warning | A garantia de paridade alegada no comentário do teste é falsa — drift futuro entre `doneLine` e `formatCardioSetResult` não seria pego |
+| — | — | Nenhum marcador de débito (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) nos 6 arquivos de código + 1 migration tocados pelos 6 commits desta rodada (grep direto, confirmado nesta verificação) | — | — |
+| `src/store/activeSessionStore.ts` | 1513-1521 | Guard CR-01 vive só no client (store); a RPC (0034/0035) continua aceitando uma troca mesmo com `set_logs` já gravado para o `planned_exercise_id` — decisão de escopo explícita do dono (defesa em profundidade server-side ficaria para uma futura 0036, não pedida) | ℹ️ Info (limitação de escopo aceita, não gap) | Ver julgamento abaixo em "Gaps Summary" — considero seguro dado o invariante de sequenciamento confirmado na truth 4, mas é um risco residual real contra race multi-dispositivo ou chamada direta à API fora do client. |
 
-Nenhum marcador de débito (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) encontrado nos 14 arquivos tocados pela fase (verificado por grep direto).
+Os warnings WR-01 (paridade falsa), WR-02 (código morto) e WR-03/IN-02 (guarda de cardio mais frouxa no servidor) do `03-REVIEW.md`, e o info IN-01 (nome enganoso), estão TODOS fechados nesta rodada — confirmados por leitura direta do código, não apenas pela mensagem dos commits.
 
 ### Human Verification Required
 
 ### 1. Confirmação end-to-end contra banco vivo
 
-**Test:** Depois que a migration 0034 for de fato aplicada em staging (e o status de 0033 confirmado), abrir uma sessão real com um exercício de cardio, trocar a modalidade pelos dois entry points (fila e "sem_equipamento"), confirmar que a troca persiste, que "Trocado de X" aparece na sessão ativa e no histórico, e que o km realizado soma no Progresso.
-**Expected:** Comportamento idêntico ao que os testes com mock preveem, mas contra Postgres real.
-**Why human:** Depende de uma ação operacional (aplicar a migration) que este verificador está proibido de executar, e de interação de UI real que teste de componente isolado não cobre plenamente.
+**Test:** Numa sessão real em staging (ref `mjdjtiujhwklchalquhc`) ou produção (ref `zanqygwsgxkyjiuhrzju`), abrir um exercício de cardio, trocar a modalidade pelos dois entry points (fila e "sem_equipamento"), confirmar que a troca persiste no servidor, que "Trocado de X" aparece na sessão ativa e no histórico, e que o km realizado soma no Progresso.
+**Expected:** Comportamento idêntico ao que os testes com mock preveem, agora contra Postgres real (RPC `swap_session_exercise` e tabela `cardio_exercise_swaps` das migrations 0034+0035).
+**Why human:** `AGENTS.md`/commit `f69f45f` registram a aplicação das migrations em ambos os ambientes em 10/08/2026, mas este verificador está proibido de rodar qualquer comando `supabase` e não pode confirmar o estado do banco de forma independente. Depende também de interação de UI real (toques, animações, navegação) não coberta por teste de componente isolado.
 
 ### Gaps Summary
 
-A Fase 3 tem código completo, bem estruturado e amplamente testado (140/140 suítes, 1605/1605 testes, `tsc` limpo — reconfirmado nesta verificação, não apenas herdado do SUMMARY) para as 3 Success Criteria do ROADMAP. Três gaps genuínos impedem "gols alcançado" no sentido estrito:
+Os 2 gaps de código que bloqueavam a fase na verificação anterior (CR-01 e CR-02) estão **fechados**, confirmados por leitura direta do código-fonte em HEAD — não apenas pela narrativa dos commits:
 
-1. **CR-01 (crítico, confirmado por leitura direta do código):** a troca de modalidade pode relabelar silenciosamente o resultado de uma série de cardio JÁ CONCLUÍDA sob a nova modalidade, sem nenhuma guarda client ou server-side e sem cobertura de teste — contradiz uma invariante que o próprio arquivo declara para a função irmã de recusa duas linhas acima.
-2. **CR-02 (crítico, confirmado por leitura direta do código):** `SwapModalitySheet` pode apresentar uma lista vazia e travada, sem nenhuma explicação, quando a única modalidade aceita do usuário coincide com a modalidade atual do exercício — um cenário plausível dado que o exercício prescrito normalmente vem da própria lista aceita.
-3. **Migration 0034 não aplicada em nenhum ambiente vivo:** a funcionalidade central da fase (RPC `swap_session_exercise`, tabela `cardio_exercise_swaps`) simplesmente não existe hoje em staging nem em produção. Toda a evidência verde desta fase é contra mocks. O dono já decidiu aplicar (option-a, staging primeiro) e delegou a execução, mas ela permanece pendente — sem isso, nenhum usuário real consegue trocar modalidade hoje.
+1. **CR-01 fechado:** `activeSessionStore.swapExercise` agora recusa a troca ANTES de tocar o servidor quando qualquer série do exercício já está `done`, com mensagem de erro pelo mesmo canal de `skipExercise`. O motor (`applyCardioSwapToDraft`) preserva sets `done` como segunda camada de defesa. Dois testes de regressão dedicados passam. **Limitação de escopo aceita, não um gap:** o bloqueio é só client-side — a RPC `swap_session_exercise` continua aceitando a troca mesmo com `set_logs` gravado. Julgamento deste verificador: **seguro para o fluxo suportado hoje**, porque o guard client-side, combinado com a semântica "uma troca só, e só antes de qualquer conclusão" (confirmada em `swappedFrom: ex.swappedFrom ?? ex.name`, que nunca permite uma segunda troca real), fecha o invariante na retomada via `applyServerSetLogs`/`comTrocas` — qualquer swap replicado do servidor, por construção, ocorreu com 0 séries concluídas, então toda série `done` associada é necessariamente posterior à troca. O risco residual é um bypass fora do client (chamada direta à RPC, ou dois dispositivos escrevendo na mesma sessão em paralelo) — cenário fora do escopo atual do app e não coberto pelo REQ-06. Registrar como risco conhecido, não como bloqueio.
+2. **CR-02 fechado:** `SwapModalitySheet` agora distingue `modalidades.length === 0` (nada cadastrado) de `opcoes.length === 0` (só a modalidade atual cadastrada), com mensagem e teste dedicados para o segundo caso.
 
-Os 3 gaps acima são objetivamente verificáveis e cabem tanto num plano de correção de código (gaps 1 e 2) quanto numa ação operacional já decidida e só pendente de execução (gap 3). Nenhum deles foi inventado por este verificador — os dois primeiros já estavam documentados com precisão cirúrgica em `03-REVIEW.md` (CR-01/CR-02) e o terceiro está registrado pelo próprio executor em `03-01-SUMMARY.md`.
+O terceiro item da verificação anterior (migration 0034 não aplicada a nenhum ambiente vivo) mudou de natureza: não é mais um gap de código, e a evidência disponível (AGENTS.md + commit `f69f45f`, datados de hoje) É consistente com a aplicação ter ocorrido — mas este verificador está contratualmente proibido de rodar `supabase` para confirmar, e por isso o item foi reclassificado de "gap" (falha) para "verificação humana pendente" (incerteza), não descartado. Nenhum requisito da fase, no nível de código, está bloqueado; o que resta é a confirmação operacional de um fato que só um comando de banco (fora do escopo deste verificador) ou um teste manual em staging/produção pode fechar.
 
-Achados de menor severidade (WR-01, WR-02, WR-03 do `03-REVIEW.md`) não bloqueiam o goal da fase e estão listados em Anti-Patterns Found como warnings, não como gaps.
+Os warnings/infos de menor severidade do `03-REVIEW.md` (WR-01, WR-02, WR-03, IN-01, IN-02) também foram todos fechados nesta rodada, confirmados por leitura direta: `doneLine` foi movido para o motor e o teste de paridade agora importa a função real (WR-01); o `SwapModalitySheet` standalone morto foi removido de `ActiveSessionScreen.tsx` (WR-02); a migration 0035 estreita a guarda de cardio da RPC para só `metric`, com asserção runtime anti-regressão (WR-03/IN-02); `formatarMinutos` foi renomeada para `formatarNumeroCompacto` (IN-01).
 
 ---
 
-_Verified: 2026-08-10T13:16:09Z_
+_Verified: 2026-08-10T13:59:02Z_
 _Verifier: Claude (gsd-verifier)_
