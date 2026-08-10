@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: Intercâmbio de modalidade de cardio
-status: "Phase 02 shipped — PR #79"
+status: "Phase 02 merged — PR #79 (fbafad1)"
 stopped_at: Planning inicializado; aguardando pesquisa e plano da Fase 1
-last_updated: "2026-08-09T20:23:46.727Z"
+last_updated: "2026-08-10T01:42:29.123Z"
 last_activity: 2026-08-09
 progress:
   total_phases: 3
@@ -30,7 +30,7 @@ meta com fonte única e condução guiada.
 
 Phase: 03 — Intercâmbio de modalidade de cardio
 Plan: Not started
-Status: Phase 02 shipped — PR #79
+Status: Phase 02 merged — PR #79 (fbafad1)
 APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
 PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
 Last activity: 2026-08-09
