@@ -25,7 +25,8 @@
     "pods:update": "cd ios && pod update",
     "build:android": "cd android && ./gradlew assembleRelease",
     "build:android:bundle": "cd android && ./gradlew bundleRelease",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test:integration:pg": "jest --config jest.integration.config.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -106,6 +107,10 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/__tests__/integration/"
+    ],
     "moduleFileExtensions": [
       "ts",
       "tsx",
