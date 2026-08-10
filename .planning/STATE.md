@@ -70,9 +70,10 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-10
-Stopped at: Fase 03 com 9/9 planos executados e mesclados. Migration 0036 aplicada e
-comprovada por teste comportamental em HOMOLOGAÇÃO (recusa P0005, 0 linhas, resíduo 0);
-PRODUÇÃO segue na 0035 e é a única pendência bloqueante. Fase NÃO marcada completa.
+Stopped at: 0036 comprovada em HOMOLOGAÇÃO; PRODUÇÃO segue na 0035 — fase NÃO completa.
+Detalhe: 9/9 planos executados e mesclados. A 0036 foi aplicada e comprovada por teste
+comportamental em homologação (recusa P0005, 0 linhas, resíduo 0). Produção na 0035 é a
+única pendência bloqueante.
 Próximo passo é do dono: aplicar a 0036 em produção (preflight prod exige PRODUCAO
 digitado) e repetir o teste 7 de 03-UAT.md. Depois: /gsd-secure-phase 03 para levar
 threats_open de 2 a 0, e /gsd-verify-work 03 para fechar a fase.
