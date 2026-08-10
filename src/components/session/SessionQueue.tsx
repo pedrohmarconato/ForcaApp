@@ -9,13 +9,10 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../theme/theme';
 import {
-  paceSecondsPerKm,
   metricOf,
   isTimeBased,
-  formatPace,
-  formatDuration,
-  formatDistance,
   exercicioForaDeJogo,
+  doneLine,
   SKIP_REASON_LABELS,
   type SessionDraft,
   type DraftExercise,
@@ -45,27 +42,9 @@ type Props = {
   onUnskipExercise?: (exerciseId: string) => void;
 };
 
-export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
-  // Cardio/isometria: o que foi feito é tempo, distância e pace — jamais reps.
-  if (isTimeBased(metricOf(exercise))) {
-    const partes = [formatDuration(set.actualDurationSeconds)];
-    if (set.actualDistanceM != null) {
-      partes.push(formatDistance(set.actualDistanceM));
-      partes.push(
-        formatPace(paceSecondsPerKm(set.actualDurationSeconds, set.actualDistanceM)),
-      );
-    }
-    if (set.perceivedEffort) partes.push(set.perceivedEffort);
-    return partes.join(' · ');
-  }
-  const carga = exercise.isBodyweight
-    ? 'peso corporal'
-    : set.actualLoadKg != null
-      ? `${set.actualLoadKg} kg`
-      : '—';
-  const folego = set.actualRir != null ? ` · fôlego ${set.actualRir}` : '';
-  return `${set.actualReps} reps ${exercise.isBodyweight ? '· ' : '× '}${carga}${folego}`;
-};
+// Re-export preserva o contrato público do componente (consumidores existentes
+// importam daqui); a implementação mora no motor puro — WR-01.
+export { doneLine };
 
 const SessionQueue = ({
   draft,

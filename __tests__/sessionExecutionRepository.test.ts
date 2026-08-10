@@ -24,10 +24,9 @@ import {
 } from '../src/services/sessionExecutionRepository';
 import {
   formatCardioSetResult,
-  formatDuration,
-  formatDistance,
-  formatPace,
-  paceSecondsPerKm,
+  doneLine,
+  type DraftExercise,
+  type DraftSet,
 } from '../src/engine/sessionModel';
 
 const fromMock = supabase.from as jest.Mock;
@@ -58,23 +57,24 @@ beforeEach(() => {
   rpcMock.mockReset();
 });
 
-// Réplica local do corpo de SessionQueue.doneLine (src/components/session/
-// SessionQueue.tsx:42-53) usada SÓ como fixture de comparação — mede
-// paridade contra formatCardioSetResult, não substitui o algoritmo real.
-// Se um dos dois divergir no futuro, este teste pega o drift (Pitfall 5).
-const doneLineReplica = (params: {
+// Paridade com a doneLine REAL (src/engine/sessionModel.ts, usada pela fila
+// da sessão ativa) — importada, não copiada: se a doneLine mudar sem o
+// formatCardioSetResult acompanhar (ou vice-versa), este teste fica vermelho
+// (Pitfall 5). A doneLine mora no motor desde o WR-01 — importá-la do
+// componente puxaria a cadeia React/AsyncStorage do store, quebrando o Jest.
+// O fixture mínimo basta porque doneLine só lê metric do exercício e
+// actual* da série.
+const exCardio = { metric: 'tempo_distancia' } as DraftExercise;
+const setCardio = (caso: {
   durationSeconds: number | null;
   distanceM: number | null;
   perceivedEffort: 'leve' | 'moderado' | 'forte' | null;
-}): string => {
-  const partes = [formatDuration(params.durationSeconds)];
-  if (params.distanceM != null) {
-    partes.push(formatDistance(params.distanceM));
-    partes.push(formatPace(paceSecondsPerKm(params.durationSeconds, params.distanceM)));
-  }
-  if (params.perceivedEffort) partes.push(params.perceivedEffort);
-  return partes.join(' · ');
-};
+}): DraftSet =>
+  ({
+    actualDurationSeconds: caso.durationSeconds,
+    actualDistanceM: caso.distanceM,
+    perceivedEffort: caso.perceivedEffort,
+  }) as DraftSet;
 
 describe('formatCardioSetResult (Fase 3, D-08 histórico — paridade com SessionQueue.doneLine)', () => {
   it('duração + distância + pace + esforço', () => {
@@ -89,7 +89,7 @@ describe('formatCardioSetResult (Fase 3, D-08 histórico — paridade com Sessio
     ).toBe('5:00');
   });
 
-  it('paridade byte a byte com doneLine em 4 combinações (anti-drift, Pitfall 5)', () => {
+  it('paridade byte a byte com a doneLine REAL em 8 combinações (anti-drift, Pitfall 5)', () => {
     const casos: Array<{
       durationSeconds: number | null;
       distanceM: number | null;
@@ -99,9 +99,14 @@ describe('formatCardioSetResult (Fase 3, D-08 histórico — paridade com Sessio
       { durationSeconds: 300, distanceM: null, perceivedEffort: null },
       { durationSeconds: 1800, distanceM: 3200, perceivedEffort: 'forte' },
       { durationSeconds: 600, distanceM: null, perceivedEffort: 'leve' },
+      // Bordas: duração longa, distância zero, decimal com vírgula, hora exata.
+      { durationSeconds: 7200, distanceM: 21000, perceivedEffort: null },
+      { durationSeconds: 450, distanceM: 0, perceivedEffort: null },
+      { durationSeconds: 450, distanceM: 1250, perceivedEffort: 'moderado' },
+      { durationSeconds: 3600, distanceM: 5000, perceivedEffort: 'leve' },
     ];
     for (const caso of casos) {
-      expect(formatCardioSetResult(caso)).toBe(doneLineReplica(caso));
+      expect(formatCardioSetResult(caso)).toBe(doneLine(exCardio, setCardio(caso)));
     }
   });
 });

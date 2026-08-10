@@ -325,13 +325,11 @@ export const formatDistance = (meters: number | null | undefined): string => {
  * Descreve o resultado de uma série de cardio (Fase 3, D-08 histórico):
  * tempo, distância (se houver), pace derivado e esforço percebido.
  *
- * MESMA fórmula de `SessionQueue.doneLine` (sessão ativa) — replicada aqui
- * para o histórico em vez de importar componente de UI dentro do motor puro
- * (`sessionModel.ts` não pode depender de `components/`), com paridade
- * garantida por teste (`__tests__/sessionExecutionRepository.test.ts`), não
- * por importação cruzada: puxar `SessionQueue.tsx` para esta wave criaria
- * dependência de arquivo com o Plano 03-03 sem ganho proporcional — ambas as
- * implementações são funções puras já cobertas por teste.
+ * Fonte ÚNICA do ramo de cardio de `doneLine` (sessão ativa) — a paridade
+ * entre sessão ativa e histórico é por construção, não por réplica: mover a
+ * fórmula para cá foi o que fez o teste anti-drift deixar de comparar contra
+ * uma cópia manual (WR-01). `sessionModel.ts` continua sem depender de
+ * `components/`; quem depende do motor é o componente, nunca o contrário.
  */
 export const formatCardioSetResult = (params: {
   durationSeconds: number | null;
@@ -347,6 +345,33 @@ export const formatCardioSetResult = (params: {
   }
   if (params.perceivedEffort) partes.push(params.perceivedEffort);
   return partes.join(' · ');
+};
+
+/**
+ * Linha de resultado de uma série na fila da sessão ativa
+ * (SessionQueue): cardio/isometria mostra tempo/distância/pace/esforço;
+ * carga × repetição mostra reps × carga com fôlego.
+ *
+ * Vive no motor (não no componente) porque a sessão ativa e o histórico
+ * precisam exibir o MESMO texto: o ramo de cardio delega a
+ * `formatCardioSetResult` — paridade por construção (WR-01) — e o ramo de
+ * força é puro, sem dependência de UI.
+ */
+export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
+  if (isTimeBased(metricOf(exercise))) {
+    return formatCardioSetResult({
+      durationSeconds: set.actualDurationSeconds,
+      distanceM: set.actualDistanceM,
+      perceivedEffort: set.perceivedEffort,
+    });
+  }
+  const carga = exercise.isBodyweight
+    ? 'peso corporal'
+    : set.actualLoadKg != null
+      ? `${set.actualLoadKg} kg`
+      : '—';
+  const folego = set.actualRir != null ? ` · fôlego ${set.actualRir}` : '';
+  return `${set.actualReps} reps ${exercise.isBodyweight ? '· ' : '× '}${carga}${folego}`;
 };
 
 // Tolerância para considerar a duração "no alvo": ±10% cobre o arredondamento
