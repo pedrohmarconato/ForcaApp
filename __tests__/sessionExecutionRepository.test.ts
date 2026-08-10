@@ -22,6 +22,13 @@ import {
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
+import {
+  formatCardioSetResult,
+  formatDuration,
+  formatDistance,
+  formatPace,
+  paceSecondsPerKm,
+} from '../src/engine/sessionModel';
 
 const fromMock = supabase.from as jest.Mock;
 const rpcMock = supabase.rpc as jest.Mock;
@@ -49,6 +56,54 @@ const makeBuilder = (result: { data?: unknown; error: unknown }) => {
 beforeEach(() => {
   fromMock.mockReset();
   rpcMock.mockReset();
+});
+
+// Réplica local do corpo de SessionQueue.doneLine (src/components/session/
+// SessionQueue.tsx:42-53) usada SÓ como fixture de comparação — mede
+// paridade contra formatCardioSetResult, não substitui o algoritmo real.
+// Se um dos dois divergir no futuro, este teste pega o drift (Pitfall 5).
+const doneLineReplica = (params: {
+  durationSeconds: number | null;
+  distanceM: number | null;
+  perceivedEffort: 'leve' | 'moderado' | 'forte' | null;
+}): string => {
+  const partes = [formatDuration(params.durationSeconds)];
+  if (params.distanceM != null) {
+    partes.push(formatDistance(params.distanceM));
+    partes.push(formatPace(paceSecondsPerKm(params.durationSeconds, params.distanceM)));
+  }
+  if (params.perceivedEffort) partes.push(params.perceivedEffort);
+  return partes.join(' · ');
+};
+
+describe('formatCardioSetResult (Fase 3, D-08 histórico — paridade com SessionQueue.doneLine)', () => {
+  it('duração + distância + pace + esforço', () => {
+    expect(
+      formatCardioSetResult({ durationSeconds: 1200, distanceM: 5000, perceivedEffort: 'moderado' }),
+    ).toBe('20:00 · 5 km · 4:00 /km · moderado');
+  });
+
+  it('só duração — sem distância, sem pace, sem esforço inventado', () => {
+    expect(
+      formatCardioSetResult({ durationSeconds: 300, distanceM: null, perceivedEffort: null }),
+    ).toBe('5:00');
+  });
+
+  it('paridade byte a byte com doneLine em 4 combinações (anti-drift, Pitfall 5)', () => {
+    const casos: Array<{
+      durationSeconds: number | null;
+      distanceM: number | null;
+      perceivedEffort: 'leve' | 'moderado' | 'forte' | null;
+    }> = [
+      { durationSeconds: 1200, distanceM: 5000, perceivedEffort: 'moderado' },
+      { durationSeconds: 300, distanceM: null, perceivedEffort: null },
+      { durationSeconds: 1800, distanceM: 3200, perceivedEffort: 'forte' },
+      { durationSeconds: 600, distanceM: null, perceivedEffort: 'leve' },
+    ];
+    for (const caso of casos) {
+      expect(formatCardioSetResult(caso)).toBe(doneLineReplica(caso));
+    }
+  });
 });
 
 describe('startSessionLog (RPC atômica start_session)', () => {
@@ -895,6 +950,128 @@ describe('getSessionLogDetail', () => {
 
     await expect(getSessionLogDetail('sl-4')).rejects.toMatchObject({ code: '42P01' });
     expect(fromMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Fase 3 (Pitfall 2 fechado): getSessionLogDetail nunca lia
+  // actual_duration_seconds/actual_distance_m/perceived_effort — cardio no
+  // histórico mostrava "null reps × peso corporal". Testes 4-6 fecham o gap
+  // e cobrem D-08 (rótulo "trocado de X") sem editar os 4 testes acima.
+  it('Pitfall 2 fechado: série de cardio traz duração/distância/esforço, actualReps null (não 0)', async () => {
+    const cabecalho = makeBuilder({
+      data: {
+        id: 'sl-5',
+        started_at: 'T0',
+        finished_at: 'T1',
+        active_seconds: 1200,
+        planned_sessions: { title: 'Cardio A', week_number: 1 },
+      },
+      error: null,
+    });
+    const linhas = makeBuilder({
+      data: [
+        {
+          actual_reps: null,
+          actual_load_kg: null,
+          actual_rir: null,
+          actual_duration_seconds: 1200,
+          actual_distance_m: 5000,
+          perceived_effort: 'moderado',
+          outcome: 'on_target',
+          completed_at: 'z',
+          planned_sets: {
+            set_order: 1,
+            planned_exercise_id: 'pe-1',
+            planned_exercises: { name: 'Corrida', exercise_order: 1, metric: 'tempo_distancia' },
+          },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(cabecalho).mockReturnValueOnce(linhas);
+
+    const res = await getSessionLogDetail('sl-5');
+    expect(res?.exercises[0].sets[0].actualDurationSeconds).toBe(1200);
+    expect(res?.exercises[0].sets[0].actualDistanceM).toBe(5000);
+    expect(res?.exercises[0].sets[0].perceivedEffort).toBe('moderado');
+    expect(res?.exercises[0].sets[0].actualReps).toBeNull();
+  });
+
+  it('D-08 histórico: exercício trocado mostra a modalidade nova e swappedFrom com a original', async () => {
+    const cabecalho = makeBuilder({
+      data: {
+        id: 'sl-6',
+        started_at: 'T0',
+        finished_at: 'T1',
+        active_seconds: 1200,
+        planned_sessions: { title: 'Cardio B', week_number: 1 },
+        cardio_exercise_swaps: [{ planned_exercise_id: 'pe-9', to_modality: 'Remo Ergômetro' }],
+      },
+      error: null,
+    });
+    const linhas = makeBuilder({
+      data: [
+        {
+          actual_reps: null,
+          actual_load_kg: null,
+          actual_rir: null,
+          actual_duration_seconds: 1200,
+          actual_distance_m: 5000,
+          perceived_effort: null,
+          outcome: 'on_target',
+          completed_at: 'z',
+          planned_sets: {
+            set_order: 1,
+            planned_exercise_id: 'pe-9',
+            planned_exercises: { name: 'Corrida', exercise_order: 1, metric: 'tempo_distancia' },
+          },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(cabecalho).mockReturnValueOnce(linhas);
+
+    const res = await getSessionLogDetail('sl-6');
+    expect(res?.exercises[0].name).toBe('Remo Ergômetro');
+    expect(res?.exercises[0].swappedFrom).toBe('Corrida');
+  });
+
+  it('sem troca: swappedFrom é null/undefined e name continua o nome do plano (retrocompatível)', async () => {
+    const cabecalho = makeBuilder({
+      data: {
+        id: 'sl-7',
+        started_at: 'T0',
+        finished_at: 'T1',
+        active_seconds: 1200,
+        planned_sessions: { title: 'Cardio C', week_number: 1 },
+        // Campo ausente — como os mocks pré-existentes (testes 1-4 acima).
+      },
+      error: null,
+    });
+    const linhas = makeBuilder({
+      data: [
+        {
+          actual_reps: null,
+          actual_load_kg: null,
+          actual_rir: null,
+          actual_duration_seconds: 900,
+          actual_distance_m: null,
+          perceived_effort: null,
+          outcome: 'on_target',
+          completed_at: 'z',
+          planned_sets: {
+            set_order: 1,
+            planned_exercise_id: 'pe-2',
+            planned_exercises: { name: 'Bicicleta Ergométrica', exercise_order: 1, metric: 'tempo' },
+          },
+        },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValueOnce(cabecalho).mockReturnValueOnce(linhas);
+
+    const res = await getSessionLogDetail('sl-7');
+    expect(res?.exercises[0].name).toBe('Bicicleta Ergométrica');
+    expect(res?.exercises[0].swappedFrom).toBeFalsy();
   });
 });
 

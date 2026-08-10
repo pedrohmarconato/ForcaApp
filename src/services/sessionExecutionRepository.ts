@@ -8,7 +8,7 @@
 // calcular o outcome é Fase 4; decidir o ajuste é Fase 5.
 
 import { supabase } from '../config/supabaseClient';
-import type { Outcome, SkipReason } from '../engine/sessionModel';
+import type { Outcome, SkipReason, PerceivedEffort, ExerciseMetric } from '../engine/sessionModel';
 import { exerciseIdentity, isSkipReason, toNum } from '../engine/sessionModel';
 import type { SetLogResumo } from '../engine/progressStats';
 import type { CardioModalidade } from '../constants/cardioModalidades';
@@ -818,15 +818,28 @@ export const getSetLogsResumo = async (userId: string): Promise<SetLogResumo[]> 
 
 export type HistorySetLog = {
   setOrder: number | null;
-  actualReps: number;
+  actualReps: number | null;
   actualLoadKg: number | null;
   actualRir: number | null;
+  // Cardio (Fase 3, Pitfall 2 fechado): duração/distância/esforço realizados,
+  // lidos junto do resto — antes, cardio no histórico mostrava "null reps ×
+  // peso corporal" porque a query nunca trazia essas colunas.
+  actualDurationSeconds?: number | null;
+  actualDistanceM?: number | null;
+  perceivedEffort?: PerceivedEffort | null;
   outcome: Outcome | null;
 };
 
 export type HistoryExercise = {
   name: string;
   order: number;
+  // Ausente/null = plano anterior à 0014 ou linha sem `planned_sets` embutido
+  // (não deve ocorrer em uso normal) → tratado como carga_reps pela tela.
+  metric?: ExerciseMetric | null;
+  // Troca de modalidade de cardio (Fase 3, D-08 histórico): nome ORIGINAL do
+  // exercício, presente só quando houve troca registrada em
+  // `cardio_exercise_swaps`. Null/ausente = nunca foi trocado.
+  swappedFrom?: string | null;
   sets: HistorySetLog[];
 };
 
@@ -848,13 +861,16 @@ export type SessionLogDetail = {
 export const getSessionLogDetail = async (
   sessionLogId: string,
 ): Promise<SessionLogDetail | null> => {
+  // cardio_exercise_swaps embutido na MESMA query do cabeçalho (mesma técnica
+  // de exercise_skips em getOpenSessionLog) — preserva a contagem de queries
+  // e a compatibilidade dos testes existentes, que não têm este campo no mock.
   const consultaCabecalho = (comActiveSeconds: boolean) =>
     supabase
       .from('session_logs')
       .select(
         comActiveSeconds
-          ? 'id, started_at, finished_at, active_seconds, planned_sessions(title, week_number)'
-          : 'id, started_at, finished_at, planned_sessions(title, week_number)',
+          ? 'id, started_at, finished_at, active_seconds, planned_sessions(title, week_number), cardio_exercise_swaps(planned_exercise_id, to_modality)'
+          : 'id, started_at, finished_at, planned_sessions(title, week_number), cardio_exercise_swaps(planned_exercise_id, to_modality)',
       )
       .eq('id', sessionLogId)
       .single();
@@ -872,27 +888,54 @@ export const getSessionLogDetail = async (
   const linhas = await supabase
     .from('set_logs')
     .select(
-      'actual_reps, actual_load_kg, actual_rir, outcome, completed_at, planned_sets(set_order, planned_exercises(name, exercise_order))',
+      'actual_reps, actual_load_kg, actual_rir, actual_duration_seconds, actual_distance_m, perceived_effort, outcome, completed_at, planned_sets(set_order, planned_exercise_id, planned_exercises(name, exercise_order, metric))',
     )
     .eq('session_log_id', sessionLogId);
   if (linhas.error) throw linhas.error;
 
-  // Agrupa por exercício (ordem + nome), preservando a ordem das séries.
+  // Modalidade desconhecida (drift entre banco e catálogo do cliente, ou
+  // linha malformada) é DESCARTADA, não coagida — mesmo raciocínio de
+  // `isSkipReason` em `exerciseSkips` (getOpenSessionLog).
+  const c = cabecalho.data as any;
+  const mapaTrocas = new Map<string, string>();
+  for (const sw of (c.cardio_exercise_swaps ?? []) as any[]) {
+    if (typeof sw?.planned_exercise_id === 'string' && isCardioModalidade(sw?.to_modality)) {
+      mapaTrocas.set(sw.planned_exercise_id, sw.to_modality);
+    }
+  }
+
+  // Agrupa por exercício (id do planned_exercise quando disponível, senão
+  // ordem + nome — retrocompatível com dado/mock sem o id), preservando a
+  // ordem das séries.
   const porExercicio = new Map<string, HistoryExercise>();
   for (const l of (linhas.data ?? []) as any[]) {
     const nome: string =
       l?.planned_sets?.planned_exercises?.name ?? 'Exercício';
     const ordemEx: number =
       l?.planned_sets?.planned_exercises?.exercise_order ?? 0;
-    const chave = `${ordemEx}::${nome}`;
+    const plannedExerciseId: string | null = l?.planned_sets?.planned_exercise_id ?? null;
+    const metric = l?.planned_sets?.planned_exercises?.metric ?? null;
+    const toModality = plannedExerciseId ? mapaTrocas.get(plannedExerciseId) : undefined;
+    const chave = plannedExerciseId ?? `${ordemEx}::${nome}`;
     if (!porExercicio.has(chave)) {
-      porExercicio.set(chave, { name: nome, order: ordemEx, sets: [] });
+      porExercicio.set(chave, {
+        name: toModality ?? nome,
+        order: ordemEx,
+        metric,
+        swappedFrom: toModality ? nome : null,
+        sets: [],
+      });
     }
     porExercicio.get(chave)!.sets.push({
       setOrder: l?.planned_sets?.set_order ?? null,
+      // null é o valor correto e honesto para uma série de cardio — nunca
+      // inventar 0 reps (Pitfall 2 fechado).
       actualReps: l.actual_reps,
       actualLoadKg: toNum(l.actual_load_kg), // numeric pode vir como string (F4)
       actualRir: l.actual_rir,
+      actualDurationSeconds: toNum(l.actual_duration_seconds),
+      actualDistanceM: toNum(l.actual_distance_m),
+      perceivedEffort: l.perceived_effort ?? null,
       outcome: l.outcome,
     });
   }
@@ -904,7 +947,6 @@ export const getSessionLogDetail = async (
       sets: [...ex.sets].sort((a, b) => (a.setOrder ?? 0) - (b.setOrder ?? 0)),
     }));
 
-  const c = cabecalho.data as any;
   return {
     sessionLogId: c.id,
     title: c.planned_sessions?.title ?? 'Treino',

@@ -321,6 +321,34 @@ export const formatDistance = (meters: number | null | undefined): string => {
   return `${(meters / 1000).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} km`;
 };
 
+/**
+ * Descreve o resultado de uma série de cardio (Fase 3, D-08 histórico):
+ * tempo, distância (se houver), pace derivado e esforço percebido.
+ *
+ * MESMA fórmula de `SessionQueue.doneLine` (sessão ativa) — replicada aqui
+ * para o histórico em vez de importar componente de UI dentro do motor puro
+ * (`sessionModel.ts` não pode depender de `components/`), com paridade
+ * garantida por teste (`__tests__/sessionExecutionRepository.test.ts`), não
+ * por importação cruzada: puxar `SessionQueue.tsx` para esta wave criaria
+ * dependência de arquivo com o Plano 03-03 sem ganho proporcional — ambas as
+ * implementações são funções puras já cobertas por teste.
+ */
+export const formatCardioSetResult = (params: {
+  durationSeconds: number | null;
+  distanceM: number | null;
+  perceivedEffort: PerceivedEffort | null;
+}): string => {
+  const partes = [formatDuration(params.durationSeconds)];
+  if (params.distanceM != null) {
+    partes.push(formatDistance(params.distanceM));
+    partes.push(
+      formatPace(paceSecondsPerKm(params.durationSeconds, params.distanceM)),
+    );
+  }
+  if (params.perceivedEffort) partes.push(params.perceivedEffort);
+  return partes.join(' · ');
+};
+
 // Tolerância para considerar a duração "no alvo": ±10% cobre o arredondamento
 // de quem para o relógio na mão sem transformar 27min de uma meta de 25 em falha.
 const TOLERANCIA_DURACAO = 0.1;
