@@ -45,3 +45,7 @@ export const CARDIO_MODALIDADES_COM_DISTANCIA: readonly CardioModalidade[] = [
   'Remo Ergômetro',
   'Cardio Contínuo (LISS)',
 ];
+
+/** Modalidade válida? Guarda de fronteira antes de gravar troca (Fase 3, D-02). */
+export const isCardioModalidade = (v: unknown): v is CardioModalidade =>
+  typeof v === 'string' && (CARDIO_MODALIDADES as readonly string[]).includes(v);

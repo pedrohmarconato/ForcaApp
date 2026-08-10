@@ -5,6 +5,10 @@
 // devolvemos null e a tela pergunta ao aluno.
 
 import type { SessionDetail } from '../services/trainingRepository';
+import {
+  CARDIO_MODALIDADES_COM_DISTANCIA,
+  type CardioModalidade,
+} from '../constants/cardioModalidades';
 
 export type Outcome = 'on_target' | 'under' | 'over';
 
@@ -111,6 +115,10 @@ export type DraftExercise = {
   skippedByUser?: boolean;
   skipReason?: SkipReason | null;
   skipNote?: string | null;
+  // Troca de modalidade de cardio (Fase 3, D-08): nome ORIGINAL do exercício
+  // antes da troca — null quando nunca foi trocado; ausente em rascunho
+  // anterior à Fase 3 lido como não-trocado.
+  swappedFrom?: string | null;
   loadIncrementKg: number;
   restSeconds: number | null;
   priority: 'primary' | 'secondary' | 'accessory';
@@ -537,6 +545,52 @@ export const removeExerciseSkipFromDraft = (
     ex.exerciseId !== exerciseId
       ? ex
       : { ...ex, skippedByUser: false, skipReason: null, skipNote: null },
+  ),
+});
+
+/**
+ * Troca a modalidade de um exercício de cardio (Fase 3, REQ-06).
+ *
+ * D-01: a dose por TEMPO é preservada — `targetDurationSeconds` de cada série
+ * nunca é tocado, sobrevive pelo spread. A distância-ALVO da modalidade
+ * ORIGINAL nunca deve sobreviver à troca (seria dado inventado: a tela
+ * mostraria uma meta de km que pertence a outro exercício) — por isso
+ * `targetDistanceM` é sempre zerado, mesmo quando a nova modalidade também
+ * tem métrica de distância.
+ *
+ * D-04: `metric` muda para `'tempo_distancia'` só quando a nova modalidade
+ * está em `CARDIO_MODALIDADES_COM_DISTANCIA`; caso contrário vira `'tempo'`.
+ * É esse campo (não um flag novo) que liga/desliga o campo de distância
+ * REALIZADA em `SessionPlayer.tsx`, porque ele já decide via
+ * `metricOf(exercise) === 'tempo_distancia'` — nenhuma mudança naquele
+ * arquivo é necessária.
+ *
+ * D-08: `swappedFrom` guarda o nome ORIGINAL para o rótulo "trocado de X".
+ * `ex.swappedFrom ?? ex.name` preserva a origem VERDADEIRA em trocas
+ * encadeadas (A -> B -> C mantém "A", nunca "B").
+ *
+ * Exercício de `exerciseId` diferente não é tocado (mesmo padrão de
+ * `applyExerciseSkipToDraft`); o `draft` recebido não é mutado (imutável,
+ * mesmo shape de spread do resto deste arquivo).
+ */
+export const applyCardioSwapToDraft = (
+  draft: SessionDraft,
+  exerciseId: string,
+  toModality: CardioModalidade,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) =>
+    ex.exerciseId !== exerciseId
+      ? ex
+      : {
+          ...ex,
+          name: toModality,
+          swappedFrom: ex.swappedFrom ?? ex.name,
+          metric: CARDIO_MODALIDADES_COM_DISTANCIA.includes(toModality)
+            ? 'tempo_distancia'
+            : 'tempo',
+          sets: ex.sets.map((s) => ({ ...s, targetDistanceM: null })),
+        },
   ),
 });
 

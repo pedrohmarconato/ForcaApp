@@ -11,6 +11,8 @@ import { supabase } from '../config/supabaseClient';
 import type { Outcome, SkipReason } from '../engine/sessionModel';
 import { exerciseIdentity, isSkipReason, toNum } from '../engine/sessionModel';
 import type { SetLogResumo } from '../engine/progressStats';
+import type { CardioModalidade } from '../constants/cardioModalidades';
+import { isCardioModalidade } from '../constants/cardioModalidades';
 
 export type ServerSetLog = {
   id: string;
@@ -44,11 +46,24 @@ export type OpenSessionLog = {
    * traria de volta, na retomada, um exercício que o aluno dispensou.
    */
   exerciseSkips: ServerExerciseSkip[];
+  /**
+   * Trocas de modalidade de cardio registradas nesta execução (Fase 3, D-08).
+   * Vem do SERVIDOR pela mesma razão de `exerciseSkips`: o rascunho local não
+   * é autoritativo — trocar e fechar o app antes de o rascunho gravar não
+   * pode perder a troca na retomada.
+   */
+  exerciseSwaps: ServerCardioSwap[];
 };
 
 export type ServerExerciseSkip = {
   plannedExerciseId: string;
   reason: SkipReason;
+  note: string | null;
+};
+
+export type ServerCardioSwap = {
+  plannedExerciseId: string;
+  toModality: CardioModalidade;
   note: string | null;
 };
 
@@ -167,7 +182,7 @@ export const getOpenSessionLog = async (
     response = await supabase
       .from('session_logs')
       .select(
-        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at, actual_duration_seconds, actual_distance_m, perceived_effort), exercise_skips(planned_exercise_id, reason, note)',
+        'id, started_at, available_minutes, mood, adherence_snapshot, set_logs(id, planned_set_id, actual_reps, actual_load_kg, actual_rir, outcome, adaptation, completed_at, actual_duration_seconds, actual_distance_m, perceived_effort), exercise_skips(planned_exercise_id, reason, note), cardio_exercise_swaps(planned_exercise_id, to_modality, note)',
       )
       .eq('user_id', userId)
       .eq('planned_session_id', plannedSessionId)
@@ -221,6 +236,21 @@ export const getOpenSessionLog = async (
       : [],
   );
 
+  // Modalidade desconhecida (linha gravada por versão mais nova do app, ou
+  // drift entre banco e catálogo do cliente) é DESCARTADA, não coagida: um
+  // valor não reconhecido nunca deve propagar para o draft/UI.
+  const exerciseSwaps = ((row.cardio_exercise_swaps ?? []) as any[]).flatMap((sw) =>
+    typeof sw?.planned_exercise_id === 'string' && isCardioModalidade(sw?.to_modality)
+      ? [
+          {
+            plannedExerciseId: sw.planned_exercise_id,
+            toModality: sw.to_modality,
+            note: typeof sw.note === 'string' && sw.note.length > 0 ? sw.note : null,
+          } as ServerCardioSwap,
+        ]
+      : [],
+  );
+
   return {
     sessionLogId: row.id as string,
     startedAt: row.started_at as string,
@@ -232,6 +262,7 @@ export const getOpenSessionLog = async (
         ? row.mood
         : null,
     exerciseSkips,
+    exerciseSwaps,
   };
 };
 
@@ -268,6 +299,47 @@ export const skipSessionExercise = async (params: {
   return {
     plannedExerciseId: row.planned_exercise_id as string,
     reason: (isSkipReason(row.reason) ? row.reason : params.reason) as SkipReason,
+    note: typeof row.note === 'string' && row.note.length > 0 ? row.note : null,
+  };
+};
+
+/**
+ * Troca a modalidade de um exercício de cardio via RPC `swap_session_exercise`
+ * (migration 0034, Plano 03-01). Erro propaga: a troca não pode aparecer
+ * aplicada na tela se o banco a rejeitou (mesma razão de `skipSessionExercise`
+ * — o exercício voltaria a exigir a modalidade original na próxima retomada).
+ *
+ * Idempotente por (session_log, exercício): repetir a troca corrige a
+ * escolha, não empilha.
+ */
+export const swapSessionExercise = async (params: {
+  sessionLogId: string;
+  plannedExerciseId: string;
+  toModality: CardioModalidade;
+  note?: string | null;
+}): Promise<ServerCardioSwap> => {
+  let response: any;
+  try {
+    response = await supabase.rpc('swap_session_exercise', {
+      p_session_log_id: params.sessionLogId,
+      p_planned_exercise_id: params.plannedExerciseId,
+      p_to_modality: params.toModality,
+      p_note: params.note ?? null,
+    });
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  const { data, error, status } = response;
+  if (error) throwResponseError(error, status);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.planned_exercise_id) {
+    throw new Error('swap_session_exercise não retornou a troca.');
+  }
+  return {
+    plannedExerciseId: row.planned_exercise_id as string,
+    toModality: (isCardioModalidade(row.to_modality)
+      ? row.to_modality
+      : params.toModality) as CardioModalidade,
     note: typeof row.note === 'string' && row.note.length > 0 ? row.note : null,
   };
 };
