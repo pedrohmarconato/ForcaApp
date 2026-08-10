@@ -32,7 +32,7 @@ type Props = {
   onRecarregar: () => void;
 };
 
-const formatarMinutos = (valor: number): string => {
+const formatarNumeroCompacto = (valor: number): string => {
   if (valor === 0) return '0';
   if (valor < 1) return '<1';
   const arredondado = Math.round(valor * 10) / 10;
@@ -91,7 +91,7 @@ const CardioPrescritoSection = ({ logs, prescricao, erro, onRecarregar }: Props)
           {progresso.metaMinutos != null ? (
             <>
               <Text style={styles.detalhe}>
-                {`${formatarMinutos(progresso.minutos)} de ${formatarMinutos(progresso.metaMinutos)} min`}
+                {`${formatarNumeroCompacto(progresso.minutos)} de ${formatarNumeroCompacto(progresso.metaMinutos)} min`}
               </Text>
               <ProgressTrack
                 ratio={progresso.fracaoMinutos ?? 0}
@@ -104,7 +104,7 @@ const CardioPrescritoSection = ({ logs, prescricao, erro, onRecarregar }: Props)
           {progresso.prescritoKm != null ? (
             <>
               <Text style={styles.detalhe}>
-                {`${formatarMinutos(progresso.realizadoKm ?? 0)} de ${formatarMinutos(progresso.prescritoKm)} km`}
+                {`${formatarNumeroCompacto(progresso.realizadoKm ?? 0)} de ${formatarNumeroCompacto(progresso.prescritoKm)} km`}
               </Text>
               <ProgressTrack
                 ratio={progresso.fracaoKm ?? 0}
