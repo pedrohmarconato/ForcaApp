@@ -574,17 +574,6 @@ const ActiveSessionScreen = ({ route }: Props) => {
         onDismiss={() => setRecusa(null)}
       />
 
-      <SwapModalitySheet
-        visible={troca != null && modalContent !== 'swap_modality'}
-        exercicioAtualNome={troca?.nome ?? ''}
-        modalidades={modalidadesAceitas}
-        erro={modalidadesAceitasErro}
-        onRecarregar={carregarModalidadesAceitas}
-        busy={trocaBusy}
-        onConfirm={onConfirmarTroca}
-        onDismiss={() => setTroca(null)}
-      />
-
       <Modal
         visible={modalVisible}
         animationType="slide"
