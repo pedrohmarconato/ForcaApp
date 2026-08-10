@@ -114,7 +114,10 @@ const SessionQueue = ({
                   <Text style={styles.acaoLabel}>Não vou fazer</Text>
                 </TouchableOpacity>
               ) : null}
-              {onSolicitarTroca && !foraDeJogo && isTimeBased(metricOf(ex)) ? (
+              {onSolicitarTroca &&
+              !foraDeJogo &&
+              isTimeBased(metricOf(ex)) &&
+              !ex.sets.some((s) => s.status === 'done') ? (
                 <TouchableOpacity
                   style={styles.acao}
                   onPress={() => onSolicitarTroca(ex)}

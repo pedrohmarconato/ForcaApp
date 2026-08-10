@@ -563,6 +563,91 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
     } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
+  it('entry point 1: some "Trocar modalidade" quando a série já está concluída', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    mock(getSessionDetail).mockResolvedValueOnce(detailComCardio as any);
+    try {
+      const screen = renderScreen();
+      await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText('Normal'));
+      fireEvent.press(screen.getByLabelText('Tempo cheio'));
+      fireEvent.press(screen.getByLabelText('Começar treino'));
+      await waitFor(() => expect(screen.getByText('Sexta: Cardio')).toBeTruthy());
+
+      // Pré-condição: a única série do exercício já está concluída — mesmo
+      // predicado do guard de CR-01 (activeSessionStore.swapExercise).
+      useActiveSessionStore.setState((s: any) => ({
+        draft: {
+          ...s.draft!,
+          exercises: s.draft!.exercises.map((ex: any) =>
+            ex.exerciseId === 'ex-cardio'
+              ? {
+                  ...ex,
+                  sets: ex.sets.map((set: any) => ({
+                    ...set,
+                    status: 'done',
+                    actualDurationSeconds: 1500,
+                    actualDistanceM: 3000,
+                  })),
+                }
+              : ex,
+          ),
+        },
+      }));
+
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+
+      expect(screen.queryByLabelText('Trocar modalidade de Caminhada')).toBeNull();
+      expect(screen.getByLabelText('Não vou fazer Caminhada')).toBeTruthy();
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
+  });
+
+  it('entry point 2: SkipReasonSheet não oferece troca quando a série já está concluída', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    mock(getSessionDetail).mockResolvedValueOnce(detailComCardio as any);
+    try {
+      const screen = renderScreen();
+      await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText('Normal'));
+      fireEvent.press(screen.getByLabelText('Tempo cheio'));
+      fireEvent.press(screen.getByLabelText('Começar treino'));
+      await waitFor(() => expect(screen.getByText('Sexta: Cardio')).toBeTruthy());
+
+      // Mesma pré-condição do teste anterior: série já concluída.
+      useActiveSessionStore.setState((s: any) => ({
+        draft: {
+          ...s.draft!,
+          exercises: s.draft!.exercises.map((ex: any) =>
+            ex.exerciseId === 'ex-cardio'
+              ? {
+                  ...ex,
+                  sets: ex.sets.map((set: any) => ({
+                    ...set,
+                    status: 'done',
+                    actualDurationSeconds: 1500,
+                    actualDistanceM: 3000,
+                  })),
+                }
+              : ex,
+          ),
+        },
+      }));
+
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+
+      fireEvent.press(screen.getByLabelText('Não vou fazer Caminhada'));
+      await waitFor(() => expect(screen.getByText('Não vou fazer Caminhada')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('skip-reason-sem_equipamento'));
+      expect(screen.queryByTestId('skip-reason-oferecer-troca')).toBeNull();
+      expect(screen.getByTestId('skip-reason-confirm')).toHaveTextContent('Não vou fazer');
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
+  });
+
   it('falha ao trocar: Alert avisa e o sheet permanece aberto', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });

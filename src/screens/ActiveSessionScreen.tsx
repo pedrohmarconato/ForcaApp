@@ -361,7 +361,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
     recusa?.escopo === 'exercicio'
       ? draft.exercises.find((e) => e.exerciseId === recusa.exerciseId)
       : null;
-  const recusaEhCardio = recusaExercicio != null && isTimeBased(metricOf(recusaExercicio));
+  const recusaEhCardio =
+    recusaExercicio != null &&
+    isTimeBased(metricOf(recusaExercicio)) &&
+    !recusaExercicio.sets.some((s) => s.status === 'done');
 
   const onSolicitarTrocaAPartirDaRecusa = () => {
     if (recusa?.escopo !== 'exercicio') return;
