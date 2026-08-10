@@ -45,6 +45,12 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
   getWeekReplanContext: jest.fn(),
   applyConfirmedReplan: jest.fn(),
 }));
+// Fase 3: ActiveSessionScreen passou a importar cardioModalidadesAceitasRepository
+// (troca de modalidade de cardio); mocka para não carregar o cliente Supabase real
+// (mesmo padrão dos demais services).
+jest.mock('../src/services/cardioModalidadesAceitasRepository', () => ({
+  getModalidadesAceitas: jest.fn(async () => []),
+}));
 // Fase 5: o store passou a importar agendaRepository e planEditRepository;
 // mocka para não carregar o cliente Supabase real (mesmo padrão dos demais services).
 jest.mock('../src/services/agendaRepository', () => ({
