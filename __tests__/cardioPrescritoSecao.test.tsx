@@ -130,6 +130,28 @@ describe('prescrito × realizado', () => {
     expect(queryByLabelText('Progresso dos minutos de cardio prescritos')).toBeNull();
     expect(queryByText(/de.*min/)).toBeNull();
   });
+
+  it('D-05/D-06: mostra km prescrito × realizado com barra, somando modalidades diferentes', () => {
+    const { getByText, getByLabelText } = renderSecao({
+      logs: [
+        log('Corrida', 1800, 3000, new Date().toISOString()),
+        log('Remo Ergômetro', 900, 2000, new Date().toISOString()),
+      ],
+      prescricao: prescricaoRotina({ distanciaM: 5000 }),
+    });
+
+    expect(getByText('5 de 5 km')).toBeTruthy();
+    expect(getByLabelText('Progresso da distância de cardio prescrita')).toBeTruthy();
+  });
+
+  it('sem km prescrito, nenhuma linha de km aparece (nem "0 de 0 km")', () => {
+    const { queryByText } = renderSecao({
+      logs: [],
+      prescricao: prescricaoRotina({ distanciaM: null }),
+    });
+
+    expect(queryByText(/km/)).toBeNull();
+  });
 });
 
 describe('nenhuma ação de escrita de meta sobrevive', () => {

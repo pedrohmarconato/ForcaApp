@@ -101,6 +101,19 @@ const CardioPrescritoSection = ({ logs, prescricao, erro, onRecarregar }: Props)
             </>
           ) : null}
 
+          {progresso.prescritoKm != null ? (
+            <>
+              <Text style={styles.detalhe}>
+                {`${formatarMinutos(progresso.realizadoKm ?? 0)} de ${formatarMinutos(progresso.prescritoKm)} km`}
+              </Text>
+              <ProgressTrack
+                ratio={progresso.fracaoKm ?? 0}
+                accessibilityLabel="Progresso da distância de cardio prescrita"
+                style={styles.barra}
+              />
+            </>
+          ) : null}
+
           {progresso.metaSessoes != null ? (
             <>
               <Text style={styles.detalhe}>
