@@ -885,10 +885,18 @@ export const getSessionLogDetail = async (
   if (cabecalho.error) throw cabecalho.error;
   if (!cabecalho.data) return null;
 
+  // Sem degrau erroDeColunaAusente aqui (diferente do cabeçalho acima): as
+  // colunas novas desta query (actual_duration_seconds/actual_distance_m/
+  // perceived_effort/metric) nasceram na migration 0014, muito antes de
+  // exercise_skips (0020) / cardio_exercise_swaps (0034) — que este MESMO
+  // select já embute nas outras duas queries desta função — logo nenhum
+  // ambiente real pode ter 0034 sem já ter 0014; a topologia de migrations
+  // torna esse gap impossível, diferente do caso genuíno de active_seconds
+  // (produção na 0022, coluna só a partir da 0028).
   const linhas = await supabase
     .from('set_logs')
     .select(
-      'actual_reps, actual_load_kg, actual_rir, actual_duration_seconds, actual_distance_m, perceived_effort, outcome, completed_at, planned_sets(set_order, planned_exercise_id, planned_exercises(name, exercise_order, metric))',
+      'actual_reps, actual_load_kg, actual_rir, actual_duration_seconds, actual_distance_m, perceived_effort, outcome, completed_at, planned_sets(set_order, exercise_id, planned_exercises(name, exercise_order, metric))',
     )
     .eq('session_log_id', sessionLogId);
   if (linhas.error) throw linhas.error;
@@ -913,7 +921,7 @@ export const getSessionLogDetail = async (
       l?.planned_sets?.planned_exercises?.name ?? 'Exercício';
     const ordemEx: number =
       l?.planned_sets?.planned_exercises?.exercise_order ?? 0;
-    const plannedExerciseId: string | null = l?.planned_sets?.planned_exercise_id ?? null;
+    const plannedExerciseId: string | null = l?.planned_sets?.exercise_id ?? null;
     const metric = l?.planned_sets?.planned_exercises?.metric ?? null;
     const toModality = plannedExerciseId ? mapaTrocas.get(plannedExerciseId) : undefined;
     const chave = plannedExerciseId ?? `${ordemEx}::${nome}`;

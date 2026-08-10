@@ -985,7 +985,7 @@ describe('getSessionLogDetail', () => {
           completed_at: 'z',
           planned_sets: {
             set_order: 1,
-            planned_exercise_id: 'pe-1',
+            exercise_id: 'pe-1',
             planned_exercises: { name: 'Corrida', exercise_order: 1, metric: 'tempo_distancia' },
           },
         },
@@ -1026,7 +1026,7 @@ describe('getSessionLogDetail', () => {
           completed_at: 'z',
           planned_sets: {
             set_order: 1,
-            planned_exercise_id: 'pe-9',
+            exercise_id: 'pe-9',
             planned_exercises: { name: 'Corrida', exercise_order: 1, metric: 'tempo_distancia' },
           },
         },
@@ -1065,7 +1065,7 @@ describe('getSessionLogDetail', () => {
           completed_at: 'z',
           planned_sets: {
             set_order: 1,
-            planned_exercise_id: 'pe-2',
+            exercise_id: 'pe-2',
             planned_exercises: { name: 'Bicicleta Ergométrica', exercise_order: 1, metric: 'tempo' },
           },
         },
