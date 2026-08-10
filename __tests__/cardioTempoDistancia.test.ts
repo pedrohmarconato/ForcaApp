@@ -28,6 +28,11 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
     getLastLoadByExercise: jest.fn(),
+    swapSessionExercise: jest.fn(async (params: any) => ({
+      plannedExerciseId: params.plannedExerciseId,
+      toModality: params.toModality,
+      note: null,
+    })),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: () => false,
   };
@@ -42,11 +47,14 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   clearDraft: jest.fn(),
 }));
 
+import React from 'react';
+import { render } from '@testing-library/react-native';
 import {
   startSessionLog,
   saveSetLog,
   getOpenSessionLog,
   getLastLoadByExercise,
+  swapSessionExercise,
 } from '../src/services/sessionExecutionRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import {
@@ -59,9 +67,10 @@ import {
   isTimeBased,
   metricOf,
   paceSecondsPerKm,
+  applyCardioSwapToDraft,
 } from '../src/engine/sessionModel';
 import { alvoDaSerie } from '../src/components/session/SessionPlayer';
-import { doneLine } from '../src/components/session/SessionQueue';
+import SessionQueue, { doneLine } from '../src/components/session/SessionQueue';
 import {
   formatExerciseTarget,
   type SessionDetail,
@@ -394,6 +403,44 @@ describe('store: registrar um cardio de verdade', () => {
   });
 });
 
+describe('store: trocar modalidade de cardio', () => {
+  const store = () => useActiveSessionStore.getState();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+    mock(getLastLoadByExercise).mockResolvedValue({});
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(startSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-c',
+      startedAt: '2026-07-24T10:00:00Z',
+    });
+    await store().startOrResume({
+      sessionId: 'sess-c',
+      userId: 'user-1',
+      detail: detalheComCardio(),
+    });
+    const st = store();
+    if (st.status === 'awaiting_checkin') {
+      await st.confirmCheckIn({ mood: 'normal', availableMinutes: null });
+    }
+  });
+
+  it('chama swapSessionExercise com o par exercício/modalidade e aplica ao draft', async () => {
+    const ok = await store().swapExercise('ex-cardio', 'Remo Ergômetro');
+
+    expect(ok).toBe(true);
+    expect(mock(swapSessionExercise)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plannedExerciseId: 'ex-cardio',
+        toModality: 'Remo Ergômetro',
+      }),
+    );
+    expect(store().draft!.exercises[0].name).toBe('Remo Ergômetro');
+    expect(store().draft!.exercises[0].metric).toBe('tempo_distancia');
+  });
+});
+
 describe('resumo do exercício na lista do treino', () => {
   it('cardio não mostra "null reps" — mostra tempo e distância', () => {
     const [caminhada] = detalheComCardio().planned_exercises;
@@ -438,6 +485,42 @@ describe('fila de séries (SessionQueue)', () => {
     const texto = alvoDaSerie(caminhada, caminhada.sets[0]);
     expect(texto).not.toMatch(/reps/i);
     expect(texto).not.toMatch(/\b0\b/);
+  });
+
+  it('cardio (tempo_distancia) oferece "Trocar modalidade"; musculação não', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const screen = render(
+      React.createElement(SessionQueue, {
+        draft,
+        metaFor: () => null,
+        onSolicitarTroca: jest.fn(),
+      }),
+    );
+    expect(screen.getByTestId('swap-ex-cardio')).toBeTruthy();
+
+    const draftMusculacao = {
+      ...draft,
+      exercises: draft.exercises.map((ex, i) =>
+        i === 0 ? { ...ex, metric: 'carga_reps' as const } : ex,
+      ),
+    };
+    const screenMusculacao = render(
+      React.createElement(SessionQueue, {
+        draft: draftMusculacao,
+        metaFor: () => null,
+        onSolicitarTroca: jest.fn(),
+      }),
+    );
+    expect(screenMusculacao.queryByTestId('swap-ex-cardio')).toBeNull();
+  });
+
+  it('após applyCardioSwapToDraft a linha mostra "Trocado de X"', () => {
+    const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
+    const trocado = applyCardioSwapToDraft(draft, 'ex-cardio', 'Remo Ergômetro');
+    const screen = render(
+      React.createElement(SessionQueue, { draft: trocado, metaFor: () => null }),
+    );
+    expect(screen.getByText(/Trocado de Caminhada/)).toBeTruthy();
   });
 });
 

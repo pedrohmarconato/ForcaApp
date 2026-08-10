@@ -50,6 +50,9 @@ import AdaptationSheet from '../components/session/AdaptationSheet';
 import CheckInSheet from '../components/session/CheckInSheet';
 import ReplanBanner from '../components/session/ReplanBanner';
 import SkipReasonSheet from '../components/session/SkipReasonSheet';
+import SwapModalitySheet from '../components/session/SwapModalitySheet';
+import { getModalidadesAceitas } from '../services/cardioModalidadesAceitasRepository';
+import { type CardioModalidade } from '../constants/cardioModalidades';
 import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
@@ -102,6 +105,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const skipWholeSession = useActiveSessionStore((s) => s.skipWholeSession);
   const activateSet = useActiveSessionStore((s) => s.activateSet);
   const unskipExercise = useActiveSessionStore((s) => s.unskipExercise);
+  const swapExercise = useActiveSessionStore((s) => s.swapExercise);
 
   // Toggle "menos tempo hoje" (Fase 6): input de minutos → recalcula a proposta.
   const [timeInputVisible, setTimeInputVisible] = useState(false);
@@ -114,11 +118,35 @@ const ActiveSessionScreen = ({ route }: Props) => {
   >(null);
   const [recusaBusy, setRecusaBusy] = useState(false);
 
+  // Troca de modalidade de cardio (Fase 3, REQ-06): mesmo padrão de estado da
+  // recusa por exercício, sem a variante "sessao" — troca é sempre por
+  // exercício individual.
+  const [troca, setTroca] = useState<{ exerciseId: string; nome: string } | null>(null);
+  const [trocaBusy, setTrocaBusy] = useState(false);
+  // null = ainda não carregado; array (mesmo vazio) = resposta do servidor já
+  // chegou. Busca lazy: só na primeira vez que o aluno pede a troca.
+  const [modalidadesAceitas, setModalidadesAceitas] = useState<
+    readonly CardioModalidade[] | null
+  >(null);
+  const [modalidadesAceitasErro, setModalidadesAceitasErro] = useState(false);
+
   // A fila e a recusa aberta a partir dela compartilham ESTE Modal nativo. Em
   // Android isso torna impossível empilhar Dialogs durante a animação: o
   // formulário troca apenas o conteúdo da camada já visível.
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalContent, setModalContent] = useState<'queue' | 'skip_reason'>('queue');
+  const [modalContent, setModalContent] = useState<'queue' | 'skip_reason' | 'swap_modality'>(
+    'queue',
+  );
+
+  const carregarModalidadesAceitas = useCallback(async () => {
+    if (!user) return;
+    setModalidadesAceitasErro(false);
+    try {
+      setModalidadesAceitas(await getModalidadesAceitas(user.id));
+    } catch (e) {
+      setModalidadesAceitasErro(true);
+    }
+  }, [user]);
 
   const onConfirmarRecusa = useCallback(
     async (reason: SkipReason, note: string | null) => {
@@ -143,6 +171,28 @@ const ActiveSessionScreen = ({ route }: Props) => {
       }
     },
     [recusa, recusaBusy, skipExercise, skipWholeSession, saveError],
+  );
+
+  const onConfirmarTroca = useCallback(
+    async (toModality: CardioModalidade) => {
+      if (!troca || trocaBusy) return;
+      setTrocaBusy(true);
+      try {
+        const ok = await swapExercise(troca.exerciseId, toModality);
+        if (!ok) {
+          // Mesmo padrão de onConfirmarRecusa: falha do servidor não fecha o
+          // sheet nem aplica a troca — o aluno vê o motivo e pode tentar de novo.
+          Alert.alert('Não foi possível trocar', saveError ?? 'Tente novamente.');
+          return;
+        }
+        setTroca(null);
+        setModalContent('queue');
+        setModalVisible(false);
+      } finally {
+        setTrocaBusy(false);
+      }
+    },
+    [troca, trocaBusy, swapExercise, saveError],
   );
 
   const iniciar = useCallback(async () => {
@@ -498,6 +548,17 @@ const ActiveSessionScreen = ({ route }: Props) => {
         onDismiss={() => setRecusa(null)}
       />
 
+      <SwapModalitySheet
+        visible={troca != null && modalContent !== 'swap_modality'}
+        exercicioAtualNome={troca?.nome ?? ''}
+        modalidades={modalidadesAceitas}
+        erro={modalidadesAceitasErro}
+        onRecarregar={carregarModalidadesAceitas}
+        busy={trocaBusy}
+        onConfirm={onConfirmarTroca}
+        onDismiss={() => setTroca(null)}
+      />
+
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -506,6 +567,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
           setModalVisible(false);
           setModalContent('queue');
           setRecusa(null);
+          setTroca(null);
         }}
       >
         {modalContent === 'skip_reason' && recusa?.escopo === 'exercicio' ? (
@@ -517,6 +579,18 @@ const ActiveSessionScreen = ({ route }: Props) => {
             busy={recusaBusy}
             onConfirm={onConfirmarRecusa}
             onDismiss={() => { setRecusa(null); setModalContent('queue'); }}
+          />
+        ) : modalContent === 'swap_modality' && troca != null ? (
+          <SwapModalitySheet
+            inline
+            visible
+            exercicioAtualNome={troca.nome}
+            modalidades={modalidadesAceitas}
+            erro={modalidadesAceitasErro}
+            onRecarregar={carregarModalidadesAceitas}
+            busy={trocaBusy}
+            onConfirm={onConfirmarTroca}
+            onDismiss={() => { setTroca(null); setModalContent('queue'); }}
           />
         ) : <SafeAreaView style={styles.modalContainer} edges={['top']}>
           <View style={styles.modalHeader}>
@@ -545,6 +619,15 @@ const ActiveSessionScreen = ({ route }: Props) => {
               onSolicitarRecusa={(ex: DraftExercise) => {
                 setRecusa({ escopo: 'exercicio', exerciseId: ex.exerciseId, nome: ex.name });
                 setModalContent('skip_reason');
+              }}
+              onSolicitarTroca={(ex: DraftExercise) => {
+                setTroca({ exerciseId: ex.exerciseId, nome: ex.name });
+                setModalContent('swap_modality');
+                // Busca lazy: só na primeira vez que o aluno pede a troca, não
+                // em toda sessão com cardio.
+                if (modalidadesAceitas == null && !modalidadesAceitasErro) {
+                  void carregarModalidadesAceitas();
+                }
               }}
               onActivateSet={(exerciseId, setOrder) => {
                 activateSet(exerciseId, setOrder);
