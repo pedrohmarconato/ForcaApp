@@ -86,11 +86,16 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
   3. O realizado na modalidade trocada conta normalmente no realizado do Progresso.
 
-**Plans**: TBD
+**Plans**: 6 plans
 
 Plans:
 
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — REQ-06: migração 0034 (tabela satélite `cardio_exercise_swaps` + RPC `swap_session_exercise`) + checkpoint de decisão antes de aplicar em banco vivo
+- [ ] 03-02-PLAN.md — REQ-06: tracer — motor puro (`applyCardioSwapToDraft`, D-01/D-04) + repositório de escrita/retomada + store (`swapExercise`, servidor primeiro) + leitura de "modalidades aceitas" (D-02)
+- [ ] 03-03-PLAN.md — REQ-06: entry point 1 (fila da sessão) — `SwapModalitySheet` + botão "Trocar modalidade" + visibilidade na sessão ativa (D-08, metade 1)
+- [ ] 03-04-PLAN.md — REQ-06: entry point 2 — evolução de `SkipReasonSheet` (motivo `sem_equipamento` oferece substituição)
+- [ ] 03-05-PLAN.md — REQ-06: histórico — corrige o gap pré-existente de cardio em `getSessionLogDetail` e mostra "trocado de X" (D-08, metade 2)
+- [ ] 03-06-PLAN.md — REQ-06: Progresso — km realizado soma qualquer modalidade (D-05), prescrito permanece cheio (D-06)
 
 ## Progress
 
@@ -101,4 +106,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
-| 3. Intercâmbio de modalidade de cardio | 0/TBD | Not started | - |
+| 3. Intercâmbio de modalidade de cardio | 0/6 | Planned | - |
