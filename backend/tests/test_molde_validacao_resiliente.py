@@ -306,6 +306,31 @@ def test_semana_avulsa_acima_do_teto_nao_chega_a_persistencia(monkeypatch):
     assert chamada.call_count == 2
 
 
+def test_semana_avulsa_fora_do_calendario_nao_chega_a_persistencia(monkeypatch):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_avulsas"] = {
+        "semana_99": {
+            "semana": 99,
+            "sessoes": copy.deepcopy(molde["semanas_tipo"][0]["sessoes"]),
+        }
+    }
+    resposta_invalida = _resposta(json.dumps(molde))
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [resposta_invalida, resposta_invalida],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    visao = job.to_dict()
+    assert visao["status"] == "erro"
+    assert visao["error"]["code"] == "molde_dose_cardio"
+    assert chamada.call_count == 2
+
+
 def test_duas_violacoes_do_teto_terminam_sem_loop(monkeypatch):
     regra_acima_do_teto = {
         "tipo": "delta_cardio_percentual",

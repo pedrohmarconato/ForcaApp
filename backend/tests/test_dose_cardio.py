@@ -510,6 +510,28 @@ class TestSemanasAvulsas:
         assert "semana_2" in msg
         assert "campo semana=3" in msg
 
+    def test_semana_avulsa_fora_do_calendario_e_reprovada(self):
+        molde = _molde([[_sessao("A", [_forca(), _cardio("Corrida", 30)])]])
+        molde["semanas_avulsas"] = {
+            "semana_99": {
+                "semana": 99,
+                "sessoes": [_sessao("Exceção", [_forca(), _cardio("Corrida", 30)])],
+            }
+        }
+
+        msg = validar_dose_cardio(
+            molde,
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        )
+
+        assert msg is not None
+        assert "semana_99" in msg
+        assert "fora do calendário" in msg
+
 
 class TestExercicioTemporalDesconhecido:
     def test_nome_fora_do_catalogo_com_duracao_nao_escapa_da_dose(self):
