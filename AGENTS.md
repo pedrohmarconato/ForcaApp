@@ -45,12 +45,23 @@ falha fechado, então nenhuma automação atravessa esse portão sozinha.
 
 ## Estado das migrations
 
-- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0035** (conferido em 10/08/2026; a 0034 e a 0035 com aplicação nesta data — a 0035 estreita a guarda de cardio da RPC para só `metric`, alinhada ao gate do cliente).
-- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0035** (conferido em 10/08/2026; a 0033, a 0034 e a 0035 com aplicação nesta data).
-- Os dois ambientes estão IGUAIS (conferido em 30/07/2026 por consulta a
-  `supabase_migrations.schema_migrations` nos dois refs, e por `md5(pg_get_functiondef(...))`
-  idêntico nas 14 funções do domínio). Esta seção já esteve defasada por dias — antes de
-  confiar nela, confirme no banco.
+- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0035**
+  (conferido em 10/08/2026 por `select version from supabase_migrations.schema_migrations` via
+  Management API, sem trocar o link do diretório. Resposta literal:
+  `[{"version":"0035"},{"version":"0034"},{"version":"0033"},{"version":"0032"}]`).
+  **A 0036 NÃO está aplicada aqui** — a guarda `P0005` de `swap_session_exercise` não existe em
+  produção, e o comportamento do teste 5 de `03-UAT.md` segue reproduzível.
+- Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0036**
+  (conferido em 10/08/2026 por consulta direta ao banco com `supabase db query --linked`).
+  A 0036 `guarda_set_log_troca_cardio` foi aplicada nesta data e **comprovada por teste
+  comportamental**, não só por presença na tabela: troca em exercício com série gravada é
+  recusada com `sqlstate=P0005` e 0 linhas em `cardio_exercise_swaps`; troca legítima segue
+  aceita, 1 linha. Ver teste 7 de `03-UAT.md`.
+- ⚠️ **Os dois ambientes estão DIFERENTES desde 10/08/2026**: homologação na 0036, produção na 0035.
+  A afirmação anterior de igualdade valia para 30/07/2026 (conferida por consulta a
+  `supabase_migrations.schema_migrations` nos dois refs e por `md5(pg_get_functiondef(...))`
+  idêntico nas 14 funções do domínio) e **não vale mais**. Esta seção já esteve defasada por
+  dias — antes de confiar nela, confirme no banco.
 - A 0020 (recusa declarada) **reescreve `start_session` e `finish_session`** além de criar
   as RPCs de recusa: as duas passaram a barrar o estado `skipped` e usam a mesma ordem de
   lock (planned_session → session_log). Regressão exercitada em staging com dados

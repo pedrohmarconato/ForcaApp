@@ -203,17 +203,56 @@ expected: |
   ambiente: a chamada direta a `swap_session_exercise` com `set_log` já gravado é recusada com
   `errcode = 'P0005'`, em vez de gravar em `cardio_exercise_swaps`.
 result: [pending]
+parcial: "staging COMPROVADO em 10/08/2026; produção NÃO aplicada — o item só fecha com os dois ambientes"
 source: 03-VERIFICATION.md — Human Verification item 2
+
+staging_resultado: pass
+staging_evidencia: |
+  Migration registrada: `select version from supabase_migrations.schema_migrations order by
+  version desc limit 4` devolveu 0036, 0035, 0034, 0033.
+  Método: `supabase db query --linked` atrás de `scripts/supabase-preflight.sh hml`, que
+  confirmou o ref mjdjtiujhwklchalquhc antes de qualquer comando.
+
+  Prova comportamental (não basta a linha na tabela) — script uat-0036-p0005-v3.sql: semeia
+  usuário sintético, plano, sessão, dois exercícios de cardio e um set_log; simula auth com
+  `set_config('request.jwt.claim.sub', ...)`; chama a RPC nos dois cenários; termina em
+  `raise exception ... using errcode = 'UAT36'`, o que faz o veredicto viajar pela mensagem de
+  erro E garante rollback de tudo que foi semeado. Saída literal:
+    guarda_P0005_instalada = t
+    (a) exercicio COM serie : RECUSADA | sqlstate=P0005 | 0 linha(s) | veredicto=PASS-GREEN
+    (b) exercicio SEM serie : ACEITA   | sqlstate=-     | 1 linha(s) | veredicto=PASS
+
+  Não-regressão: o cenário (b) confirma que a guarda nova não recusa troca legítima.
+  Resíduo: `select count(*) from auth.users where email like 'uat-0036-%'` devolveu 0.
+
+producao_resultado: pending
+producao_evidencia: |
+  Leitura via Management API (HTTPS, sem trocar o link do diretório) devolveu literalmente
+  `[{"version":"0035"},{"version":"0034"},{"version":"0033"},{"version":"0032"}]`.
+  A 0036 não está lá. O link não foi trocado de propósito: este clone roda sessões paralelas, e
+  deixá-lo apontado para produção — mesmo por segundos — abriria janela para outra sessão dar
+  `db push` achando que era homologação.
 why_human: |
-  AGENTS.md (linhas 48-49, conferido em 10/08/2026) confirma que só 0000→0035 estão aplicadas
-  em staging (mjdjtiujhwklchalquhc) e produção (zanqygwsgxkyjiuhrzju). Aplicar migration a
-  banco vivo é ação exclusiva do dono; nenhum agente deste fluxo está autorizado.
-  O dono decidiu "option-a" (aplicar agora, staging primeiro) no checkpoint do plano 03-08,
-  mas os comandos ainda NÃO foram executados.
+  Aplicar migration a banco vivo é ação exclusiva do dono; nenhum agente deste fluxo está
+  autorizado, e `scripts/supabase-preflight.sh prod` exige a palavra `PRODUCAO` digitada por
+  pessoa. O dono decidiu "option-a" (aplicar agora, staging primeiro) no checkpoint do plano
+  03-08 — a metade de staging foi cumprida; a de produção, não.
+comando_do_dono: |
+  cd ~/ForcaApp
+  export SUPABASE_ACCESS_TOKEN="$(cat ~/.supabase_pat)"
+  supabase link --project-ref zanqygwsgxkyjiuhrzju
+  scripts/supabase-preflight.sh prod   # exige digitar PRODUCAO
+  supabase db push
+  # depois, voltar o link: supabase link --project-ref mjdjtiujhwklchalquhc
 impacto_enquanto_pendente: |
-  O comportamento que o teste 5 desta UAT comprovou explorável continua vivo em staging e
-  produção: chamada direta à RPC, build sem o guard client-side, ou corrida entre dois
-  dispositivos ainda grava a troca para exercício com série concluída.
+  Em staging o vetor está fechado. Em PRODUÇÃO o comportamento que o teste 5 desta UAT comprovou
+  explorável continua vivo: chamada direta à RPC, build sem o guard client-side, ou corrida entre
+  dois dispositivos ainda grava a troca para exercício com série concluída.
+correcao_de_registro: |
+  A versão anterior deste item afirmava, citando AGENTS.md:48-49, que só 0000→0035 estavam
+  aplicadas em AMBOS os ambientes. Era verdade quando foi escrito e deixou de ser: a 0036 entrou
+  em staging. AGENTS.md foi corrigido na mesma data e agora registra os dois ambientes como
+  DIFERENTES. Não confie na redação antiga daquele trecho.
 
 ### 8. Caveats da rodada 1 ainda não exercitados manualmente (rodada 2)
 expected: |
@@ -241,7 +280,12 @@ blocked: 0
 
 round_1: 5 testes — 4 pass, 1 issue (teste 3, blocker G-03-3)
 round_2: 3 testes — 1 pass (teste 6, harness de integração reproduzido em 2026-08-10),
-         2 pending (teste 7 aplicação da 0036 em produção; teste 8 caveats de build nativo)
+         2 pending (teste 7 e teste 8).
+         Teste 7 está PARCIAL, não intocado: homologação aplicada e comprovada por teste
+         comportamental em 2026-08-10 (recusa P0005, 0 linhas, resíduo 0); produção segue na
+         0035 e depende de ação do dono. Contabilizado como pending porque o critério do item
+         exige os DOIS ambientes.
+         Teste 8 segue intocado (caveats de build nativo).
 
 ## Gaps
 
@@ -275,7 +319,7 @@ round_2: 3 testes — 1 pass (teste 6, harness de integração reproduzido em 20
   status: code_ready_not_applied
   resolved_by: "Plano 03-08 (commits 9276306 migration + harness, 508ec39 decisão + SUMMARY) — supabase/migrations/0036_guarda_set_log_troca_cardio.sql recria swap_session_exercise com guarda que recusa a troca (errcode P0005) quando já existe set_log para o planned_exercise_id alvo, preservando byte a byte a guarda de métrica da 0035 e sua asserção runtime. 8/8 no harness textual; 03-REVIEW.md item 2 confirmou comparação byte a byte."
   decisao_do_dono: "option-a — aplicar agora, staging primeiro (registrada no checkpoint do plano 03-08, 2026-08-10)."
-  pendencia: "ABERTO EM PRODUÇÃO HOJE. Teste 7 da rodada 2. AGENTS.md:48-49 confirma que só 0000→0035 estão aplicadas em staging e produção; o `supabase db push` NÃO foi executado. Enquanto isso, o comportamento comprovado no teste 5 continua reproduzível nos dois ambientes. O guard client-side (activeSessionStore.ts:1518) segue protegendo o fluxo normal do app — mesma proteção que já existia antes desta onda."
+  pendencia: "ABERTO EM PRODUÇÃO, FECHADO EM HOMOLOGAÇÃO (10/08/2026). Teste 7 da rodada 2. Homologação (mjdjtiujhwklchalquhc) está na 0036 e a recusa P0005 foi comprovada por teste comportamental — troca em exercício com série gravada devolve sqlstate=P0005 e 0 linhas em cardio_exercise_swaps. Produção (zanqygwsgxkyjiuhrzju) permanece na 0035, medido por leitura direta de supabase_migrations.schema_migrations; o `supabase db push` para produção NÃO foi executado e é ação exclusiva do dono (preflight prod exige a palavra PRODUCAO digitada). Enquanto isso, o comportamento comprovado no teste 5 continua reproduzível EM PRODUÇÃO. O guard client-side (activeSessionStore.ts:1518) segue protegendo o fluxo normal do app — mesma proteção que já existia antes desta onda."
   reason: "Verificado por comportamento contra a RPC real: com set_log on_target gravado, swap_session_exercise aceitou e persistiu em cardio_exercise_swaps"
   severity: major
   test: 5
