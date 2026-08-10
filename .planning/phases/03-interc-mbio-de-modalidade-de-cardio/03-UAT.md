@@ -162,7 +162,30 @@ server_gap: |
 
 ### 6. Harness de integração do G-03-3 contra Postgres real (rodada 2)
 expected: Com o stack Supabase local de pé (`supabase start`), `npm run test:integration:pg` passa 1/1 — `getSessionLogDetail` devolve o detalhe da sessão sem lançar erro `.code === '42703'`.
-result: [pending]
+result: pass
+executed: 2026-08-10 — reprodução independente (subagente executor-shell, sessão do orquestrador)
+evidence: |
+  Comando: export SUPABASE_INTEGRATION_SERVICE_ROLE_KEY="$(supabase status -o env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '\"')" && npm run test:integration:pg
+  Saída literal:
+    PASS __tests__/integration/getSessionLogDetail.postgrest.test.ts
+      getSessionLogDetail — integração real contra Postgres local (G-03-3)
+        ✓ devolve o detalhe da sessão sem lançar 42703 (coluna ausente em planned_sets) (12 ms)
+    Test Suites: 1 passed, 1 total
+    Tests:       1 passed, 1 total
+  Alvo: http://127.0.0.1:54321 (default do harness; trava de loopback em
+  __tests__/integration/getSessionLogDetail.postgrest.test.ts:59-66 aborta antes de qualquer
+  chamada de rede se a URL não for 127.0.0.1/localhost).
+  Nenhuma ocorrência de 42703, "column ... does not exist" ou planned_exercise_id na saída.
+  Repo intocado (git status idêntico ao inicial); supabase/.temp/project-ref preservado.
+escopo_do_que_foi_provado: |
+  Provado o GREEN — a truth `verification: backstop` do plano 03-07 está satisfeita.
+  A metade RED (o harness falhar com 42703 quando o bug existe) continua sendo relato do
+  executor do 03-07, não reproduzida aqui — reproduzi-la exigiria reintroduzir o bug.
+correcao_de_registro: |
+  A 03-VERIFICATION.md justificou não rodar este teste porque `supabase status` reportava
+  "Stopped services". Essa leitura estava errada: os serviços parados eram só imgproxy e
+  pooler; o núcleo (supabase_db_ForcaApp, supabase_rest_ForcaApp) estava Up havia 3 horas,
+  confirmado por `docker ps`. O stack nunca esteve parado.
 source: 03-VERIFICATION.md — Human Verification item 1
 why_human: |
   O 03-07-SUMMARY.md relata ter feito exatamente isso (RED com 42703 confirmado, depois
@@ -210,14 +233,15 @@ why_human: |
 ## Summary
 
 total: 8
-passed: 4
+passed: 5
 issues: 1
-pending: 3
+pending: 2
 skipped: 0
 blocked: 0
 
 round_1: 5 testes — 4 pass, 1 issue (teste 3, blocker G-03-3)
-round_2: 3 testes — todos pending (itens de verificação humana da 03-VERIFICATION.md)
+round_2: 3 testes — 1 pass (teste 6, harness de integração reproduzido em 2026-08-10),
+         2 pending (teste 7 aplicação da 0036 em produção; teste 8 caveats de build nativo)
 
 ## Gaps
 
@@ -225,7 +249,8 @@ round_2: 3 testes — todos pending (itens de verificação humana da 03-VERIFIC
   truth: "O detalhe da sessão no histórico abre e mostra o rótulo 'Trocado de X' com o resultado do cardio legível (tempo/distância)"
   status: resolved
   resolved_by: "Plano 03-07 (commits afb0e2b RED, afb35ab GREEN, e7386c0 SUMMARY) — getSessionLogDetail passa a ler planned_sets.exercise_id (coluna real, migration 0001:91) no select e no consumo das linhas. Harness de integração novo (__tests__/integration/getSessionLogDetail.postgrest.test.ts) fora da suíte padrão, rodável por `npm run test:integration:pg`. Confirmado por leitura direta, 47/47 em sessionExecutionRepository.test.ts, grep de regressão vazio em src/, e revisão independente (03-REVIEW.md item 1)."
-  pendencia: "Teste 6 da rodada 2 — reexecutar o harness contra Postgres real. O executor relata RED→GREEN; o gsd-verifier não reproduziu (stack local parado). Risco residual avaliado como baixo."
+  pendencia: nenhuma
+  backstop_confirmado: "2026-08-10 — teste 6 da rodada 2 executado de forma independente: `npm run test:integration:pg` contra o stack local (http://127.0.0.1:54321) devolveu 1 suíte / 1 teste PASS, sem nenhuma ocorrência de 42703. A truth `verification: backstop` do plano 03-07 deixa de ser relato e passa a ser medição. A metade RED continua sendo relato do executor — reproduzi-la exigiria reintroduzir o bug."
   reason: "User reported (execução assistida): tela exibe 'Não foi possível carregar este treino. Verifique a conexão e tente novamente.' — PostgREST devolve 42703, column planned_sets_1.planned_exercise_id does not exist"
   severity: blocker
   test: 3
