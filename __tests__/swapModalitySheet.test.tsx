@@ -97,6 +97,26 @@ describe('SwapModalitySheet', () => {
     expect(screen.queryByTestId('swap-modality-Caminhada')).toBeNull();
   });
 
+  it('CR-02: única modalidade aceita é a atual — mensagem própria, sem botão de confirmar', () => {
+    const screen = render(
+      <SwapModalitySheet
+        inline
+        visible
+        exercicioAtualNome="Corrida"
+        modalidades={['Corrida']}
+        onConfirm={jest.fn()}
+        onDismiss={jest.fn()}
+      />,
+    );
+    // Estado distinto do "nenhuma modalidade cadastrada": há uma modalidade,
+    // mas não existe NADA para trocar — o sheet precisa dizer exatamente isso.
+    expect(screen.getByText('Nenhuma outra modalidade disponível')).toBeTruthy();
+    expect(screen.queryByText('Nenhuma modalidade cadastrada')).toBeNull();
+    // Sem alternativa selecionável, o botão de confirmar não faz sentido.
+    expect(screen.queryByTestId('swap-modality-confirm')).toBeNull();
+    expect(screen.queryByTestId('swap-modality-Corrida')).toBeNull();
+  });
+
   it('confirmar: seleciona uma modalidade e chama onConfirm com ela', () => {
     const onConfirm = jest.fn();
     const screen = render(

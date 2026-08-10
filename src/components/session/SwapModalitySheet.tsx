@@ -14,6 +14,13 @@
 // de prioridade: erro > carregando (modalidades === null) > vazio
 // (modalidades.length === 0) > lista fechada. A lista SÓ mostra as
 // modalidades aceitas do usuário (D-02) — nunca o catálogo inteiro.
+//
+// O estado vazio é medido sobre `opcoes` (já filtrado pelo exercício atual),
+// não sobre `modalidades`: quem só aceita a modalidade que está tentando
+// trocar tem `modalidades.length === 1` mas `opcoes.length === 0` — sem o
+// filtro, a tela mostraria uma área em branco com o botão morto (CR-02). Os
+// dois vazios têm textos distintos porque são situações diferentes:
+// nenhuma modalidade cadastrada × nenhuma OUTRA modalidade disponível.
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -122,6 +129,12 @@ const SwapModalitySheet = ({
             title="Nenhuma modalidade cadastrada"
             description="Complete a anamnese de cardio no questionário para habilitar a troca."
           />
+        ) : opcoes.length === 0 ? (
+          <EmptyState
+            icon="activity"
+            title="Nenhuma outra modalidade disponível"
+            description="A única modalidade que você aceita é esta. Complete a anamnese para adicionar outras."
+          />
         ) : (
           <ScrollView style={styles.lista} keyboardShouldPersistTaps="handled">
             {opcoes.map((m) => {
@@ -148,7 +161,7 @@ const SwapModalitySheet = ({
           </ScrollView>
         )}
 
-        {modalidades !== null && modalidades.length > 0 && !erro ? (
+        {modalidades !== null && opcoes.length > 0 && !erro ? (
           <Button
             label="Trocar modalidade"
             onPress={() => {
