@@ -113,4 +113,37 @@ describe('progressoPrescrito', () => {
     expect(p.minutos).toBe(0);
     expect(p.atingida).toBe(false);
   });
+
+  it('D-05: realizadoKm soma distância de QUALQUER modalidade, comparado ao prescrito cheio (D-06)', () => {
+    const prescricao: PrescricaoCardio = { distanciaM: 5000, duracaoSegundos: null, sessoes: 1 };
+    const p = progressoPrescrito(
+      [log('Remo Ergômetro', 900, 2000, '2026-08-11T10:00:00')],
+      prescricao,
+      REFERENCIA,
+    );
+
+    expect(p.realizadoKm).toBe(2);
+    expect(p.prescritoKm).toBe(5);
+    expect(p.fracaoKm).toBeCloseTo(0.4, 5);
+  });
+
+  it('realizadoKm é ZERO (fato) quando há prescrição de km mas nenhuma amostra na semana', () => {
+    const prescricao: PrescricaoCardio = { distanciaM: 5000, duracaoSegundos: null, sessoes: 1 };
+    const p = progressoPrescrito([], prescricao, REFERENCIA);
+
+    expect(p.realizadoKm).toBe(0);
+    expect(p.fracaoKm).toBe(0);
+  });
+
+  it('sem km prescrito, realizadoKm/fracaoKm são null — nada a comparar', () => {
+    const prescricao: PrescricaoCardio = { distanciaM: null, duracaoSegundos: 1800, sessoes: 1 };
+    const p = progressoPrescrito(
+      [log('Corrida', 1800, 5000, '2026-08-11T10:00:00')],
+      prescricao,
+      REFERENCIA,
+    );
+
+    expect(p.realizadoKm).toBeNull();
+    expect(p.fracaoKm).toBeNull();
+  });
 });

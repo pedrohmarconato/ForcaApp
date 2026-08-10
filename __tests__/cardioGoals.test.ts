@@ -20,6 +20,7 @@
 import {
   TOLERANCIA_DISTANCIA_MAX,
   TOLERANCIA_DISTANCIA_MIN,
+  distanciaRealizadaSemanaM,
   progressoConsistencia,
   progressoDesempenho,
   type CardioLog,
@@ -305,5 +306,61 @@ describe('meta de consistência', () => {
     );
 
     expect(p.minutos).toBe(10);
+  });
+});
+
+describe('distanciaRealizadaSemanaM', () => {
+  // Semana de referência: quinta 30/07/2026 → semana de 27/07 (seg) a 02/08.
+  const REFERENCIA = new Date('2026-07-30T12:00:00');
+
+  it('D-05 "km é km": soma distância de modalidades diferentes na mesma semana', () => {
+    const m = distanciaRealizadaSemanaM(
+      [
+        log('Corrida', 1800, 3000, '2026-07-28T10:00:00'),
+        log('Remo Ergômetro', 900, 2000, '2026-07-29T10:00:00'),
+      ],
+      REFERENCIA,
+    );
+
+    expect(m).toBe(5000);
+  });
+
+  it('log sem distância (modalidade só-tempo) não entra na soma, mas não derruba os outros', () => {
+    const m = distanciaRealizadaSemanaM(
+      [
+        log('Corrida', 1800, 3000, '2026-07-28T10:00:00'),
+        log('Cardio Intervalado (HIIT)', 600, null, '2026-07-29T10:00:00'),
+      ],
+      REFERENCIA,
+    );
+
+    expect(m).toBe(3000);
+  });
+
+  it('nenhum log com distância na janela devolve null, nunca zero inventado', () => {
+    const m = distanciaRealizadaSemanaM(
+      [log('Cardio Intervalado (HIIT)', 600, null, '2026-07-29T10:00:00')],
+      REFERENCIA,
+    );
+
+    expect(m).toBeNull();
+  });
+
+  it('log fora da janela da semana (antes) não conta', () => {
+    const m = distanciaRealizadaSemanaM(
+      [log('Corrida', 1800, 3000, '2026-07-24T10:00:00')], // sexta da semana anterior
+      REFERENCIA,
+    );
+
+    expect(m).toBeNull();
+  });
+
+  it('log fora da janela da semana (depois) não conta', () => {
+    const m = distanciaRealizadaSemanaM(
+      [log('Corrida', 1800, 3000, '2026-08-03T10:00:00')], // segunda da semana seguinte
+      REFERENCIA,
+    );
+
+    expect(m).toBeNull();
   });
 });
