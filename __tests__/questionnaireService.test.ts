@@ -32,6 +32,9 @@ const payload: QuestionnairePayload = {
   cardio_dias_semana: 2,
   cardio_minutos_sessao: 30,
   cardio_modalidades: ['Corrida'],
+  cardio_pratica_atualmente: true,
+  cardio_distancia_confortavel_km: 5.5,
+  cardio_objetivo: 'completar_5k',
   inclui_alongamento: false,
   tempo_medio_treino_min: 60,
 };

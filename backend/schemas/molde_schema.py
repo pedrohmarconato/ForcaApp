@@ -1,7 +1,7 @@
 # backend/schemas/molde_schema.py
-# Schema do molde que o Opus 4.8 gera. Validado localmente por jsonschema
+# Schema do molde que o Opus 5 gera. Validado localmente por jsonschema
 # ANTES de alimentar o expansor. A API da Anthropic aceita json_schema no
-# output_config (GA no Opus 4.8), mas NÃO valida restrições numéricas
+# output_config (GA no Opus 5), mas NÃO valida restrições numéricas
 # (minimum, maximum etc.) — essas são validadas aqui.
 
 MOLDE_SCHEMA = {

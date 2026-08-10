@@ -62,7 +62,6 @@ AI_DAILY_USD_LIMIT = float(os.environ.get("AI_DAILY_USD_LIMIT", "5.00"))
 # docker-compose.yml. Modelo desconhecido cai no fallback conservador abaixo.
 PRECOS_POR_MILHAO_USD = {
     "claude-opus-5":     {"entrada": 5.00, "saida": 25.00},
-    "claude-opus-4-8":   {"entrada": 5.00, "saida": 25.00},
     "claude-opus-4-7":   {"entrada": 5.00, "saida": 25.00},
     "claude-sonnet-5":   {"entrada": 3.00, "saida": 15.00},
     "claude-sonnet-4-6": {"entrada": 3.00, "saida": 15.00},

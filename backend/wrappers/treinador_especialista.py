@@ -30,7 +30,7 @@ class TreinadorEspecialista:
     usando a API Claude e dados do usuário.
     """
     MODEL_NAME = get_model_name()
-    # Opus 4.8 com effort high + adaptive thinking consome budget substancial
+    # Opus 5 com effort high + adaptive thinking consome budget substancial
     # pensando; 65536 previne truncamento (plano JSON + thinking caibam folgados).
     # A API cobra apenas os tokens efetivamente gerados.
     MAX_TOKENS = 65536
@@ -555,7 +555,7 @@ TEMPLATE JSON ESPERADO (Preencha os valores, não retorne este template literalm
                     "Resposta da IA truncada pelo limite de tokens — plano incompleto."
                 )
 
-            # Modelos com adaptive thinking (Opus 4.8) devolvem blocos `thinking`
+            # Modelos com adaptive thinking (Opus 5) devolvem blocos `thinking`
             # antes do `text`; um bloco thinking não tem atributo `.text`. Iteramos
             # e pegamos o primeiro bloco de texto — nunca logamos conteúdo (PII).
             resposta_texto = None

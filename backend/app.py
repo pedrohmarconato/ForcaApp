@@ -86,7 +86,7 @@ MANUAL_PLAN_ABUSE_LIMIT = int(os.environ.get("MANUAL_PLAN_ABUSE_LIMIT", "60"))
 
 # Feature flag da nova arquitetura molde+expansor+job.
 # false (default): comportamento antigo (plano direto síncrono via TreinadorEspecialista).
-# true: novo fluxo (chat → diretrizes → molde Opus 4.8 → expansor → job polling).
+# true: novo fluxo (chat → diretrizes → molde Opus 5 → expansor → job polling).
 FORCA_USE_MOLDE_ARCHITECTURE = os.environ.get("FORCA_USE_MOLDE_ARCHITECTURE", "false").strip().lower() == "true"
 
 
@@ -347,22 +347,44 @@ def _sanitize_chat_messages(raw_messages):
 
 
 def _questionario_para_prompt(questionnaire_data):
-    """Remove texto livre de ``cardio_modalidades`` de qualquer prompt.
+    """Canoniza a anamnese de cardio antes de colocá-la em qualquer prompt.
 
-    O cliente normal envia nomes canônicos, mas a linha pertence ao usuário e
-    pode conter valor legado ou forjado. Alias reconhecido vira nome canônico;
-    qualquer outro texto vira ``null``. O objeto original não é alterado.
+    O cliente normal envia os tipos e valores fechados, mas o payload pertence
+    ao usuário e pode conter valor legado ou forjado. Somente valores válidos
+    sobrevivem; os demais viram ``null``. O objeto original não é alterado.
     """
     if not isinstance(questionnaire_data, dict):
         return questionnaire_data
-    if "cardio_modalidades" not in questionnaire_data:
-        return questionnaire_data
-
-    from backend.services.dose_cardio import canonicalizar_modalidades_cardio
 
     seguro = dict(questionnaire_data)
-    modalidades = canonicalizar_modalidades_cardio(seguro.get("cardio_modalidades"))
-    seguro["cardio_modalidades"] = list(modalidades) if modalidades else None
+
+    if "cardio_modalidades" in seguro:
+        from backend.services.dose_cardio import canonicalizar_modalidades_cardio
+
+        modalidades = canonicalizar_modalidades_cardio(seguro.get("cardio_modalidades"))
+        seguro["cardio_modalidades"] = list(modalidades) if modalidades else None
+
+    if "cardio_pratica_atualmente" in seguro:
+        pratica = seguro.get("cardio_pratica_atualmente")
+        seguro["cardio_pratica_atualmente"] = pratica if isinstance(pratica, bool) else None
+
+    if "cardio_distancia_confortavel_km" in seguro:
+        distancia = seguro.get("cardio_distancia_confortavel_km")
+        distancia_valida = (
+            not isinstance(distancia, bool)
+            and isinstance(distancia, (int, float))
+            and 0 <= distancia <= 50
+        )
+        seguro["cardio_distancia_confortavel_km"] = distancia if distancia_valida else None
+
+    if "cardio_objetivo" in seguro:
+        objetivo = seguro.get("cardio_objetivo")
+        seguro["cardio_objetivo"] = (
+            objetivo
+            if isinstance(objetivo, str) and objetivo in _TEXTO_OBJETIVO_CARDIO
+            else None
+        )
+
     return seguro
 
 
@@ -1360,7 +1382,7 @@ def handle_consolidate_chat():
 
 
 def _thinking_config_para_modelo(model_name):
-    """Adaptive thinking só nos modelos que o suportam (Opus 4.8+/Fable).
+    """Adaptive thinking só nos modelos que o suportam (Opus 5+/Fable).
     Haiku/Sonnet rejeitam a request inteira com 400 "adaptive thinking is not
     supported on this model" — foi o que derrubou o 1º smoke do HML, que roda
     o plano em Haiku por custo."""
@@ -1574,6 +1596,99 @@ def _instrucao_dose_cardio(questionnaire_data) -> str:
     )
 
 
+_TEXTO_NIVEL_CARDIO = {
+    "iniciante": (
+        "Nível de cardio declarado: INICIANTE. Comece pelo piso da faixa aceita "
+        "e ritmo leve (caminhada ou trote leve) na semana 1, sem forçar distância "
+        "ou ritmo que o aluno ainda não demonstrou ter."
+    ),
+    "intermediario": (
+        "Nível de cardio declarado: INTERMEDIÁRIO. Dose inicial moderada, "
+        "compatível com quem já pratica cardio com alguma regularidade."
+    ),
+    "avancado": (
+        "Nível de cardio declarado: AVANÇADO. Dose inicial pode partir de um "
+        "patamar mais exigente, condizente com a experiência já demonstrada."
+    ),
+}
+
+
+# Vocabulário FECHADO (REQ-04/05, Fase 2): as 3 chaves são EXATAMENTE os
+# literais aceitos pelo CHECK `questionario_cardio_objetivo_check` (migration
+# 0033) e pelo `value` de `CARDIO_OBJETIVOS` no frontend
+# (QuestionnaireScreen.tsx) — os 3 têm de permanecer idênticos nos 3 lugares.
+# Mesma regra de `canonicalizar_modalidades_cardio` (dose_cardio.py): só o
+# texto FIXO deste dicionário pode virar instrução, nunca o valor cru do
+# aluno — um `cardio_objetivo` fora do vocabulário é ignorado em silêncio.
+_TEXTO_OBJETIVO_CARDIO = {
+    "condicionamento": (
+        "Objetivo do aluno com o cardio: CONDICIONAMENTO GERAL. Priorize "
+        "consistência e progressão suave ao longo das semanas."
+    ),
+    "completar_5k": (
+        "Objetivo do aluno com o cardio: COMPLETAR UMA CORRIDA DE 5KM. "
+        "Priorize progressão de DISTÂNCIA (`distancia_km`) ao longo das "
+        "semanas."
+    ),
+    "emagrecimento": (
+        "Objetivo do aluno com o cardio: EMAGRECIMENTO. Priorize volume "
+        "total (duração × frequência) sobre ritmo."
+    ),
+}
+
+
+def _instrucao_calibracao_cardio(questionnaire_data) -> str:
+    """
+    Instrução de calibração de cardio (dose inicial + teto de progressão por
+    NÍVEL declarado, e direção por OBJETIVO declarado — REQ-05, Fase 2).
+
+    Vive na parte VOLÁTIL do prompt (concatenada ao mesmo `dose_cardio_str` que
+    `_instrucao_dose_cardio` já usa), nunca em `_INSTRUCOES_MOLDE` (bloco
+    estável/cacheado, layout v2) — a calibração é um dado POR ALUNO, não uma
+    regra fixa para todo mundo.
+
+    Devolve "" quando o cardio foi recusado ou quando não há nível efetivo NEM
+    objetivo válido. Anamnese ausente com cardio ligado usa o nível iniciante,
+    o mesmo fallback conservador aplicado pelo gate local de persistência.
+    """
+    from backend.services.dose_cardio import (
+        TETO_PROGRESSAO_POR_NIVEL,
+        nivel_cardio_efetivo,
+    )
+
+    nivel = nivel_cardio_efetivo(questionnaire_data)
+    if (
+        isinstance(questionnaire_data, dict)
+        and questionnaire_data.get("inclui_cardio") is False
+    ):
+        return ""
+
+    objetivo = (
+        questionnaire_data.get("cardio_objetivo")
+        if isinstance(questionnaire_data, dict)
+        else None
+    )
+    texto_objetivo = (
+        _TEXTO_OBJETIVO_CARDIO.get(objetivo) if isinstance(objetivo, str) else None
+    )
+
+    if nivel is None and texto_objetivo is None:
+        return ""
+
+    linhas = ["CALIBRAÇÃO DE CARDIO (dose inicial e progressão pelo nível declarado):"]
+    if nivel is not None:
+        teto = TETO_PROGRESSAO_POR_NIVEL[nivel]
+        linhas.append(f"- {_TEXTO_NIVEL_CARDIO[nivel]}")
+        linhas.append(
+            f"- TETO DE PROGRESSÃO: o `valor` de qualquer regra "
+            f"`delta_cardio_percentual` para este aluno não deve ultrapassar "
+            f"{teto:g}% por semana."
+        )
+    if texto_objetivo is not None:
+        linhas.append(f"- {texto_objetivo}")
+    return "\n".join(linhas)
+
+
 def _dados_do_aluno_no_prompt(
     questionnaire_str: str,
     diretrizes_str: str,
@@ -1736,7 +1851,7 @@ def _executar_geracao_molde(
 ) -> None:
     """
     Pipeline de geração assíncrona no modo molde:
-    1. Chama Opus 4.8 para gerar o molde (com thinking)
+    1. Chama Opus 5 para gerar o molde (com thinking)
     2. Valida molde contra MOLDE_SCHEMA
     3. Expande deterministicamente
     4. Mapeia e persiste atomicamente
@@ -1774,11 +1889,20 @@ def _executar_geracao_molde(
     # Cardápio respeita inclui_cardio/inclui_alongamento do aluno.
     catalogo_str = _catalogo_para_questionario(questionnaire_data)
 
+    # Dose declarada (contrato) + calibração por nível (REQ-05) somadas no MESMO
+    # bloco volátil — filter(None, ...) preserva o comportamento atual quando só
+    # a dose existe (uma delas pode devolver "" sem que a outra suma).
+    dose_cardio_str = "\n\n".join(
+        filter(None, [
+            _instrucao_dose_cardio(questionnaire_data),
+            _instrucao_calibracao_cardio(questionnaire_data),
+        ])
+    )
     chamada = _montar_chamada_do_molde(
         questionnaire_str,
         diretrizes_str,
         catalogo_str,
-        _instrucao_dose_cardio(questionnaire_data),
+        dose_cardio_str,
     )
 
     from backend.services.molde_normalizer import extrair_molde_do_texto, normalizar_molde

@@ -264,7 +264,7 @@ def test_effort_nao_vai_para_modelo_que_rejeita_effort(monkeypatch, modelo):
     assert "effort" not in config
 
 
-@pytest.mark.parametrize("modelo", ["claude-opus-4-8", "claude-fable-5"])
+@pytest.mark.parametrize("modelo", ["claude-opus-5", "claude-fable-5"])
 def test_effort_continua_valendo_no_modelo_que_suporta(monkeypatch, modelo):
     monkeypatch.setenv("PLAN_EFFORT", "medium")
     config = app._output_config_da_geracao(None, modelo)
@@ -275,7 +275,7 @@ def test_effort_nao_apaga_o_formato_do_structured_output(monkeypatch):
     """Os dois moram no MESMO parâmetro: o formato não pode se perder."""
     monkeypatch.setenv("PLAN_EFFORT", "high")
     formato = {"format": {"type": "json_schema", "schema": {"type": "object"}}}
-    config = app._output_config_da_geracao(formato, "claude-opus-4-8")
+    config = app._output_config_da_geracao(formato, "claude-opus-5")
     assert config["format"] == formato["format"]
     assert config["effort"] == "high"
 

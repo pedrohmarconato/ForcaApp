@@ -110,6 +110,12 @@ describe('a dose aparece e é exigida', () => {
     await irAteOCardio(utils);
     fireEvent.press(utils.getByLabelText('Sim'));
     await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
+    // Anamnese de cardio (02-01/02-03): respondida cedo para isolar o gate de
+    // dias/minutos sob teste (distância + objetivo também precisam estar
+    // respondidos, senão eles é que travariam o Continuar aqui).
+    fireEvent.press(utils.getByLabelText('Sim, já pratico'));
+    fireEvent.changeText(utils.getByLabelText('Distância confortável hoje (km)'), '5');
+    fireEvent.press(utils.getByLabelText('Condicionamento geral'));
 
     expect(utils.getByLabelText('Continuar').props.accessibilityState).toMatchObject({
       disabled: true,
@@ -145,6 +151,10 @@ describe('a dose aparece e é exigida', () => {
 
     fireEvent.press(utils.getByLabelText('2 dias'));
     fireEvent.press(utils.getByLabelText('30 min'));
+    // Anamnese de cardio (02-01/02-03): obrigatória para liberar o Continuar do passo.
+    fireEvent.press(utils.getByLabelText('Sim, já pratico'));
+    fireEvent.changeText(utils.getByLabelText('Distância confortável hoje (km)'), '5');
+    fireEvent.press(utils.getByLabelText('Condicionamento geral'));
     // Nenhuma modalidade marcada e já dá para seguir.
     expect(utils.getByLabelText('Continuar').props.accessibilityState).toMatchObject({
       disabled: false,
@@ -171,6 +181,10 @@ describe('a dose chega ao payload', () => {
     fireEvent.press(utils.getByLabelText('3 dias'));
     fireEvent.press(utils.getByLabelText('45 min'));
     fireEvent.press(utils.getByLabelText('Corrida'));
+    // Anamnese de cardio (02-01/02-03): obrigatória para liberar o Continuar do passo.
+    fireEvent.press(utils.getByLabelText('Sim, já pratico'));
+    fireEvent.changeText(utils.getByLabelText('Distância confortável hoje (km)'), '5');
+    fireEvent.press(utils.getByLabelText('Condicionamento geral'));
     fireEvent.press(utils.getByLabelText('Continuar'));
 
     const payload = await terminarEEnviar(utils);
@@ -190,6 +204,10 @@ describe('a dose chega ao payload', () => {
     await waitFor(() => expect(utils.getByText('Quantos dias por semana?')).toBeTruthy());
     fireEvent.press(utils.getByLabelText('2 dias'));
     fireEvent.press(utils.getByLabelText('30 min'));
+    // Anamnese de cardio (02-01/02-03): obrigatória para liberar o Continuar do passo.
+    fireEvent.press(utils.getByLabelText('Sim, já pratico'));
+    fireEvent.changeText(utils.getByLabelText('Distância confortável hoje (km)'), '5');
+    fireEvent.press(utils.getByLabelText('Condicionamento geral'));
     fireEvent.press(utils.getByLabelText('Continuar'));
 
     const payload = await terminarEEnviar(utils);

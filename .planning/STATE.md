@@ -1,12 +1,19 @@
 ---
-gsd_state_version: '1.0'
-status: executing
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_phase: 03
+current_phase_name: Intercâmbio de modalidade de cardio
+status: "Phase 02 shipped — PR #79"
+stopped_at: Planning inicializado; aguardando pesquisa e plano da Fase 1
+last_updated: "2026-08-09T20:23:46.727Z"
+last_activity: 2026-08-09
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_plans: 7
+last_activity_desc: Phase 02 complete, transitioned to Phase 03
 ---
 
 # Project State
@@ -17,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
 meta com fonte única e condução guiada.
-**Current focus:** Phase 1 — Fluxo cardio e alongamento
+**Current focus:** Phase 02 — anamnese-e-calibra-o-do-cardio
 
 ## Current Position
 
-Phase: 1 COMPLETE → 2 of 3 (Anamnese e calibração do cardio) planejada
-Plan: Fase 2 com 3 planos prontos (checker PASS sem blockers); execução aguarda /gsd-execute-phase 2
-Status: Fase 1 completa — gate verde (tsc 0 · jest 134/1535 · pytest 567), checkpoint humano 01-04
+Phase: 03 — Intercâmbio de modalidade de cardio
+Plan: Not started
+Status: Phase 02 shipped — PR #79
 APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
 PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
-Last activity: 2026-08-09 — checkpoint HML aprovado; PR #77 aberto, review + fixes; Fase 2 planejada
+Last activity: 2026-08-09
 
 Progress: [██████░░░░] 57%
 

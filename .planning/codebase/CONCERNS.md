@@ -10,11 +10,10 @@
 - Impact: cada correção no domínio de plano precisa ser testada e mantida nos dois caminhos; `app.py` virou um monólito que acumula chat, plano, jobs, plano manual, prévia e cota.
 - Fix approach: quando o fluxo molde estiver validado em produção, remover o caminho síncrono e a flag; quebrar `app.py` em blueprints por domínio.
 
-**Modelo legado como default — `claude-opus-4-8`:**
-- Issue: `docker-compose.yml` linha 54 (`PLAN_MODEL_NAME: ${PLAN_MODEL_NAME:-claude-opus-4-8}`) e `.env.example` documentam `claude-opus-4-8` como padrão da geração do molde; `app.py` linha 89 repete a referência no comentário. Geração aposentada não deve permanecer como config viva — o padrão ativo deve ser a geração atual (ex.: `claude-opus-5`), e o default de `FORCA_USE_MOLDE_ARCHITECTURE` deve subir para `true` quando o modelo novo for validado.
-- Files: `docker-compose.yml:54`, `.env.example`, `backend/app.py:89`
-- Impact: se a geração atual for retirada do ar pelo provedor, a geração de plano quebra em produção; além disso, mantém custo/latência da geração antiga.
-- Fix approach: trocar o default para a geração vigente nos três pontos e registrar a decisão; revalidar `FORCA_STRUCTURED_OUTPUT`/`FORCA_PROMPT_MOLDE_V2` juntos (o retry dirigido depende da combinação).
+**Modelo legado como default — geração anterior aposentada (RESOLVIDO em 09/08/2026):**
+- Issue (histórico): `docker-compose.yml` linha 54, `.env.example` e o comentário de `app.py` linha 89 documentavam uma geração Opus já aposentada como padrão da geração do molde.
+- Fix aplicado: default trocado para a geração vigente (`claude-opus-5`) em `docker-compose.yml`, `.env.example`, `backend/utils/config.py` (`get_plan_model_name`) e nos comentários que citavam o modelo antigo. `FORCA_USE_MOLDE_ARCHITECTURE` segue `false` por padrão — essa flag é uma decisão separada, não coberta por este fix.
+- Files: `docker-compose.yml:54`, `.env.example`, `backend/utils/config.py:96`
 
 **Rate limit, lock e jobs em memória (single-process):**
 - Issue: `_rate_buckets`/`_rate_lock` (`backend/app.py:116-117`), trava `_plan_inflight` (`backend/app.py:119+`) e o job store (`backend/services/job_manager.py`, `_JOB_TTL_SECONDS=3600`) vivem em memória. O próprio código loga o aviso ("Rate limit em memória: contadores zeram a cada restart e NÃO são compartilhados entre workers").
@@ -173,10 +172,9 @@ Não foram encontrados bugs confirmados em aberto na varredura estática — o r
 
 ## Dependencies at Risk
 
-**`claude-opus-4-8` (default de PLAN_MODEL_NAME):**
-- Risk: geração aposentada mantida como default vivo em `docker-compose.yml:54` e `.env.example`; o `.env.example` ainda instrui "NÃO usar claude-3-5-sonnet-20240620 — aposentado", mostrando que retirada de modelo já aconteceu e derruba requests.
-- Impact: indisponibilidade/custo da geração de plano; viola a diretriz do dono de não deixar geração aposentada em config de projeto.
-- Migration plan: trocar default para a geração vigente (com validação de saída no molde + retry dirigido, que já existem) e remover a referência ao modelo antigo.
+**Geração Opus aposentada usada como default de PLAN_MODEL_NAME — RESOLVIDO em 09/08/2026:**
+- Risk (histórico): geração aposentada mantida como default vivo em `docker-compose.yml:54` e `.env.example`; o `.env.example` já instruía "NÃO usar claude-3-5-sonnet-20240620 — aposentado", mostrando que retirada de modelo já havia derrubado requests antes.
+- Fix aplicado: default trocado para `claude-opus-5` (geração vigente) nos mesmos pontos; nenhuma referência à geração aposentada permanece no conteúdo vivo do repositório.
 
 **`patches/react-native+0.81.5.patch`:**
 - Risk: patch-package sobre `mockComponent.js` do RN (optional chaining em `RealComponent.prototype?.constructor`). Qualquer upgrade de RN 0.81.5 precisa revalidar o patch.

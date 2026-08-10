@@ -196,7 +196,7 @@ def _resposta(texto):
     )
 
 
-def _rodar_pipeline(monkeypatch, respostas):
+def _rodar_pipeline(monkeypatch, respostas, questionnaire_data=None):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-para-teste")
     monkeypatch.setenv("PLAN_MODEL_NAME", "claude-haiku-4-5")
     with jm._jobs_lock:
@@ -210,7 +210,11 @@ def _rodar_pipeline(monkeypatch, respostas):
         with app.app_context():
             _executar_geracao_molde(
                 job,
-                questionnaire_data={"nivelExperiencia": "iniciante"},
+                questionnaire_data=(
+                    questionnaire_data
+                    if questionnaire_data is not None
+                    else {"nivelExperiencia": "iniciante"}
+                ),
                 diretrizes={"preferencias": [], "restricoes": [], "excecoes_estruturais": []},
                 user_id="user-retry",
                 access_token="fake-token",
@@ -236,6 +240,120 @@ def test_molde_invalido_ganha_um_retry_com_o_erro_na_conversa(monkeypatch):
     assert "15" in mensagens_do_retry[1]["content"]
     assert mensagens_do_retry[2]["role"] == "user"
     assert "validação" in mensagens_do_retry[2]["content"].lower()
+
+
+def test_teto_de_cardio_reprova_e_ganha_retry_dirigido(monkeypatch):
+    regra_acima_do_teto = {
+        "tipo": "delta_cardio_percentual",
+        "semana_inicio": 2,
+        "semana_fim": 4,
+        "valor": 6,
+        "alvo": "ambos",
+    }
+    regra_no_teto = {**regra_acima_do_teto, "valor": 3}
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [
+            _resposta(json.dumps(_molde_com_regras(regra_acima_do_teto))),
+            _resposta(json.dumps(_molde_com_regras(regra_no_teto))),
+        ],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    assert job.to_dict()["status"] == "salvo"
+    assert chamada.call_count == 2
+    mensagens_do_retry = chamada.call_args_list[1].kwargs["messages"]
+    assert "6%" in mensagens_do_retry[2]["content"]
+    assert "3%" in mensagens_do_retry[2]["content"]
+    assert "INICIANTE" in mensagens_do_retry[2]["content"]
+
+
+def test_semana_avulsa_acima_do_teto_nao_chega_a_persistencia(monkeypatch):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    cardio_base = {
+        "nome": "Corrida",
+        "ordem": 2,
+        "series": 1,
+        "duracao_minutos": 30,
+        "prioridade": "acessorio",
+    }
+    molde["semanas_tipo"][0]["sessoes"][0]["exercicios"].append(cardio_base)
+    sessao_avulsa = copy.deepcopy(molde["semanas_tipo"][0]["sessoes"][0])
+    sessao_avulsa["exercicios"][1]["duracao_minutos"] = 37
+    molde["semanas_avulsas"] = {
+        "semana_2": {"semana": 2, "sessoes": [sessao_avulsa]},
+    }
+    resposta_invalida = _resposta(json.dumps(molde))
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [resposta_invalida, resposta_invalida],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_dias_semana": 1,
+            "cardio_minutos_sessao": 30,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    visao = job.to_dict()
+    assert visao["status"] == "erro"
+    assert visao["error"]["code"] == "molde_dose_cardio"
+    assert chamada.call_count == 2
+
+
+def test_semana_avulsa_fora_do_calendario_nao_chega_a_persistencia(monkeypatch):
+    molde = copy.deepcopy(MOLDE_VALIDO)
+    molde["semanas_avulsas"] = {
+        "semana_99": {
+            "semana": 99,
+            "sessoes": copy.deepcopy(molde["semanas_tipo"][0]["sessoes"]),
+        }
+    }
+    resposta_invalida = _resposta(json.dumps(molde))
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [resposta_invalida, resposta_invalida],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    visao = job.to_dict()
+    assert visao["status"] == "erro"
+    assert visao["error"]["code"] == "molde_dose_cardio"
+    assert chamada.call_count == 2
+
+
+def test_duas_violacoes_do_teto_terminam_sem_loop(monkeypatch):
+    regra_acima_do_teto = {
+        "tipo": "delta_cardio_percentual",
+        "semana_inicio": 2,
+        "semana_fim": 4,
+        "valor": 6,
+        "alvo": "ambos",
+    }
+    resposta_invalida = _resposta(json.dumps(_molde_com_regras(regra_acima_do_teto)))
+
+    job, chamada = _rodar_pipeline(
+        monkeypatch,
+        [resposta_invalida, resposta_invalida],
+        questionnaire_data={
+            "inclui_cardio": True,
+            "cardio_pratica_atualmente": False,
+        },
+    )
+
+    visao = job.to_dict()
+    assert visao["status"] == "erro"
+    assert visao["error"]["code"] == "molde_dose_cardio"
+    assert chamada.call_count == 2
 
 
 def test_duas_falhas_seguidas_terminam_em_molde_validation_sem_loop(monkeypatch):

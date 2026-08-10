@@ -8,7 +8,7 @@
 - [Anthropic API](https://api.anthropic.com) — powers chat coaching, onboarding chat consolidation, and training-plan generation
   - SDK/Client: `anthropic` Python package, client created lazily in `backend/app.py` (`_get_chat_anthropic_client`, line ~284) and in plan generation via `backend/utils/anthropic_retry.py`
   - Auth: `ANTHROPIC_API_KEY` env var — backend-only; never embedded in the app bundle (key lives on VPS/flask, `docker-compose.yml` requires it)
-  - Models (env-overridable): `CHAT_MODEL_NAME` default `claude-haiku-4-5`, `PLAN_MODEL_NAME` default `claude-opus-4-8`, `CLAUDE_MODEL_NAME` default `claude-sonnet-4-6` (`backend/utils/config.py:79-96`)
+  - Models (env-overridable): `CHAT_MODEL_NAME` default `claude-haiku-4-5`, `PLAN_MODEL_NAME` default `claude-opus-5`, `CLAUDE_MODEL_NAME` default `claude-sonnet-4-6` (`backend/utils/config.py:79-96`)
   - Retry: max 1 retry on 429/500/502/503/529, honors short `retry-after`, absolute deadline, never retries timeouts (`backend/utils/anthropic_retry.py`)
   - Cost controls: per-route daily call limits + daily USD cap, persisted in Supabase via RPC `register_ai_usage` (migrations `0024_quota_ia.sql`, `0025_quota_por_rota.sql`; orchestrated by `backend/services/ai_quota.py` — reserve estimate, settle delta with `p_forcar`)
   - All AI calls from the app go through the Flask proxy: `POST /api/chat`, `POST /api/consolidate-chat`, `POST /api/generate-plan` (`src/services/api/claudeService.ts`, `trainingPlanService.ts`)
