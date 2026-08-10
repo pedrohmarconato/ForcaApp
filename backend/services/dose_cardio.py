@@ -431,12 +431,17 @@ def _violacoes_teto_semanas_avulsas(
 
     for avulsa in _semanas_avulsas(molde):
         numero = avulsa.get("semana")
+        id_semana = avulsa.get("id") or f"semana_{numero}"
         if (
             isinstance(numero, bool)
             or not isinstance(numero, int)
             or numero < 1
             or numero > len(calendario)
         ):
+            violacoes.append(
+                f"A {id_semana} fica fora do calendário de {len(calendario)} "
+                "semana(s) e seria descartada na expansão."
+            )
             continue
         base = tipos.get(calendario[numero - 1])
         if not isinstance(base, dict):
@@ -466,7 +471,6 @@ def _violacoes_teto_semanas_avulsas(
             )
             if valor_base > 0 and valor_avulso <= limite + margem:
                 continue
-            id_semana = avulsa.get("id") or f"semana_{numero}"
             violacoes.append(
                 f"Na {id_semana}, a {rotulo} total do cardio é {valor_avulso:g} "
                 f"{unidade}, acima do máximo seguro de {limite:g} {unidade} para "
