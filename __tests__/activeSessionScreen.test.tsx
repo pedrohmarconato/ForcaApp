@@ -177,6 +177,7 @@ import {
   saveSetLog,
   finishSessionLog,
   swapSessionExercise,
+  skipSessionExercise,
 } from '../src/services/sessionExecutionRepository';
 import { clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
@@ -523,6 +524,42 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
       // Mesmo padrão de onConfirmarRecusa: sucesso fecha o modal inteiro.
       await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
       expect(useActiveSessionStore.getState().draft!.exercises[0].name).toBe('Remo Ergômetro');
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
+  });
+
+  it('entry point 2: sem_equipamento em cardio oferece troca em vez de recusar', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    mock(getSessionDetail).mockResolvedValueOnce(detailComCardio as any);
+    try {
+      const screen = renderScreen();
+      await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText('Normal'));
+      fireEvent.press(screen.getByLabelText('Tempo cheio'));
+      fireEvent.press(screen.getByLabelText('Começar treino'));
+      await waitFor(() => expect(screen.getByText('Sexta: Cardio')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+
+      // "Não vou fazer" da fila abre o SkipReasonSheet, não o de troca.
+      fireEvent.press(screen.getByLabelText('Não vou fazer Caminhada'));
+      await waitFor(() => expect(screen.getByText('Não vou fazer Caminhada')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('skip-reason-sem_equipamento'));
+      fireEvent.press(screen.getByTestId('skip-reason-oferecer-troca'));
+
+      // O caminho de troca abre o MESMO SwapModalitySheet do entry point 1.
+      await waitFor(() => expect(screen.getByText('Trocar Caminhada')).toBeTruthy());
+      expect(mock(skipSessionExercise)).not.toHaveBeenCalled();
+
+      fireEvent.press(screen.getByTestId('swap-modality-Remo Ergômetro'));
+      fireEvent.press(screen.getByTestId('swap-modality-confirm'));
+
+      await waitFor(() => expect(mock(swapSessionExercise)).toHaveBeenCalledWith(
+        expect.objectContaining({ plannedExerciseId: 'ex-cardio', toModality: 'Remo Ergômetro' }),
+      ));
+      expect(mock(skipSessionExercise)).not.toHaveBeenCalled();
     } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
