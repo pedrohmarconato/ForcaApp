@@ -89,13 +89,20 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 03-01-PLAN.md — REQ-06: migração 0034 (tabela satélite `cardio_exercise_swaps` + RPC `swap_session_exercise`) + checkpoint de decisão antes de aplicar em banco vivo
 - [ ] 03-02-PLAN.md — REQ-06: tracer — motor puro (`applyCardioSwapToDraft`, D-01/D-04) + repositório de escrita/retomada + store (`swapExercise`, servidor primeiro) + leitura de "modalidades aceitas" (D-02)
-- [ ] 03-03-PLAN.md — REQ-06: entry point 1 (fila da sessão) — `SwapModalitySheet` + botão "Trocar modalidade" + visibilidade na sessão ativa (D-08, metade 1)
-- [ ] 03-04-PLAN.md — REQ-06: entry point 2 — evolução de `SkipReasonSheet` (motivo `sem_equipamento` oferece substituição)
-- [ ] 03-05-PLAN.md — REQ-06: histórico — corrige o gap pré-existente de cardio em `getSessionLogDetail` e mostra "trocado de X" (D-08, metade 2)
 - [ ] 03-06-PLAN.md — REQ-06: Progresso — km realizado soma qualquer modalidade (D-05), prescrito permanece cheio (D-06)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-03-PLAN.md — REQ-06: entry point 1 (fila da sessão) — `SwapModalitySheet` + botão "Trocar modalidade" + visibilidade na sessão ativa (D-08, metade 1)
+- [ ] 03-05-PLAN.md — REQ-06: histórico — corrige o gap pré-existente de cardio em `getSessionLogDetail` e mostra "trocado de X" (D-08, metade 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-04-PLAN.md — REQ-06: entry point 2 — evolução de `SkipReasonSheet` (motivo `sem_equipamento` oferece substituição)
 
 ## Progress
 

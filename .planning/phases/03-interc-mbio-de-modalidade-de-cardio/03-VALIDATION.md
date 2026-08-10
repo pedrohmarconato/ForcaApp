@@ -48,34 +48,54 @@ created: 2026-08-09
 
 ## Phase Requirements → Test Map
 
-| Req / Decisão | Behavior | Test Type | Automated Command | File Exists |
-|---|---|---|---|---|
-| REQ-06 / D-01 | Troca preserva `targetDurationSeconds` e zera `targetDistanceM` da série | unit (motor puro) | `npx jest __tests__/cardioSwap.test.ts` | ❌ W0 |
-| REQ-06 / D-02 | Lista de troca oferece só as modalidades aceitas do usuário | unit (repositório + UI) | `npx jest __tests__/cardioModalidadesAceitas.test.ts` | ❌ W0 |
-| REQ-06 / D-03, D-05 | Realizado na trocada soma no km total único do Progresso | unit (motor puro) | `npx jest __tests__/cardioGoals.test.ts` | ⚠️ conferir |
-| REQ-06 / D-06 | Prescrito km/tempo da semana NÃO desconta sessão trocada | unit (motor puro `cardioPrescrito.ts`) | `npx jest __tests__/cardioPrescrito.test.ts` | ⚠️ conferir |
-| REQ-06 / D-07 | Outcome under/on_target/over por TEMPO, independente da modalidade | unit (regressão de `computeCardioOutcome`) | `npx jest -t "computeCardioOutcome"` | ✅ existente |
-| REQ-06 / D-08 | Histórico exibe "Remo Ergômetro · 20 min — trocado de Corrida" | unit (repositório) + integração de componente | `npx jest __tests__/sessionHistoryDetailCardio.test.ts` | ❌ W0 |
-| REQ-06 / entry points | Fila e `SkipReasonSheet` levam ao mesmo seletor de troca | integração (store ↔ repositório mockado) | `npx jest __tests__/cardioSwapFluxo.test.ts` | ❌ W0 |
-| REQ-06 / migration | RPC nova respeita vocabulário fechado, RLS "own", revoke de `anon`, idempotência | unit SQL (lê o `.sql` bruto e asserta, molde `recusaDeclarada.test.ts:101-112`) | `npx jest __tests__/cardioSwapMigration.test.ts` | ❌ W0 |
+*Nomes de arquivo alinhados aos 6 PLAN.md após o plan-checker (2026-08-09). A versão semeada
+antes do planejamento previa um `__tests__/sessionHistoryDetailCardio.test.ts` que os plans
+substituíram por extensão de dois arquivos já existentes.*
+
+| Req / Decisão | Behavior | Plan | Test Type | Automated Command | File Exists |
+|---|---|---|---|---|---|
+| REQ-06 / D-01 | Troca preserva `targetDurationSeconds` e zera `targetDistanceM` da série | 03-02 | unit (motor puro) | `npx jest __tests__/cardioSwap.test.ts` | ❌ W0 |
+| REQ-06 / D-02 | Lista de troca oferece só as modalidades aceitas do usuário | 03-02 | unit (repositório) | `npx jest __tests__/cardioModalidadesAceitas.test.ts` | ❌ W0 |
+| REQ-06 / D-03, D-05 | Realizado na trocada soma no km total único do Progresso | 03-06 | unit (motor puro `cardioGoals.ts`) | `npx jest __tests__/cardioGoals.test.ts` | ✅ estender |
+| REQ-06 / D-04 | Campo de distância realizada só aparece em modalidade do subset com distância | 03-02, 03-03 | unit + componente | `npx jest __tests__/cardioSwap.test.ts __tests__/cardioTempoDistancia.test.ts` | ❌ W0 + ✅ estender |
+| REQ-06 / D-06 | Prescrito km/tempo da semana NÃO desconta sessão trocada | 03-06 | unit (motor puro `cardioPrescrito.ts`) | `npx jest __tests__/cardioPrescrito.test.ts __tests__/cardioPrescritoSecao.test.tsx` | ✅ estender |
+| REQ-06 / D-07 | Outcome under/on_target/over por TEMPO, independente da modalidade | 03-02 | regressão (prova por `computeCardioOutcome` intocada) | `npx jest __tests__/sessionModel.test.ts` | ✅ existente |
+| REQ-06 / D-08 | Histórico exibe "Remo Ergômetro · 20 min — trocado de Corrida" | 03-05 | unit (repositório) + componente | `npx jest __tests__/sessionExecutionRepository.test.ts __tests__/sessionHistory.test.tsx` | ✅ estender |
+| REQ-06 / entry point 1 | Fila da sessão abre o `SwapModalitySheet` | 03-03 | componente + integração | `npx jest __tests__/swapModalitySheet.test.tsx __tests__/activeSessionScreen.test.tsx` | ❌ W0 + ✅ estender |
+| REQ-06 / entry point 2 | Ramo `sem_equipamento` do `SkipReasonSheet` oferece substituição | 03-04 | componente | `npx jest __tests__/skipReasonSheetTroca.test.tsx` | ❌ W0 |
+| REQ-06 / fluxo | Servidor primeiro: falha da RPC não aplica a troca ao draft local | 03-02 | integração (store ↔ repositório mockado) | `npx jest __tests__/cardioSwapFluxo.test.ts` | ❌ W0 |
+| REQ-06 / migration | RPC nova respeita vocabulário fechado, RLS "own", revoke de `anon`, idempotência | 03-01 | unit SQL (lê o `.sql` bruto e asserta, molde `recusaDeclarada.test.ts:101-112`) | `npx jest __tests__/cardioSwapMigration.test.ts` | ❌ W0 |
 
 *As colunas Task ID / Wave / Threat Ref são preenchidas por `/gsd-execute-phase` conforme
-os PLAN.md desta fase; este documento nasce em `status: draft`.*
+os PLAN.md desta fase. O documento permanece em `status: draft`: a promoção para
+`validated` / `nyquist_compliant: true` pertence a `/gsd-validate-phase` §6, não ao plan-phase.*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `__tests__/cardioSwap.test.ts` — D-01 (função pura de troca no motor)
-- [ ] `__tests__/cardioModalidadesAceitas.test.ts` — D-02 (repositório + fallback de lista vazia)
-- [ ] `__tests__/sessionHistoryDetailCardio.test.ts` — D-08 **e** o gap pré-existente
-      (`getSessionLogDetail` / `descreveSerie` nunca leem `actual_duration_seconds` /
-      `actual_distance_m`, `src/services/sessionExecutionRepository.ts:776-845`)
-- [ ] `__tests__/cardioSwapMigration.test.ts` — migration nova (vocabulário fechado, RLS, revoke `anon`)
-- [ ] Conferir se `cardioGoals.ts` / `cardioPrescrito.ts` já têm arquivo de teste próprio
-      antes de decidir entre criar novo e estender existente
+**Arquivos novos (6):**
 
-*Framework já instalado — Wave 0 é só criação de arquivos de teste, sem setup de infra.*
+- [ ] `__tests__/cardioSwap.test.ts` — D-01 / D-04 (função pura de troca no motor) · plan 03-02
+- [ ] `__tests__/cardioModalidadesAceitas.test.ts` — D-02 (repositório de modalidades aceitas) · plan 03-02
+- [ ] `__tests__/cardioSwapFluxo.test.ts` — servidor-primeiro (falha da RPC não aplica ao draft) · plan 03-02
+- [ ] `__tests__/cardioSwapMigration.test.ts` — migration nova (vocabulário fechado, RLS, revoke `anon`) · plan 03-01
+- [ ] `__tests__/swapModalitySheet.test.tsx` — seletor de modalidade compartilhado · plan 03-03
+- [ ] `__tests__/skipReasonSheetTroca.test.tsx` — ramo `sem_equipamento` oferecendo substituição · plan 03-04
+
+**Arquivos existentes a estender (6):**
+
+- [ ] `__tests__/sessionExecutionRepository.test.ts` + `__tests__/sessionHistory.test.tsx` — D-08 **e**
+      o gap pré-existente (`getSessionLogDetail` / `descreveSerie` nunca leem
+      `actual_duration_seconds` / `actual_distance_m`, `src/services/sessionExecutionRepository.ts:776-845`) · plan 03-05
+- [ ] `__tests__/cardioGoals.test.ts` — D-03 / D-05 (soma única de km) · plan 03-06
+- [ ] `__tests__/cardioPrescrito.test.ts` + `__tests__/cardioPrescritoSecao.test.tsx` — D-06 (prescrito cheio) · plan 03-06
+- [ ] `__tests__/activeSessionScreen.test.tsx` + `__tests__/cardioTempoDistancia.test.ts` — pontos de entrada e campo de distância · plans 03-03 / 03-04
+
+*Item em aberto da pesquisa resolvido pelo pattern-mapper: `cardioGoals.test.ts` e
+`cardioPrescrito.test.ts` **já existem** — estender, não criar.*
+
+*Framework já instalado — Wave 0 é só criação/extensão de arquivos de teste, sem setup de infra.*
 
 ---
 

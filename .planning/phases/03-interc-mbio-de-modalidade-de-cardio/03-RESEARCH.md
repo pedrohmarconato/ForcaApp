@@ -589,28 +589,36 @@ export const distanciaRealizadaSemanaM = (
 **Se esta tabela estivesse vazia:** não estaria — há decisões de fallback e nomenclatura
 que dependem de escolha do dono/planner, listadas acima.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+*Ambas foram decididas no plan-phase de 2026-08-09, dentro do que a CONTEXT.md delegou a
+"Claude's Discretion". A Assumption A1 desta pesquisa fica encerrada.*
 
 1. **Fallback de "modalidades aceitas" vazio, no contexto específico de troca em sessão.**
+   — **RESOLVIDA: leitura estrita de D-02.**
    - What we know: quando `cardio_modalidades` é null/vazio, o COMENTÁRIO da migration 0021
      diz "= qualquer modalidade" — mas esse comentário descreve o comportamento do GERADOR
      de plano (backend), não da tela de troca em sessão (frontend, Fase 3).
-   - What's unclear: se a troca deve oferecer as 9 modalidades quando o aluno nunca
-     declarou preferência, ou se deve mostrar um estado vazio/CTA para completar o
-     questionário.
-   - Recommendation: levar como pergunta explícita ao discuss-phase (se ainda não fechado)
-     ou decidir no plan-phase com racional documentado — ambas as opções respeitam "sem
-     dado inventado"; a diferença é de produto, não de engenharia.
+   - **Decisão (plan `03-02`, Task 2 — `getModalidadesAceitas`):** `cardio_modalidades` null,
+     ausente ou `[]` devolve **array vazio**, nunca as 9 modalidades do catálogo. Nome fora de
+     `CARDIO_MODALIDADES` é filtrado, não propagado. O comentário do gerador vale para o prompt
+     da IA, não para o que esta tela oferece.
+   - **Consequência de produto, tratada em `03-03`:** quem nunca preencheu a anamnese vê um
+     `EmptyState` ("Nenhuma modalidade cadastrada" + orientação a completar a anamnese de
+     cardio), não uma lista inventada. Sem navegação a partir daí — fora do escopo da fase.
+   - Prohibition registrada em `03-02`: nenhum fallback "mostrar todas" é aceitável para lista
+     não vazia, mesmo incompleta ou desatualizada.
 
 2. **Ambos os entry points (fila + `SkipReasonSheet`) precisam levar ao MESMO
-   `SwapModalitySheet`, ou cada um pode ter sua própria UI?**
+   `SwapModalitySheet`, ou cada um pode ter sua própria UI?** — **RESOLVIDA: compartilhar.**
    - What we know: o roadmap exige que os DOIS sinais existam; CONTEXT.md deixa a forma
      exata a critério do Claude.
-   - What's unclear: se compartilhar o componente de escolha de modalidade entre os dois
-     pontos de entrada é obrigatório ou só recomendado (DRY).
-   - Recommendation: compartilhar (Pitfall 5 já mostra o custo de não compartilhar lógica
-     duplicada em cardio) — um único `SwapModalitySheet` reutilizável, aberto a partir de
-     dois lugares diferentes, é a leitura mais alinhada com CONVENTIONS.md/DRY do projeto.
+   - **Decisão (plans `03-03` e `03-04`):** um único `SwapModalitySheet`
+     (`src/components/session/SwapModalitySheet.tsx`, criado em `03-03`), aberto pela fila da
+     sessão e pelo ramo `sem_equipamento` do `SkipReasonSheet`. Ambos convergem para
+     `activeSessionStore.swapExercise`; `03-04` prova por teste que o caminho de troca **não**
+     chama `skipSessionExercise`. Alinhado a CONVENTIONS.md/DRY e ao custo demonstrado no
+     Pitfall 5.
 
 ## Environment Availability
 
