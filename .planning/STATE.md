@@ -6,13 +6,13 @@ current_phase: 03
 current_phase_name: interc-mbio-de-modalidade-de-cardio
 status: executing
 stopped_at: Planning inicializado; aguardando pesquisa e plano da Fase 1
-last_updated: "2026-08-10T12:22:38.845Z"
+last_updated: "2026-08-10T17:01:23.171Z"
 last_activity: 2026-08-10
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 13
+  total_plans: 16
   completed_plans: 7
 ---
 
@@ -30,7 +30,7 @@ meta com fonte única e condução guiada.
 
 Phase: 03 (interc-mbio-de-modalidade-de-cardio) — EXECUTING
 Plan: 1 of 6
-Status: Executing Phase 03
+Status: Ready to execute
 APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
 PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
 Last activity: 2026-08-10 — Phase 03 execution started
