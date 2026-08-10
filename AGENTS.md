@@ -45,23 +45,33 @@ falha fechado, então nenhuma automação atravessa esse portão sozinha.
 
 ## Estado das migrations
 
-- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0035**
-  (conferido em 10/08/2026 por `select version from supabase_migrations.schema_migrations` via
-  Management API, sem trocar o link do diretório. Resposta literal:
-  `[{"version":"0035"},{"version":"0034"},{"version":"0033"},{"version":"0032"}]`).
-  **A 0036 NÃO está aplicada aqui** — a guarda `P0005` de `swap_session_exercise` não existe em
-  produção, e o comportamento do teste 5 de `03-UAT.md` segue reproduzível.
+- Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0036**
+  (a 0036 aplicada em 10/08/2026 por `supabase db push` do dono). Conferido por leitura via
+  Management API, sem trocar o link do diretório:
+  `{"ultima_migration":"0036","registro_0036":1,"guarda_p0005_viva":true,"join_set_logs_presente":true,"anon_executa":false,"authenticated_executa":true}`.
+  Prova comportamental **não** foi executada aqui — produção não recebe dado semeado. Vale por
+  transitividade: `md5(pg_get_functiondef('public.swap_session_exercise(uuid,uuid,text,text)'))`
+  é `71e4354975114d06ea0010086d5045bc` (3918 bytes) em produção **e** em homologação, e em
+  homologação a recusa `P0005` foi comprovada por execução.
 - Aplicadas e registradas em homologação (`forcaapp-staging`, ref `mjdjtiujhwklchalquhc`): **0000 → 0036**
   (conferido em 10/08/2026 por consulta direta ao banco com `supabase db query --linked`).
   A 0036 `guarda_set_log_troca_cardio` foi aplicada nesta data e **comprovada por teste
   comportamental**, não só por presença na tabela: troca em exercício com série gravada é
   recusada com `sqlstate=P0005` e 0 linhas em `cardio_exercise_swaps`; troca legítima segue
   aceita, 1 linha. Ver teste 7 de `03-UAT.md`.
-- ⚠️ **Os dois ambientes estão DIFERENTES desde 10/08/2026**: homologação na 0036, produção na 0035.
-  A afirmação anterior de igualdade valia para 30/07/2026 (conferida por consulta a
-  `supabase_migrations.schema_migrations` nos dois refs e por `md5(pg_get_functiondef(...))`
-  idêntico nas 14 funções do domínio) e **não vale mais**. Esta seção já esteve defasada por
-  dias — antes de confiar nela, confirme no banco.
+- Os dois ambientes voltaram a ficar IGUAIS em 10/08/2026, ambos na **0036** (conferido no mesmo
+  dia por `max(version)` nos dois refs e por `md5(pg_get_functiondef(...))` idêntico para
+  `swap_session_exercise`). Houve uma janela de algumas horas nesse dia em que divergiram —
+  homologação na 0036, produção ainda na 0035. Esta seção já esteve defasada por dias — antes
+  de confiar nela, confirme no banco.
+- ⚠️ **Incidente de processo em 10/08/2026, ao aplicar a 0036 em produção.** O `db push` rodou
+  **sem** o portão do `scripts/supabase-preflight.sh prod` — logo, sem a confirmação `PRODUCAO`
+  digitada. Causa: o runbook trazia a linha `scripts/supabase-preflight.sh prod  # exige digitar
+  PRODUCAO`; o `#` não foi tratado como comentário pelo zsh interativo e virou argumento, o
+  script recebeu 5 argumentos, caiu em `[[ $# -eq 1 ]] || uso` e saiu com erro — e como as linhas
+  estavam soltas, o `db push` seguinte executou assim mesmo. **Runbook de banco nunca leva
+  comentário inline, e os comandos vão SEMPRE encadeados com `&&`**, como já mostram os exemplos
+  em `scripts/supabase-preflight.sh:19-20`. Sem o `&&`, um preflight que falha não impede nada.
 - A 0020 (recusa declarada) **reescreve `start_session` e `finish_session`** além de criar
   as RPCs de recusa: as duas passaram a barrar o estado `skipped` e usam a mesma ordem de
   lock (planned_session → session_log). Regressão exercitada em staging com dados

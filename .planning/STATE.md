@@ -36,16 +36,19 @@ Plan: 9 of 9
 Status: 9/9 planos executados; onda de gap closure (03-07/08/09) mesclada e verde
 (tsc limpo, 141 suítes / 1619 testes, code review 0 critical). A re-verificação devolveu
 `human_needed` (6/8 must-haves) — a fase NÃO foi marcada completa.
-Migration 0036: APLICADA E COMPROVADA EM HOMOLOGAÇÃO em 10/08/2026 (recusa `P0005`,
-0 linhas em `cardio_exercise_swaps`, resíduo 0). PRODUÇÃO SEGUE NA 0035 — medido por
-leitura direta de `supabase_migrations.schema_migrations`. O G-03-5-servidor está
-fechado em homologação e **explorável em produção**.
-Pendente do dono: (1) aplicar a 0036 em PRODUÇÃO e repetir o teste 7 lá — o preflight
-`prod` exige a palavra `PRODUCAO` digitada por pessoa, nenhum agente atravessa esse
-portão; (2) caveats de build nativo (teste 8).
-Resolvido nesta sessão: o harness de integração do 03-07 foi reproduzido (teste 6, pass).
+Migration 0036: APLICADA NOS DOIS AMBIENTES em 10/08/2026. Homologação com prova
+comportamental (recusa `P0005`, 0 linhas em `cardio_exercise_swaps`, resíduo 0);
+produção com verificação de leitura (`guarda_p0005_viva=true`, `anon_executa=false`)
+mais `md5(pg_get_functiondef(...))` idêntico ao de homologação — produção não recebe
+dado semeado. G-03-5-servidor: **resolvido**. `threats_open` de 2 para 0.
+Ressalva de processo, registrada em 03-UAT.md e 03-SECURITY.md: o `db push` de produção
+rodou SEM o portão do preflight, porque o runbook não encadeou os comandos com `&&`.
+Sem dano — alvo e migration corretos, conferidos depois — mas o controle não operou.
+Pendente: (1) teste 8, caveats de build nativo iOS/Android; (2) re-rodar
+`/gsd-secure-phase 03` e `/gsd-verify-work 03` para fechar a fase formalmente.
+Resolvido nesta sessão: teste 6 (harness de integração do 03-07) e teste 7 (0036).
 Ver 03-UAT.md (testes 6, 7, 8), 03-SECURITY.md e 03-VERIFICATION.md.
-Last activity: 2026-08-10 — 0036 comprovada em homologação; produção pendente
+Last activity: 2026-08-10 — 0036 nos dois ambientes; falta o teste 8 e o fechamento formal
 
 Progress: [█████████░] 94%
 
@@ -70,13 +73,14 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-10
-Stopped at: 0036 comprovada em HOMOLOGAÇÃO; PRODUÇÃO segue na 0035 — fase NÃO completa.
-Detalhe: 9/9 planos executados e mesclados. A 0036 foi aplicada e comprovada por teste
-comportamental em homologação (recusa P0005, 0 linhas, resíduo 0). Produção na 0035 é a
-única pendência bloqueante.
-Próximo passo é do dono: aplicar a 0036 em produção (preflight prod exige PRODUCAO
-digitado) e repetir o teste 7 de 03-UAT.md. Depois: /gsd-secure-phase 03 para levar
-threats_open de 2 a 0, e /gsd-verify-work 03 para fechar a fase.
+Stopped at: 0036 viva nos DOIS ambientes; G-03-5-servidor resolvido; falta o teste 8.
+Detalhe: 9/9 planos executados e mesclados. A 0036 foi aplicada em homologação e em
+produção em 10/08/2026 — homologação com prova comportamental, produção com verificação
+de leitura mais md5 de pg_get_functiondef idêntico ao da função já provada. threats_open
+foi de 2 para 0. Ressalva: o db push de produção rodou sem o portão do preflight, porque
+o runbook não encadeou os comandos com &&; sem dano, mas o controle não operou.
+Próximo passo: teste 8 (build nativo iOS/Android, único pendente), depois
+/gsd-secure-phase 03 e /gsd-verify-work 03 para fechar a fase formalmente.
 Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,

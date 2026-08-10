@@ -3,7 +3,8 @@ phase: 03
 slug: interc-mbio-de-modalidade-de-cardio
 status: draft
 # threats_open conta somente ameaças OPEN com severidade >= workflow.security_block_on.
-threats_open: 2
+# 2026-08-10: de 2 para 0 — a 0036 entrou em produção e a guarda P0005 foi confirmada viva lá.
+threats_open: 0
 asvs_level: 1
 block_on: high
 created: 2026-08-10
@@ -49,8 +50,8 @@ estar vivo no banco.
 | T-03-09b | Information Disclosure / Elevation of Privilege | Harness de integração usando `service_role` sobre a rede | high | mitigate | Trava de loopback hard-fail em `__tests__/integration/getSessionLogDetail.postgrest.test.ts:54-66`, avaliada no import antes de qualquer chamada de rede; chave lida só de env var, sem default; `testPathIgnorePatterns` exclui `__tests__/integration/` da suíte padrão (`npx jest --listTests` retorna 0 ocorrências). | closed |
 | T-03-10a | Tampering | Motor puro `distanciaRealizadaSemanaM` | low | accept | Sem I/O e sem input externo; agrega apenas dado que `getCardioLogs` trouxe sob RLS "own". Nenhuma superfície nova. | closed |
 | T-03-10b | Tampering | Reintrodução de `planned_sets.planned_exercise_id` | medium | mitigate | `grep -rn "planned_sets(set_order, planned_exercise_id" src/` retorna vazio, reverificado em 2026-08-10, mais o harness de integração real, que falha alto contra Postgres se o bug voltar — diferente da suíte mockada, que não pega essa classe de erro por construção. | closed |
-| **T-03-11** | **Tampering** | **`swap_session_exercise` aceita troca com `set_logs` já gravado (G-03-5-servidor)** | **high** | **mitigate** | **Guarda `errcode P0005` em `0036_guarda_set_log_troca_cardio.sql:126-137`. FECHADA EM HOMOLOGAÇÃO em 10/08/2026, comprovada por teste comportamental e não só textual: troca em exercício com série gravada devolve `sqlstate=P0005` e 0 linhas em `cardio_exercise_swaps`; troca legítima segue aceita. NÃO aplicada em produção — leitura direta de `supabase_migrations.schema_migrations` mostra produção na 0035.** | **open (só produção)** |
-| **T-03-12** | **Elevation of Privilege** | **`anon` executando a `swap_session_exercise` recriada pela 0036** | **high** | **mitigate** | **`revoke/grant` em `0036:158-159`, parte da mesma `create or replace`. Viva em homologação desde 10/08/2026; não viva em produção. A versão hoje em produção (0035) tem o próprio par revoke/grant e continua protegida contra `anon`; o que falta lá é a guarda de `set_logs`.** | **open (só produção)** |
+| T-03-11 | Tampering | `swap_session_exercise` aceita troca com `set_logs` já gravado (G-03-5-servidor) | high | mitigate | Guarda `errcode P0005` em `0036_guarda_set_log_troca_cardio.sql:126-137`, viva nos DOIS ambientes desde 10/08/2026. Homologação: comprovada por execução — troca em exercício com série gravada devolve `sqlstate=P0005` e 0 linhas em `cardio_exercise_swaps`, troca legítima segue aceita. Produção: `guarda_p0005_viva=true` e `join_set_logs_presente=true` por leitura, e `md5(pg_get_functiondef(...))` = `71e4354975114d06ea0010086d5045bc` (3918 bytes) idêntico ao de homologação, logo a prova comportamental transfere. | **closed** |
+| T-03-12 | Elevation of Privilege | `anon` executando a `swap_session_exercise` recriada pela 0036 | high | mitigate | `revoke/grant` em `0036:158-159`, parte da mesma `create or replace`. Confirmado em produção por `has_function_privilege`: `anon_executa=false`, `authenticated_executa=true`. | **closed** |
 | T-03-13 | Tampering | Bypass do gate client-side de UX | low | accept | Plan puramente cosmética; a autorização nunca dependeu dela. Gate em `SessionQueue.tsx:117-120` e `ActiveSessionScreen.tsx:364-367`, mesmo predicado do guard real em `activeSessionStore.ts:1518`. | closed |
 
 *Status: open / closed / open below threshold (non-blocking).*
@@ -93,7 +94,8 @@ e mantendo os de `03-07-PLAN.md`.
 | Trava de loopback do harness (T-03-09b) | `getSessionLogDetail.postgrest.test.ts:54-66` avalia a regex `^http://(127\.0\.0\.1\|localhost)(:\d+)?$` no import e lança antes de qualquer chamada de rede. `npx jest --listTests` retorna 0 ocorrências de `integration/`, confirmando a exclusão da suíte padrão. |
 | Guarda P0005 no arquivo da 0036 (T-03-11) | `__tests__/cardioSwapGuardaSerieConcluida.test.ts` — 8/8. `git diff` sobre 0034 e 0035 vazio, confirmando que nenhuma guarda anterior foi tocada. `03-REVIEW.md` item 2 confirma comparação byte a byte contra a 0035. |
 | Guarda P0005 **viva em homologação** (T-03-11) | Medido em 10/08/2026 contra `forcaapp-staging` (ref `mjdjtiujhwklchalquhc`), atrás de `scripts/supabase-preflight.sh hml`. Script `uat-0036-p0005-v3.sql`, saída literal: `guarda_P0005_instalada = t` / `(a) exercicio COM serie : RECUSADA \| sqlstate=P0005 \| 0 linha(s) \| veredicto=PASS-GREEN` / `(b) exercicio SEM serie : ACEITA \| sqlstate=- \| 1 linha(s) \| veredicto=PASS`. Resíduo pós-execução: 0. Esta é a primeira evidência de comportamento, não de texto, para esta ameaça. |
-| Guarda P0005 **ausente em produção** (T-03-11) | Medido em 10/08/2026 via Management API, sem trocar o link do diretório: `select version from supabase_migrations.schema_migrations order by version desc limit 4` → `[{"version":"0035"},{"version":"0034"},{"version":"0033"},{"version":"0032"}]`. A ameaça permanece explorável em produção. |
+| Guarda P0005 **viva em produção** (T-03-11, T-03-12) | Medido em 10/08/2026 via Management API, sem trocar o link do diretório (que permaneceu em homologação). Resposta literal: `{"ultima_migration":"0036","registro_0036":1,"guarda_p0005_viva":true,"join_set_logs_presente":true,"anon_executa":false,"authenticated_executa":true}`. Prova comportamental **não** executada aqui — produção não recebe dado semeado. Transitividade medida: `md5(pg_get_functiondef('public.swap_session_exercise(uuid,uuid,text,text)'))` = `71e4354975114d06ea0010086d5045bc`, 3918 bytes, idêntico em `zanqygwsgxkyjiuhrzju` e `mjdjtiujhwklchalquhc`. |
+| Aviso `pgdelta-target-ca.crt` no output do push | Falha da etapa de **cache do catálogo** de migrations dentro do contêiner do edge-runtime, não da aplicação. A 0036 traz bloco de asserções em runtime (linhas 165-186, cinco checagens) que abortaria a migration se qualquer precondição falhasse; ela aplicou e o registro consta, logo passaram. |
 | Suíte completa após o merge da onda | `npx jest --ci` — 141 suítes, 1619 testes, exit 0. `npx tsc --noEmit` exit 0. |
 | Code review da onda | `03-REVIEW.md` — 0 critical, 2 warning (cobertura do harness novo), 2 info. |
 | Aplicação da 0036 em homologação | **Não verificada por esta auditoria.** Um operador externo relata ter aplicado em `forcaapp-staging` em 2026-08-10, com `pg_get_functiondef(...) like '%errcode = ''P0005''%'` retornando `true` via `--linked`. Nem o auditor nem o orquestrador confirmaram de forma independente. `AGENTS.md:48-49` segue registrando `0000 -> 0035` nos dois ambientes e está desatualizado. |
@@ -125,30 +127,57 @@ Notas desta auditoria:
 
 ---
 
-## Como fechar T-03-11 e T-03-12
+## T-03-11 e T-03-12 — fechadas em 10/08/2026
 
-As duas caem com a mesma ação:
+As duas caíram com a mesma ação: `supabase db push` da 0036 em produção, executado pelo dono.
+
+### Incidente de processo neste push — o portão não rodou
+
+O push atingiu produção **sem** o `scripts/supabase-preflight.sh prod`, logo **sem** a
+confirmação `PRODUCAO` digitada, que é a única trava desenhada para impedir que automação chegue
+sozinha a produção.
+
+Causa raiz: o runbook entregue ao dono trazia
 
 ```
-supabase link --project-ref zanqygwsgxkyjiuhrzju
-scripts/supabase-preflight.sh prod && supabase db push    # digite PRODUCAO no prompt
+scripts/supabase-preflight.sh prod        # exige digitar PRODUCAO
+supabase db push
 ```
 
-Confirmação depois, somente leitura, sem semear dado em produção:
+O `#` não foi tratado como comentário pelo zsh interativo desta máquina — virou argumento. O
+script recebeu 5 argumentos em vez de 1, caiu em `[[ $# -eq 1 ]] || uso` e saiu com código 2.
+Como as duas linhas estavam **soltas**, o `db push` executou mesmo assim.
+
+O que salva a forma canônica é o `&&`, que este próprio documento já usava:
+
+```
+scripts/supabase-preflight.sh prod && supabase db push
+```
+
+Nessa forma o mesmo acidente falha **fechado**: preflight sai com erro, o `&&` corta, o push não
+roda. O defeito não foi o comentário — foi a ausência do `&&`. Regra registrada em `AGENTS.md`.
+
+Dano material: nenhum. O alvo era o correto e a migration era a pretendida, conferido depois por
+leitura. Mas o controle não operou; o resultado certo veio por sorte, não por desenho.
+
+### Confirmação, somente leitura, sem semear dado em produção
 
 ```sql
 select pg_get_functiondef('public.swap_session_exercise(uuid, uuid, text, text)'::regprocedure)
        like '%errcode = ''P0005''%' as tem_guarda_p0005;   -- esperado: true
 ```
 
-Em seguida atualizar `AGENTS.md:48-49` para `0000 -> 0036` nos ambientes aplicados e re-rodar
-`/gsd-secure-phase 03`.
+Executado em 10/08/2026. Resultado: `guarda_p0005_viva=true`, `join_set_logs_presente=true`,
+`anon_executa=false`, `authenticated_executa=true`, `ultima_migration=0036`.
 
-Enquanto isso não acontece, o comportamento que o `03-UAT.md` teste 5 comprovou explorável —
-chamada direta à RPC gravando troca para exercício com série já concluída — continua
-reproduzível em produção. O guard client-side (`activeSessionStore.ts:1518-1521`) segue como
-primeira linha de defesa do fluxo normal do app, mas não cobre chamada direta à API, build sem
-o guard, nem corrida entre dois dispositivos.
+`AGENTS.md` já atualizado para `0000 → 0036` nos dois ambientes, com o incidente de processo
+registrado lá também.
+
+O comportamento que o `03-UAT.md` teste 5 comprovou explorável — chamada direta à RPC gravando
+troca para exercício com série já concluída — **não é mais reproduzível em nenhum ambiente**. O
+guard client-side (`activeSessionStore.ts:1518-1521`) permanece como primeira camada do fluxo
+normal do app; a guarda no servidor agora cobre o que ele não cobria: chamada direta à API,
+build sem o guard e corrida entre dois dispositivos.
 
 ---
 
@@ -156,11 +185,9 @@ o guard, nem corrida entre dois dispositivos.
 
 - [x] Todas as ameaças têm disposição (mitigate / accept / transfer)
 - [x] Riscos aceitos documentados no Accepted Risks Log
-- [ ] `threats_open: 0` confirmado — duas ainda abertas (T-03-11, T-03-12), agora **só em produção**.
-      Homologação fechou as duas em 10/08/2026, com prova comportamental para a T-03-11.
-      O contador segue em 2 de propósito: ameaça viva em produção é ameaça aberta, e homologação
-      fechada não reduz risco para usuário real. Vai a 0 quando a 0036 entrar em produção e o
-      teste 7 de `03-UAT.md` for repetido lá.
+- [x] `threats_open: 0` confirmado — T-03-11 e T-03-12 fechadas em 10/08/2026, nos dois ambientes.
+      Homologação com prova comportamental; produção com verificação de leitura mais igualdade
+      de `md5(pg_get_functiondef(...))` contra a função já provada em homologação.
 - [ ] `status: verified` no frontmatter
 
 **Approval:** pending
