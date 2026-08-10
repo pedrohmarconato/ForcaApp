@@ -484,6 +484,32 @@ class TestSemanasAvulsas:
         assert "37" in msg
         assert "3%" in msg
 
+    def test_chave_e_campo_semana_da_avulsa_precisam_coincidir(self):
+        molde = _molde([
+            [_sessao("A", [_forca(), _cardio("Corrida", 30)])],
+            [_sessao("B", [_forca(), _cardio("Corrida", 32)])],
+        ])
+        molde["calendario"] = ["tipo_a", "tipo_b", "tipo_b"] * 4
+        molde["semanas_avulsas"] = {
+            "semana_2": {
+                "semana": 3,
+                "sessoes": [_sessao("Exceção", [_forca(), _cardio("Corrida", 32)])],
+            }
+        }
+
+        msg = validar_dose_cardio(
+            molde,
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        )
+
+        assert msg is not None
+        assert "semana_2" in msg
+        assert "campo semana=3" in msg
+
 
 class TestExercicioTemporalDesconhecido:
     def test_nome_fora_do_catalogo_com_duracao_nao_escapa_da_dose(self):
@@ -506,6 +532,40 @@ class TestExercicioTemporalDesconhecido:
                 "cardio_pratica_atualmente": False,
             },
         )
+
+        assert msg is not None
+        assert "Cardio Personalizado ZYX" in msg
+        assert "catálogo" in msg
+
+    @pytest.mark.parametrize(
+        "questionario",
+        [
+            {"inclui_cardio": False},
+            {
+                **QUEST_BASE,
+                "cardio_dias_semana": 1,
+                "cardio_pratica_atualmente": False,
+            },
+        ],
+    )
+    def test_alvo_temporal_desconhecido_nao_e_descartado_por_repeticoes(
+        self, questionario
+    ):
+        molde = _molde([[
+            _sessao(
+                "A",
+                [
+                    _forca(),
+                    _cardio(
+                        "Cardio Personalizado ZYX",
+                        30,
+                        repeticoes="8-12",
+                    ),
+                ],
+            )
+        ]])
+
+        msg = validar_dose_cardio(molde, questionario)
 
         assert msg is not None
         assert "Cardio Personalizado ZYX" in msg
