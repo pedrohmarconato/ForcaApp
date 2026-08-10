@@ -35,6 +35,19 @@ type Props = {
   busy?: boolean;
   /** Renderiza o conteúdo dentro de um Modal pai, sem criar outro Dialog nativo. */
   inline?: boolean;
+  /**
+   * O exercício-alvo é medido por tempo (cardio/isometria) — só relevante
+   * quando `escopo === 'exercicio'`. REQ-06, segundo entry point (Fase 3):
+   * habilita a oferta de "Trocar modalidade" quando o motivo selecionado é
+   * `sem_equipamento`.
+   */
+  ehCardio?: boolean;
+  /**
+   * Aciona o caminho de troca de modalidade em vez da recusa. NUNCA invoca
+   * `onConfirm`/`skip_session_exercise` — caminho aditivo que reusa o mesmo
+   * SwapModalitySheet do Plano 03-03, nunca substitui o fluxo de recusa.
+   */
+  onSolicitarTroca?: () => void;
 };
 
 const NOTA_MAX = 280;
@@ -47,6 +60,8 @@ const SkipReasonSheet = ({
   onDismiss,
   busy = false,
   inline = false,
+  ehCardio,
+  onSolicitarTroca,
 }: Props) => {
   const [reason, setReason] = useState<SkipReason | null>(null);
   const [note, setNote] = useState('');
@@ -61,6 +76,14 @@ const SkipReasonSheet = ({
   }, [visible]);
 
   const ehSessao = escopo === 'sessao';
+  // REQ-06, segundo entry point: só oferece a troca quando o motivo é
+  // sem_equipamento NUM exercício de cardio de escopo exercício — a recusa
+  // de sessão inteira nunca tem um único exercício de cardio para trocar.
+  const ofereceTroca =
+    escopo === 'exercicio' &&
+    reason === 'sem_equipamento' &&
+    ehCardio === true &&
+    onSolicitarTroca != null;
 
   const content = (
       <Pressable
@@ -123,11 +146,22 @@ const SkipReasonSheet = ({
             />
           </ScrollView>
 
+          {ofereceTroca ? (
+            <Button
+              label="Trocar modalidade"
+              variant="outline"
+              onPress={() => onSolicitarTroca!()}
+              disabled={busy}
+              testID="skip-reason-oferecer-troca"
+            />
+          ) : null}
           <Button
-            label={ehSessao ? 'Recusar o treino' : 'Não vou fazer'}
+            label={ofereceTroca ? 'Recusar mesmo assim' : ehSessao ? 'Recusar o treino' : 'Não vou fazer'}
             onPress={() => {
               // Guarda de toque duplo e de motivo ausente: o servidor recusaria
-              // com 22023, mas a tela não deve nem chegar lá.
+              // com 22023, mas a tela não deve nem chegar lá. Este botão NUNCA
+              // é substituído pela troca — "Trocar modalidade" acima é um
+              // caminho aditivo que nunca invoca onConfirm/skip_session_exercise.
               if (busy || reason == null) return;
               onConfirm(reason, note.trim() ? note.trim() : null);
             }}
