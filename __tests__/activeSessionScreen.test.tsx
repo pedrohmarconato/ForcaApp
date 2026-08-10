@@ -5,7 +5,7 @@
 // e a ausência de campo de kg no bodyweight.
 
 import React from 'react';
-import { Modal, Platform } from 'react-native';
+import { Alert, Modal, Platform } from 'react-native';
 import { act, render, waitFor, fireEvent } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
@@ -44,10 +44,18 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     getLastLoadByExercise: jest.fn(async () => ({})),
     skipSessionExercise: jest.fn(async () => undefined),
     unskipSessionExercise: jest.fn(async () => undefined),
+    swapSessionExercise: jest.fn(async () => undefined),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: () => false,
   };
 });
+// Fase 3 (REQ-06): a tela passou a ler modalidades aceitas do questionário
+// para o SwapModalitySheet; sem este mock, o import do módulo real puxaria o
+// cliente Supabase real e quebraria o teste no import (mesmo motivo dos
+// outros mocks de serviço deste arquivo).
+jest.mock('../src/services/cardioModalidadesAceitasRepository', () => ({
+  getModalidadesAceitas: jest.fn(async () => ['Remo Ergômetro']),
+}));
 // Fase 6: o store passou a importar o repositório de replanejamento; mocka para
 // não carregar o cliente Supabase real no jest (mesmo padrão dos demais services).
 jest.mock('../src/services/weeklyReplanRepository', () => ({
@@ -168,10 +176,63 @@ jest.mock('../src/services/trainingRepository', () => ({
 import {
   saveSetLog,
   finishSessionLog,
+  swapSessionExercise,
 } from '../src/services/sessionExecutionRepository';
 import { clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
+import { getSessionDetail } from '../src/services/trainingRepository';
+
+// Fixture local de 1 exercício de cardio — NÃO reutiliza/modifica o `detail`
+// module-level (fixture de força, dezenas de asserções já fixas nele).
+// Mesmo shape mínimo de detalheComCardio() em cardioTempoDistancia.test.ts.
+const detailComCardio = {
+  id: 'sess-c',
+  plan_id: 'plan-1',
+  user_id: 'user-1',
+  week_number: 1,
+  day_of_week: null,
+  order_in_week: 1,
+  title: 'Sexta: Cardio',
+  session_type: 'Cardio',
+  scheduled_date: '2026-07-24',
+  estimated_minutes: 25,
+  status: 'pending',
+  muscle_groups: ['Cardio'],
+  planned_exercises: [
+    {
+      id: 'ex-cardio',
+      session_id: 'sess-c',
+      exercise_order: 1,
+      name: 'Caminhada',
+      exercise_key: 'caminhada',
+      metric: 'tempo_distancia',
+      muscle_group: 'Cardio',
+      priority: 'primary',
+      equipment: 'Peso corporal',
+      load_increment_kg: 2.5,
+      rest_seconds: null,
+      target_rm_percent: null,
+      sets_planned: 1,
+      reps_raw: '25min',
+      method: null,
+      notes: null,
+      planned_sets: [
+        {
+          id: 'st-c1',
+          exercise_id: 'ex-cardio',
+          set_order: 1,
+          target_reps_min: null,
+          target_reps_max: null,
+          target_load_kg: null,
+          target_rir: null,
+          target_duration_seconds: 1500,
+          target_distance_m: 3000,
+        },
+      ],
+    },
+  ],
+};
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 const deferred = <T,>() => {
@@ -433,5 +494,68 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
     );
     expect(modaisVisiveis(screen)).toHaveLength(0);
     } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
+  });
+
+  it('entry point 1: abre o sheet de troca a partir da fila, confirma e fecha', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    mock(getSessionDetail).mockResolvedValueOnce(detailComCardio as any);
+    try {
+      const screen = renderScreen();
+      await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText('Normal'));
+      fireEvent.press(screen.getByLabelText('Tempo cheio'));
+      fireEvent.press(screen.getByLabelText('Começar treino'));
+      await waitFor(() => expect(screen.getByText('Sexta: Cardio')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+
+      fireEvent.press(screen.getByLabelText('Trocar modalidade de Caminhada'));
+      await waitFor(() => expect(screen.getByText('Trocar Caminhada')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('swap-modality-Remo Ergômetro'));
+      fireEvent.press(screen.getByTestId('swap-modality-confirm'));
+
+      await waitFor(() => expect(mock(swapSessionExercise)).toHaveBeenCalledWith(
+        expect.objectContaining({ plannedExerciseId: 'ex-cardio', toModality: 'Remo Ergômetro' }),
+      ));
+      // Mesmo padrão de onConfirmarRecusa: sucesso fecha o modal inteiro.
+      await waitFor(() => expect(screen.queryByText('Andamento do treino')).toBeNull());
+      expect(useActiveSessionStore.getState().draft!.exercises[0].name).toBe('Remo Ergômetro');
+    } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
+  });
+
+  it('falha ao trocar: Alert avisa e o sheet permanece aberto', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mock(getSessionDetail).mockResolvedValueOnce(detailComCardio as any);
+    mock(swapSessionExercise).mockRejectedValueOnce(new Error('falhou'));
+    try {
+      const screen = renderScreen();
+      await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+      fireEvent.press(screen.getByLabelText('Normal'));
+      fireEvent.press(screen.getByLabelText('Tempo cheio'));
+      fireEvent.press(screen.getByLabelText('Começar treino'));
+      await waitFor(() => expect(screen.getByText('Sexta: Cardio')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('ver-andamento'));
+      await waitFor(() => expect(screen.getByText('Andamento do treino')).toBeTruthy());
+
+      fireEvent.press(screen.getByLabelText('Trocar modalidade de Caminhada'));
+      await waitFor(() => expect(screen.getByText('Trocar Caminhada')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('swap-modality-Remo Ergômetro'));
+      fireEvent.press(screen.getByTestId('swap-modality-confirm'));
+
+      await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+      // O sheet PERMANECE aberto — falha do servidor não fecha nem aplica a troca.
+      expect(screen.getByText('Trocar Caminhada')).toBeTruthy();
+      expect(useActiveSessionStore.getState().draft!.exercises[0].name).toBe('Caminhada');
+    } finally {
+      alertSpy.mockRestore();
+      if (descriptor) Object.defineProperty(Platform, 'OS', descriptor);
+    }
   });
 });

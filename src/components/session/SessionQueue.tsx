@@ -33,6 +33,12 @@ type Props = {
    * callback, a fila não oferece a ação — é como as telas antigas a renderizam.
    */
   onSolicitarRecusa?: (exercise: DraftExercise) => void;
+  /**
+   * Abre o sheet de troca de modalidade para este exercício de cardio (a tela
+   * é dona do sheet, mesmo padrão de onSolicitarRecusa). Sem o callback, a
+   * fila não oferece a ação.
+   */
+  onSolicitarTroca?: (exercise: DraftExercise) => void;
   /** Override para ativar série (modal fecha antes de navegar). */
   onActivateSet?: (exerciseId: string, setOrder: number) => void;
   /** Override para desfazer recusa (modal fecha antes de agir). */
@@ -61,7 +67,14 @@ export const doneLine = (exercise: DraftExercise, set: DraftSet): string => {
   return `${set.actualReps} reps ${exercise.isBodyweight ? '· ' : '× '}${carga}${folego}`;
 };
 
-const SessionQueue = ({ draft, metaFor, onSolicitarRecusa, onActivateSet, onUnskipExercise }: Props) => {
+const SessionQueue = ({
+  draft,
+  metaFor,
+  onSolicitarRecusa,
+  onSolicitarTroca,
+  onActivateSet,
+  onUnskipExercise,
+}: Props) => {
   const storeActivateSet = useActiveSessionStore((s) => s.activateSet);
   const storeUnskipExercise = useActiveSessionStore((s) => s.unskipExercise);
   const activateSet = onActivateSet ?? storeActivateSet;
@@ -93,6 +106,8 @@ const SessionQueue = ({ draft, metaFor, onSolicitarRecusa, onActivateSet, onUnsk
                     Cortado por tempo — confirmado por você. As séries não feitas não
                     contam hoje.
                   </Text>
+                ) : ex.swappedFrom ? (
+                  <Text style={styles.cutNote}>{`Trocado de ${ex.swappedFrom}.`}</Text>
                 ) : meta ? (
                   <Text style={styles.meta}>{meta}</Text>
                 ) : null}
@@ -118,6 +133,17 @@ const SessionQueue = ({ draft, metaFor, onSolicitarRecusa, onActivateSet, onUnsk
                   accessibilityLabel={`Não vou fazer ${ex.name}`}
                 >
                   <Text style={styles.acaoLabel}>Não vou fazer</Text>
+                </TouchableOpacity>
+              ) : null}
+              {onSolicitarTroca && !foraDeJogo && isTimeBased(metricOf(ex)) ? (
+                <TouchableOpacity
+                  style={styles.acao}
+                  onPress={() => onSolicitarTroca(ex)}
+                  testID={`swap-${ex.exerciseId}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Trocar modalidade de ${ex.name}`}
+                >
+                  <Text style={styles.acaoLabel}>Trocar modalidade</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
