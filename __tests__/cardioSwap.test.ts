@@ -147,6 +147,33 @@ describe('applyCardioSwapToDraft', () => {
     expect(trocado.exercises[0].name).toBe('Supino Reto');
   });
 
+  it('CR-01 (decisão a): série já CONCLUÍDA não tem o alvo reescrito pela troca', () => {
+    const draft = rascunho([
+      exercicio('ex-2', 'Corrida', [
+        serie(1, {
+          status: 'done',
+          actualDurationSeconds: 1200,
+          actualDistanceM: 4800,
+          outcome: 'on_target',
+        }),
+        serie(2),
+      ]),
+    ]);
+
+    const trocado = applyCardioSwapToDraft(draft, 'ex-2', 'Remo Ergômetro');
+
+    // A série feita preserva TUDO que foi registrado nela — inclusive o alvo
+    // de distância da modalidade em que foi realmente executada (histórico não
+    // se reescreve). Só as pendentes recebem o alvo zerado (D-01).
+    const feita = trocado.exercises[0].sets[0];
+    expect(feita.status).toBe('done');
+    expect(feita.targetDistanceM).toBe(5000);
+    expect(feita.actualDistanceM).toBe(4800);
+    expect(feita.actualDurationSeconds).toBe(1200);
+    const pendente = trocado.exercises[0].sets[1];
+    expect(pendente.targetDistanceM).toBeNull();
+  });
+
   it('imutabilidade: o draft original não é mutado', () => {
     const draft = rascunho([exercicio('ex-2', 'Corrida', [serie(1), serie(2)])]);
     const exercisesOriginais = draft.exercises;

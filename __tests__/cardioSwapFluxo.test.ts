@@ -221,6 +221,60 @@ describe('modo de falha 1: servidor primeiro', () => {
   });
 });
 
+describe('CR-01 (decisão a): troca bloqueada com série concluída', () => {
+  it('recusa ANTES do servidor quando existe série done e reporta na UI', async () => {
+    await abrirSessao();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        exercises: draft.exercises.map((e) =>
+          e.exerciseId === 'ex-2'
+            ? {
+                ...e,
+                sets: e.sets.map((s) => ({
+                  ...s,
+                  status: 'done',
+                  actualDurationSeconds: 1200,
+                  actualDistanceM: 4800,
+                  outcome: 'on_target',
+                })),
+              }
+            : e,
+        ),
+      },
+      saveError: null,
+    });
+
+    const ok = await store().swapExercise('ex-2', 'Remo Ergômetro');
+
+    expect(ok).toBe(false);
+    // A RPC nem é chamada: a recusa é do cliente, antes de tocar o servidor.
+    expect(swapSessionExercise).not.toHaveBeenCalled();
+    const naoTrocado = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
+    expect(naoTrocado.name).toBe('Corrida');
+    expect(naoTrocado.sets.every((s) => s.status === 'done')).toBe(true);
+    expect(store().saveError).toMatch(/série concluída/i);
+  });
+
+  it('série pendente não dispara a guarda: troca flui normalmente', async () => {
+    await abrirSessao();
+    mock(swapSessionExercise).mockResolvedValue({
+      plannedExerciseId: 'ex-2',
+      toModality: 'Remo Ergômetro',
+      note: null,
+    });
+
+    const ok = await store().swapExercise('ex-2', 'Remo Ergômetro');
+
+    expect(ok).toBe(true);
+    expect(swapSessionExercise).toHaveBeenCalled();
+    expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.name).toBe(
+      'Remo Ergômetro',
+    );
+  });
+});
+
 describe('modo de falha 2: troca some na retomada', () => {
   it('reconstrução pelo servidor reaplica a troca registrada lá', async () => {
     mock(loadDraft).mockResolvedValue(null);

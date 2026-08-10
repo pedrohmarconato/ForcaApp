@@ -597,6 +597,12 @@ export const removeExerciseSkipFromDraft = (
  * `ex.swappedFrom ?? ex.name` preserva a origem VERDADEIRA em trocas
  * encadeadas (A -> B -> C mantém "A", nunca "B").
  *
+ * CR-01 (decisão do dono, semântica a): série já CONCLUÍDA não é tocada —
+ * mesmo invariante de `applyExerciseSkipToDraft` logo acima, "histórico não se
+ * reescreve". O fluxo real recusa a troca no store quando existe série `done`
+ * (`swapExercise`, activeSessionStore); esta guarda é defesa em profundidade
+ * para que NENHUM chamador do motor consiga reescrever trabalho real.
+ *
  * Exercício de `exerciseId` diferente não é tocado (mesmo padrão de
  * `applyExerciseSkipToDraft`); o `draft` recebido não é mutado (imutável,
  * mesmo shape de spread do resto deste arquivo).
@@ -617,7 +623,9 @@ export const applyCardioSwapToDraft = (
           metric: CARDIO_MODALIDADES_COM_DISTANCIA.includes(toModality)
             ? 'tempo_distancia'
             : 'tempo',
-          sets: ex.sets.map((s) => ({ ...s, targetDistanceM: null })),
+          sets: ex.sets.map((s) =>
+            s.status === 'done' ? s : { ...s, targetDistanceM: null },
+          ),
         },
   ),
 });

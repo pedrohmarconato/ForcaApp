@@ -1510,6 +1510,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     if (!alvo) return false;
     // Já trocado para a mesma modalidade: nada a fazer (guarda de toque duplo).
     if (alvo.name === toModality) return true;
+    // CR-01 (decisão do dono, semântica a): com série já concluída, trocar
+    // reescreveria o histórico — a série feita seria exibida sob uma modalidade
+    // em que nunca foi executada. A recusa mora AQUI, antes do servidor (a RPC
+    // aceitaria: a guarda dela é mais frouxa e a migration 0034 não será
+    // editada); o banner de erro é o mesmo canal do skipExercise.
+    if (alvo.sets.some((s) => s.status === 'done')) {
+      set({ saveError: 'Não é possível trocar a modalidade depois de uma série concluída.' });
+      return false;
+    }
 
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
