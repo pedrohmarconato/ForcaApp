@@ -10,7 +10,8 @@ import {
   type SessionLogDetail,
   type HistorySetLog,
 } from '../services/sessionExecutionRepository';
-import type { Outcome } from '../engine/sessionModel';
+import type { Outcome, ExerciseMetric } from '../engine/sessionModel';
+import { isTimeBased, formatCardioSetResult } from '../engine/sessionModel';
 import { duracaoEmMinutos, formatarDuracao } from '../utils/weekSummary';
 
 const OUTCOME_LABEL: Record<Outcome, string> = { on_target: 'No alvo', under: 'Abaixo', over: 'Acima' };
@@ -23,10 +24,21 @@ const outcomeColor = (o: Outcome): string =>
 
 type Props = { route: { params: { sessionLogId: string; title?: string } } };
 
-const descreveSerie = (s: HistorySetLog): string => {
+const descreveSerie = (s: HistorySetLog, metric: ExerciseMetric | null | undefined): string => {
+  // Cardio (Fase 3, Pitfall 2 fechado): o que foi feito é tempo/distância/pace/
+  // esforço, nunca reps — usa a MESMA fórmula da sessão ativa (paridade
+  // provada por teste em sessionExecutionRepository.test.ts).
+  if (isTimeBased(metric)) {
+    return formatCardioSetResult({
+      durationSeconds: s.actualDurationSeconds ?? null,
+      distanceM: s.actualDistanceM ?? null,
+      perceivedEffort: s.perceivedEffort ?? null,
+    });
+  }
   const carga = s.actualLoadKg != null ? `${s.actualLoadKg} kg` : 'peso corporal';
   const rir = s.actualRir != null ? ` · RIR ${s.actualRir}` : '';
-  return `${s.actualReps} reps × ${carga}${rir}`;
+  // actualReps agora é nullable (Pitfall 2) — nunca inventar reps quando ausente.
+  return `${s.actualReps ?? '—'} reps × ${carga}${rir}`;
 };
 
 const SessionHistoryDetailScreen = ({ route }: Props) => {
@@ -79,7 +91,12 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
     );
   }
 
-  const sections = detail.exercises.map((ex) => ({ title: ex.name, data: ex.sets }));
+  const sections = detail.exercises.map((ex) => ({
+    title: ex.name,
+    metric: ex.metric ?? null,
+    swappedFrom: ex.swappedFrom ?? null,
+    data: ex.sets,
+  }));
 
   const subtitulo = [
     detail.weekNumber ? `Semana ${detail.weekNumber}` : null,
@@ -97,12 +114,17 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
         sections={sections}
         keyExtractor={(item, index) => `${item.setOrder ?? 'x'}-${index}`}
         renderSectionHeader={({ section }) => (
-          <Text style={styles.exerciseName}>{section.title}</Text>
+          <>
+            <Text style={styles.exerciseName}>{section.title}</Text>
+            {section.swappedFrom ? (
+              <Text style={styles.swapNote}>{`Trocado de ${section.swappedFrom}`}</Text>
+            ) : null}
+          </>
         )}
-        renderItem={({ item }) => (
+        renderItem={({ item, section }) => (
           <View style={styles.setRow}>
             <Text style={styles.setText}>
-              Série {item.setOrder ?? '—'}: {descreveSerie(item)}
+              Série {item.setOrder ?? '—'}: {descreveSerie(item, section.metric)}
             </Text>
             {item.outcome ? (
               <Text style={[styles.chip, { color: outcomeColor(item.outcome) }]}>
@@ -158,6 +180,14 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.md,
     fontWeight: theme.typography.fontWeights.semiBold,
+  },
+  // Rótulo "Trocado de X" (Fase 3, D-08 histórico) — mesma família visual de
+  // `subtitle`: discreto, não compete com o nome do exercício.
+  swapNote: {
+    color: theme.colors.text.quiet,
+    fontFamily: theme.fonts.ui,
+    fontSize: theme.typography.fontSizes.xs,
+    fontStyle: 'italic',
   },
   setRow: {
     flexDirection: 'row',
