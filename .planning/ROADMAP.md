@@ -86,7 +86,7 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
   3. O realizado na modalidade trocada conta normalmente no realizado do Progresso.
 
-**Plans**: 3/6 plans executed
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -97,8 +97,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-03-PLAN.md — REQ-06: entry point 1 (fila da sessão) — `SwapModalitySheet` + botão "Trocar modalidade" + visibilidade na sessão ativa (D-08, metade 1)
-- [ ] 03-05-PLAN.md — REQ-06: histórico — corrige o gap pré-existente de cardio em `getSessionLogDetail` e mostra "trocado de X" (D-08, metade 2)
+- [x] 03-03-PLAN.md — REQ-06: entry point 1 (fila da sessão) — `SwapModalitySheet` + botão "Trocar modalidade" + visibilidade na sessão ativa (D-08, metade 1)
+- [x] 03-05-PLAN.md — REQ-06: histórico — corrige o gap pré-existente de cardio em `getSessionLogDetail` e mostra "trocado de X" (D-08, metade 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -113,4 +113,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
-| 3. Intercâmbio de modalidade de cardio | 3/6 | In Progress|  |
+| 3. Intercâmbio de modalidade de cardio | 5/6 | In Progress|  |
