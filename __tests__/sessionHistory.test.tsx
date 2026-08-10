@@ -87,4 +87,33 @@ describe('SessionHistoryDetailScreen', () => {
     expect(getByText('No alvo')).toBeTruthy();
     expect(getByText('Abaixo')).toBeTruthy();
   });
+
+  it('cardio: mostra duração/distância/pace e o rótulo de troca, sem reps', async () => {
+    mock(getSessionLogDetail).mockResolvedValue({
+      sessionLogId: 'sl-2', title: 'Cardio A', weekNumber: 3,
+      startedAt: '2026-07-17T09:00:00Z', finishedAt: '2026-07-17T09:25:00Z',
+      exercises: [
+        {
+          name: 'Remo Ergômetro', order: 1, metric: 'tempo_distancia', swappedFrom: 'Corrida',
+          sets: [
+            {
+              setOrder: 1, actualReps: null, actualLoadKg: null, actualRir: null,
+              actualDurationSeconds: 1200, actualDistanceM: 5000, perceivedEffort: 'moderado',
+              outcome: 'on_target',
+            },
+          ],
+        },
+      ],
+    });
+
+    const { getByText, queryByText } = render(
+      <SessionHistoryDetailScreen route={{ params: { sessionLogId: 'sl-2', title: 'Cardio A' } }} />,
+    );
+
+    await waitFor(() => expect(getByText('Remo Ergômetro')).toBeTruthy());
+    expect(getByText(/Trocado de Corrida/)).toBeTruthy();
+    expect(getByText(/20:00/)).toBeTruthy();
+    expect(getByText(/5 km/)).toBeTruthy();
+    expect(queryByText(/reps/)).toBeNull();
+  });
 });
