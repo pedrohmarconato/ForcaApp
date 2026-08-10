@@ -231,3 +231,32 @@ export const progressoConsistencia = (
     atingida: eixos.length > 0 && eixos.every(Boolean),
   };
 };
+
+/**
+ * "Km é km" (D-05): soma a distância realizada da semana de `referencia`,
+ * de QUALQUER modalidade — `l.name` não importa aqui, ao contrário de
+ * `progressoDesempenho`. Mesmo corte de semana de `progressoConsistencia`
+ * (`inicioDaSemana` + janela de 7 dias).
+ *
+ * Sem amostra com distância na janela devolve `null`, nunca `0` inventado —
+ * a decisão de tratar "existe prescrição de km mas realizado é zero" como
+ * fato (`0`, não `null`) é de QUEM CONSOME este valor (`cardioPrescrito.ts`),
+ * não deste motor genérico, que não sabe se existe prescrição.
+ */
+export const distanciaRealizadaSemanaM = (
+  logs: readonly CardioLog[],
+  referencia: Date = new Date(),
+): number | null => {
+  const inicio = inicioDaSemana(referencia);
+  const fim = new Date(inicio);
+  fim.setDate(fim.getDate() + 7);
+
+  let metros: number | null = null;
+  for (const l of logs) {
+    const quando = new Date(l.completedAt);
+    if (Number.isNaN(quando.getTime()) || quando < inicio || quando >= fim) continue;
+    const distancia = numeroPositivo(l.distanceM);
+    if (distancia != null) metros = (metros ?? 0) + distancia;
+  }
+  return metros;
+};
