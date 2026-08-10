@@ -86,7 +86,7 @@ fluxo de recusa declarada (motivo `sem_equipamento`) para substituição.
 
   3. O realizado na modalidade trocada conta normalmente no realizado do Progresso.
 
-**Plans**: 9 plans (6 executed + 3 gap closure)
+**Plans**: 9/9 plans executed
 
 Plans:
 **Wave 1**
@@ -106,9 +106,9 @@ Plans:
 
 **Gap closure (UAT contra Postgres real, 2026-08-10) — Wave 1, paralelas entre si**
 
-- [ ] 03-07-PLAN.md — REQ-06: G-03-3 (blocker) — corrige `planned_sets.exercise_id` (era `planned_exercise_id`, coluna inexistente) em `getSessionLogDetail` + harness de integração real contra Postgres local (OD-02)
-- [ ] 03-08-PLAN.md — REQ-06: G-03-5-servidor (major) — migração 0036 promove o guard CR-01 (série já concluída) para o servidor em `swap_session_exercise` + checkpoint de decisão antes de aplicar em banco vivo
-- [ ] 03-09-PLAN.md — REQ-06: UX — esconde os dois entry points de troca assim que há série concluída, coerente com CR-01 (03-UAT.md teste 5, caveat)
+- [x] 03-07-PLAN.md — REQ-06: G-03-3 (blocker) — corrige `planned_sets.exercise_id` (era `planned_exercise_id`, coluna inexistente) em `getSessionLogDetail` + harness de integração real contra Postgres local (OD-02)
+- [x] 03-08-PLAN.md — REQ-06: G-03-5-servidor (major) — migração 0036 promove o guard CR-01 (série já concluída) para o servidor em `swap_session_exercise` + checkpoint de decisão antes de aplicar em banco vivo
+- [x] 03-09-PLAN.md — REQ-06: UX — esconde os dois entry points de troca assim que há série concluída, coerente com CR-01 (03-UAT.md teste 5, caveat)
 
 ## Progress
 
@@ -119,4 +119,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
-| 3. Intercâmbio de modalidade de cardio | 6/9 | In Progress (gap closure: 03-07/03-08/03-09) |  |
+| 3. Intercâmbio de modalidade de cardio | 9/9 | In Progress|  |
