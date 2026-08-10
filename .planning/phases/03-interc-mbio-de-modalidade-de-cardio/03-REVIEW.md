@@ -1,385 +1,185 @@
 ---
 phase: 03-interc-mbio-de-modalidade-de-cardio
-reviewed: 2026-08-10T00:00:00Z
+reviewed: 2026-08-10T17:29:24Z
 depth: standard
-files_reviewed: 27
+files_reviewed: 10
 files_reviewed_list:
-  - src/components/progress/CardioPrescritoSection.tsx
-  - src/components/session/SessionQueue.tsx
-  - src/components/session/SkipReasonSheet.tsx
-  - src/components/session/SwapModalitySheet.tsx
-  - src/constants/cardioModalidades.ts
-  - src/engine/cardioGoals.ts
-  - src/engine/cardioPrescrito.ts
-  - src/engine/sessionModel.ts
-  - src/screens/ActiveSessionScreen.tsx
-  - src/screens/SessionHistoryDetailScreen.tsx
-  - src/services/cardioModalidadesAceitasRepository.ts
   - src/services/sessionExecutionRepository.ts
-  - src/store/activeSessionStore.ts
-  - supabase/migrations/0034_troca_modalidade_cardio.sql
+  - src/components/session/SessionQueue.tsx
+  - src/screens/ActiveSessionScreen.tsx
+  - supabase/migrations/0036_guarda_set_log_troca_cardio.sql
+  - __tests__/integration/getSessionLogDetail.postgrest.test.ts
+  - __tests__/cardioSwapGuardaSerieConcluida.test.ts
   - __tests__/activeSessionScreen.test.tsx
-  - __tests__/cardioGoals.test.ts
-  - __tests__/cardioModalidadesAceitas.test.ts
-  - __tests__/cardioPrescrito.test.ts
-  - __tests__/cardioPrescritoSecao.test.tsx
-  - __tests__/cardioSwap.test.ts
-  - __tests__/cardioSwapFluxo.test.ts
-  - __tests__/cardioSwapMigration.test.ts
-  - __tests__/cardioTempoDistancia.test.ts
-  - __tests__/replanScreenFlow.test.tsx
   - __tests__/sessionExecutionRepository.test.ts
-  - __tests__/sessionHistory.test.tsx
-  - __tests__/skipReasonSheetTroca.test.tsx
-  - __tests__/swapModalitySheet.test.tsx
+  - jest.integration.config.js
+  - package.json
 findings:
-  critical: 2
-  warning: 3
+  critical: 0
+  warning: 2
   info: 2
-  total: 7
+  total: 4
 status: issues_found
 ---
 
-# Phase 3: Code Review Report
+# Phase 3: Code Review Report (Gap Closure — Wave 1: 03-07/03-08/03-09)
 
-**Reviewed:** 2026-08-10T00:00:00Z
+**Reviewed:** 2026-08-10T17:29:24Z
 **Depth:** standard
-**Files Reviewed:** 27
-**Status:** issues_found
+**Files Reviewed:** 10
+**Status:** issues_found (nenhum CRITICAL — 2 WARNING, 2 INFO)
 
 ## Summary
 
-The migration (0034), RPC, RLS/grants, TS engine functions and store wiring for
-REQ-06 are careful and mostly self-consistent — the six "load-bearing" risks
-called out in the phase context were checked individually:
+Revisão do diff `628f050..HEAD`, escopo desta onda de gap closure (planos 03-07,
+03-08, 03-09). Este NÃO é um review completo da Fase 3 — o round anterior
+(ver git, commit `b309046`) cobriu o resto; este arquivo foi intencionalmente
+sobrescrito para focar só no que esta onda introduziu, conforme o
+`scope_note` do disparo.
 
-- Migration never touches `planned_exercises`/`planned_sets` (confirmed by
-  grep and by a dedicated migration text test).
-- `_forca_modalidade_cardio_valida` and `CARDIO_MODALIDADES` are byte-for-byte
-  identical (9 items, same order), and a text-based test pins this.
-- `revoke ... from public, anon` then `grant execute ... to authenticated` is
-  present for both new functions, plus a runtime assertion block
-  (`has_function_privilege`) at the end of the migration — the 0019 lesson was
-  applied correctly here.
-- `swapExercise` in the store is server-first and CAS-guarded exactly like the
-  established `skipExercise` pattern; no partial-failure path leaves the
-  screen out of sync with the server on the happy/error paths tested.
+As três mudanças de maior risco apontadas no `scope_note` foram verificadas
+linha a linha contra a fonte de verdade:
 
-Two real defects were found, however: (1) `applyCardioSwapToDraft` rewrites the
-`name` of **every** set of the exercise, including sets already marked `done`
-— this silently relabels a completed set's actual result under a modality the
-aluno never performed it in, contradicting the codebase's own stated
-invariant ("séries já concluídas não são tocadas — histórico não se
-reescreve", stated for the analogous skip function two lines above it) and
-nothing in the UI or the RPC guards against triggering a swap after partial
-completion. (2) `SwapModalitySheet` can render a functionally dead scrollable
-list (zero selectable options, but the "Trocar modalidade" button still
-visible and permanently disabled) with no explanatory empty state, when the
-user's only accepted modality happens to equal the exercise's current
-modality — this is exactly the "empty list traps the user" scenario the phase
-context asked to verify against D-02, and it is not covered by the empty-state
-branch or by any test.
+1. **`sessionExecutionRepository.ts`** — o rename `planned_exercise_id` →
+   `exercise_id` no select de `set_logs` e na leitura da linha foi conferido
+   contra `supabase/migrations/0001_modelo_treino.sql:91`
+   (`exercise_id uuid not null references public.planned_exercises (id)`):
+   **correto**, é a coluna real. Nenhuma outra ocorrência de
+   `planned_sets(..., planned_exercise_id, ...)` sobrou no arquivo — as demais
+   referências a `planned_exercise_id` são de `exercise_skips` e
+   `cardio_exercise_swaps`, tabelas onde essa É a coluna real (0020/0034). O
+   comentário novo que justifica a ausência do degrau `erroDeColunaAusente`
+   também se sustenta: as colunas desta query nasceram todas na migration 0014
+   (`metric`, `actual_duration_seconds`, `actual_distance_m`,
+   `perceived_effort` — conferido linha a linha em `0014_cardio_tempo_distancia.sql`),
+   anterior a 0020/0034, que este mesmo `getSessionLogDetail` já embute no
+   `select` do cabeçalho (`cardio_exercise_swaps`) — logo, dado que migrations
+   aplicam em ordem sequencial (AGENTS.md), nenhum ambiente real pode ter 0034
+   sem já ter 0014.
 
-The claimed "anti-drift" test tying `formatCardioSetResult` to
-`SessionQueue.doneLine` (point 5 of the phase context) does not actually
-import or exercise the real `doneLine` — it compares against a hand-copied
-inline replica, so a future edit to the real `doneLine` would not be caught by
-this test despite the comment's claim.
+2. **`0036_guarda_set_log_troca_cardio.sql`** — comparado byte a byte contra
+   `0035_guarda_metric_troca_cardio.sql`: o corpo da função é idêntico até a
+   guarda de métrica (só diffs de comentário), a guarda nova de `set_logs`
+   (errcode `P0005`, join via `planned_sets.exercise_id` — coerente com o
+   achado do item 1) foi inserida exatamente entre a guarda de métrica e o
+   `insert`, sem alterar nada anterior. `revoke ... from public, anon` +
+   `grant ... to authenticated` reproduzidos identicamente ao padrão de
+   0034/0035; nenhuma ocorrência de `to anon` no arquivo. O bloco de asserção
+   runtime foi estendido (não substituído) com as duas checagens novas,
+   preservando a checagem herdada de `pe.metric in (...)` e a negativa de
+   `muscle_group = 'Cardio'`. `P0005` é um errcode PL/pgSQL novo e não
+   conflita com os reservados internos (`P0001`–`P0004`). Migration ainda não
+   aplicada a banco nenhum — decisão do dono registrada em 03-08-SUMMARY.md.
 
-## Critical Issues
+3. **`package.json` / `jest.integration.config.js`** — `testPathIgnorePatterns`
+   inclui `<rootDir>/__tests__/integration/`; confirmado rodando
+   `npx jest --listTests` (o diretório `integration/` não aparece na lista
+   padrão) e `npx jest` completo continua sem esse harness. `npx tsc --noEmit`
+   limpo. `npx jest __tests__/sessionExecutionRepository.test.ts
+   __tests__/activeSessionScreen.test.tsx
+   __tests__/cardioSwapGuardaSerieConcluida.test.ts` — 67/67 passando,
+   reexecutado nesta revisão.
 
-### CR-01: Swapping a cardio exercise silently relabels already-completed sets under the new modality
+4. **`__tests__/integration/getSessionLogDetail.postgrest.test.ts`** — sem
+   segredo commitado: a única chave hardcoded é a `anon key` demo pública
+   padrão de qualquer `supabase init` local (documentada como tal no
+   comentário, e é o mesmo valor que qualquer stack Supabase local imprime).
+   `service_role` vem só de env var, sem default. A trava de loopback
+   (`LOOPBACK_ONLY` regex) roda no topo do módulo, antes de qualquer
+   `createClient`/chamada de rede, e aborta se a URL não for
+   `127.0.0.1`/`localhost` — corretamente impede apontar para staging/produção
+   por engano de env var.
 
-**File:** `src/engine/sessionModel.ts:604-623` (also exercised via `src/store/activeSessionStore.ts:1503-1553` and `src/components/session/SessionQueue.tsx:138-148`)
+5. **`SessionQueue.tsx` / `ActiveSessionScreen.tsx`** — o predicado novo
+   `!ex.sets.some(s => s.status === 'done')` reaproveita exatamente o guard
+   client-side de CR-01 (`activeSessionStore.ts:1518`,
+   `alvo.sets.some(s => s.status === 'done')`) — mesma fonte de verdade, sem
+   duplicar lógica com deriva possível. Confirmado que o botão "Não vou fazer"
+   (linha ~106 de `SessionQueue.tsx`) e `SkipReasonSheet` continuam
+   condicionados apenas a `!foraDeJogo`/`!recusado`, **não** ao predicado novo
+   — o caminho de recusa declarada permanece alcançável mesmo com série já
+   concluída, como o `scope_note` exige. Tipos usados (`DraftExercise`,
+   `DraftSet`) evitam `any`.
 
-**Issue:** `applyCardioSwapToDraft` sets `name: toModality` at the *exercise*
-level and maps `targetDistanceM: null` over **all** `ex.sets`, without
-distinguishing sets whose `status === 'done'` from pending ones:
-
-```ts
-export const applyCardioSwapToDraft = (
-  draft: SessionDraft,
-  exerciseId: string,
-  toModality: CardioModalidade,
-): SessionDraft => ({
-  ...draft,
-  exercises: draft.exercises.map((ex) =>
-    ex.exerciseId !== exerciseId
-      ? ex
-      : {
-          ...ex,
-          name: toModality,
-          swappedFrom: ex.swappedFrom ?? ex.name,
-          metric: CARDIO_MODALIDADES_COM_DISTANCIA.includes(toModality) ? 'tempo_distancia' : 'tempo',
-          sets: ex.sets.map((s) => ({ ...s, targetDistanceM: null })), // touches DONE sets too
-        },
-  ),
-});
-```
-
-`name` is stored once per `DraftExercise`, not per `DraftSet`, and
-`SessionQueue`'s "Trocar modalidade" button is enabled whenever
-`onSolicitarTroca && !foraDeJogo && isTimeBased(metricOf(ex))` — it does **not**
-check whether any set of the exercise is already `done`. Concretely: a
-multi-set cardio exercise (e.g. HIIT intervals with `sets_planned > 1`) where
-set 1 is completed as "Corrida" (distância/pace really run on foot), then the
-aluno swaps the exercise to "Remo Ergômetro" before doing set 2 — set 1's
-already-recorded result is now displayed (in the active session queue,
-`SessionQueue.doneLine`, and later in `SessionHistoryDetailScreen` via
-`getSessionLogDetail`, which groups by `planned_exercise_id` and applies the
-single `to_modality` row to the whole group) as if it were a Remo Ergômetro
-result, with the section note "Trocado de Corrida" providing only exercise-
-level context, not per-set attribution. This directly contradicts the
-invariant the codebase enforces one function above for the analogous case
-(`applyExerciseSkipToDraft`, `sessionModel.ts:534-539`): *"nada que o aluno
-digitou é apagado ... Séries já concluídas não são tocadas — histórico não se
-reescreve."* Server-side, the same limitation exists: `cardio_exercise_swaps`
-is keyed `unique (session_log_id, planned_exercise_id)` with a single
-`to_modality`, so there is no way to reconstruct which modality a given
-`set_log` was actually performed under once a mid-exercise swap has happened.
-
-Not covered by any test: neither `__tests__/cardioSwap.test.ts` nor
-`__tests__/cardioSwapFluxo.test.ts` nor `__tests__/activeSessionScreen.test.tsx`
-exercises a swap where a set of the target exercise already has
-`status: 'done'`.
-
-**Fix:** Either (a) block the swap action once any set of the exercise is
-`done` — guard it both client-side (`SessionQueue`/`ActiveSessionScreen`
-button visibility, mirroring how `onSolicitarRecusa` is gated) and
-server-side in `swap_session_exercise` (reject if a `set_logs` row already
-exists for a `planned_set_id` under this `planned_exercise_id`), or (b) make
-the modality identity per-set (or snapshot the modality onto each
-`set_logs`/`DraftSet` row at completion time) so completed sets keep the
-modality they were actually performed under regardless of later swaps. Add a
-regression test asserting a `done` set's `name`/label is unaffected by a
-subsequent swap of the same exercise.
-
-### CR-02: `SwapModalitySheet` can present a permanently-empty, unexplained list when the only accepted modality equals the current exercise's modality
-
-**File:** `src/components/session/SwapModalitySheet.tsx:72, 119-149, 151-164`
-
-**Issue:** The options list is computed unconditionally by filtering out the
-current modality:
-
-```ts
-const opcoes = (modalidades ?? []).filter((m) => m !== exercicioAtualNome);
-...
-) : modalidades.length === 0 ? (
-  <EmptyState icon="activity" title="Nenhuma modalidade cadastrada" ... />
-) : (
-  <ScrollView ...>{opcoes.map((m) => ...)}</ScrollView>
-)}
-
-{modalidades !== null && modalidades.length > 0 && !erro ? (
-  <Button label="Trocar modalidade" ... disabled={busy || toModality == null} .../>
-) : null}
-```
-
-The empty-state branch only fires on `modalidades.length === 0`. If the
-aluno's accepted-modalities list has exactly one entry and that entry is the
-exercise's *current* modality (a realistic case: the prescribed exercise is
-usually drawn from the accepted list, so a single-modality user opening the
-swap sheet on their only accepted exercise hits this every time), `modalidades`
-is non-empty, so the code falls into the `ScrollView` branch with `opcoes`
-being `[]` — an empty, blank scrollable area — while the confirm button is
-still rendered (condition only checks `modalidades.length > 0`) and stays
-permanently `disabled` because `toModality` can never be set. The user sees a
-sheet with a title, description, an empty white area, and a greyed-out button,
-with no text explaining why there is nothing to pick and no path forward
-except "Voltar". This is exactly the scenario phase-context item 7 asked to be
-verified against (D-02's strict empty fallback) — here the *effective*
-rendered list is empty even though the underlying `modalidades` array is not,
-so the guard that was written for the `[]` case does not fire.
-
-Not covered by `__tests__/swapModalitySheet.test.tsx` (which only tests
-`modalidades={[]}` for the empty state, and `modalidades={['Corrida', 'Caminhada']}`
-for the exclusion behavior, never the case where the filtered `opcoes` is
-empty while `modalidades.length > 0`).
-
-**Fix:** Compute the empty condition from `opcoes.length === 0` (post-filter),
-not from `modalidades.length === 0`, and message it distinctly from "nenhuma
-modalidade cadastrada" (e.g. "Você só tem esta modalidade cadastrada — nada
-para trocar"). Example:
-
-```ts
-) : opcoes.length === 0 ? (
-  <EmptyState
-    icon="activity"
-    title="Nenhuma outra modalidade disponível"
-    description="A única modalidade que você aceita é esta. Complete a anamnese para adicionar outras."
-  />
-) : (
-  <ScrollView ...>{opcoes.map((m) => ...)}</ScrollView>
-)}
-
-{modalidades !== null && opcoes.length > 0 && !erro ? (
-  <Button label="Trocar modalidade" ... />
-) : null}
-```
-
-Add a test with `modalidades={['Caminhada']}` and `exercicioAtualNome="Caminhada"`
-asserting the empty state renders and the confirm button is absent.
+Nenhum achado desta onda chega a CRITICAL. Os dois WARNINGs abaixo são gaps de
+cobertura de teste, não bugs de comportamento observado.
 
 ## Warnings
 
-### WR-01: "Anti-drift" test does not exercise the real `SessionQueue.doneLine` — the paridade guarantee is false as documented
+### WR-01: Harness de integração nunca exercita o caminho com dado populado
 
-**File:** `__tests__/sessionExecutionRepository.test.ts:61-107`
+**File:** `__tests__/integration/getSessionLogDetail.postgrest.test.ts:164-170`
+**Issue:** O único teste do harness (`beforeAll`) semeia `training_plans` →
+`planned_sessions` → `session_logs`, mas **nunca insere `planned_exercises`,
+`planned_sets` nem `set_logs`**. A asserção final é `exercises: []`. Isso é
+suficiente para provar que o `select` não lança mais `42703` (PostgREST valida
+a existência da coluna no parse da query, independente de haver linha
+correspondente), mas **não** exercita o trecho de mapeamento
+(`l?.planned_sets?.exercise_id`, `mapaTrocas.get(plannedExerciseId)`,
+agrupamento por `chave`) contra uma resposta real do PostgREST — exatamente o
+tipo de lógica que o mock antigo (`__tests__/sessionExecutionRepository.test.ts`)
+já mostrou não ser confiável para pegar (ele aceitava qualquer nome de
+propriedade, inclusive o nome errado que causou o bug original). Um `set_log`
+real populado (mesmo 1 linha, com `planned_sets`/`planned_exercises` mínimos)
+fecharia esse ponto cego por completo, em vez de só a metade (existência da
+coluna) dele.
+**Fix:** Estender o `beforeAll` para inserir 1 `planned_exercises` +
+1 `planned_sets` + 1 `set_log` via `userClient`, e trocar a asserção para
+verificar que `exercises[0].sets[0]` reflete os valores gravados — prova a
+leitura ponta a ponta, não só a ausência do 42703.
 
-**Issue:** The suite's comment claims: *"Se um dos dois divergir no futuro,
-este teste pega o drift (Pitfall 5)."* But `doneLineReplica` is a hand-copied
-inline function, not an import of the real `doneLine` from
-`src/components/session/SessionQueue.tsx`:
+### WR-02: `beforeAll` do harness de integração pode deixar usuário órfão em caso de exceção após a criação do usuário
 
-```ts
-// Réplica local do corpo de SessionQueue.doneLine ... usada SÓ como fixture
-// de comparação — mede paridade contra formatCardioSetResult, não substitui
-// o algoritmo real.
-const doneLineReplica = (params: {...}): string => { /* copy of doneLine's cardio branch */ };
-...
-it('paridade byte a byte com doneLine em 4 combinações (anti-drift, Pitfall 5)', () => {
-  for (const caso of casos) {
-    expect(formatCardioSetResult(caso)).toBe(doneLineReplica(caso));
-  }
-});
-```
-
-If a future change edits the real `doneLine` (e.g. separator character,
-rounding, order of parts) without updating this hand-copied replica in
-lock-step, this test provides **zero** protection — it will keep passing
-while `formatCardioSetResult` (used in history) and the real `doneLine` (used
-in the live session queue) silently diverge, which is precisely the drift
-scenario phase-context item 5 asked to be checked for. `doneLine` is already
-exported from `SessionQueue.tsx` (`export const doneLine = ...`), so importing
-it here is possible without introducing a `components/` dependency into
-`engine/` — the import belongs in the *test* file, not in `sessionModel.ts`.
-
-**Fix:** Import the real `doneLine` in this test and drop the inline replica:
-
-```ts
-import { doneLine } from '../src/components/session/SessionQueue';
-...
-expect(formatCardioSetResult(caso)).toBe(
-  doneLine(
-    { metric: 'tempo_distancia' } as any, // or a proper DraftExercise fixture
-    { actualDurationSeconds: caso.durationSeconds, actualDistanceM: caso.distanceM, perceivedEffort: caso.perceivedEffort } as any,
-  ),
-);
-```
-
-### WR-02: Standalone (non-inline) `SwapModalitySheet` in `ActiveSessionScreen` is unreachable dead code
-
-**File:** `src/screens/ActiveSessionScreen.tsx:577-586`
-
-**Issue:**
-
-```tsx
-<SwapModalitySheet
-  visible={troca != null && modalContent !== 'swap_modality'}
-  ...
-/>
-```
-
-`troca` is only ever set together with `modalContent` being switched to
-`'swap_modality'` in the same state update — both call sites
-(`SessionQueue`'s `onSolicitarTroca` at line 651-659, and
-`onSolicitarTrocaAPartirDaRecusa` at line 366-377) set `troca` and
-`modalContent: 'swap_modality'` atomically. Because React batches these
-`setState` calls, there is no committed render where `troca != null` and
-`modalContent !== 'swap_modality'` simultaneously hold, so this standalone
-sheet's visibility condition is always `false` — it can never render. This
-mirrors the equivalent `SkipReasonSheet` block right above it
-(`visible={recusa != null && modalContent !== 'skip_reason'}`), which *is*
-reachable because `recusa` for `escopo: 'sessao'` is set from two buttons
-outside the "Ver andamento" modal (lines 513, 532) without ever touching
-`modalContent`. No such outside-the-modal entry point exists for swap (by
-design — REQ-06 states troca is always per-exercise), so the parallel
-structure for `SwapModalitySheet` is vestigial. Confirmed unreachable: no test
-in `__tests__/activeSessionScreen.test.tsx` exercises this branch (both
-"entry point 1" and "entry point 2" tests open it via "Ver andamento" first).
-
-**Fix:** Remove the standalone `<SwapModalitySheet>` block (lines 577-586) —
-only the `inline` variant inside the `<Modal>` (lines 611-622) is ever
-reachable. If a future requirement needs a swap entry point outside "Ver
-andamento" (e.g., a button directly on the active `SessionPlayer` card),
-re-add it then with a real trigger that sets `troca` without also setting
-`modalContent`.
-
-### WR-03: `swap_session_exercise`'s cardio guard is looser than the client-side gate, allowing metric/muscle_group inconsistency to bypass the intended defense-in-depth
-
-**File:** `supabase/migrations/0034_troca_modalidade_cardio.sql:205-217`
-
-**Issue:** The migration comment states the guard exists as defense-in-depth
-because "a UI já só oferece o botão em exercício isTimeBased", implying the
-RPC should enforce the same `isTimeBased` condition
-(`metric in ('tempo', 'tempo_distancia')`). The actual guard is an `OR`:
-
-```sql
-if not exists (
-  select 1
-    from public.planned_exercises pe
-   where pe.id = p_planned_exercise_id
-     and (pe.metric in ('tempo', 'tempo_distancia') or pe.muscle_group = 'Cardio')
-) then
-  raise exception '...' using errcode = '22023';
-end if;
-```
-
-This means a `planned_exercise` with `muscle_group = 'Cardio'` but
-`metric = 'carga_reps'` (a data-consistency edge case, e.g. a legacy row from
-before metric was backfilled, or a future authoring bug) would pass this
-guard and allow the swap RPC to succeed even though the client's `isTimeBased`
-check would never have offered the button — weakening the stated
-defense-in-depth purpose of this check to be looser than the invariant it
-claims to protect.
-
-**Fix:** Tighten to match the client's `isTimeBased` semantics exactly (drop
-the `muscle_group` alternative, or require both):
-
-```sql
-and pe.metric in ('tempo', 'tempo_distancia')
-```
-
-If `muscle_group = 'Cardio'` rows with `metric = 'carga_reps'` are expected to
-exist and should still be swappable, document why explicitly; otherwise this
-is silently more permissive than intended.
+**File:** `__tests__/integration/getSessionLogDetail.postgrest.test.ts:106-115`
+**Issue:** Se `admin.auth.admin.createUser(...)` suceder mas uma chamada
+posterior (`signInWithPassword`, insert em `training_plans`/`planned_sessions`/
+`session_logs`) rejeitar via exceção de rede (não erro retornado no objeto,
+que já é tratado pelos `if (...Error || !...)`), o `throw` propaga para fora
+do `beforeAll` sem que nenhum código de limpeza rode ali — o `afterAll` do
+`describe` ainda executa (Jest chama `afterAll` mesmo com `beforeAll` falho) e
+`userId` já foi atribuído nesse ponto, então a limpeza acontece na prática.
+O buraco real é mais estreito (erro de rede síncrono entre o sucesso de
+`createUser` e a atribuição de `userId`) mas o padrão geral, sem `try/finally`
+explícito, é frágil para acúmulo de usuários de teste órfãos no stack local
+ao longo de múltiplas execuções com falha parcial.
+**Fix:** Envolver o corpo do `beforeAll` num `try { ... } catch (e) { if
+(userId) await admin.auth.admin.deleteUser(userId); throw e; }` para garantir
+limpeza determinística em qualquer ponto de falha após a criação do usuário.
 
 ## Info
 
-### IN-01: `formatarMinutos` in `CardioPrescritoSection.tsx` is also used to format kilometers
+### IN-01: Migration 0036 ainda não aplicada — dependência externa não verificável neste review
 
-**File:** `src/components/progress/CardioPrescritoSection.tsx:35-42, 107`
+**File:** `supabase/migrations/0036_guarda_set_log_troca_cardio.sql`
+**Issue:** A truth `backstop` do plano 03-08 ("aplicada a um banco vivo, uma
+chamada direta a `swap_session_exercise` para um `planned_exercise_id` que já
+tem `set_logs` é recusada com P0005") permanece não verificada contra um banco
+real — o arquivo foi revisado e testado só via leitura textual
+(`cardioSwapGuardaSerieConcluida.test.ts`, sem conexão de banco). Isto já está
+registrado como risco conhecido em `03-08-SUMMARY.md`; incluído aqui apenas
+para registro formal do review — nenhuma ação deste agente pode fechá-lo
+(comando `supabase db push` é do dono, conforme AGENTS.md).
+**Fix:** N/A — ação pendente do dono, já documentada no runbook do
+03-08-SUMMARY.md.
 
-**Issue:** The function is named `formatarMinutos` but is reused verbatim to
-format `progresso.realizadoKm`/`progresso.prescritoKm` (line 107):
-`` `${formatarMinutos(progresso.realizadoKm ?? 0)} de ${formatarMinutos(progresso.prescritoKm)} km` ``.
-The formatting logic is generic (rounds to 1 decimal, handles `<1`), so this
-is not a functional bug, but the name misleads a future reader into thinking
-it's minute-specific.
+### IN-02: Nome de variável `plannedExerciseId` no `getSessionLogDetail` continua referenciando `planned_exercises.id`, não uma FK própria
 
-**Fix:** Rename to something unit-agnostic, e.g. `formatarNumeroCompacto`, or
-extract a `formatarKm` alias for clarity at call sites.
-
-### IN-02: `sessionModel.ts` mixes an `equipment`/`muscle_group`-based cardio detection with a `metric`-based one across the codebase
-
-**File:** `supabase/migrations/0034_troca_modalidade_cardio.sql:212` vs. `src/engine/sessionModel.ts:277-278` (`isTimeBased`)
-
-**Issue:** Client code consistently gates cardio behavior on `metric` via
-`isTimeBased`. The migration's guard additionally accepts `muscle_group =
-'Cardio'` as an alternate cardio signal (see WR-03), which is a second,
-independent notion of "is this exercise cardio" that isn't reflected anywhere
-in the TypeScript layer. Two parallel definitions of "cardio" (metric-based
-client-side, muscle_group-based server-side) is a drift risk of the same
-family the phase's `CARDIO_MODALIDADES` sync test was built to prevent,
-just for a different pair of concepts.
-
-**Fix:** Pick one canonical signal (recommend `metric`, since it's the one the
-client already treats as authoritative for `isTimeBased`/`canCompleteSet`)
-and use it consistently in both layers, or explicitly document why
-`muscle_group` is treated as an independent, valid alternate signal.
+**File:** `src/services/sessionExecutionRepository.ts:924`
+**Issue:** Estilo, não bug: a variável `plannedExerciseId` é preenchida a
+partir de `planned_sets.exercise_id` (o id do `planned_exercise` pai), e não
+de uma coluna literalmente chamada `planned_exercise_id`. O nome pré-existe ao
+diff desta onda (só a fonte mudou de coluna errada para coluna certa) e é
+usado de forma consistente com o resto da função (chave de `mapaTrocas`, que
+também é o `planned_exercise_id` de `cardio_exercise_swaps` — mesmo espaço de
+IDs, `planned_exercises.id`). Não é um erro funcional, mas o nome pode
+confundir um leitor futuro que assuma que existe uma coluna com esse nome
+literal em `planned_sets`.
+**Fix:** Opcional — renomear para `exerciseId` ou `plannedExercisePk` na
+próxima vez que este trecho for tocado, para deixar claro que é o id do
+próprio `planned_exercise`, não uma FK com esse nome.
 
 ---
 
-_Reviewed: 2026-08-10T00:00:00Z_
+_Reviewed: 2026-08-10T17:29:24Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
