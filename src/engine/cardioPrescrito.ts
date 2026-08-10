@@ -18,7 +18,12 @@
 // deste módulo — é decisão do repositório na query (ver
 // `cardioPrescritoRepository.ts`). Este arquivo só agrega o que recebe.
 
-import { progressoConsistencia, type CardioLog, type ProgressoConsistencia } from './cardioGoals';
+import {
+  distanciaRealizadaSemanaM,
+  progressoConsistencia,
+  type CardioLog,
+  type ProgressoConsistencia,
+} from './cardioGoals';
 
 /**
  * Um `planned_set` de cardio já filtrado por semana corrente e
@@ -76,6 +81,14 @@ export type ProgressoPrescrito = ProgressoConsistencia & {
    * entre "mostrar números" e "sem cardio prescrito esta semana".
    */
   prescritoSessoes: number | null;
+  /**
+   * Km realizado da semana, de QUALQUER modalidade — D-05. `null` só quando
+   * NÃO há prescrição de km (nada a comparar); com prescrição e nenhuma
+   * amostra, o valor é `0` (fato, mesma disciplina do resto deste arquivo).
+   */
+  realizadoKm: number | null;
+  /** 0..1 — quanto do km prescrito já foi realizado. Mesmo padrão de `fracaoMinutos`/`fracaoSessoes`. */
+  fracaoKm: number | null;
 };
 
 /**
@@ -99,9 +112,18 @@ export const progressoPrescrito = (
     referencia,
   );
 
+  // D-05: km é km — soma de QUALQUER modalidade, independente de troca.
+  const metros = distanciaRealizadaSemanaM(logs, referencia);
+
   return {
     ...resultado,
     prescritoKm: prescricao.distanciaM != null ? prescricao.distanciaM / 1000 : null,
     prescritoSessoes: resultado.metaSessoes,
+    // D-06: prescrito permanece cheio — nenhum desconto por sessão trocada.
+    realizadoKm: prescricao.distanciaM != null ? (metros ?? 0) / 1000 : null,
+    fracaoKm:
+      prescricao.distanciaM != null && prescricao.distanciaM > 0
+        ? Math.min(1, (metros ?? 0) / prescricao.distanciaM)
+        : null,
   };
 };
