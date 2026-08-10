@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_phase_name: Intercâmbio de modalidade de cardio
-status: "Phase 02 merged — PR #79 (fbafad1)"
+current_phase_name: interc-mbio-de-modalidade-de-cardio
+status: executing
 stopped_at: Planning inicializado; aguardando pesquisa e plano da Fase 1
-last_updated: "2026-08-10T02:41:43.198Z"
-last_activity: 2026-08-09
-last_activity_desc: Phase 3 planning complete
+last_updated: "2026-08-10T12:22:38.845Z"
+last_activity: 2026-08-10
+last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
@@ -24,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-08)
 
 **Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
 meta com fonte única e condução guiada.
-**Current focus:** Phase 02 — anamnese-e-calibra-o-do-cardio
+**Current focus:** Phase 03 — interc-mbio-de-modalidade-de-cardio
 
 ## Current Position
 
-Phase: 03 — Intercâmbio de modalidade de cardio
-Plan: Not started
-Status: Phase 02 merged — PR #79 (fbafad1)
+Phase: 03 (interc-mbio-de-modalidade-de-cardio) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 03
 APROVADO em geração real no HML (foco "posterior de coxa" nomeado nas 3 sessões), review do
 PR #77 com 3 WARNINGs corrigidos (WR-01..03). Merge do PR #77 em andamento.
-Last activity: 2026-08-09 — Phase 3 planning complete
+Last activity: 2026-08-10 — Phase 03 execution started
 
 Progress: [██████░░░░] 57%
 
