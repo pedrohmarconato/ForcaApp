@@ -37,6 +37,8 @@ import {
   sessionProgress,
   isSessionComplete,
   sessionSemNadaAFazer,
+  isTimeBased,
+  metricOf,
   type DraftExercise,
   type SkipReason,
 } from '../engine/sessionModel';
@@ -352,6 +354,28 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
   const progresso = sessionProgress(draft);
 
+  // REQ-06, segundo entry point (Fase 3): a recusa em curso é de um exercício
+  // de cardio? Só então o SkipReasonSheet oferece "Trocar modalidade" no
+  // ramo sem_equipamento. Escopo sessão nunca tem um único exercício a medir.
+  const recusaExercicio =
+    recusa?.escopo === 'exercicio'
+      ? draft.exercises.find((e) => e.exerciseId === recusa.exerciseId)
+      : null;
+  const recusaEhCardio = recusaExercicio != null && isTimeBased(metricOf(recusaExercicio));
+
+  const onSolicitarTrocaAPartirDaRecusa = () => {
+    if (recusa?.escopo !== 'exercicio') return;
+    // Mesma fiação de estado do entry point 1 (fila): fecha a recusa, abre a
+    // troca reaproveitando o MESMO SwapModalitySheet/swapExercise — nunca um
+    // caminho paralelo.
+    setTroca({ exerciseId: recusa.exerciseId, nome: recusa.nome });
+    setModalContent('swap_modality');
+    setRecusa(null);
+    if (modalidadesAceitas == null && !modalidadesAceitasErro) {
+      void carregarModalidadesAceitas();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -544,6 +568,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
         escopo={recusa?.escopo ?? 'exercicio'}
         alvo={recusa?.escopo === 'exercicio' ? recusa.nome : draft.title}
         busy={recusaBusy}
+        ehCardio={recusaEhCardio}
+        onSolicitarTroca={onSolicitarTrocaAPartirDaRecusa}
         onConfirm={onConfirmarRecusa}
         onDismiss={() => setRecusa(null)}
       />
@@ -577,6 +603,8 @@ const ActiveSessionScreen = ({ route }: Props) => {
             escopo="exercicio"
             alvo={recusa.nome}
             busy={recusaBusy}
+            ehCardio={recusaEhCardio}
+            onSolicitarTroca={onSolicitarTrocaAPartirDaRecusa}
             onConfirm={onConfirmarRecusa}
             onDismiss={() => { setRecusa(null); setModalContent('queue'); }}
           />
