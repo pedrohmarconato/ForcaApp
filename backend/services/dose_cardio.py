@@ -247,7 +247,21 @@ def _e_temporal_fora_do_catalogo(exercicio: Dict[str, Any]) -> bool:
         exercicio.get("nome"),
         exercicio.get("equipamento"),
     )
-    return not resultado.casou and metrica_do_exercicio(exercicio) in (
+    if resultado.casou:
+        return False
+    duracao = exercicio.get("duracao_minutos")
+    distancia = exercicio.get("distancia_km")
+    tem_duracao = (
+        isinstance(duracao, (int, float))
+        and not isinstance(duracao, bool)
+        and duracao > 0
+    )
+    tem_distancia = (
+        isinstance(distancia, (int, float))
+        and not isinstance(distancia, bool)
+        and distancia > 0
+    )
+    return tem_duracao or tem_distancia or metrica_do_exercicio(exercicio) in (
         METRICA_TEMPO,
         METRICA_TEMPO_DISTANCIA,
     )
@@ -321,6 +335,35 @@ def _semanas_avulsas(molde: Any) -> List[Dict[str, Any]]:
         normalizada["id"] = chave
         semanas.append(normalizada)
     return semanas
+
+
+def _violacoes_chaves_semanas_avulsas(molde: Any) -> List[str]:
+    if not isinstance(molde, dict):
+        return []
+    itens = molde.get("semanas_avulsas")
+    if not isinstance(itens, dict):
+        return []
+
+    violacoes = []
+    for chave, semana in itens.items():
+        if not isinstance(semana, dict):
+            continue
+        numero_texto = chave[len("semana_"):] if isinstance(chave, str) else ""
+        numero = int(numero_texto) if numero_texto.isdigit() else None
+        declarado = semana.get("semana")
+        if (
+            numero is None
+            or chave != f"semana_{numero}"
+            or isinstance(declarado, bool)
+            or not isinstance(declarado, int)
+            or declarado != numero
+        ):
+            violacoes.append(
+                f"A semana avulsa {chave!r} precisa coincidir com o campo "
+                f"semana={declarado!r}; não é seguro escolher outra semana para "
+                "validar e expandir a exceção."
+            )
+    return violacoes
 
 
 def _totais_cardio(semana: Dict[str, Any]) -> Tuple[float, float]:
@@ -473,8 +516,15 @@ def validar_dose_cardio(molde: Any, questionario: Any) -> Optional[str]:
 
 
 def _validar_teto_progressao(molde: Any, questionario: Any) -> Optional[str]:
+    if not isinstance(molde, dict):
+        return None
+
+    inconsistencias = _violacoes_chaves_semanas_avulsas(molde)
+    if inconsistencias:
+        return "O molde tem semanas avulsas inconsistentes. " + " ".join(inconsistencias)
+
     nivel = nivel_cardio_efetivo(questionario)
-    if nivel is None or not isinstance(molde, dict):
+    if nivel is None:
         return None
 
     progressao = molde.get("progressao")
