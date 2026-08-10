@@ -20,12 +20,14 @@ import {
   reconcileInjuryFlags,
   applyExerciseSkipToDraft,
   removeExerciseSkipFromDraft,
+  applyCardioSwapToDraft,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
   type PerceivedEffort,
   type SkipReason,
 } from '../engine/sessionModel';
+import type { CardioModalidade } from '../constants/cardioModalidades';
 import {
   startSessionLog,
   saveSetLog,
@@ -36,6 +38,7 @@ import {
   skipSessionExercise,
   unskipSessionExercise,
   skipPlannedSession,
+  swapSessionExercise,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
   type OpenSessionLog,
@@ -172,6 +175,12 @@ interface ActiveSessionState {
     note?: string | null,
   ) => Promise<boolean>;
   unskipExercise: (exerciseId: string) => Promise<boolean>;
+  /**
+   * Troca a modalidade de um exercício de cardio (Fase 3, D-01). Servidor
+   * PRIMEIRO, mesma razão de `skipExercise`: aplicar na tela antes de gravar
+   * deixaria a troca sumir na retomada (o rascunho local não é autoritativo).
+   */
+  swapExercise: (exerciseId: string, toModality: CardioModalidade) => Promise<boolean>;
   /** "Não vou treinar hoje": recusa a sessão inteira e encerra a tela. */
   skipWholeSession: (reason: SkipReason, note?: string | null) => Promise<boolean>;
   finishSession: () => Promise<boolean>;
@@ -437,10 +446,19 @@ const applyServerSetLogs = (
       applyExerciseSkipToDraft(acc, skip.plannedExerciseId, skip.reason, skip.note),
     comCorte,
   );
+  // Trocas de modalidade de cardio (Fase 3) vêm do SERVIDOR pela mesma razão
+  // de comRecusas acima — este é o único ponto de reconciliação por onde as
+  // duas retomadas (local e reconstruída) passam. `?? []` protege um
+  // OpenSessionLog de versão anterior a esta fase (ou de um mock) de estourar
+  // num reduce de undefined.
+  const comTrocas = (aberta.exerciseSwaps ?? []).reduce(
+    (acc, swap) => applyCardioSwapToDraft(acc, swap.plannedExerciseId, swap.toModality),
+    comRecusas,
+  );
   // Fingerprints de propostas recusadas são memória LOCAL do aparelho (nunca do
   // servidor): na reconstrução a partir do servidor, eles vêm do rascunho local.
   return {
-    ...comRecusas,
+    ...comTrocas,
     declinedReplanFingerprints:
       local?.declinedReplanFingerprints ?? draft.declinedReplanFingerprints ?? [],
   };
@@ -1473,6 +1491,58 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
     const novo = removeExerciseSkipFromDraft(atual, exerciseId);
     set({ draft: novo, saveError: null });
+    try {
+      await saveDraft(novo);
+    } catch (e) {
+      console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
+      set({ storageWarning: STORAGE_WARNING_MSG });
+    }
+    return true;
+  },
+
+  swapExercise: async (exerciseId, toModality) => {
+    const draft = get().draft;
+    if (!draft || !draft.sessionLogId) {
+      set({ saveError: 'Sessão não iniciada corretamente.' });
+      return false;
+    }
+    const alvo = draft.exercises.find((ex) => ex.exerciseId === exerciseId);
+    if (!alvo) return false;
+    // Já trocado para a mesma modalidade: nada a fazer (guarda de toque duplo).
+    if (alvo.name === toModality) return true;
+
+    const epoch = operationEpoch;
+    const sid = draft.sessionLogId;
+    try {
+      // Servidor PRIMEIRO: aplicar na tela antes de gravar deixaria a troca
+      // sumir na retomada (o rascunho local não é autoritativo) — o aluno
+      // reencontraria a modalidade original sem entender por quê.
+      await swapSessionExercise({
+        sessionLogId: sid,
+        plannedExerciseId: exerciseId,
+        toModality,
+        note: null,
+      });
+    } catch (e) {
+      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
+        set({ saveError: errMsg(e) });
+      }
+      return false;
+    }
+
+    const atual = get().draft;
+    if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
+    const novo = applyCardioSwapToDraft(atual, exerciseId, toModality);
+    set({
+      draft: novo,
+      saveError: null,
+      // Uma adaptação pendente do exercício trocado não faz mais sentido: o
+      // sheet pediria decisão de carga para uma modalidade que não é mais esta.
+      pendingAdaptation:
+        get().pendingAdaptation?.exerciseId === exerciseId
+          ? null
+          : get().pendingAdaptation,
+    });
     try {
       await saveDraft(novo);
     } catch (e) {
