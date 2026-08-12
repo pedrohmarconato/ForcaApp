@@ -43,6 +43,15 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// Fase 4 (REQ-07): RootNavigator monta useSessionOutboxDrain (D-10), que
+// importa sessionOutboxDrain -> sessionExecutionRepository -> o cliente
+// Supabase real (que exige EXPO_PUBLIC_SUPABASE_URL/ANON_KEY). Este teste não
+// exercita a drenagem da fila — mocka o hook como no-op, no mesmo espírito de
+// mockar AuthContext/navigators acima.
+jest.mock('../src/hooks/useSessionOutboxDrain', () => ({
+  useSessionOutboxDrain: jest.fn(),
+}));
+
 jest.mock('../src/navigation/AuthNavigator', () => {
   const React = require('react');
   const { Text } = require('react-native');

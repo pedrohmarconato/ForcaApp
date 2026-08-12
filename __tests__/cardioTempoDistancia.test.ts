@@ -57,6 +57,10 @@ import {
   swapSessionExercise,
 } from '../src/services/sessionExecutionRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
+// Fase 4 (REQ-07): completeSet enfileira em vez de aguardar a RPC (D-05) —
+// alguns testes desta suíte precisam drenar explicitamente para observar o
+// payload enviado a saveSetLog.
+import { drainAll } from '../src/services/sessionOutboxDrain';
 import {
   buildDraftFromDetail,
   canCompleteSet,
@@ -325,6 +329,7 @@ describe('store: registrar um cardio de verdade', () => {
     const ok = await store().completeSet('ex-cardio', 1);
 
     expect(ok).toBe(true);
+    await drainAll('user-1');
     const enviado = mock(saveSetLog).mock.calls[0][0];
     expect(enviado).toMatchObject({
       plannedSetId: 'st-c1',
@@ -391,6 +396,7 @@ describe('store: registrar um cardio de verdade', () => {
     store().setDistance('ex-prancha', 1, 999);
     await store().completeSet('ex-prancha', 1);
 
+    await drainAll('user-1');
     expect(mock(saveSetLog).mock.calls[0][0].actualDistanceM).toBeNull();
   });
 

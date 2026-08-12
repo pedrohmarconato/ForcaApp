@@ -3,6 +3,13 @@
 // modelo REAL; só o cliente Supabase mockado). Fecha o laço do BLOCKER (F1): o store
 // chama o repositório REAL, que chama `rpc('save_set_log')` (NÃO mais `.upsert`).
 // A RPC devolve a linha do jeito que o PostgREST devolve (numeric como STRING).
+//
+// Fase 4 (REQ-07/D-05): completeSet enfileira em vez de aguardar a RPC — a
+// chamada a `rpc('save_set_log')` acontece na drenagem em segundo plano
+// (drainAll), então este teste drena explicitamente para observá-la. O
+// commit LOCAL usa os valores já digitados na UI (sempre número), não mais o
+// eco do servidor — `setLogId`/`completedAt` do servidor ficam `null` até a
+// próxima retomada reconciliar via `applyServerSetLogs`.
 
 jest.mock('../src/config/supabaseClient', () => ({
   supabase: { from: jest.fn(), rpc: jest.fn() },
@@ -24,6 +31,7 @@ import {
   useActiveSessionStore,
   suggestionFor,
 } from '../src/store/activeSessionStore';
+import { drainAll } from '../src/services/sessionOutboxDrain';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
 
@@ -166,6 +174,11 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
   const ok = await store().completeSet('ex-1', 1);
 
   expect(ok).toBe(true);
+
+  // Fase 4 (D-05): a série conclui LOCALMENTE de imediato — a chamada de rede
+  // acontece na fila, em segundo plano. Drena para observar a RPC.
+  await drainAll('user-1');
+
   // O caminho de gravação passou pela RPC certa (não pelo .upsert que dá 42P10).
   expect(rpcMock).toHaveBeenCalledWith('save_set_log', {
     p_session_log_id: 'sl-1',
@@ -183,11 +196,15 @@ it('completeSet grava via rpc(save_set_log) [não .upsert] e a próxima série s
 
   const s1 = store().draft!.exercises[0].sets[0];
   expect(s1.status).toBe('done');
-  expect(s1.setLogId).toBe('setlog-1');
-  // O carimbo do servidor é guardado no rascunho — alimenta o tempo efetivo ao vivo.
-  expect(s1.completedAt).toBe('2026-07-15T22:00:00.000Z');
+  // Fase 4 (D-05/Pitfall 1): commit OTIMISTA — setLogId/completedAt do
+  // servidor ainda não existem neste momento; ficam null até a próxima
+  // retomada reconciliar via applyServerSetLogs (o eco do servidor, incluindo
+  // a coerção de numeric-como-string, é consumido só nesse momento).
+  expect(s1.setLogId).toBeNull();
+  expect(s1.completedAt).toBeNull();
 
-  // A 2ª série sugere a carga usada, como NÚMERO (não "40" string).
+  // A 2ª série sugere a carga JÁ DIGITADA na UI, como NÚMERO — commit local
+  // não depende mais do eco do servidor.
   const ex = store().draft!.exercises[0];
   const sugestao = suggestionFor(store().draft!, ex, ex.sets[1]);
   expect(sugestao).toBe(40);
