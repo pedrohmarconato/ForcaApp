@@ -30,7 +30,6 @@ import {
 import type { CardioModalidade } from '../constants/cardioModalidades';
 import {
   startSessionLog,
-  saveSetLog,
   finishSessionLog,
   getOpenSessionLog,
   getLastLoadByExercise,
@@ -40,9 +39,12 @@ import {
   skipPlannedSession,
   swapSessionExercise,
   isTransportSessionExecutionError,
-  SessionExecutionRequestError,
   type OpenSessionLog,
 } from '../services/sessionExecutionRepository';
+import {
+  enqueueAndDrain,
+  type SaveSetLogPayload,
+} from '../services/sessionOutboxDrain';
 import {
   evaluateSet,
   recommendByRules,
@@ -131,6 +133,10 @@ interface ActiveSessionState {
   /** Última decisão AUTOMÁTICA de "manter" do motor (série fora do alvo, sem
    *  ajuste proposto). O player mostra o porquê — o motor nunca age em silêncio. */
   lastAutoDecision: { sessionLogId: string; exerciseName: string; reason: string } | null;
+  /** Fase 4 (REQ-07): itens da fila offline-first ainda não confirmados pelo servidor. */
+  pendingCount: number;
+  /** Fase 4 (REQ-07): itens recusados em definitivo e retidos localmente (D-07) — sem UI própria (D-06). */
+  quarantineCount: number;
 
   startOrResume: (args: {
     sessionId: string;
@@ -165,6 +171,15 @@ interface ActiveSessionState {
   ) => void;
   completeSet: (exerciseId: string, setOrder: number) => Promise<boolean>;
   resolveAdaptation: (adjustment: Adjustment) => Promise<void>;
+  /**
+   * Fase 4 (REQ-07/Pitfall 3): a fila descobriu P0001 (sessão já finalizada no
+   * servidor) durante a drenagem de UM item — reconcilia o rascunho local
+   * inteiro, não só o item que falhou. Só age se `sessionLogId` ainda for a
+   * sessão ativa (guarda de CAS, mesma cautela do resto do arquivo).
+   */
+  reconcileRemoteSessionClosed: (sessionLogId: string) => void;
+  /** Fase 4 (REQ-07): atualiza o resumo observável da fila (selo de pendência, D-05). */
+  setOutboxSummary: (pendingCount: number, quarantineCount: number) => void;
   /**
    * Recusa declarada de um exercício (0020). Grava PRIMEIRO no servidor: uma
    * recusa que só existe na tela volta a ser exigida na próxima retomada.
@@ -209,63 +224,9 @@ const inFlight = new Set<string>();
 // -> A (ABA), nem dois startOrResume concorrentes antes de qualquer log existir.
 let operationEpoch = 0;
 
-// Tempo máximo da RPC de gravação (F9): se a rede TRAVAR, a promessa precisa settle
-// mesmo assim, senão o `finally` nunca roda e a trava prende a série para sempre.
-// Exportado para o teste exercitar o limite sem esperar de verdade.
-export const RPC_TIMEOUT_MS = 15000;
-
-/**
- * Corre uma promessa contra um timeout. Se o limite vence, REJEITA (a série volta a
- * poder ser tentada) e SEMPRE limpa o timer no fim (sem handles pendurados). Garante
- * que o await de gravação settle para o `finally` liberar a trava de reentrância (F9).
- */
-const withTimeout = <T>(
-  run: (signal: AbortSignal) => Promise<T>,
-  ms: number,
-): Promise<T> => {
-  const controller = new AbortController();
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      controller.abort();
-      reject(
-        new Error(
-          'Tempo esgotado ao gravar a série. Verifique a conexão e tente de novo.',
-        ),
-      );
-    }, ms);
-
-    let pending: Promise<T>;
-    try {
-      pending = run(controller.signal);
-    } catch (error) {
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-      return;
-    }
-
-    pending.then(
-      (value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-};
-
-const isClosedSessionError = (error: unknown): boolean =>
-  error instanceof SessionExecutionRequestError && error.code === 'P0001';
+// Fase 4 (REQ-07): RPC_TIMEOUT_MS/withTimeout mudaram para
+// src/services/sessionOutboxDrain.ts — a fila é agora o único ponto que chama
+// RPC de escrita de execução sob timeout (D-15).
 
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
 const withSet = (
@@ -548,6 +509,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   checkInMinutes: null,
   pendingCheckIn: null,
   lastAutoDecision: null,
+  pendingCount: 0,
+  quarantineCount: 0,
 
   startOrResume: async ({ sessionId, userId, detail }) => {
     const epoch = ++operationEpoch;
@@ -1229,32 +1192,43 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           serie.targetRepsMax,
         );
 
+    const actualRir = cardio ? null : serie.actualRir;
+
     inFlight.add(lockKey);
     try {
-      // O timeout aborta a requisição no cliente. A 0005 preserva a primeira gravação
-      // no banco caso o cancelamento chegue tarde e uma tentativa antiga sobreviva.
-      const saved = await withTimeout(
-        (signal) =>
-          saveSetLog(
-            {
-              sessionLogId: sid,
-              plannedSetId: serie.plannedSetId,
-              actualReps,
-              actualLoadKg,
-              actualRir: cardio ? null : serie.actualRir,
-              outcome,
-              startedAt: serie.activatedAt,
-              actualDurationSeconds,
-              actualDistanceM,
-              perceivedEffort,
-            },
-            signal,
-          ),
-        RPC_TIMEOUT_MS,
+      // Fase 4 (REQ-07/D-05): a gravação vira item de FILA em vez de RPC direta
+      // aguardada. enqueueAndDrain persiste o item (durável primeiro, D-12) e
+      // dispara a drenagem SEM aguardá-la (fire-and-forget) — soluço de rede na
+      // academia nunca aparece como erro nem trava o treino. `await` aqui é só
+      // do enfileiramento local (rápido, I/O de disco), não da rede.
+      const { pendingCount, quarantineCount } = await enqueueAndDrain(
+        draft.userId,
+        {
+          sessionLogId: sid,
+          kind: 'save_set_log',
+          payload: {
+            sessionLogId: sid,
+            plannedSetId: serie.plannedSetId,
+            actualReps,
+            actualLoadKg,
+            actualRir,
+            outcome,
+            startedAt: serie.activatedAt,
+            actualDurationSeconds,
+            actualDistanceM,
+            perceivedEffort,
+          } satisfies SaveSetLogPayload,
+        },
+        {
+          onSessionClosed: (closedSessionLogId) =>
+            get().reconcileRemoteSessionClosed(closedSessionLogId),
+          onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        },
       );
 
-      // CAS (F7): se a sessão ativa MUDOU durante o await (usuário trocou de treino), a
-      // gravação foi confirmada no servidor, mas NÃO escrevemos no draft de outra sessão.
+      // CAS (F7): se a sessão ativa MUDOU durante o enfileiramento (usuário trocou
+      // de treino), o item já está na fila do USUÁRIO certo (D-10: a fila é do
+      // usuário, não da tela) — mas não escrevemos no draft de outra sessão.
       const atual = get().draft;
       if (
         operationEpoch !== epoch ||
@@ -1264,39 +1238,34 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       )
         return true;
 
-      // Servidor CONFIRMOU → marca "feita" já. A persistência local é secundária:
-      // falha ao salvar o rascunho NÃO reverte um insert confirmado nem faz o
-      // chamador retry (F3 — insert confirmado nunca é reapresentado como falha).
+      // Commit OTIMISTA (D-05): a série conclui AGORA com os valores LOCAIS já
+      // calculados — nunca aguarda a confirmação do servidor. `setLogId` e
+      // `completedAt` do servidor ainda não existem; ficam `null` até a fila
+      // confirmar e a próxima retomada reconciliar via `applyServerSetLogs`.
       const lastLoad = { ...atual.lastLoadByExercise };
-      if (saved.actualLoadKg != null && !exercise.isBodyweight) {
-        lastLoad[exerciseIdentity(exercise)] = saved.actualLoadKg;
+      if (actualLoadKg != null && !exercise.isBodyweight) {
+        lastLoad[exerciseIdentity(exercise)] = actualLoadKg;
       }
       const novo: SessionDraft = {
         ...withSet(atual, exerciseId, setOrder, (s) => ({
           ...s,
           status: 'done',
-          actualReps: saved.actualReps,
-          actualLoadKg: saved.actualLoadKg,
-          actualRir: saved.actualRir,
-          outcome: saved.outcome,
-          setLogId: saved.setLogId,
-          actualDurationSeconds: saved.actualDurationSeconds,
-          actualDistanceM: saved.actualDistanceM,
-          perceivedEffort: saved.perceivedEffort,
-          // Carimbo do SERVIDOR da conclusão (0028): alimenta a linha do tempo
-          // do tempo efetivo do resumo ao vivo. Nunca o relógio local.
-          completedAt: saved.completedAt,
+          actualReps,
+          actualLoadKg,
+          actualRir,
+          outcome,
+          setLogId: null,
+          actualDurationSeconds,
+          actualDistanceM,
+          perceivedEffort,
+          completedAt: null,
         })),
         lastLoadByExercise: lastLoad,
       };
       let finalDraft = novo;
       let pending: PendingAdaptation | null = null;
-      // A adaptação roda DEPOIS da confirmação do servidor e é inteiramente local.
-      // Antes ela dividia o bloco com a chamada de rede, então qualquer exceção sua
-      // caía no catch de baixo: o aluno lia "falhou o envio" no meio do treino com a
-      // série JÁ gravada em set_logs, e a série ficava pendente no rascunho para
-      // sempre. Confirmada a escrita, a série CONCLUI — quebrar aqui custa a
-      // SUGESTÃO, nunca o REGISTRO.
+      // A adaptação roda DEPOIS do commit otimista e é inteiramente local — quebrar
+      // aqui custa a SUGESTÃO, nunca o REGISTRO (a série já concluiu acima).
       try {
         // Fase 5: série fora do alvo → recomenda um ajuste. Dentro do alvo, só com
         // fôlego declarado (RIR >= rirBoostMinRir) o motor propõe aumento — qualquer
@@ -1309,23 +1278,27 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           updatedEx?.sets.some((s) => s.setOrder > setOrder && s.status !== 'done') ?? false;
         if (hasNextPendingOfSameExercise && !cardio) {
           const evaluated = evaluateSet({
-            actualReps: saved.actualReps as number,
+            actualReps: actualReps as number,
             targetRepsMin: serie.targetRepsMin,
             targetRepsMax: serie.targetRepsMax,
           });
           const recommendation = recommendByRules({
             evaluated,
-            currentLoadKg: saved.actualLoadKg,
+            currentLoadKg: actualLoadKg,
             incrementKg: exercise.loadIncrementKg,
             ctx: { isBodyweight: exercise.isBodyweight, injury: exercise.hasInjury },
-            actualRir: saved.actualRir,
+            actualRir,
           });
           if (recommendation.recommended.kind !== 'keep') {
             // Há um ajuste CONCRETO (topo da faixa, fora do alvo) → o aluno decide.
             pending = {
               exerciseId,
               setOrder,
-              setLogId: saved.setLogId,
+              // setLogId ainda não existe (commit otimista, D-05) — fica null até a
+              // fila confirmar. resolveAdaptation já trata pending.setLogId nulo;
+              // 04-02-PLAN.md reintroduz a persistência da decisão via fila com
+              // resolução tardia de setLogId (Pitfall 1).
+              setLogId: null,
               sessionLogId: sid,
               recommendation,
             };
@@ -1346,24 +1319,29 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               },
             });
             finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
-            if (saved.setLogId) {
-              const decision = buildAdaptationDecision(recommendation, autoKeep, true);
-              updateSetLogAdaptation(saved.setLogId, autoKeep, decision).catch((e) =>
-                console.warn('[activeSession] adaptação automática não persistida (não-fatal):', e),
-              );
-            }
+            // A persistência desta decisão via updateSetLogAdaptation foi REMOVIDA
+            // aqui: setLogId ainda não existe no commit otimista (D-05).
+            // 04-02-PLAN.md reintroduz via fila (kind update_set_log_adaptation),
+            // que resolve o setLogId tardiamente (Pitfall 1) — a máquina de
+            // classificação/drenagem já existe em sessionOutboxDrain.ts.
           }
           // on_target + keep (sem progressão possível): nada — a série conclui e segue.
         }
       } catch (e) {
         // Descarta o resultado PARCIAL da adaptação e conclui a série com o estado
-        // que o servidor confirmou. Sem aviso na tela: o registro está correto, e o
+        // já commitado localmente. Sem aviso na tela: o registro está correto, e o
         // aluno não tem o que fazer com uma falha do motor de recomendação.
         finalDraft = novo;
         pending = null;
         console.warn('[activeSession] adaptação intra-sessão falhou (não-fatal, série registrada):', e);
       }
-      set({ draft: finalDraft, saveError: null, pendingAdaptation: pending });
+      set({
+        draft: finalDraft,
+        saveError: null,
+        pendingAdaptation: pending,
+        pendingCount,
+        quarantineCount,
+      });
 
       try {
         await saveDraft(finalDraft);
@@ -1372,23 +1350,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         set({ storageWarning: STORAGE_WARNING_MSG });
       }
       return true;
-    } catch (e) {
-      // Só erro do BANCO deixa a série NÃO concluída. E só mostra o erro se AINDA
-      // estamos na mesma sessão (não polui a UI de uma sessão que o usuário já trocou).
-      const atual = get().draft;
-      if (operationEpoch === epoch && atual?.sessionLogId === sid) {
-        if (isClosedSessionError(e)) {
-          set({
-            draft: { ...atual, status: 'finished' },
-            status: 'finished',
-            saveError: null,
-          });
-          await retireLocalDraft(atual);
-        } else {
-          set({ saveError: errMsg(e) });
-        }
-      }
-      return false;
     } finally {
       inFlight.delete(lockKey);
     }
@@ -1431,6 +1392,28 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
       }
     }
+  },
+
+  // Fase 4 (REQ-07/Pitfall 3): P0001 descoberto pela fila durante a drenagem de
+  // QUALQUER item de uma sessionLogId — a sub-fila inteira já foi descartada em
+  // sessionOutboxDrain.ts; aqui só resta reconciliar o rascunho local. Replica
+  // exatamente o bloco `isClosedSessionError` de antes desta fase: fecha a
+  // sessão e aposenta o rascunho (mesmo caminho de `retireLocalDraft`).
+  reconcileRemoteSessionClosed: (sessionLogId) => {
+    const atual = get().draft;
+    // Guarda de CAS: só age se ainda for a MESMA sessão — o aluno pode ter
+    // trocado de treino entre o enfileiramento e a drenagem descobrir o P0001.
+    if (!atual || atual.sessionLogId !== sessionLogId) return;
+    set({
+      draft: { ...atual, status: 'finished' },
+      status: 'finished',
+      saveError: null,
+    });
+    void retireLocalDraft(atual);
+  },
+
+  setOutboxSummary: (pendingCount, quarantineCount) => {
+    set({ pendingCount, quarantineCount });
   },
 
   skipExercise: async (exerciseId, reason, note) => {
@@ -1678,6 +1661,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       checkInMinutes: null,
       pendingCheckIn: null,
       lastAutoDecision: null,
+      pendingCount: 0,
+      quarantineCount: 0,
     });
   },
 }));
