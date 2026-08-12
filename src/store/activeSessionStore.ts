@@ -1289,64 +1289,79 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      // Fase 5: série fora do alvo → recomenda um ajuste. Dentro do alvo, só com
-      // fôlego declarado (RIR >= rirBoostMinRir) o motor propõe aumento — qualquer
-      // ponto da faixa, por regra rirBoostOnTargetAnywhere. O motor mexe em CARGA:
-      // não tem o que propor para uma caminhada. Cardio conclui a série e segue.
-      // GUARD DE ÚLTIMA SÉRIE: sem próxima série pendente do MESMO exercício, não
-      // há proposta nem decisão automática — a adaptação é intra-exercício.
-      const updatedEx = novo.exercises.find((e) => e.exerciseId === exerciseId);
-      const hasNextPendingOfSameExercise =
-        updatedEx?.sets.some((s) => s.setOrder > setOrder && s.status !== 'done') ?? false;
       let finalDraft = novo;
       let pending: PendingAdaptation | null = null;
-      if (hasNextPendingOfSameExercise && !cardio) {
-        const evaluated = evaluateSet({
-          actualReps: saved.actualReps as number,
-          targetRepsMin: serie.targetRepsMin,
-          targetRepsMax: serie.targetRepsMax,
-        });
-        const recommendation = recommendByRules({
-          evaluated,
-          currentLoadKg: saved.actualLoadKg,
-          incrementKg: exercise.loadIncrementKg,
-          ctx: { isBodyweight: exercise.isBodyweight, injury: exercise.hasInjury },
-          actualRir: saved.actualRir,
-        });
-        if (recommendation.recommended.kind !== 'keep') {
-          // Há um ajuste CONCRETO (topo da faixa, fora do alvo) → o aluno decide.
-          pending = {
-            exerciseId,
-            setOrder,
-            setLogId: saved.setLogId,
-            sessionLogId: sid,
-            recommendation,
-          };
-        } else if (evaluated.outcome !== 'on_target') {
-          // Guardrail (lesão) / piso / RIR / incremento grosso resultaram em "manter":
-          // decisão AUTOMÁTICA de segurança. Não abre sheet, mas registra.
-          const autoKeep: Adjustment = {
-            kind: 'keep',
-            auto: true,
-            label: recommendation.recommended.label,
-            reason: recommendation.recommended.reason,
-          };
-          set({
-            lastAutoDecision: {
-              sessionLogId: sid,
-              exerciseName: exercise.name,
-              reason: recommendation.recommended.reason,
-            },
+      // A adaptação roda DEPOIS da confirmação do servidor e é inteiramente local.
+      // Antes ela dividia o bloco com a chamada de rede, então qualquer exceção sua
+      // caía no catch de baixo: o aluno lia "falhou o envio" no meio do treino com a
+      // série JÁ gravada em set_logs, e a série ficava pendente no rascunho para
+      // sempre. Confirmada a escrita, a série CONCLUI — quebrar aqui custa a
+      // SUGESTÃO, nunca o REGISTRO.
+      try {
+        // Fase 5: série fora do alvo → recomenda um ajuste. Dentro do alvo, só com
+        // fôlego declarado (RIR >= rirBoostMinRir) o motor propõe aumento — qualquer
+        // ponto da faixa, por regra rirBoostOnTargetAnywhere. O motor mexe em CARGA:
+        // não tem o que propor para uma caminhada. Cardio conclui a série e segue.
+        // GUARD DE ÚLTIMA SÉRIE: sem próxima série pendente do MESMO exercício, não
+        // há proposta nem decisão automática — a adaptação é intra-exercício.
+        const updatedEx = novo.exercises.find((e) => e.exerciseId === exerciseId);
+        const hasNextPendingOfSameExercise =
+          updatedEx?.sets.some((s) => s.setOrder > setOrder && s.status !== 'done') ?? false;
+        if (hasNextPendingOfSameExercise && !cardio) {
+          const evaluated = evaluateSet({
+            actualReps: saved.actualReps as number,
+            targetRepsMin: serie.targetRepsMin,
+            targetRepsMax: serie.targetRepsMax,
           });
-          finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
-          if (saved.setLogId) {
-            const decision = buildAdaptationDecision(recommendation, autoKeep, true);
-            updateSetLogAdaptation(saved.setLogId, autoKeep, decision).catch((e) =>
-              console.warn('[activeSession] adaptação automática não persistida (não-fatal):', e),
-            );
+          const recommendation = recommendByRules({
+            evaluated,
+            currentLoadKg: saved.actualLoadKg,
+            incrementKg: exercise.loadIncrementKg,
+            ctx: { isBodyweight: exercise.isBodyweight, injury: exercise.hasInjury },
+            actualRir: saved.actualRir,
+          });
+          if (recommendation.recommended.kind !== 'keep') {
+            // Há um ajuste CONCRETO (topo da faixa, fora do alvo) → o aluno decide.
+            pending = {
+              exerciseId,
+              setOrder,
+              setLogId: saved.setLogId,
+              sessionLogId: sid,
+              recommendation,
+            };
+          } else if (evaluated.outcome !== 'on_target') {
+            // Guardrail (lesão) / piso / RIR / incremento grosso resultaram em "manter":
+            // decisão AUTOMÁTICA de segurança. Não abre sheet, mas registra.
+            const autoKeep: Adjustment = {
+              kind: 'keep',
+              auto: true,
+              label: recommendation.recommended.label,
+              reason: recommendation.recommended.reason,
+            };
+            set({
+              lastAutoDecision: {
+                sessionLogId: sid,
+                exerciseName: exercise.name,
+                reason: recommendation.recommended.reason,
+              },
+            });
+            finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
+            if (saved.setLogId) {
+              const decision = buildAdaptationDecision(recommendation, autoKeep, true);
+              updateSetLogAdaptation(saved.setLogId, autoKeep, decision).catch((e) =>
+                console.warn('[activeSession] adaptação automática não persistida (não-fatal):', e),
+              );
+            }
           }
+          // on_target + keep (sem progressão possível): nada — a série conclui e segue.
         }
-        // on_target + keep (sem progressão possível): nada — a série conclui e segue.
+      } catch (e) {
+        // Descarta o resultado PARCIAL da adaptação e conclui a série com o estado
+        // que o servidor confirmou. Sem aviso na tela: o registro está correto, e o
+        // aluno não tem o que fazer com uma falha do motor de recomendação.
+        finalDraft = novo;
+        pending = null;
+        console.warn('[activeSession] adaptação intra-sessão falhou (não-fatal, série registrada):', e);
       }
       set({ draft: finalDraft, saveError: null, pendingAdaptation: pending });
 
