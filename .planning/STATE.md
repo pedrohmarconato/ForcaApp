@@ -5,17 +5,14 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: interc-mbio-de-modalidade-de-cardio
 status: awaiting_human_verification
-stopped_at: |
-  Fase 03 com 9/9 planos executados. Re-verificação devolveu human_needed (6/8 must-haves).
-  Fase NÃO marcada completa. Próximo passo: /gsd-verify-work 03 (testes 6, 7 e 8 do 03-UAT.md).
-  Pendência de produto: migration 0036 não aplicada em staging/produção.
-last_updated: "2026-08-10T18:50:00.000Z"
+stopped_at: "Fase 04 com contexto capturado (16 decisoes). Proximo passo: /gsd-plan-phase 4. Antes de planejar, substituir o TBD dos Success Criteria da Fase 4 no ROADMAP.md pelos criterios derivados no 04-CONTEXT.md."
+last_updated: "2026-08-12T22:35:13.554Z"
 last_activity: 2026-08-10
-last_activity_desc: Phase 03 gap-closure wave executed (03-07/08/09) — awaiting human verification
+last_activity_desc: 0036 nos dois ambientes; falta o teste 8 e o fechamento formal
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 16
+  total_phases: 4
+  completed_phases: 3
+  total_plans: 19
   completed_plans: 16
 ---
 
@@ -60,9 +57,27 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 - REQ-02: meta de cardio derivada da prescrição do treino (decisão do dono, 2026-08-08).
 
+### Roadmap Evolution
+
+- Phase 4 added (2026-08-10): Escrita de execução de treino em lote e offline-first
+  (REQ-07). Origem: sessão de debug `.planning/debug/typeerror-envio-series-treino.md`,
+  causa-raiz (2) — não existe hoje fila/lote/retry para as escritas de execução de
+  sessão. Escopo (buffer+flush versus offline-first completo) adiado por decisão do dono
+  para `/gsd-discuss-phase 04`. Não bloqueia o fechamento da Fase 03.
+
 ### Pending Todos
 
-None yet.
+- Fase 03: teste 8 do 03-UAT.md (build nativo iOS/Android) e o fechamento formal
+  (`/gsd-secure-phase 03` + `/gsd-verify-work 03`) seguem pendentes.
+
+- Fase 04: rodar `/gsd-discuss-phase 04` para fechar a decisão de escopo antes de planejar.
+- Sessão de debug `typeerror-envio-series-treino`: causa-raiz (1) corrigida e verificada
+  (142 suítes / 1623 testes verdes, `tsc` exit 0); a mudança está no working tree, NÃO
+  commitada — o clone está em `main`.
+
+- Ressalva aberta da mesma sessão: `errMsg` devolve `e.message` sem o nome da classe,
+  então a tela nunca exibe a palavra "TypeError". Falta o texto literal do erro visto em
+  produção para provar que o caminho corrigido é exatamente o que o dono observou.
 
 ### Blockers/Concerns
 
@@ -72,8 +87,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-10
-Stopped at: 0036 viva nos DOIS ambientes; G-03-5-servidor resolvido; falta o teste 8.
+Last session: 2026-08-11T20:14:59.182Z
+Stopped at: Fase 04 com contexto capturado (16 decisoes). Proximo passo: /gsd-plan-phase 4. Antes de planejar, substituir o TBD dos Success Criteria da Fase 4 no ROADMAP.md pelos criterios derivados no 04-CONTEXT.md.
 Detalhe: 9/9 planos executados e mesclados. A 0036 foi aplicada em homologação e em
 produção em 10/08/2026 — homologação com prova comportamental, produção com verificação
 de leitura mais md5 de pg_get_functiondef idêntico ao da função já provada. threats_open
@@ -81,7 +96,7 @@ foi de 2 para 0. Ressalva: o db push de produção rodou sem o portão do prefli
 o runbook não encadeou os comandos com &&; sem dano, mas o controle não operou.
 Próximo passo: teste 8 (build nativo iOS/Android, único pendente), depois
 /gsd-secure-phase 03 e /gsd-verify-work 03 para fechar a fase formalmente.
-Resume file: None
+Resume file: .planning/phases/04-escrita-de-execu-o-de-treino-em-lote-e-offline-first/04-CONTEXT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,
 não o frontmatter — verificado em 10/08/2026, quando `state json` devolveu

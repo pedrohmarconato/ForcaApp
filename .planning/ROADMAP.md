@@ -133,13 +133,17 @@ nova.
 
   1. Com o aparelho sem rede no meio do treino, concluir uma série NÃO exibe erro: a
      série é marcada como concluída e o treino segue sem interrupção.
+
   2. Restabelecida a rede, toda série registrada offline aparece no banco exatamente
      uma vez — reenvio não duplica (provado contra Postgres real, com a guarda 0005
      viva).
+
   3. Fechar o app com fila pendente e reabrir drena o que faltou, inclusive quando a
      sessão já foi finalizada.
+
   4. Item recusado em definitivo pelo servidor (ex.: P0005 da 0036) sai da fila, fica
      registrado localmente com motivo e NÃO trava a drenagem do restante.
+
   5. Com rede boa, o comportamento observável do registro de séries é o mesmo de hoje.
 
 **Riscos conhecidos a tratar no planejamento**:
@@ -147,6 +151,7 @@ nova.
   - As guardas de servidor `0005_set_log_first_write_wins.sql` (first-write-wins) e
     `0036_guarda_set_log_troca_cardio.sql` definem hoje o comportamento de reescrita;
     qualquer retry/dedupe do cliente tem de ser desenhado CONTRA elas, não em paralelo.
+
   - `completeSet` já tem trava de reentrância por série e guard de CAS/epoch — a fila
     não pode duplicá-los nem contorná-los.
 
@@ -156,8 +161,10 @@ Plans:
 
 - [ ] 04-01-PLAN.md — REQ-07: tracer — fila ponta a ponta para save_set_log +
   update_set_log_adaptation (engine, storage, drain, hook, store, selo de pendência)
+
 - [ ] 04-02-PLAN.md — REQ-07: expande a fila para as 4 operações restantes do D-01
   (skip/unskip/swap/finish) + fecha a persistência de update_set_log_adaptation
+
 - [ ] 04-03-PLAN.md — REQ-07: D-16 nível 2 (integração contra Postgres real) e nível
   3 (UAT modo avião no meio de um treino)
 
