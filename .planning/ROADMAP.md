@@ -11,6 +11,7 @@ condução real integrada ao chat da IA.
 - [x] **Phase 1: Fluxo cardio e alongamento** - Registro decimal do cardio, meta coerente com o treino e alongamento guiado
 - [x] **Phase 2: Anamnese e calibração do cardio** - Questionário captura experiência de cardio e o gerador calibra dose inicial e progressão por ela (completed 2026-08-09)
 - [ ] **Phase 3: Intercâmbio de modalidade de cardio** - Trocar um momento de cardio por outra modalidade aceita (escada, bike, remo) preservando a dose por tempo
+- [ ] **Phase 4: Escrita de execução de treino em lote e offline-first** - Séries deixam de ir uma a uma direto ao banco; buffer local durável e envio agrupado/reenviado (REQ-07)
 
 ## Phase Details
 
@@ -110,13 +111,64 @@ Plans:
 - [x] 03-08-PLAN.md — REQ-06: G-03-5-servidor (major) — migração 0036 promove o guard CR-01 (série já concluída) para o servidor em `swap_session_exercise` + checkpoint de decisão antes de aplicar em banco vivo
 - [x] 03-09-PLAN.md — REQ-06: UX — esconde os dois entry points de troca assim que há série concluída, coerente com CR-01 (03-UAT.md teste 5, caveat)
 
+### Phase 4: Escrita de execução de treino em lote e offline-first
+
+**Goal**: Registrar séries durante o treino deixa de ser write-through síncrono por
+série. As escritas de execução de sessão (`save_set_log` e correlatas) ganham buffer
+local durável e envio agrupado/reenviado, de modo que soluço de rede na academia não
+interrompa o treino nem apareça ao aluno como falha.
+**Depends on**: Nothing (independente das fases 1–3; toca o motor de execução, não cardio)
+**Requirements**: REQ-07
+**Origem**: sessão de debug `.planning/debug/typeerror-envio-series-treino.md`,
+causa-raiz (2). Grep exaustivo confirmou que NÃO existe hoje nenhuma fila/lote/retry/
+outbox para essas escritas — `src/services/sessionDraftStorage.ts` é cache de retomada,
+não fila de mutações. É trabalho novo, do zero.
+**Escopo fechado (decisão do dono em `/gsd-discuss-phase`, 2026-08-11, 16 decisões
+travadas D-01..D-16 em `04-CONTEXT.md`)**: offline-first completo — outbox durável em
+storage próprio (D-09), retry com backoff por idade (D-11), dedupe por chave natural
+(D-13), quarentena silenciosa para recusa definitiva do servidor (D-06/D-07), flush
+por tentativa imediata + retorno ao primeiro plano (D-03), sem dependência nativa
+nova.
+**Success Criteria** (what must be TRUE):
+
+  1. Com o aparelho sem rede no meio do treino, concluir uma série NÃO exibe erro: a
+     série é marcada como concluída e o treino segue sem interrupção.
+  2. Restabelecida a rede, toda série registrada offline aparece no banco exatamente
+     uma vez — reenvio não duplica (provado contra Postgres real, com a guarda 0005
+     viva).
+  3. Fechar o app com fila pendente e reabrir drena o que faltou, inclusive quando a
+     sessão já foi finalizada.
+  4. Item recusado em definitivo pelo servidor (ex.: P0005 da 0036) sai da fila, fica
+     registrado localmente com motivo e NÃO trava a drenagem do restante.
+  5. Com rede boa, o comportamento observável do registro de séries é o mesmo de hoje.
+
+**Riscos conhecidos a tratar no planejamento**:
+
+  - As guardas de servidor `0005_set_log_first_write_wins.sql` (first-write-wins) e
+    `0036_guarda_set_log_troca_cardio.sql` definem hoje o comportamento de reescrita;
+    qualquer retry/dedupe do cliente tem de ser desenhado CONTRA elas, não em paralelo.
+  - `completeSet` já tem trava de reentrância por série e guard de CAS/epoch — a fila
+    não pode duplicá-los nem contorná-los.
+
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 04-01-PLAN.md — REQ-07: tracer — fila ponta a ponta para save_set_log +
+  update_set_log_adaptation (engine, storage, drain, hook, store, selo de pendência)
+- [ ] 04-02-PLAN.md — REQ-07: expande a fila para as 4 operações restantes do D-01
+  (skip/unskip/swap/finish) + fecha a persistência de update_set_log_adaptation
+- [ ] 04-03-PLAN.md — REQ-07: D-16 nível 2 (integração contra Postgres real) e nível
+  3 (UAT modo avião no meio de um treino)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3
+Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
 | 3. Intercâmbio de modalidade de cardio | 9/9 | In Progress|  |
+| 4. Escrita de execução de treino em lote e offline-first | 0/3 | Planned |  |
