@@ -31,6 +31,11 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
 - **REQ-06** *(Fase 3)* — Um momento de cardio da sessão pode ser trocado por outra
   modalidade aceita (escada, bike, remo…), preservando a dose por tempo; a distância da
   modalidade original não vira meta da nova.
+- **REQ-07** *(Fase 4)* — Registrar séries durante o treino para de depender de rede boa
+  a cada série. As escritas de execução de sessão ganham buffer local durável e envio
+  agrupado/reenviado, de modo que soluço de rede na academia não interrompa o treino nem
+  apareça ao aluno como falha. Origem: sessão de debug
+  `.planning/debug/typeerror-envio-series-treino.md`, causa-raiz (2).
 
 ## Restrições
 
