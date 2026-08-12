@@ -2,6 +2,15 @@
 // Fase 5 — fluxo no store: concluir uma série FORA do alvo levanta uma adaptação
 // pendente; resolver aplica o efeito à próxima série e grava a escolha (best-effort),
 // sem nunca aplicar sem a decisão do aluno.
+//
+// Fase 4 (REQ-07/D-05/Pitfall 1): completeSet virou commit OTIMISTA — o
+// `setLogId` de uma série recém-concluída não existe mais neste momento (só a
+// fila confirma depois), então `pendingAdaptation.setLogId` fica `null` e a
+// persistência da decisão de adaptação em `updateSetLogAdaptation` (tanto a
+// automática quanto a de `resolveAdaptation`) fica em PAUSA nesta fase — o
+// 04-02-PLAN.md reintroduz via fila com resolução tardia de setLogId. O
+// EFEITO local (ajustar a próxima série, registrar `set.adaptation`) continua
+// idêntico — só a chamada de rede direta que sai destes testes.
 
 jest.mock('../src/services/sessionExecutionRepository', () => {
   class SessionExecutionRequestError extends Error {
@@ -176,7 +185,9 @@ it('série abaixo do alvo levanta pendingAdaptation; on_target não levanta', as
   const pending = store().pendingAdaptation;
   expect(pending).not.toBeNull();
   expect(pending!.recommendation.outcome).toBe('under');
-  expect(pending!.setLogId).toBe('sl-1');
+  // Fase 4 (D-05/Pitfall 1): setLogId ainda não existe no commit otimista —
+  // fica null até a fila confirmar (resolução tardia, 04-02-PLAN.md).
+  expect(pending!.setLogId).toBeNull();
 });
 
 it('resolver aplica o ajuste à próxima série, grava a escolha e limpa o pendente', async () => {
@@ -199,12 +210,10 @@ it('resolver aplica o ajuste à próxima série, grava a escolha e limpa o pende
   // registrou a escolha na série concluída (set_order 1)
   const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
   expect(set1.adaptation).toEqual(rec);
-  // persistiu no servidor (best-effort) e limpou o pendente
-  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
-    'sl-1',
-    rec,
-    expect.objectContaining({ response: 'accepted', recommended: rec }),
-  );
+  // Fase 4 (D-05/Pitfall 1): setLogId é null no commit otimista — resolveAdaptation
+  // já guarda essa chamada com `if (pending.setLogId)`, então a persistência de
+  // rede da decisão fica em PAUSA nesta fase (04-02-PLAN.md reintroduz via fila).
+  expect(mock(updateSetLogAdaptation)).not.toHaveBeenCalled();
   expect(store().pendingAdaptation).toBeNull();
 });
 
@@ -222,12 +231,9 @@ it('recusar (manter) grava a decisão mas NÃO altera o alvo da próxima série'
 
   const set2 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 2)!;
   expect(set2.targetLoadKg).toBeNull(); // alvo original preservado (recusa respeitada)
-  // recusa registrada + telemetria: response 'declined' e o recomendado preservado
-  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
-    'sl-1',
-    keep,
-    expect.objectContaining({ response: 'declined' }),
-  );
+  // Fase 4 (D-05/Pitfall 1): mesma pausa da persistência de rede — setLogId
+  // null no commit otimista (04-02-PLAN.md reintroduz via fila).
+  expect(mock(updateSetLogAdaptation)).not.toHaveBeenCalled();
   expect(store().pendingAdaptation).toBeNull();
 });
 
@@ -239,14 +245,13 @@ it('MEDIUM: superávit com lesão → sem sheet, mas REGISTRA decisão automáti
   await store().completeSet('ex-1', 1);
   // guardrail: lesão nunca sobe carga → "manter" → nada a decidir → sem sheet…
   expect(store().pendingAdaptation).toBeNull();
-  // …mas a decisão automática de segurança é registrada (não é escolha do aluno).
+  // …mas a decisão automática de segurança é registrada (não é escolha do aluno)
+  // LOCALMENTE — a persistência via updateSetLogAdaptation saiu de dentro de
+  // completeSet nesta fase (D-05/Pitfall 1: setLogId ainda não existe no
+  // commit otimista; 04-02-PLAN.md reintroduz via fila).
   const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
   expect(set1.adaptation).toMatchObject({ kind: 'keep', auto: true });
-  expect(mock(updateSetLogAdaptation)).toHaveBeenCalledWith(
-    'sl-1',
-    expect.objectContaining({ kind: 'keep', auto: true }),
-    expect.objectContaining({ response: 'auto' }),
-  );
+  expect(mock(updateSetLogAdaptation)).not.toHaveBeenCalled();
 });
 
 it('HIGH: draft legado lesionado (sem hasInjury) reconcilia e NUNCA recomenda aumento', async () => {

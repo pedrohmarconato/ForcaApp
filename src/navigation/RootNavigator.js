@@ -11,6 +11,7 @@ import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
 import { useAuth } from '../contexts/AuthContext';
+import { useSessionOutboxDrain } from '../hooks/useSessionOutboxDrain';
 
 /**
  * Ref da árvore MAIN. O convite pendente é despachado por aqui, e só depois de o
@@ -36,6 +37,13 @@ const RootNavigator = () => {
   // qualquer `return` antecipado (loading/Auth/erro de perfil) — Rules of
   // Hooks. `ehMain` só depende de `profile`, já disponível neste ponto.
   const ehMain = Boolean(profile && profile.onboarding_completed);
+
+  // Fase 4 (REQ-07/D-10): a fila de execução é do USUÁRIO, não da tela — drena
+  // na abertura do app e no retorno ao primeiro plano, montado aqui (acima de
+  // ActiveSessionScreen), não dentro dela. Precisa rodar incondicionalmente,
+  // antes de qualquer `return` antecipado (loading/Auth/erro de perfil) —
+  // Rules of Hooks, mesmo cuidado do comentário de `ehMain` acima.
+  useSessionOutboxDrain(session?.user?.id ?? null);
 
   useEffect(() => {
     const checkStayLoggedInPreference = async () => {

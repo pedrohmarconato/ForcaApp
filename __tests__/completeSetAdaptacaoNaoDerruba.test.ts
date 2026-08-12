@@ -6,8 +6,15 @@
 // e devolvia `false`: o aluno lia "não foi possível registrar" no meio do treino com a
 // série JÁ gravada em `set_logs`, e a série ficava eternamente pendente no rascunho.
 //
-// Contrato provado aqui: confirmada a escrita no servidor, a série conclui. O motor de
-// adaptação é best-effort — se ele quebrar, perde-se a SUGESTÃO, nunca o REGISTRO.
+// Contrato provado aqui: o motor de adaptação é best-effort — se ele quebrar, perde-se
+// a SUGESTÃO, nunca o REGISTRO.
+//
+// Fase 4 (REQ-07/D-05): o "confirmada a escrita no servidor" do parágrafo acima é
+// PRÉ-fase — a escrita virou item de fila (sessionOutboxDrain), e a série conclui
+// LOCALMENTE de imediato, sem aguardar NENHUMA confirmação do servidor (nem sucesso
+// nem falha). "ERRO do banco ao salvar a série NÃO marca como feita" deixou de ser o
+// comportamento vigente: falha de rede/servidor não classificado NUNCA impede o
+// registro local — vira item retentável na fila (Pitfall 2 do RESEARCH.md).
 
 jest.mock('../src/services/sessionExecutionRepository', () => {
   class SessionExecutionRequestError extends Error {
@@ -58,6 +65,12 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));
+// Fase 4 (REQ-07): mesma razão de activeSessionStore.test.ts — o store agora
+// fala com a fila real (sessionOutboxDrain/sessionOutboxStorage), que usa
+// AsyncStorage de verdade. Mock oficial do pacote (implementação em memória).
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
 
 // Motor de adaptação: mock PARCIAL. Todo o resto do módulo continua real — só
 // `evaluateSet`/`recommendByRules` viram espiões, para injetar a exceção que o
@@ -82,6 +95,10 @@ import { saveDraft, loadDraft } from '../src/services/sessionDraftStorage';
 import { evaluateSet, recommendByRules } from '../src/engine/intraSessionAdaptation';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDetail } from '../src/services/trainingRepository';
+// Fase 4 (REQ-07): completeSet enfileira em vez de aguardar a RPC (D-05) — o
+// teste de "falha de rede" precisa drenar explicitamente para observar a fila.
+import { drainAll } from '../src/services/sessionOutboxDrain';
+import { loadOutbox } from '../src/services/sessionOutboxStorage';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
@@ -177,14 +194,14 @@ describe('completeSet: falha no motor de adaptação NÃO vira falha de envio', 
 
     const ok = await concluirPrimeiraSerieForaDoAlvo();
 
-    // A escrita no servidor aconteceu e foi confirmada — não pode ser reapresentada
-    // ao aluno como falha.
-    expect(mock(saveSetLog)).toHaveBeenCalledTimes(1);
     expect(ok).toBe(true);
 
     const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
     expect(set1.status).toBe('done');
-    expect(set1.setLogId).toBe('sl-1');
+    // Fase 4 (D-05): commit OTIMISTA — setLogId ainda não existe neste momento
+    // (só a fila em segundo plano confirma); fica null até a próxima retomada
+    // reconciliar via applyServerSetLogs.
+    expect(set1.setLogId).toBeNull();
     expect(set1.actualReps).toBe(5);
 
     // Nada de mensagem de erro no meio do treino.
@@ -193,6 +210,13 @@ describe('completeSet: falha no motor de adaptação NÃO vira falha de envio', 
     expect(store().pendingAdaptation).toBeNull();
     // A falha não é silenciosa: fica no log para diagnóstico.
     expect(warnSpy).toHaveBeenCalled();
+
+    // A escrita em si acontece na fila, em segundo plano (fire-and-forget, D-05)
+    // — deixa a ÚNICA drenagem resultante assentar sem competir com uma 2ª
+    // chamada explícita a drainAll (que dispararia um dispatch concorrente do
+    // MESMO item, ver F2 em activeSessionStore.test.ts).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mock(saveSetLog)).toHaveBeenCalledTimes(1);
   });
 
   it('evaluateSet lançando → mesmo contrato: registro preservado', async () => {
@@ -202,12 +226,14 @@ describe('completeSet: falha no motor de adaptação NÃO vira falha de envio', 
 
     const ok = await concluirPrimeiraSerieForaDoAlvo();
 
-    expect(mock(saveSetLog)).toHaveBeenCalledTimes(1);
     expect(ok).toBe(true);
     const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
     expect(set1.status).toBe('done');
     expect(store().saveError).toBeNull();
     expect(store().pendingAdaptation).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mock(saveSetLog)).toHaveBeenCalledTimes(1);
   });
 
   it('a série seguinte continua utilizável depois da falha de adaptação', async () => {
@@ -227,22 +253,42 @@ describe('completeSet: falha no motor de adaptação NÃO vira falha de envio', 
     const ok2 = await store().completeSet('ex-1', 2);
 
     expect(ok2).toBe(true);
-    expect(mock(saveSetLog)).toHaveBeenCalledTimes(2);
     const set2 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 2)!;
     expect(set2.status).toBe('done');
+
+    // Duas séries do MESMO exercício disparam duas drenagens fire-and-forget
+    // independentes (D-05); FIFO por sessão (D-04) processa um item por vez —
+    // drena até estabilizar em vez de fixar um número exato de chamadas.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await drainAll('user-1');
+    await drainAll('user-1');
+
+    expect(mock(saveSetLog)).toHaveBeenCalled();
     expect(store().saveError).toBeNull();
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(0);
+    expect(doc.quarantine).toHaveLength(0);
   });
 });
 
-describe('completeSet: falha REAL de rede continua sendo reportada', () => {
-  it('saveSetLog rejeitando → série NÃO concluída e erro visível (não regride)', async () => {
+describe('completeSet: falha de rede NUNCA impede o registro local (D-05, pós-fase)', () => {
+  it('saveSetLog rejeitando → série conclui local mesmo assim, sem saveError; item fica pendente na fila', async () => {
     mock(saveSetLog).mockRejectedValue(new Error('rede caiu'));
 
     const ok = await concluirPrimeiraSerieForaDoAlvo();
 
-    expect(ok).toBe(false);
+    // Fase 4 (REQ-07): este é o comportamento que o REQ-07 SUBSTITUI — antes,
+    // uma falha de rede em save_set_log impedia a conclusão local e mostrava o
+    // erro cru na tela. Agora vira item de fila (retentável, D-11) e a série
+    // conclui na hora (D-05).
+    expect(ok).toBe(true);
     const set1 = store().draft!.exercises[0].sets.find((s) => s.setOrder === 1)!;
-    expect(set1.status).not.toBe('done');
-    expect(store().saveError).toBe('rede caiu');
+    expect(set1.status).toBe('done');
+    expect(store().saveError).toBeNull();
+
+    await drainAll('user-1');
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(1);
+    expect(doc.items[0].kind).toBe('save_set_log');
   });
 });

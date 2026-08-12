@@ -4,8 +4,14 @@
 // - RETOMAR pelo servidor quando o rascunho local se perdeu (não duplica session_log)
 // - PRIMEIRA CARGA sem histórico: não conclui até o aluno informar a carga
 // - BODYWEIGHT: conclui só com reps, grava carga nula
-// - ERRO do banco ao salvar a série NÃO marca como feita (não engole o erro)
 // - outcome correto (under/on_target/over) calculado ao concluir
+//
+// Fase 4 (REQ-07, D-05): erro do banco ao salvar a série NÃO IMPEDE MAIS a
+// conclusão local — a escrita vira item de fila (sessionOutboxDrain) que
+// retenta/quarentena em segundo plano; completeSet nunca mais aguarda a rede
+// nem propaga saveError por soluço de transporte. Ver
+// __tests__/sessionOutboxDrain.test.ts para os 5 modos de classificação de
+// erro da fila (sucesso/transporte/definitivo/P0001/desconhecido).
 
 jest.mock('../src/services/sessionExecutionRepository', () => {
   class SessionExecutionRequestError extends Error {
@@ -47,6 +53,16 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
 jest.mock('../src/services/agendaRepository', () => ({
   getAgendaDoAluno: jest.fn(),
 }));
+// Fase 4 (REQ-07): activeSessionStore agora importa sessionOutboxDrain ->
+// sessionOutboxStorage -> AsyncStorage real. sessionExecutionRepository e
+// sessionOutboxDrain/sessionOutboxStorage NÃO são mockados de propósito: os
+// testes desta suíte exercitam o comportamento REAL da fila junto do store
+// (enfileira, drena, reclassifica erro) — só o transporte de rede
+// (sessionExecutionRepository) é mock. O mock oficial do pacote provê uma
+// implementação em memória (doc: react-native-async-storage/jest).
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
 jest.mock('../src/services/planEditRepository', () => ({
   reagendarSessoesDaSemana: jest.fn(),
 }));
@@ -70,6 +86,11 @@ import {
 } from '../src/store/activeSessionStore';
 import { buildDraftFromDetail } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
+// Fase 4 (REQ-07): a gravação de série virou item de fila — vários testes
+// desta suíte agora precisam drenar EXPLICITAMENTE (drainAll) para observar o
+// resultado da RPC, já que completeSet nunca mais aguarda a rede (D-05).
+import { drainAll } from '../src/services/sessionOutboxDrain';
+import { loadOutbox } from '../src/services/sessionOutboxStorage';
 
 
 // Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
@@ -265,6 +286,17 @@ describe('concluir série', () => {
     const ok = await store().completeSet('ex-1', 1);
 
     expect(ok).toBe(true);
+    // Fase 4 (D-05): o status 'done' e a sugestão são commit LOCAL imediato —
+    // não dependem da RPC. A conclusão local não espera a fila.
+    const s1 = store().draft!.exercises[0].sets[0];
+    expect(s1.status).toBe('done');
+    expect(s1.outcome).toBe('on_target');
+    // a série 2 do mesmo exercício agora sugere 40 (última usada)
+    const ex = store().draft!.exercises[0];
+    expect(suggestionFor(store().draft!, ex, ex.sets[1])).toBe(40);
+
+    // A gravação em si acontece na fila, em segundo plano — drena para confirmar.
+    await drainAll('user-1');
     expect(saveSetLog).toHaveBeenCalledWith(
       expect.objectContaining({
         plannedSetId: 'st-1',
@@ -274,12 +306,6 @@ describe('concluir série', () => {
       }),
       expect.anything(),
     );
-    const s1 = store().draft!.exercises[0].sets[0];
-    expect(s1.status).toBe('done');
-    expect(s1.outcome).toBe('on_target');
-    // a série 2 do mesmo exercício agora sugere 40 (última usada)
-    const ex = store().draft!.exercises[0];
-    expect(suggestionFor(store().draft!, ex, ex.sets[1])).toBe(40);
   });
 
   it('outcome under quando reps abaixo do mínimo', async () => {
@@ -311,6 +337,7 @@ describe('concluir série', () => {
     const ok = await store().completeSet('ex-2', 1);
 
     expect(ok).toBe(true);
+    await drainAll('user-1');
     expect(saveSetLog).toHaveBeenCalledWith(
       expect.objectContaining({
         plannedSetId: 'st-3',
@@ -322,7 +349,7 @@ describe('concluir série', () => {
     );
   });
 
-  it('ERRO do banco ao salvar: série NÃO vira "feita" e o erro aparece', async () => {
+  it('ERRO do banco ao salvar: sob D-05 a série conclui local mesmo assim e o item fica pendente na fila (nunca saveError)', async () => {
     mock(saveSetLog).mockRejectedValue(new Error('RLS negou'));
     await start();
     store().activateSet('ex-1', 1);
@@ -330,14 +357,23 @@ describe('concluir série', () => {
     store().setLoad('ex-1', 1, 40);
     const ok = await store().completeSet('ex-1', 1);
 
-    expect(ok).toBe(false);
-    expect(store().saveError).toMatch(/RLS negou/);
+    // Fase 4 (REQ-07/D-05): erro de servidor NUNCA impede o commit local nem
+    // seta saveError — vira item retentável na fila (Pitfall 2: código sem
+    // classificação reconhecida NUNCA vai para quarentena por default).
+    expect(ok).toBe(true);
+    expect(store().saveError).toBeNull();
     const s1 = store().draft!.exercises[0].sets[0];
-    expect(s1.status).not.toBe('done');
+    expect(s1.status).toBe('done');
     expect(s1.setLogId).toBeNull();
+
+    await drainAll('user-1');
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(1);
+    expect(doc.items[0].kind).toBe('save_set_log');
+    expect(doc.quarantine).toHaveLength(0);
   });
 
-  it('log finalizado remotamente durante save encerra a sessão e limpa só o draft capturado', async () => {
+  it('log finalizado remotamente (P0001) durante a drenagem encerra a sessão e limpa só o draft capturado', async () => {
     const closed = Object.assign(new Error('session_log já finalizado'), {
       code: 'P0001',
     });
@@ -349,7 +385,15 @@ describe('concluir série', () => {
     store().setReps('ex-1', 1, 8);
     store().setLoad('ex-1', 1, 40);
 
-    expect(await store().completeSet('ex-1', 1)).toBe(false);
+    // Fase 4 (D-05): completeSet retorna true de IMEDIATO (commit otimista) — o
+    // fechamento da sessão só acontece DEPOIS que a drenagem em segundo plano
+    // descobre o P0001 (Pitfall 3, não é quarentena comum).
+    expect(await store().completeSet('ex-1', 1)).toBe(true);
+
+    await drainAll('user-1', {
+      onSessionClosed: (id) => useActiveSessionStore.getState().reconcileRemoteSessionClosed(id),
+    });
+
     expect(store().status).toBe('finished');
     expect(store().saveError).toBeNull();
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
@@ -364,9 +408,15 @@ describe('concluir série', () => {
       store().completeSet('ex-1', 1),
       store().completeSet('ex-1', 1),
     ]);
-    expect(saveSetLog).toHaveBeenCalledTimes(1);
     expect([r1, r2]).toContain(true);
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+
+    // Só a 1ª chamada enfileira (a 2ª bate no lock `inFlight` e retorna `false`
+    // sem enfileirar nada, F2/F9) — deixa a drenagem fire-and-forget ÚNICA
+    // resultante assentar (D-05) sem competir com uma 2ª chamada explícita a
+    // drainAll, que dispararia um dispatch concorrente do MESMO item.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saveSetLog).toHaveBeenCalledTimes(1);
   });
 
   it('idempotente: concluir uma série JÁ feita não regrava', async () => {
@@ -392,6 +442,39 @@ describe('concluir série', () => {
     expect(ok).toBe(true); // sucesso do servidor não é revertido por falha local
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
     expect(store().saveError).toBeNull();
+  });
+
+  it('reconecta e drena sem duplicar: 1 falha de transporte + 1 retry bem-sucedido, nunca mais que isso', async () => {
+    jest.useFakeTimers();
+    try {
+      mock(saveSetLog).mockRejectedValueOnce(
+        new SessionExecutionRequestError(new Error('sem rede'), { status: 0 }),
+      );
+      await start();
+      store().activateSet('ex-1', 1);
+      store().setReps('ex-1', 1, 8);
+      store().setLoad('ex-1', 1, 40);
+      const ok = await store().completeSet('ex-1', 1);
+      expect(ok).toBe(true);
+
+      // Deixa a drenagem fire-and-forget da 1ª tentativa (D-05) assentar: falha
+      // de transporte, item mantido pendente com backoff agendado (D-11).
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Reconecta: avança além do teto do backoff e drena de novo — desta vez
+      // com sucesso (default mock do beforeEach ecoa os parâmetros recebidos).
+      await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await drainAll('user-1');
+
+      // Exatamente 2 chamadas: 1 falha + 1 retry bem-sucedido, nenhuma a mais
+      // (aproxima o critério de sucesso #2 do 04-CONTEXT.md em nível de mock).
+      expect(saveSetLog).toHaveBeenCalledTimes(2);
+      const doc = await loadOutbox('user-1');
+      expect(doc.items).toHaveLength(0);
+      expect(doc.quarantine).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -956,66 +1039,77 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
 });
 
 describe('trava de reentrância (F9)', () => {
-  it('RPC de gravação travada libera a série após timeout (não trava para sempre)', async () => {
-    jest.useFakeTimers();
-    try {
-      await store().startOrResume({
-        sessionId: 'sess-1',
-        userId: 'user-1',
-        detail: makeDetail(),
-      });
+  // Fase 4 (REQ-07/D-05): antes desta fase, `completeSet` aguardava a RPC
+  // direta sob RPC_TIMEOUT_MS — uma gravação travada fazia a PROMESSA de
+  // completeSet só resolver (com `false`) depois do timeout. Isso não existe
+  // mais: a gravação vira item de fila e completeSet nunca aguarda a rede.
+  // A trava `inFlight` agora protege só a janela CURTA do enfileiramento
+  // local (F9 continua válido nesse sentido restrito) — timeout/backoff da
+  // RPC em si são responsabilidade de sessionOutboxDrain.ts, já cobertos em
+  // __tests__/sessionOutboxDrain.test.ts.
+  it('D-05: completeSet conclui a série IMEDIATAMENTE mesmo com a RPC travada; nova tentativa é idempotente e o item original permanece ÚNICO na fila (sem duplicar)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
     await confirmarCheckInSePedido();
-      store().activateSet('ex-1', 1);
-      store().setReps('ex-1', 1, 8);
-      store().setLoad('ex-1', 1, 40);
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
 
-      // 1ª tentativa só termina tarde, depois do timeout e do retry.
-      const late = deferred<{
-        setLogId: string;
-        actualReps: number;
-        actualLoadKg: number | null;
-        actualRir: number | null;
-        outcome: 'on_target';
-      }>();
-      mock(saveSetLog).mockReturnValueOnce(late.promise);
-      const p1 = store().completeSet('ex-1', 1);
+    // A RPC nunca resolve nesta rodada — a prova de que completeSet NÃO depende
+    // dela (D-05): se dependesse, este `await` abaixo travaria o teste.
+    const late = deferred<{
+      setLogId: string;
+      actualReps: number;
+      actualLoadKg: number | null;
+      actualRir: number | null;
+      outcome: 'on_target';
+      actualDurationSeconds: number | null;
+      actualDistanceM: number | null;
+      paceSecondsPerKm: number | null;
+      perceivedEffort: null;
+      completedAt: string;
+    }>();
+    mock(saveSetLog).mockReturnValueOnce(late.promise);
 
-      // dispara o timeout interno da gravação
-      jest.advanceTimersByTime(60000);
-      const r1 = await p1;
+    const r1 = await store().completeSet('ex-1', 1);
 
-      expect(r1).toBe(false);
-      expect(store().saveError).toMatch(/tempo|esgot/i);
-      expect(store().draft!.exercises[0].sets[0].status).not.toBe('done');
-      const firstSignal = mock(saveSetLog).mock.calls[0][1] as AbortSignal;
-      expect(firstSignal.aborted).toBe(true);
+    expect(r1).toBe(true);
+    expect(store().saveError).toBeNull();
+    expect(store().draft!.exercises[0].sets[0].status).toBe('done');
 
-      // a TRAVA foi liberada: nova tentativa consegue disparar a RPC de novo
-      mock(saveSetLog).mockResolvedValueOnce({
-        setLogId: 'set-x',
-        actualReps: 8,
-        actualLoadKg: 40,
-        actualRir: null,
-        outcome: 'on_target',
-      });
-      const r2 = await store().completeSet('ex-1', 1);
-      expect(r2).toBe(true);
-      expect(store().draft!.exercises[0].sets[0].status).toBe('done');
+    // A TRAVA foi liberada assim que o enfileiramento local terminou: nova
+    // chamada da MESMA série é idempotente (short-circuit por status 'done'),
+    // sem nova RPC e sem item duplicado na fila (D-13).
+    mock(saveSetLog).mockClear();
+    const r2 = await store().completeSet('ex-1', 1);
+    expect(r2).toBe(true);
+    expect(saveSetLog).not.toHaveBeenCalled();
 
-      // A resolução tardia da chamada cancelada é consumida e não altera o retry.
-      late.resolve({
-        setLogId: 'set-late',
-        actualReps: 99,
-        actualLoadKg: 99,
-        actualRir: 9,
-        outcome: 'on_target',
-      });
-      await Promise.resolve();
-      expect(store().draft!.exercises[0].sets[0].setLogId).toBe('set-x');
-      expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(40);
-    } finally {
-      jest.useRealTimers();
-    }
+    // O item ORIGINAL (a RPC travada) continua ÚNICO na fila local — não foi
+    // perdido nem duplicado enquanto a rede não respondia.
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(1);
+    expect(doc.items[0].kind).toBe('save_set_log');
+
+    // Libera a RPC travada para não vazar handle entre testes; a resolução
+    // tardia da chamada não pode alterar o draft já concluído localmente.
+    late.resolve({
+      setLogId: 'set-late',
+      actualReps: 99,
+      actualLoadKg: 99,
+      actualRir: 9,
+      outcome: 'on_target',
+      actualDurationSeconds: null,
+      actualDistanceM: null,
+      paceSecondsPerKm: null,
+      perceivedEffort: null,
+      completedAt: '2026-07-20T10:10:00Z',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(40);
   });
 });
 

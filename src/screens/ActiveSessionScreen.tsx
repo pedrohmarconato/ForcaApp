@@ -44,7 +44,7 @@ import {
 } from '../engine/sessionModel';
 import { montarResumoSessao, type ResumoSessao } from '../engine/sessionSummary';
 import Button from '../components/ui/Button';
-import { Notice, ProgressTrack } from '../components/ui/Feedback';
+import { Chip, Notice, ProgressTrack } from '../components/ui/Feedback';
 import SessionPlayer from '../components/session/SessionPlayer';
 import SessionQueue from '../components/session/SessionQueue';
 import SessionSummary from '../components/session/SessionSummary';
@@ -102,6 +102,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const clearStorageWarning = useActiveSessionStore((s) => s.clearStorageWarning);
   const replanWarning = useActiveSessionStore((s) => s.replanWarning);
   const clearReplanWarning = useActiveSessionStore((s) => s.clearReplanWarning);
+  // Fase 4 (REQ-07/D-05): selo discreto de pendência — sem cor de erro, nunca
+  // bloqueia nada. Ausente quando pendingCount é 0 (convenção "sem dado
+  // inventado": nunca renderiza "0 pendentes").
+  const pendingCount = useActiveSessionStore((s) => s.pendingCount);
 
   const skipExercise = useActiveSessionStore((s) => s.skipExercise);
   const skipWholeSession = useActiveSessionStore((s) => s.skipWholeSession);
@@ -392,6 +396,15 @@ const ActiveSessionScreen = ({ route }: Props) => {
           accessibilityLabel="Progresso das séries desta sessão"
           style={styles.progress}
         />
+        {/* Fase 4 (REQ-07/D-05): há registro a caminho — nunca cor de erro, nunca
+            bloqueia. Some quando não há nada pendente (sem dado inventado). */}
+        {pendingCount > 0 ? (
+          <Chip
+            label={`${pendingCount} registro${pendingCount > 1 ? 's' : ''} a caminho`}
+            tone="neutral"
+            style={styles.pendingChip}
+          />
+        ) : null}
       </View>
 
       {saveError ? (
@@ -723,6 +736,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.sm,
   },
   progress: { marginTop: theme.spacing.md },
+  pendingChip: { marginTop: theme.spacing.sm },
 
   scroll: { padding: theme.spacing.xl, paddingTop: theme.spacing.xxs },
 

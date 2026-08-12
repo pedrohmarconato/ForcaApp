@@ -112,3 +112,30 @@ export const FREQUENCY_CONFIG: FrequencyConfig = {
   frequenciaMinima: 2, // PADRÃO A VALIDAR — reservado para a tela de proposta
   semanasEntrePropostas: 4, // PADRÃO A VALIDAR — reservado para a tela de proposta
 };
+
+// ---------------------------------------------------------------
+// Fase 4 (REQ-07) — fila offline-first de escritas de execução de sessão
+// (sessionOutboxPolicy.ts / sessionOutboxDrain.ts). D-11: desistência é por
+// IDADE do item, nunca por número de tentativas — os números abaixo são
+// Claude's Discretion (04-CONTEXT.md), dentro dessa regra travada pelo dono.
+// ---------------------------------------------------------------
+
+export type OutboxConfig = {
+  /** Idade (dias) além da qual um item pendente vai para quarentena (D-11) —
+   *  backstop de idade, NUNCA critério por contagem de tentativas. */
+  maxAgeDays: number;
+  /** Base do backoff exponencial (ms): dobra a cada tentativa até o teto. */
+  backoffBaseMs: number;
+  /** Teto do backoff (ms) — nunca espera mais que isso entre tentativas. */
+  backoffMaxMs: number;
+  /** Dias que um item de quarentena permanece local antes de expirar sozinho
+   *  (D-07) — evita crescer sem teto no AsyncStorage. */
+  quarantineRetentionDays: number;
+};
+
+export const OUTBOX_CONFIG: OutboxConfig = {
+  maxAgeDays: 7, // candidato explícito do D-11
+  backoffBaseMs: 2000, // 2s de base — Claude's Discretion (D-15)
+  backoffMaxMs: 300000, // teto de 5 minutos entre tentativas — Claude's Discretion (D-15)
+  quarantineRetentionDays: 30, // Claude's Discretion (D-15)
+};
