@@ -155,11 +155,11 @@ nova.
   - `completeSet` já tem trava de reentrância por série e guard de CAS/epoch — a fila
     não pode duplicá-los nem contorná-los.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 
-- [ ] 04-01-PLAN.md — REQ-07: tracer — fila ponta a ponta para save_set_log +
+- [x] 04-01-PLAN.md — REQ-07: tracer — fila ponta a ponta para save_set_log +
   update_set_log_adaptation (engine, storage, drain, hook, store, selo de pendência)
 
 - [ ] 04-02-PLAN.md — REQ-07: expande a fila para as 4 operações restantes do D-01
@@ -178,4 +178,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Fluxo cardio e alongamento | 4/4 | Complete (gate verde + checkpoint HML + review PR #77 corrigido) | 2026-08-09 |
 | 2. Anamnese e calibração do cardio | 3/3 | Complete    | 2026-08-09 |
 | 3. Intercâmbio de modalidade de cardio | 9/9 | In Progress|  |
-| 4. Escrita de execução de treino em lote e offline-first | 0/3 | Planned |  |
+| 4. Escrita de execução de treino em lote e offline-first | 1/3 | In Progress|  |
