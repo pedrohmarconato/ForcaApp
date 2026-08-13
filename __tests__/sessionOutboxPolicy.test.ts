@@ -115,9 +115,13 @@ describe('upsertItem — dedupe por (kind, id) natural (D-13)', () => {
 
 describe('isDefinitiveRejection — allowlist EXATA (D-14/Pitfall 2)', () => {
   it('códigos confirmados nas migrations vão para quarentena', () => {
-    for (const code of ['P0005', '42501', '22023', '22004', 'P0002']) {
+    for (const code of ['23505', '42501', '22023', '22004', 'P0002']) {
       expect(isDefinitiveRejection(code)).toBe(true);
     }
+  });
+
+  it('P0005 NÃO está mais na allowlist (migration 0037 substituiu por 23505 — PostgREST mascara P0005)', () => {
+    expect(isDefinitiveRejection('P0005')).toBe(false);
   });
 
   it('P0001 NUNCA está na allowlist — tratamento à parte (Pitfall 3)', () => {
@@ -135,7 +139,7 @@ describe('isSessionClosedCode', () => {
     expect(isSessionClosedCode('P0001')).toBe(true);
   });
   it('qualquer outro código não é', () => {
-    expect(isSessionClosedCode('P0005')).toBe(false);
+    expect(isSessionClosedCode('23505')).toBe(false);
     expect(isSessionClosedCode(null)).toBe(false);
   });
 });
@@ -171,9 +175,9 @@ describe('isExpired — desistência por IDADE, nunca por tentativa (D-11)', () 
 describe('buildQuarantineItem / pruneExpiredQuarantine (D-07)', () => {
   it('constrói item de quarentena com reason/code/expiresAt no futuro', () => {
     const item = makeItem();
-    const q = buildQuarantineItem(item, 'código definitivo', 'P0005', '2026-08-12T10:00:00.000Z');
+    const q = buildQuarantineItem(item, 'código definitivo', '23505', '2026-08-12T10:00:00.000Z');
     expect(q.reason).toBe('código definitivo');
-    expect(q.code).toBe('P0005');
+    expect(q.code).toBe('23505');
     expect(new Date(q.expiresAt).getTime()).toBeGreaterThan(
       new Date('2026-08-12T10:00:00.000Z').getTime(),
     );

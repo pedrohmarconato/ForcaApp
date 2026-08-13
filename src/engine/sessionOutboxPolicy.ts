@@ -124,10 +124,16 @@ export const nextDrainable = (
   return [...heads.values()].filter((item) => item.nextAttemptAt <= nowISO);
 };
 
-// Códigos confirmados por leitura das migrations (0005/0036) — allowlist
+// Códigos confirmados por leitura das migrations (0005/0037) — allowlist
 // ESTRITA (D-14/Pattern 3 do RESEARCH.md). P0001 NUNCA está aqui: é
 // reconciliação de estado de sessão inteira, não recusa de item (Pitfall 3).
-const DEFINITIVE_CODES = new Set(['P0005', '42501', '22023', '22004', 'P0002']);
+// '23505' substitui o 'P0005' inventado por 0036: P0005 não é um SQLSTATE
+// oficial e o PostgREST mascara qualquer código que não reconhece,
+// devolvendo um 500 genérico sem `.code` — achado do harness de integração
+// real (04-03-PLAN.md Task 1, D-16 nível 2). A migration 0037 troca o errcode
+// da guarda para '23505' (unique_violation, código oficial, propaga
+// normalmente pelo PostgREST).
+const DEFINITIVE_CODES = new Set(['23505', '42501', '22023', '22004', 'P0002']);
 
 /** Código do servidor que é recusa DEFINITIVA (→ quarentena imediata). */
 export const isDefinitiveRejection = (code: string | null): boolean =>

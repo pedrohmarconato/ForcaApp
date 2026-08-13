@@ -5,10 +5,10 @@
  * Supabase, nem de `sessionExecutionRepository`. Existe porque
  * `__tests__/sessionOutboxDrain.test.ts` mocka `sessionExecutionRepository`
  * inteiro, então as duas garantias mais críticas da fila offline-first
- * (retry-não-duplica contra a guarda 0005, P0005 da 0036 vira quarentena sem
- * travar a drenagem) nunca são exercitadas contra o servidor de verdade —
- * exatamente o ponto cego que G-03-3 (03-07-PLAN.md) provou que um mock
- * nunca fecha sozinho.
+ * (retry-não-duplica contra a guarda 0005, 23505 da guarda de série já
+ * registrada — migration 0037 — vira quarentena sem travar a drenagem)
+ * nunca são exercitadas contra o servidor de verdade — exatamente o ponto
+ * cego que G-03-3 (03-07-PLAN.md) provou que um mock nunca fecha sozinho.
  *
  * Fora da suíte padrão de propósito (ver `testPathIgnorePatterns` em
  * package.json, já configurado pelo 03-07) — o projeto não tem CI
@@ -293,62 +293,31 @@ describe('sessionOutboxDrain — integração real contra Postgres local (D-16 n
   });
 
   /**
-   * ACHADO BLOQUEANTE (D-16 nível 2, diagnosticado nesta plan, 2026-08-13):
-   * este teste FALHA contra o Postgres local real — não é flakiness nem erro
-   * de asserção, é exatamente o ponto cego que este nível de prova existe
-   * para fechar (mock nunca mentiu, mas nunca teria pego isso também).
+   * ACHADO RESOLVIDO (D-16 nível 2, diagnosticado nesta plan, 2026-08-13;
+   * corrigido pela migration 0037 após decisão do dono no checkpoint deste
+   * plano — "0037 com 23505"):
    *
-   * Causa raiz confirmada (logs cruzados de `supabase_db`/`supabase_rest` +
-   * `errcodes.txt` oficial do Postgres 17.6 dentro do container): o Postgres
-   * RAISE da migration 0036 roda e loga corretamente
-   * `exercício <id> já tem série registrada nesta sessão; troca de
-   * modalidade recusada` com `errcode = 'P0005'` — mas 'P0005' NÃO é um
-   * código oficial da tabela de erros do Postgres (`errcodes.txt` só define
-   * P0000-P0004, os códigos reservados do PL/pgSQL: raise_exception,
-   * no_data_found, too_many_rows, assert_failure). PostgREST 14.5 mascara
-   * QUALQUER SQLSTATE que não reconhece na sua própria tabela de erros
-   * conhecidos, devolvendo ao cliente um 500 genérico
-   * `{"message":"Something went wrong"}` SEM `code`/`details`/`hint` — por
-   * segurança, para não vazar erro interno não classificado — mesmo com o
-   * Postgres tendo processado e logado o RAISE perfeitamente. Confirmado por
-   * teste direto (RPC chamada fora da fila): `save_set_log` com
-   * `session_log_id` inexistente (código OFICIAL 'P0002', também usado nesta
-   * mesma função) devolve `{"code":"P0002","message":"session_log ...
-   * inexistente ou alheio"}` normalmente — só o código INVENTADO 'P0005' é
-   * mascarado. Os outros 4 códigos do `DEFINITIVE_CODES`
-   * (`sessionOutboxPolicy.ts`) são todos oficiais (42501, 22023, 22004
-   * também confirmados na tabela oficial) e não sofrem este problema.
+   * Causa raiz (confirmada por logs cruzados de `supabase_db`/`supabase_rest`
+   * + `errcodes.txt` oficial do Postgres 17.6 dentro do container): o
+   * `errcode = 'P0005'` original da migration 0036 NÃO é um código oficial
+   * da tabela de erros do Postgres (`errcodes.txt` só define P0000-P0004, os
+   * códigos reservados do PL/pgSQL). PostgREST 14.5 mascara QUALQUER SQLSTATE
+   * que não reconhece, devolvendo ao cliente um 500 genérico
+   * `{"message":"Something went wrong"}` SEM `code`/`details`/`hint` — mesmo
+   * com o Postgres tendo processado e logado o RAISE perfeitamente
+   * (confirmado por teste direto fora da fila: o código OFICIAL 'P0002',
+   * também usado nesta mesma função, propaga normalmente; só o código
+   * INVENTADO 'P0005' era mascarado).
    *
-   * Efeito em produção, se a migration 0036 fosse promovida como está: o
-   * cliente NUNCA verá `.code === 'P0005'` — `classifyAndApply` cai no ramo
-   * de erro não classificado (Pitfall 2) e fica REAGENDANDO a troca
-   * indefinidamente até expirar por idade (D-11, `maxAgeDays: 7`), quando
-   * então quarentena por "expirado sem classificação definitiva" (motivo
-   * certo, código errado/ausente) — só depois de até 7 dias tentando uma
-   * operação que sempre vai falhar do mesmo jeito. A guarda do SERVIDOR (a
-   * defesa em profundidade que a 0036 promete no header) nunca falha
-   * FUNCIONALMENTE (a troca é mesmo recusada), mas o CLIENTE nunca sabe
-   * disso a tempo — some da tela como "pendente" por até 7 dias em vez de
-   * quarentena imediata.
-   *
-   * NÃO fica a critério deste executor decidir a correção: a migration 0036
-   * ainda não foi promovida a staging/produção (ver header do arquivo:
-   * "aplicação é decisão explícita do dono"), e o valor 'P0005' foi uma
-   * escolha DELIBERADA e documentada (OD-01) para dar ao cliente um código
-   * distinto — mudar o código muda esse contrato explícito. Proposta
-   * (requer decisão do dono, ver checkpoint retornado por esta execução):
-   * nova migration de FOLLOW-UP (0037, `create or replace`, mesmo padrão da
-   * própria 0035/0036) trocando `errcode = 'P0005'` por um SQLSTATE OFICIAL
-   * ainda não usado nesta RPC — `'23505'` (unique_violation, classe 23,
-   * confirmado em `errcodes.txt`) é semanticamente adequado (a troca colide
-   * com uma série já existente) e não mascarado por PostgREST — mais
-   * `sessionOutboxPolicy.ts`'s `DEFINITIVE_CODES` atualizado para o novo
-   * valor. Este teste (e o "código do primeiro `if`" da asserção interna do
-   * arquivo de migration) fica como está — asserção CORRETA, não ajustada
-   * para "passar" — até essa decisão ser tomada e a migration de correção
-   * aplicada localmente.
+   * Correção aplicada (migration 0037, `create or replace` sobre 0036, MESMA
+   * assinatura): `errcode = 'P0005'` → `errcode = '23505'` (unique_violation,
+   * SQLSTATE OFICIAL, classe 23 — mesmo precedente de uso já em
+   * `0010_progression_rules.sql`/`0015_progression_rules_na_rpc.sql`),
+   * propaga normalmente pelo PostgREST. `sessionOutboxPolicy.ts`'s
+   * `DEFINITIVE_CODES` atualizado para o novo valor. 0036 NÃO foi editada
+   * (fica como está, histórico do achado).
    */
-  describe('Teste B — P0005 da 0036 vira quarentena sem travar a drenagem', () => {
+  describe('Teste B — 23505 da 0037 vira quarentena sem travar a drenagem', () => {
     let userId: string;
     let userClient: UserClient;
     let sessionLogId: string;
@@ -476,12 +445,12 @@ describe('sessionOutboxDrain — integração real contra Postgres local (D-16 n
       }
     });
 
-    it('swap que bate no P0005 vai para quarentena; save_set_log independente do exercício B drena normalmente', async () => {
+    it('swap que bate no 23505 (guarda de série já registrada, 0037) vai para quarentena; save_set_log independente do exercício B drena normalmente', async () => {
       mockUserClient = userClient;
 
       // Enfileira DOIS itens independentes: o swap no exercício A (vai bater
-      // no P0005, porque A já tem série gravada) e um save_set_log no
-      // exercício B (sem relação com o P0005).
+      // no 23505 da guarda de série já registrada, porque A já tem série
+      // gravada) e um save_set_log no exercício B (sem relação com a guarda).
       await enqueueItem(userId, {
         sessionLogId,
         kind: 'swap_session_exercise',
@@ -513,7 +482,7 @@ describe('sessionOutboxDrain — integração real contra Postgres local (D-16 n
       expect(doc.items).toHaveLength(0);
       expect(doc.quarantine).toHaveLength(1);
       expect(doc.quarantine[0].kind).toBe('swap_session_exercise');
-      expect(doc.quarantine[0].code).toBe('P0005');
+      expect(doc.quarantine[0].code).toBe('23505');
 
       // (2) O item de save_set_log do exercício B foi processado normalmente
       // — a quarentena de UM item não travou a drenagem do OUTRO.

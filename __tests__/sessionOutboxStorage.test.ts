@@ -109,7 +109,7 @@ describe('saveOutbox', () => {
           kind: 'save_set_log',
           payload: {},
           reason: 'código definitivo',
-          code: 'P0005',
+          code: '23505',
           quarantinedAt: 't0',
           expiresAt: 't30',
         },

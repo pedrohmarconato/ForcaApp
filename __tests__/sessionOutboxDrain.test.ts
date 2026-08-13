@@ -115,8 +115,8 @@ describe('drainAll — classificação de erro (D-14/Pattern 3)', () => {
     expect(new Date(doc.items[0].nextAttemptAt).getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('código DEFINITIVO (P0005) vai para quarentena e a drenagem segue', async () => {
-    const err = Object.assign(new Error('exercício já tem série registrada'), { code: 'P0005' });
+  it('código DEFINITIVO (23505 — substituiu P0005 na migration 0037) vai para quarentena e a drenagem segue', async () => {
+    const err = Object.assign(new Error('exercício já tem série registrada'), { code: '23505' });
     mock(saveSetLog).mockRejectedValue(new SessionExecutionRequestError(err, { status: 400 }));
     await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'save_set_log', payload: savePayload() });
 
@@ -125,7 +125,7 @@ describe('drainAll — classificação de erro (D-14/Pattern 3)', () => {
     expect(result.pendingCount).toBe(0);
     expect(result.quarantineCount).toBe(1);
     const doc = await loadOutbox('user-1');
-    expect(doc.quarantine[0].code).toBe('P0005');
+    expect(doc.quarantine[0].code).toBe('23505');
     expect(doc.quarantine[0].sessionLogId).toBe('log-1');
   });
 
