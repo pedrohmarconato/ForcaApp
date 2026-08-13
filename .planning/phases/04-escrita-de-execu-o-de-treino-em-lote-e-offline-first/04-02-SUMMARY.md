@@ -181,3 +181,8 @@ None - no external service configuration required.
 ---
 *Phase: 04-escrita-de-execu-o-de-treino-em-lote-e-offline-first*
 *Completed: 2026-08-13*
+
+## Self-Check: PASSED
+
+- All 8 modified/created files confirmed present on disk (src/services/sessionOutboxDrain.ts, src/store/activeSessionStore.ts, 5 test files, this SUMMARY.md).
+- All 4 commit hashes (33d00ad, 171d01e, fc0e1ab, 4b02300) confirmed present in `git log --oneline`.
