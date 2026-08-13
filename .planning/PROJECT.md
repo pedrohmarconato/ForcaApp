@@ -36,6 +36,10 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
   agrupado/reenviado, de modo que soluço de rede na academia não interrompa o treino nem
   apareça ao aluno como falha. Origem: sessão de debug
   `.planning/debug/typeerror-envio-series-treino.md`, causa-raiz (2).
+  ✓ Validado na Fase 4 (2026-08-12; prova em 3 níveis — unitário, Postgres real via
+  `test:integration:pg`, UAT modo avião aprovado pelo dono. Migration 0037 corrige o
+  errcode P0005 da 0036, mascarado pelo PostgREST; aplicada só no stack local —
+  staging/produção pendem do fluxo normal de deploy de migrations).
 
 ## Restrições
 
@@ -58,3 +62,4 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
 | 2026-08-08 | REQ-03: pedido de foco de alongamento acontece no chat de onboarding existente; canal contínuo pós-geração deferred | Decisão do dono; escopo contido, sem schema novo |
 | 2026-08-09 | Migration 0033 (anamnese de cardio): option-a — aplicada em staging e depois em produção ANTES de merge/deploy dependente | Decisão do dono no checkpoint do plano 02-02; ambas verificadas via migration list + information_schema |
 | 2026-08-09 | `claude-opus-4-8` aposentado em todo o conteúdo vivo do repo → `claude-opus-5` (17 arquivos) | Diretriz global do dono; histórico git preservado |
+| 2026-08-12 | REQ-07: errcode P0005 da 0036 → 23505 via migration 0037 (supersede) | Decisão do dono no checkpoint do 04-03; PostgREST mascara SQLSTATE não oficial — achado do teste de integração contra Postgres real |
