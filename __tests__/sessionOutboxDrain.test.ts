@@ -55,6 +55,7 @@ import {
 import { enqueueItem, enqueueAndDrain, drainAll } from '../src/services/sessionOutboxDrain';
 import { loadOutbox, saveOutbox } from '../src/services/sessionOutboxStorage';
 import type { SaveSetLogPayload, UpdateSetLogAdaptationPayload } from '../src/services/sessionOutboxDrain';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
@@ -271,5 +272,88 @@ describe('update_set_log_adaptation — resolução tardia de setLogId (Pitfall 
     expect(updateSetLogAdaptation).not.toHaveBeenCalled();
     expect(result.pendingCount).toBe(1);
     expect(result.quarantineCount).toBe(0);
+  });
+});
+
+describe('CR-02: falha transitória de loadOutbox em enqueueItem NUNCA persiste por cima da fila real', () => {
+  it('item real em disco sobrevive a uma leitura que falha durante um novo enfileiramento', async () => {
+    // Semeia disco com um item PENDENTE de verdade (via saveOutbox direto,
+    // sem passar pelo mock de leitura que vamos derrubar a seguir).
+    const existing = await enqueueItem('user-1', {
+      sessionLogId: 'log-1',
+      kind: 'save_set_log',
+      payload: savePayload({ plannedSetId: 'st-existing' }),
+    });
+    expect(existing.items).toHaveLength(1);
+
+    // A PRÓXIMA leitura (dentro do enqueueItem seguinte) falha de forma
+    // transitória — native module hiccup, não JSON corrompido (que
+    // loadOutbox já trata sem lançar, ver sessionOutboxStorage.test.ts).
+    mock(AsyncStorage.getItem).mockImplementationOnce(() =>
+      Promise.reject(new Error('falha nativa transitória de leitura')),
+    );
+
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-2',
+      kind: 'save_set_log',
+      payload: savePayload({ plannedSetId: 'st-new' }),
+    });
+
+    // O item que já estava em disco ANTES da falha de leitura não pode ter
+    // sido apagado por um saveOutbox que persistiu "fila vazia + item novo"
+    // por cima dele (D-07).
+    const doc = await loadOutbox('user-1');
+    expect(doc.items.some((it) => it.id.includes('st-existing'))).toBe(true);
+  });
+});
+
+describe('CR-01: drainAll/enqueueItem concorrentes não perdem item pendente (D-07)', () => {
+  it('item enfileirado ENQUANTO um drainAll anterior ainda está em voo sobrevive ao save desse drain', async () => {
+    let releaseX: (() => void) | null = null;
+    mock(saveSetLog).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseX = () => resolve(savedRow());
+        }),
+    );
+
+    // X enfileirado e SEU drain (Drain-X) começa a rodada — fica preso na
+    // RPC de saveSetLog (rede em voo), exatamente como completeSet dispara
+    // save_set_log via enqueueAndDrain e segue sem aguardar (D-05).
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'save_set_log', payload: savePayload({ plannedSetId: 'st-x' }) });
+    const drainXPromise = drainAll('user-1');
+    // Espera de verdade Drain-X ter chamado saveSetLog (várias voltas de
+    // withKeyQueue acontecem antes disso — número de ticks não é confiável).
+    for (let i = 0; i < 50 && mock(saveSetLog).mock.calls.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(mock(saveSetLog).mock.calls.length).toBeGreaterThan(0);
+
+    // AINDA com Drain-X em voo (a RPC de X não resolveu), um segundo item Y
+    // (kind diferente, mesma sessão) é enfileirado — reproduz completeSet
+    // disparando update_set_log_adaptation logo depois de save_set_log, no
+    // MESMO tick, antes do drain de X salvar (activeSessionStore.ts:1207 e
+    // 1332).
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-1',
+      kind: 'update_set_log_adaptation',
+      payload: {
+        userId: 'user-1',
+        plannedSessionId: 'sess-1',
+        plannedSetId: 'st-y',
+        adaptation: { kind: 'keep', auto: true },
+      } satisfies UpdateSetLogAdaptationPayload,
+    });
+
+    // Libera a RPC de X: Drain-X remove X do SEU snapshot e persiste.
+    releaseX?.();
+    await drainXPromise;
+
+    // Y NÃO pode ter sido apagado por um save de Drain-X baseado num
+    // snapshot capturado ANTES de Y existir (o bug do CR-01: `drainAll`
+    // salvava sua cópia em memória, stale em relação ao disco).
+    const doc = await loadOutbox('user-1');
+    expect(doc.items.some((it) => it.kind === 'update_set_log_adaptation')).toBe(true);
+    expect(doc.items.some((it) => it.kind === 'save_set_log')).toBe(false);
   });
 });

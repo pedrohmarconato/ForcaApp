@@ -26,7 +26,7 @@ import {
   type OutboxItemKind,
 } from '../engine/sessionOutboxPolicy';
 import type { OutboxDocument } from '../engine/sessionOutboxPolicy';
-import { loadOutbox, saveOutbox } from './sessionOutboxStorage';
+import { loadOutbox, withOutboxTransaction } from './sessionOutboxStorage';
 import {
   saveSetLog,
   updateSetLogAdaptation,
@@ -343,8 +343,18 @@ const classifyAndApply = (
 };
 
 /**
- * Enfileira UM item (D-13: chave natural, no-op de duplicação). Se a
- * persistência falhar (D-12), NÃO relança — o item ainda é considerado
+ * Enfileira UM item (D-13: chave natural, no-op de duplicação). Todo o ciclo
+ * leitura→mutação→escrita roda dentro de `withOutboxTransaction` (CR-01):
+ * nenhuma segunda chamada de `enqueueItem`/`drainAll` para o MESMO userId
+ * pode intercalar sua própria leitura/escrita no meio deste ciclo.
+ *
+ * CR-02: se a LEITURA falhar de forma transitória, `loadFailed=true` — NÃO
+ * persiste (evita sobrescrever a fila real em disco com um documento vazio +
+ * o item novo, perdendo qualquer item que já estivesse lá). O item novo
+ * ainda é devolvido "pendente" só em memória, para a contagem síncrona do
+ * chamador e para a tentativa de drenagem imediata funcionarem mesmo assim.
+ *
+ * Se a ESCRITA falhar (D-12), NÃO relança — o item ainda é considerado
  * "pendente" no documento devolvido (contagem síncrona correta), e a
  * drenagem tenta do mesmo jeito a partir da versão em memória.
  */
@@ -363,26 +373,29 @@ export const enqueueItem = async (
     attempts: 0,
   };
 
-  let doc: OutboxDocument;
+  let lastKnownDoc: OutboxDocument | null = null;
   try {
-    doc = await loadOutbox(userId);
+    return await withOutboxTransaction(userId, async (doc, loadFailed) => {
+      if (loadFailed) {
+        console.warn(
+          '[sessionOutboxDrain] falha ao carregar a fila local (não-fatal) — pulando persistência para não sobrescrever a fila real em disco (CR-02)',
+        );
+        const inMemoryOnly: OutboxDocument = { version: 1, items: [newItem], quarantine: [] };
+        return { doc: inMemoryOnly, result: inMemoryOnly, skipSave: true };
+      }
+      const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
+      lastKnownDoc = updatedDoc;
+      return { doc: updatedDoc, result: updatedDoc };
+    });
   } catch (e) {
-    console.warn('[sessionOutboxDrain] falha ao carregar a fila local (não-fatal):', e);
-    doc = { version: 1, items: [], quarantine: [] };
-  }
-  const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
-
-  try {
-    await saveOutbox(userId, updatedDoc);
-  } catch (e) {
-    // D-12: falha de AsyncStorage ao enfileirar NÃO bloqueia — o item segue
-    // "pendente" em memória (contagem síncrona já reflete `updatedDoc`) e uma
-    // tentativa de drenagem acontece do mesmo jeito. Chamador (store) reusa
+    // D-12: falha de AsyncStorage ao ESCREVER não bloqueia — o item segue
+    // "pendente" em memória (contagem síncrona reflete o último merge
+    // conhecido, calculado com o doc real lido acima) e uma tentativa de
+    // drenagem acontece do mesmo jeito. Chamador (store) reusa
     // storageWarning/STORAGE_WARNING_MSG existente.
     console.warn('[sessionOutboxDrain] item não persistido localmente (não-fatal, D-12):', e);
+    return lastKnownDoc ?? { version: 1, items: [newItem], quarantine: [] };
   }
-
-  return updatedDoc;
 };
 
 const MAX_DRAIN_ROUNDS = 50;
@@ -390,41 +403,97 @@ const MAX_DRAIN_ROUNDS = 50;
 /**
  * Drena a fila do usuário: `pruneExpiredQuarantine` primeiro, depois um laço
  * limitado processando `nextDrainable` a cada rodada (uma tentativa por
- * sub-fila/sessionLogId por rodada, preservando FIFO). Persiste ao fim de
- * CADA rodada; chama `onSummaryChanged` só ao final.
+ * sub-fila/sessionLogId por rodada, preservando FIFO).
+ *
+ * CR-01 (code review 04): cada rodada lê o documento DO ZERO logo antes de
+ * persistir (nunca reusa uma cópia em memória capturada rodadas atrás) e
+ * aplica a classificação de cada item só se ele AINDA estiver presente no
+ * documento fresco — outro escritor (um `enqueueItem`/`drainAll` concorrente
+ * para o MESMO userId) pode ter enfileirado ou resolvido algo nesse meio
+ * tempo, e sobrescrever esse trabalho por cima seria exatamente a perda
+ * silenciosa que D-07 proíbe. A leitura+mutação+escrita de CADA rodada roda
+ * dentro de `withOutboxTransaction` (mutex por usuário) — mas a chamada de
+ * REDE (RPC, até `RPC_TIMEOUT_MS` por item) fica FORA da transação, para uma
+ * `enqueueItem` concorrente nunca ficar presa atrás de uma rodada de
+ * drenagem em voo (isso reintroduziria espera de rede em `completeSet`,
+ * violando D-05 — o motivo desta fase existir).
  */
 export const drainAll = async (
   userId: string,
   callbacks?: DrainCallbacks,
 ): Promise<{ pendingCount: number; quarantineCount: number }> => {
-  let doc: OutboxDocument;
+  // Leitura inicial só para decidir se a fila está genuinamente acessível e
+  // podar quarentena expirada — cada rodada abaixo relê por conta própria
+  // (não é a fonte de verdade usada para persistir os itens). Falha aqui
+  // aborta a drenagem inteira sem persistir nada e sem chamar
+  // onSummaryChanged, mesmo comportamento de antes desta correção.
+  let initialLoadFailed = false;
   try {
-    doc = await loadOutbox(userId);
+    await withOutboxTransaction(userId, async (doc, loadFailed) => {
+      initialLoadFailed = loadFailed;
+      if (loadFailed) return { doc, result: undefined, skipSave: true };
+      const bootNow = new Date().toISOString();
+      const pruned: OutboxDocument = { ...doc, quarantine: pruneExpiredQuarantine(doc.quarantine, bootNow) };
+      return { doc: pruned, result: undefined };
+    });
   } catch (e) {
-    console.warn('[sessionOutboxDrain] falha ao carregar a fila local para drenar (não-fatal):', e);
+    console.warn('[sessionOutboxDrain] falha ao preparar a drenagem (não-fatal):', e);
+    return { pendingCount: 0, quarantineCount: 0 };
+  }
+  if (initialLoadFailed) {
+    console.warn('[sessionOutboxDrain] falha ao carregar a fila local para drenar (não-fatal)');
     return { pendingCount: 0, quarantineCount: 0 };
   }
 
   try {
-    const bootNow = new Date().toISOString();
-    doc = { ...doc, quarantine: pruneExpiredQuarantine(doc.quarantine, bootNow) };
-
     for (let round = 0; round < MAX_DRAIN_ROUNDS; round++) {
       const now = new Date().toISOString();
-      const heads = nextDrainable(doc.items, now);
+      let currentDoc: OutboxDocument;
+      try {
+        currentDoc = await loadOutbox(userId);
+      } catch (e) {
+        console.warn('[sessionOutboxDrain] falha ao reler a fila para decidir a próxima rodada (não-fatal):', e);
+        break;
+      }
+      const heads = nextDrainable(currentDoc.items, now);
       if (heads.length === 0) break;
 
+      // Rede FORA do mutex (ver comentário acima) — cada item aguarda no
+      // máximo RPC_TIMEOUT_MS, sequencial por rodada (mesma ordem de antes).
+      const outcomes: Array<{ item: OutboxItem; error: unknown | null }> = [];
       for (const item of heads) {
         try {
           await withTimeout((signal) => dispatchItem(item, signal), RPC_TIMEOUT_MS);
-          doc = removeItem(doc, item);
+          outcomes.push({ item, error: null });
         } catch (error) {
-          doc = classifyAndApply(doc, item, error, new Date().toISOString(), callbacks);
+          outcomes.push({ item, error });
         }
       }
 
       try {
-        await saveOutbox(userId, doc);
+        await withOutboxTransaction(userId, async (doc, loadFailed) => {
+          if (loadFailed) {
+            // CR-02 aplicado aqui também: não sobrescreve o disco com um
+            // documento vazio só porque a releitura desta rodada falhou —
+            // a próxima rodada/chamada de drainAll tenta de novo.
+            console.warn(
+              '[sessionOutboxDrain] falha ao reler a fila antes de persistir a rodada (não-fatal) — pulando persistência para não sobrescrever a fila real em disco',
+            );
+            return { doc, result: doc, skipSave: true };
+          }
+          let next = doc;
+          const nowClassify = new Date().toISOString();
+          for (const { item, error } of outcomes) {
+            // Idempotência (CR-01): o item pode já ter sido removido/
+            // resolvido por outro escritor concorrente (ex.: uma segunda
+            // drenagem que já processou a mesma sub-fila) — só aplica se
+            // AINDA estiver presente no documento fresco.
+            const stillPresent = next.items.some((it) => it.kind === item.kind && it.id === item.id);
+            if (!stillPresent) continue;
+            next = error === null ? removeItem(next, item) : classifyAndApply(next, item, error, nowClassify, callbacks);
+          }
+          return { doc: next, result: next };
+        });
       } catch (e) {
         console.warn('[sessionOutboxDrain] fila drenada não persistida (não-fatal, D-12):', e);
       }
@@ -435,8 +504,9 @@ export const drainAll = async (
     console.warn('[sessionOutboxDrain] drenagem interrompida por erro inesperado (não-fatal):', e);
   }
 
-  const pendingCount = doc.items.length;
-  const quarantineCount = doc.quarantine.length;
+  const finalDoc = await loadOutbox(userId).catch(() => ({ version: 1 as const, items: [], quarantine: [] }));
+  const pendingCount = finalDoc.items.length;
+  const quarantineCount = finalDoc.quarantine.length;
   callbacks?.onSummaryChanged?.(pendingCount, quarantineCount);
   return { pendingCount, quarantineCount };
 };
