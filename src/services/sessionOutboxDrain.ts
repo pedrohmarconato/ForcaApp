@@ -26,11 +26,12 @@ import {
   type OutboxItemKind,
 } from '../engine/sessionOutboxPolicy';
 import type { OutboxDocument } from '../engine/sessionOutboxPolicy';
-import { loadOutbox, saveOutbox } from './sessionOutboxStorage';
+import { loadOutbox, withOutboxTransaction } from './sessionOutboxStorage';
 import {
   saveSetLog,
   updateSetLogAdaptation,
   getOpenSessionLog,
+  getSessionLogFinishedStatus,
   skipSessionExercise,
   unskipSessionExercise,
   swapSessionExercise,
@@ -152,6 +153,21 @@ class UnresolvedSetLogIdError extends Error {
   }
 }
 
+/**
+ * CR-03 (code review 04): sessão da adaptação CONFIRMADAMENTE fechada no
+ * servidor — distinto de `UnresolvedSetLogIdError` (que ainda pode resolver
+ * numa próxima passada, Pitfall 1). `classifyAndApply` trata este erro
+ * IGUAL ao P0001 de qualquer outro item: descarta a sub-fila inteira da
+ * sessão e reconcilia via `onSessionClosed` (Pitfall 3) — nunca quarentena
+ * comum, nunca silencioso.
+ */
+class SessionClosedForAdaptationError extends Error {
+  constructor() {
+    super('sessão fechada — adaptação sem set_log para carimbar');
+    this.name = 'SessionClosedForAdaptationError';
+  }
+}
+
 const codeOf = (error: unknown): string | null =>
   error instanceof SessionExecutionRequestError ? error.code : null;
 
@@ -188,6 +204,66 @@ const idFor = (sessionLogId: string, kind: OutboxItemKind, payload: unknown): st
 };
 
 /**
+ * WR-02 (code review 04): payloads persistem como JSON em AsyncStorage e
+ * podem ser lidos de volta por uma versão FUTURA do app (usuário fecha o
+ * app com item pendente, depois atualiza) — uma mudança de shape entre
+ * versões (campo renomeado/removido) faria o `as SaveSetLogPayload` etc. de
+ * `dispatchItem` produzir uma chamada de RPC malformada em vez de um erro
+ * diagnosticável, porque o cast bypassa a garantia do TypeScript. Guarda
+ * mínima por kind, na fronteira da persistência — mesmo espírito do
+ * version-guard de `parseDocument` (sessionOutboxStorage.ts): nunca lança,
+ * só reporta se o formato bate com o esperado.
+ */
+const hasValidPayloadShape = (kind: OutboxItemKind, payload: unknown): boolean => {
+  if (kind === 'finish_session') return true; // payload ignorado, ver dispatchItem
+  if (typeof payload !== 'object' || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  switch (kind) {
+    case 'save_set_log':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedSetId === 'string' &&
+        (p.actualReps === null || typeof p.actualReps === 'number') &&
+        (p.actualLoadKg === null || typeof p.actualLoadKg === 'number') &&
+        (p.actualRir === null || typeof p.actualRir === 'number') &&
+        typeof p.outcome === 'string'
+      );
+    case 'update_set_log_adaptation':
+      return (
+        typeof p.userId === 'string' &&
+        typeof p.plannedSessionId === 'string' &&
+        typeof p.plannedSetId === 'string'
+      );
+    case 'skip_session_exercise':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedExerciseId === 'string' &&
+        typeof p.reason === 'string'
+      );
+    case 'unskip_session_exercise':
+      return typeof p.sessionLogId === 'string' && typeof p.plannedExerciseId === 'string';
+    case 'swap_session_exercise':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedExerciseId === 'string' &&
+        typeof p.toModality === 'string'
+      );
+    default: {
+      const exhaustive: never = kind;
+      return false;
+    }
+  }
+};
+
+/** WR-02: payload não bate com o shape esperado do kind — nunca chega à RPC. */
+class InvalidPayloadShapeError extends Error {
+  constructor(kind: OutboxItemKind) {
+    super(`payload malformado para ${kind} (versão incompatível)`);
+    this.name = 'InvalidPayloadShapeError';
+  }
+}
+
+/**
  * Único ponto que decide "chamar a RPC agora". As 6 operações do D-01 têm
  * dispatcher aqui (fechado no 04-02): `save_set_log`/`update_set_log_adaptation`
  * (04-01) e `skip_session_exercise`/`unskip_session_exercise`/
@@ -195,6 +271,10 @@ const idFor = (sessionLogId: string, kind: OutboxItemKind, payload: unknown): st
  * `withTimeout` e a MESMA classificação de erro em `classifyAndApply`.
  */
 const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void> => {
+  // WR-02: valida o shape ANTES de qualquer cast/RPC — ver hasValidPayloadShape.
+  if (!hasValidPayloadShape(item.kind, item.payload)) {
+    throw new InvalidPayloadShapeError(item.kind);
+  }
   switch (item.kind) {
     case 'save_set_log': {
       const p = item.payload as SaveSetLogPayload;
@@ -220,9 +300,19 @@ const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void
       const aberta = await getOpenSessionLog(p.userId, p.plannedSessionId);
       const setLogId = aberta?.setLogs.find((sl) => sl.planned_set_id === p.plannedSetId)?.id;
       if (!setLogId) {
-        // Sessão fechada ou o save_set_log correspondente nunca confirmou —
-        // não há setLogId a carimbar ainda (Pitfall 1). Não é transporte nem
-        // código de servidor: tratamento próprio no classificador de drainAll.
+        // CR-03 (fechado): getOpenSessionLog só enxerga sessão ABERTA — não
+        // encontrar aqui é ambíguo entre "sessão fechada" (precisa da
+        // reconciliação P0001/Pitfall 3) e "o save_set_log correspondente
+        // ainda não confirmou" (Pitfall 1, retry normal). Checagem extra e
+        // barata (SELECT simples, mesma RLS, sem RPC nova) resolve a
+        // ambiguidade antes de decidir qual erro lançar.
+        const status = await getSessionLogFinishedStatus(p.userId, item.sessionLogId);
+        if (status?.finished) {
+          throw new SessionClosedForAdaptationError();
+        }
+        // Sessão ainda aberta (ou log não encontrado/RLS) — não há setLogId
+        // a carimbar ainda (Pitfall 1). Não é transporte nem código de
+        // servidor: tratamento próprio no classificador de drainAll.
         throw new UnresolvedSetLogIdError();
       }
       await updateSetLogAdaptation(setLogId, p.adaptation, p.decision);
@@ -300,9 +390,11 @@ const discardSessionSubQueue = (doc: OutboxDocument, sessionLogId: string): Outb
 /**
  * Classifica UM erro de drenagem e devolve o documento atualizado. Ordem de
  * checagem importa: P0001 primeiro (Pitfall 3, não é recusa de item), depois
- * transporte, depois allowlist definitiva (D-14), depois o caso especial de
- * setLogId não resolvido (Pitfall 1), por fim qualquer erro não classificado
- * (Pitfall 2 — retentável até expirar, NUNCA quarentena por default).
+ * payload malformado (WR-02 — nunca chegou a tentar a RPC, retentar não
+ * ajuda), depois transporte, depois allowlist definitiva (D-14), depois o
+ * caso especial de setLogId não resolvido (Pitfall 1), por fim qualquer erro
+ * não classificado (Pitfall 2 — retentável até expirar, NUNCA quarentena por
+ * default).
  */
 const classifyAndApply = (
   doc: OutboxDocument,
@@ -311,9 +403,17 @@ const classifyAndApply = (
   nowISO: string,
   callbacks: DrainCallbacks | undefined,
 ): OutboxDocument => {
-  if (isSessionClosedCode(codeOf(error))) {
+  if (isSessionClosedCode(codeOf(error)) || error instanceof SessionClosedForAdaptationError) {
     callbacks?.onSessionClosed?.(item.sessionLogId);
     return discardSessionSubQueue(doc, item.sessionLogId);
+  }
+
+  if (error instanceof InvalidPayloadShapeError) {
+    // WR-02: shape errado nunca vai se resolver sozinho com backoff — vai
+    // direto para quarentena, com reason clara para diagnóstico, em vez de
+    // retentar (Pitfall 2 é para erro DESCONHECIDO do servidor, não para
+    // este caso — aqui a causa já está identificada no cliente).
+    return quarantineItem(doc, item, 'payload malformado (versão incompatível)', null, nowISO);
   }
 
   const expired = isExpired(item.enqueuedAt, nowISO);
@@ -343,8 +443,18 @@ const classifyAndApply = (
 };
 
 /**
- * Enfileira UM item (D-13: chave natural, no-op de duplicação). Se a
- * persistência falhar (D-12), NÃO relança — o item ainda é considerado
+ * Enfileira UM item (D-13: chave natural, no-op de duplicação). Todo o ciclo
+ * leitura→mutação→escrita roda dentro de `withOutboxTransaction` (CR-01):
+ * nenhuma segunda chamada de `enqueueItem`/`drainAll` para o MESMO userId
+ * pode intercalar sua própria leitura/escrita no meio deste ciclo.
+ *
+ * CR-02: se a LEITURA falhar de forma transitória, `loadFailed=true` — NÃO
+ * persiste (evita sobrescrever a fila real em disco com um documento vazio +
+ * o item novo, perdendo qualquer item que já estivesse lá). O item novo
+ * ainda é devolvido "pendente" só em memória, para a contagem síncrona do
+ * chamador e para a tentativa de drenagem imediata funcionarem mesmo assim.
+ *
+ * Se a ESCRITA falhar (D-12), NÃO relança — o item ainda é considerado
  * "pendente" no documento devolvido (contagem síncrona correta), e a
  * drenagem tenta do mesmo jeito a partir da versão em memória.
  */
@@ -363,26 +473,29 @@ export const enqueueItem = async (
     attempts: 0,
   };
 
-  let doc: OutboxDocument;
+  let lastKnownDoc: OutboxDocument | null = null;
   try {
-    doc = await loadOutbox(userId);
+    return await withOutboxTransaction(userId, async (doc, loadFailed) => {
+      if (loadFailed) {
+        console.warn(
+          '[sessionOutboxDrain] falha ao carregar a fila local (não-fatal) — pulando persistência para não sobrescrever a fila real em disco (CR-02)',
+        );
+        const inMemoryOnly: OutboxDocument = { version: 1, items: [newItem], quarantine: [] };
+        return { doc: inMemoryOnly, result: inMemoryOnly, skipSave: true };
+      }
+      const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
+      lastKnownDoc = updatedDoc;
+      return { doc: updatedDoc, result: updatedDoc };
+    });
   } catch (e) {
-    console.warn('[sessionOutboxDrain] falha ao carregar a fila local (não-fatal):', e);
-    doc = { version: 1, items: [], quarantine: [] };
-  }
-  const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
-
-  try {
-    await saveOutbox(userId, updatedDoc);
-  } catch (e) {
-    // D-12: falha de AsyncStorage ao enfileirar NÃO bloqueia — o item segue
-    // "pendente" em memória (contagem síncrona já reflete `updatedDoc`) e uma
-    // tentativa de drenagem acontece do mesmo jeito. Chamador (store) reusa
+    // D-12: falha de AsyncStorage ao ESCREVER não bloqueia — o item segue
+    // "pendente" em memória (contagem síncrona reflete o último merge
+    // conhecido, calculado com o doc real lido acima) e uma tentativa de
+    // drenagem acontece do mesmo jeito. Chamador (store) reusa
     // storageWarning/STORAGE_WARNING_MSG existente.
     console.warn('[sessionOutboxDrain] item não persistido localmente (não-fatal, D-12):', e);
+    return lastKnownDoc ?? { version: 1, items: [newItem], quarantine: [] };
   }
-
-  return updatedDoc;
 };
 
 const MAX_DRAIN_ROUNDS = 50;
@@ -390,41 +503,97 @@ const MAX_DRAIN_ROUNDS = 50;
 /**
  * Drena a fila do usuário: `pruneExpiredQuarantine` primeiro, depois um laço
  * limitado processando `nextDrainable` a cada rodada (uma tentativa por
- * sub-fila/sessionLogId por rodada, preservando FIFO). Persiste ao fim de
- * CADA rodada; chama `onSummaryChanged` só ao final.
+ * sub-fila/sessionLogId por rodada, preservando FIFO).
+ *
+ * CR-01 (code review 04): cada rodada lê o documento DO ZERO logo antes de
+ * persistir (nunca reusa uma cópia em memória capturada rodadas atrás) e
+ * aplica a classificação de cada item só se ele AINDA estiver presente no
+ * documento fresco — outro escritor (um `enqueueItem`/`drainAll` concorrente
+ * para o MESMO userId) pode ter enfileirado ou resolvido algo nesse meio
+ * tempo, e sobrescrever esse trabalho por cima seria exatamente a perda
+ * silenciosa que D-07 proíbe. A leitura+mutação+escrita de CADA rodada roda
+ * dentro de `withOutboxTransaction` (mutex por usuário) — mas a chamada de
+ * REDE (RPC, até `RPC_TIMEOUT_MS` por item) fica FORA da transação, para uma
+ * `enqueueItem` concorrente nunca ficar presa atrás de uma rodada de
+ * drenagem em voo (isso reintroduziria espera de rede em `completeSet`,
+ * violando D-05 — o motivo desta fase existir).
  */
 export const drainAll = async (
   userId: string,
   callbacks?: DrainCallbacks,
 ): Promise<{ pendingCount: number; quarantineCount: number }> => {
-  let doc: OutboxDocument;
+  // Leitura inicial só para decidir se a fila está genuinamente acessível e
+  // podar quarentena expirada — cada rodada abaixo relê por conta própria
+  // (não é a fonte de verdade usada para persistir os itens). Falha aqui
+  // aborta a drenagem inteira sem persistir nada e sem chamar
+  // onSummaryChanged, mesmo comportamento de antes desta correção.
+  let initialLoadFailed = false;
   try {
-    doc = await loadOutbox(userId);
+    await withOutboxTransaction(userId, async (doc, loadFailed) => {
+      initialLoadFailed = loadFailed;
+      if (loadFailed) return { doc, result: undefined, skipSave: true };
+      const bootNow = new Date().toISOString();
+      const pruned: OutboxDocument = { ...doc, quarantine: pruneExpiredQuarantine(doc.quarantine, bootNow) };
+      return { doc: pruned, result: undefined };
+    });
   } catch (e) {
-    console.warn('[sessionOutboxDrain] falha ao carregar a fila local para drenar (não-fatal):', e);
+    console.warn('[sessionOutboxDrain] falha ao preparar a drenagem (não-fatal):', e);
+    return { pendingCount: 0, quarantineCount: 0 };
+  }
+  if (initialLoadFailed) {
+    console.warn('[sessionOutboxDrain] falha ao carregar a fila local para drenar (não-fatal)');
     return { pendingCount: 0, quarantineCount: 0 };
   }
 
   try {
-    const bootNow = new Date().toISOString();
-    doc = { ...doc, quarantine: pruneExpiredQuarantine(doc.quarantine, bootNow) };
-
     for (let round = 0; round < MAX_DRAIN_ROUNDS; round++) {
       const now = new Date().toISOString();
-      const heads = nextDrainable(doc.items, now);
+      let currentDoc: OutboxDocument;
+      try {
+        currentDoc = await loadOutbox(userId);
+      } catch (e) {
+        console.warn('[sessionOutboxDrain] falha ao reler a fila para decidir a próxima rodada (não-fatal):', e);
+        break;
+      }
+      const heads = nextDrainable(currentDoc.items, now);
       if (heads.length === 0) break;
 
+      // Rede FORA do mutex (ver comentário acima) — cada item aguarda no
+      // máximo RPC_TIMEOUT_MS, sequencial por rodada (mesma ordem de antes).
+      const outcomes: Array<{ item: OutboxItem; error: unknown | null }> = [];
       for (const item of heads) {
         try {
           await withTimeout((signal) => dispatchItem(item, signal), RPC_TIMEOUT_MS);
-          doc = removeItem(doc, item);
+          outcomes.push({ item, error: null });
         } catch (error) {
-          doc = classifyAndApply(doc, item, error, new Date().toISOString(), callbacks);
+          outcomes.push({ item, error });
         }
       }
 
       try {
-        await saveOutbox(userId, doc);
+        await withOutboxTransaction(userId, async (doc, loadFailed) => {
+          if (loadFailed) {
+            // CR-02 aplicado aqui também: não sobrescreve o disco com um
+            // documento vazio só porque a releitura desta rodada falhou —
+            // a próxima rodada/chamada de drainAll tenta de novo.
+            console.warn(
+              '[sessionOutboxDrain] falha ao reler a fila antes de persistir a rodada (não-fatal) — pulando persistência para não sobrescrever a fila real em disco',
+            );
+            return { doc, result: doc, skipSave: true };
+          }
+          let next = doc;
+          const nowClassify = new Date().toISOString();
+          for (const { item, error } of outcomes) {
+            // Idempotência (CR-01): o item pode já ter sido removido/
+            // resolvido por outro escritor concorrente (ex.: uma segunda
+            // drenagem que já processou a mesma sub-fila) — só aplica se
+            // AINDA estiver presente no documento fresco.
+            const stillPresent = next.items.some((it) => it.kind === item.kind && it.id === item.id);
+            if (!stillPresent) continue;
+            next = error === null ? removeItem(next, item) : classifyAndApply(next, item, error, nowClassify, callbacks);
+          }
+          return { doc: next, result: next };
+        });
       } catch (e) {
         console.warn('[sessionOutboxDrain] fila drenada não persistida (não-fatal, D-12):', e);
       }
@@ -435,8 +604,9 @@ export const drainAll = async (
     console.warn('[sessionOutboxDrain] drenagem interrompida por erro inesperado (não-fatal):', e);
   }
 
-  const pendingCount = doc.items.length;
-  const quarantineCount = doc.quarantine.length;
+  const finalDoc = await loadOutbox(userId).catch(() => ({ version: 1 as const, items: [], quarantine: [] }));
+  const pendingCount = finalDoc.items.length;
+  const quarantineCount = finalDoc.quarantine.length;
   callbacks?.onSummaryChanged?.(pendingCount, quarantineCount);
   return { pendingCount, quarantineCount };
 };

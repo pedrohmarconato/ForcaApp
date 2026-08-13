@@ -267,6 +267,38 @@ export const getOpenSessionLog = async (
 };
 
 /**
+ * Existência + status FINALIZADO de um session_log, ignorando o filtro
+ * `finished_at IS NULL` que `getOpenSessionLog` aplica (CR-03, code review
+ * 04) — usada só pelo dispatcher de `update_set_log_adaptation` quando
+ * `getOpenSessionLog` não encontra a sessão aberta, para distinguir "sessão
+ * FECHADA" (precisa da reconciliação P0001/Pitfall 3) de "o save_set_log
+ * correspondente ainda não confirmou" (Pitfall 1, retry normal) — sem essa
+ * checagem as duas causas eram indistinguíveis e a primeira nunca disparava
+ * `onSessionClosed`. SELECT simples sob a MESMA RLS de leitura já usada em
+ * `getCompletedSessions`/`getOpenSessionLog` — não é RPC nova, não muda
+ * contrato do servidor.
+ */
+export const getSessionLogFinishedStatus = async (
+  userId: string,
+  sessionLogId: string,
+): Promise<{ finished: boolean } | null> => {
+  let response: any;
+  try {
+    response = await supabase
+      .from('session_logs')
+      .select('finished_at')
+      .eq('id', sessionLogId)
+      .eq('user_id', userId)
+      .maybeSingle();
+  } catch (error) {
+    throw thrownRequestError(error);
+  }
+  if (response.error) throwResponseError(response.error, response.status);
+  if (!response.data) return null;
+  return { finished: response.data.finished_at != null };
+};
+
+/**
  * Recusa um exercício da execução em aberto via RPC `skip_session_exercise`
  * (0020). Erro propaga: a recusa não pode aparecer aplicada na tela se o banco
  * a rejeitou — o exercício voltaria a ser exigido na próxima retomada.

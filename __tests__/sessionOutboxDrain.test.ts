@@ -40,6 +40,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     updateSetLogAdaptation: jest.fn(),
     getOpenSessionLog: jest.fn(),
+    getSessionLogFinishedStatus: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (e: unknown) =>
       e instanceof SessionExecutionRequestError && e.kind === 'transport',
@@ -50,11 +51,13 @@ import {
   saveSetLog,
   updateSetLogAdaptation,
   getOpenSessionLog,
+  getSessionLogFinishedStatus,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 import { enqueueItem, enqueueAndDrain, drainAll } from '../src/services/sessionOutboxDrain';
 import { loadOutbox, saveOutbox } from '../src/services/sessionOutboxStorage';
 import type { SaveSetLogPayload, UpdateSetLogAdaptationPayload } from '../src/services/sessionOutboxDrain';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 
@@ -271,5 +274,163 @@ describe('update_set_log_adaptation — resolução tardia de setLogId (Pitfall 
     expect(updateSetLogAdaptation).not.toHaveBeenCalled();
     expect(result.pendingCount).toBe(1);
     expect(result.quarantineCount).toBe(0);
+  });
+
+  it('CR-03: sessão REALMENTE fechada (não apenas set_log não confirmado) descarta a sub-fila e chama onSessionClosed', async () => {
+    // getOpenSessionLog não encontra a sessão ABERTA (filtra finished_at IS
+    // NULL) — sozinho, isso é ambíguo entre "fechada" e "save_set_log ainda
+    // não confirmou" (Pitfall 1). A checagem extra (getSessionLogFinishedStatus,
+    // SELECT simples, mesma RLS, sem RPC nova) resolve a ambiguidade.
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(getSessionLogFinishedStatus).mockResolvedValue({ finished: true });
+
+    const payload: UpdateSetLogAdaptationPayload = {
+      userId: 'user-1',
+      plannedSessionId: 'sess-1',
+      plannedSetId: 'st-1',
+      adaptation: { kind: 'keep', auto: true },
+    };
+    // Sub-fila da MESMA sessão: item de adaptação sozinho (o save_set_log
+    // correspondente já drenou em outra rodada/dispositivo) + um item extra
+    // qualquer para provar que a sub-fila INTEIRA é descartada, não só o
+    // item de adaptação (mesmo contrato de P0001, Pitfall 3).
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'update_set_log_adaptation', payload });
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'finish_session', payload: {} });
+
+    const onSessionClosed = jest.fn();
+    const result = await drainAll('user-1', { onSessionClosed });
+
+    expect(onSessionClosed).toHaveBeenCalledWith('log-1');
+    expect(updateSetLogAdaptation).not.toHaveBeenCalled();
+    expect(result.pendingCount).toBe(0);
+    expect(result.quarantineCount).toBe(0);
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(0);
+    expect(doc.quarantine).toHaveLength(0);
+  });
+});
+
+describe('CR-02: falha transitória de loadOutbox em enqueueItem NUNCA persiste por cima da fila real', () => {
+  it('item real em disco sobrevive a uma leitura que falha durante um novo enfileiramento', async () => {
+    // Semeia disco com um item PENDENTE de verdade (via saveOutbox direto,
+    // sem passar pelo mock de leitura que vamos derrubar a seguir).
+    const existing = await enqueueItem('user-1', {
+      sessionLogId: 'log-1',
+      kind: 'save_set_log',
+      payload: savePayload({ plannedSetId: 'st-existing' }),
+    });
+    expect(existing.items).toHaveLength(1);
+
+    // A PRÓXIMA leitura (dentro do enqueueItem seguinte) falha de forma
+    // transitória — native module hiccup, não JSON corrompido (que
+    // loadOutbox já trata sem lançar, ver sessionOutboxStorage.test.ts).
+    mock(AsyncStorage.getItem).mockImplementationOnce(() =>
+      Promise.reject(new Error('falha nativa transitória de leitura')),
+    );
+
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-2',
+      kind: 'save_set_log',
+      payload: savePayload({ plannedSetId: 'st-new' }),
+    });
+
+    // O item que já estava em disco ANTES da falha de leitura não pode ter
+    // sido apagado por um saveOutbox que persistiu "fila vazia + item novo"
+    // por cima dele (D-07).
+    const doc = await loadOutbox('user-1');
+    expect(doc.items.some((it) => it.id.includes('st-existing'))).toBe(true);
+  });
+});
+
+describe('CR-01: drainAll/enqueueItem concorrentes não perdem item pendente (D-07)', () => {
+  it('item enfileirado ENQUANTO um drainAll anterior ainda está em voo sobrevive ao save desse drain', async () => {
+    let releaseX: (() => void) | null = null;
+    mock(saveSetLog).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseX = () => resolve(savedRow());
+        }),
+    );
+    // Y (update_set_log_adaptation) pode chegar a ser despachado numa
+    // rodada seguinte, depois de X sair da fila — mocks explícitos (em vez
+    // de depender de implementação deixada por outro teste, jest.clearAllMocks
+    // limpa histórico de chamadas mas NÃO reverte mockResolvedValue) fazem
+    // esse despacho cair no ramo "ainda não confirmado" (retenta), não no
+    // ramo "sessão fechada" (que descartaria a sub-fila e apagaria Y de
+    // propósito — não é o que este teste quer provar).
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(getSessionLogFinishedStatus).mockResolvedValue({ finished: false });
+
+    // X enfileirado e SEU drain (Drain-X) começa a rodada — fica preso na
+    // RPC de saveSetLog (rede em voo), exatamente como completeSet dispara
+    // save_set_log via enqueueAndDrain e segue sem aguardar (D-05).
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'save_set_log', payload: savePayload({ plannedSetId: 'st-x' }) });
+    const drainXPromise = drainAll('user-1');
+    // Espera de verdade Drain-X ter chamado saveSetLog (várias voltas de
+    // withKeyQueue acontecem antes disso — número de ticks não é confiável).
+    for (let i = 0; i < 50 && mock(saveSetLog).mock.calls.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(mock(saveSetLog).mock.calls.length).toBeGreaterThan(0);
+
+    // AINDA com Drain-X em voo (a RPC de X não resolveu), um segundo item Y
+    // (kind diferente, mesma sessão) é enfileirado — reproduz completeSet
+    // disparando update_set_log_adaptation logo depois de save_set_log, no
+    // MESMO tick, antes do drain de X salvar (activeSessionStore.ts:1207 e
+    // 1332).
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-1',
+      kind: 'update_set_log_adaptation',
+      payload: {
+        userId: 'user-1',
+        plannedSessionId: 'sess-1',
+        plannedSetId: 'st-y',
+        adaptation: { kind: 'keep', auto: true },
+      } satisfies UpdateSetLogAdaptationPayload,
+    });
+
+    // Libera a RPC de X: Drain-X remove X do SEU snapshot e persiste.
+    releaseX?.();
+    await drainXPromise;
+
+    // Y NÃO pode ter sido apagado por um save de Drain-X baseado num
+    // snapshot capturado ANTES de Y existir (o bug do CR-01: `drainAll`
+    // salvava sua cópia em memória, stale em relação ao disco).
+    const doc = await loadOutbox('user-1');
+    expect(doc.items.some((it) => it.kind === 'update_set_log_adaptation')).toBe(true);
+    expect(doc.items.some((it) => it.kind === 'save_set_log')).toBe(false);
+  });
+});
+
+describe('WR-02: payload com shape inválido na fronteira da persistência nunca chega à RPC', () => {
+  it('save_set_log com plannedSetId ausente (payload de versão futura/incompatível): quarentena direta, saveSetLog NUNCA chamado', async () => {
+    // Simula um item persistido por uma versão FUTURA do app com o shape do
+    // payload já mudado (campo renomeado/removido) — não dá para construir
+    // isto via enqueueItem (o tipo TS impediria), então grava o documento
+    // direto via saveOutbox, como o disco real teria.
+    await saveOutbox('user-1', {
+      version: 1,
+      items: [
+        {
+          id: 'log-1:set:st-1',
+          sessionLogId: 'log-1',
+          kind: 'save_set_log',
+          // payload malformado: sem plannedSetId (renomeado numa versão futura hipotética).
+          payload: { sessionLogId: 'log-1', actualReps: 8, actualLoadKg: 40, actualRir: 2, outcome: 'on_target' },
+          enqueuedAt: new Date().toISOString(),
+          nextAttemptAt: new Date().toISOString(),
+          attempts: 0,
+        },
+      ],
+      quarantine: [],
+    });
+
+    const result = await drainAll('user-1');
+
+    expect(saveSetLog).not.toHaveBeenCalled();
+    expect(result.pendingCount).toBe(0);
+    expect(result.quarantineCount).toBe(1);
+    const doc = await loadOutbox('user-1');
+    expect(doc.quarantine[0].reason).toMatch(/payload/i);
   });
 });
