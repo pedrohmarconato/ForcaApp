@@ -499,6 +499,39 @@ const isReplanTransportError = (error: unknown): boolean => {
 const STORAGE_WARNING_MSG =
   'Não foi possível salvar localmente. Seu treino continua, mas pode não retomar se o app fechar.';
 
+/**
+ * WR-01 (code review 04): todo call site que usa `enqueueAndDrain` faz
+ * `const {p,q} = await enqueueAndDrain(...)` e aplica esse snapshot DO
+ * MOMENTO DO ENFILEIRAMENTO via `set()` — mas a MESMA chamada passa um
+ * `onSummaryChanged` que a drenagem em segundo plano (fire-and-forget,
+ * disparada dentro do próprio `enqueueAndDrain`) pode invocar com uma
+ * contagem mais FRESCA antes mesmo do `await` externo resolver (ordem
+ * cronológica real: a drenagem sempre lê um estado pelo menos tão novo
+ * quanto o que o enfileiramento acabou de persistir). Aplicar o snapshot
+ * antigo por cima reverteria silenciosamente o valor fresco.
+ *
+ * `makeOutboxSummaryGuard` amarra as duas escritas à MESMA flag: assim que
+ * `onSummaryChanged` desta chamada dispara, o snapshot do enfileiramento
+ * (`applyEnqueueSnapshot`) deixa de ser aplicado — nunca escreve fora de
+ * ordem. Cada call site cria seu PRÓPRIO guard (uma chamada = um `freshened`
+ * independente); não é compartilhado entre chamadas concorrentes.
+ */
+const makeOutboxSummaryGuard = (
+  set: (partial: Partial<ActiveSessionState>) => void,
+) => {
+  let freshened = false;
+  return {
+    onSummaryChanged: (pendingCount: number, quarantineCount: number) => {
+      freshened = true;
+      set({ pendingCount, quarantineCount });
+    },
+    applyEnqueueSnapshot: (pendingCount: number, quarantineCount: number) => {
+      if (freshened) return;
+      set({ pendingCount, quarantineCount });
+    },
+  };
+};
+
 export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   draft: null,
   status: 'idle',
@@ -1204,6 +1237,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       // dispara a drenagem SEM aguardá-la (fire-and-forget) — soluço de rede na
       // academia nunca aparece como erro nem trava o treino. `await` aqui é só
       // do enfileiramento local (rápido, I/O de disco), não da rede.
+      const summaryGuard = makeOutboxSummaryGuard(set);
       const { pendingCount, quarantineCount } = await enqueueAndDrain(
         draft.userId,
         {
@@ -1225,9 +1259,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         {
           onSessionClosed: (closedSessionLogId) =>
             get().reconcileRemoteSessionClosed(closedSessionLogId),
-          onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+          onSummaryChanged: summaryGuard.onSummaryChanged,
         },
       );
+      // WR-01 (code review 04): só aplica o snapshot do enfileiramento se
+      // NENHUM onSummaryChanged desta MESMA chamada já tiver escrito um
+      // valor mais fresco enquanto aguardávamos (ver makeOutboxSummaryGuard).
+      // O `set()` final desta função (mais abaixo) NÃO inclui
+      // `pendingCount`/`quarantineCount` de propósito, para um onSummaryChanged
+      // tardio nunca ser revertido por ele.
+      summaryGuard.applyEnqueueSnapshot(pendingCount, quarantineCount);
 
       // CAS (F7): se a sessão ativa MUDOU durante o enfileiramento (usuário trocou
       // de treino), o item já está na fila do USUÁRIO certo (D-10: a fila é do
@@ -1359,12 +1400,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         pending = null;
         console.warn('[activeSession] adaptação intra-sessão falhou (não-fatal, série registrada):', e);
       }
+      // WR-01 (code review 04): pendingCount/quarantineCount NÃO entram
+      // neste set() — já foram aplicados imediatamente acima, e um
+      // onSummaryChanged mais fresco pode ter escrito por cima nesse meio
+      // tempo; incluí-los aqui de novo com o snapshot antigo reverteria
+      // esse valor mais fresco (Zustand só sobrescreve as chaves passadas).
       set({
         draft: finalDraft,
         saveError: null,
         pendingAdaptation: pending,
-        pendingCount,
-        quarantineCount,
       });
 
       try {
@@ -1478,6 +1522,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // após o enfileiramento resolver (só I/O local, rápido) — falha de rede ou
     // de servidor NUNCA seta saveError a partir de agora (só falha de
     // validação local, que já rodou acima).
+    const summaryGuard = makeOutboxSummaryGuard(set);
     const { pendingCount, quarantineCount } = await enqueueAndDrain(
       draft.userId,
       {
@@ -1493,9 +1538,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       {
         onSessionClosed: (closedSessionLogId) =>
           get().reconcileRemoteSessionClosed(closedSessionLogId),
-        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        onSummaryChanged: summaryGuard.onSummaryChanged,
       },
     );
+    // WR-01 (code review 04): ver makeOutboxSummaryGuard. O set() final
+    // abaixo NÃO inclui mais pendingCount/quarantineCount de propósito.
+    summaryGuard.applyEnqueueSnapshot(pendingCount, quarantineCount);
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
@@ -1503,8 +1551,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     set({
       draft: novo,
       saveError: null,
-      pendingCount,
-      quarantineCount,
       // Uma adaptação pendente do exercício recusado não faz mais sentido: o
       // sheet pediria decisão de carga para o que acabou de ser dispensado.
       pendingAdaptation:
@@ -1531,6 +1577,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const sid = draft.sessionLogId;
     // Fase 4 (REQ-07): mesmo molde de skipExercise — enfileira, aplica local
     // imediatamente, nunca seta saveError por falha de rede.
+    const summaryGuard = makeOutboxSummaryGuard(set);
     const { pendingCount, quarantineCount } = await enqueueAndDrain(
       draft.userId,
       {
@@ -1544,14 +1591,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       {
         onSessionClosed: (closedSessionLogId) =>
           get().reconcileRemoteSessionClosed(closedSessionLogId),
-        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        onSummaryChanged: summaryGuard.onSummaryChanged,
       },
     );
+    // WR-01 (code review 04): ver makeOutboxSummaryGuard.
+    summaryGuard.applyEnqueueSnapshot(pendingCount, quarantineCount);
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
     const novo = removeExerciseSkipFromDraft(atual, exerciseId);
-    set({ draft: novo, saveError: null, pendingCount, quarantineCount });
+    set({ draft: novo, saveError: null });
     try {
       await saveDraft(novo);
     } catch (e) {
@@ -1586,6 +1635,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Fase 4 (REQ-07): mesmo molde de skipExercise/unskipExercise — enfileira,
     // aplica local imediatamente, nunca seta saveError por falha de rede. A
     // guarda CR-01 acima já rodou ANTES de qualquer chamada de fila.
+    const summaryGuard = makeOutboxSummaryGuard(set);
     const { pendingCount, quarantineCount } = await enqueueAndDrain(
       draft.userId,
       {
@@ -1601,9 +1651,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       {
         onSessionClosed: (closedSessionLogId) =>
           get().reconcileRemoteSessionClosed(closedSessionLogId),
-        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        onSummaryChanged: summaryGuard.onSummaryChanged,
       },
     );
+    // WR-01 (code review 04): ver makeOutboxSummaryGuard.
+    summaryGuard.applyEnqueueSnapshot(pendingCount, quarantineCount);
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
@@ -1611,8 +1663,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     set({
       draft: novo,
       saveError: null,
-      pendingCount,
-      quarantineCount,
       // Uma adaptação pendente do exercício trocado não faz mais sentido: o
       // sheet pediria decisão de carga para uma modalidade que não é mais esta.
       pendingAdaptation:
@@ -1688,15 +1738,18 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // servidor. A tela de fim aparece como hoje; o item fica pendente na fila
     // (storage próprio, D-09) e drena em segundo plano mesmo depois de
     // `retireLocalDraft` limpar o rascunho abaixo.
+    const summaryGuard = makeOutboxSummaryGuard(set);
     const { pendingCount, quarantineCount } = await enqueueAndDrain(
       draft.userId,
       { sessionLogId: sid, kind: 'finish_session', payload: {} },
       {
         onSessionClosed: (closedSessionLogId) =>
           get().reconcileRemoteSessionClosed(closedSessionLogId),
-        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        onSummaryChanged: summaryGuard.onSummaryChanged,
       },
     );
+    // WR-01 (code review 04): ver makeOutboxSummaryGuard.
+    summaryGuard.applyEnqueueSnapshot(pendingCount, quarantineCount);
 
     // CAS (F7): se o usuário trocou de sessão durante o enfileiramento, o item
     // já está na fila do USUÁRIO certo (D-10), mas NÃO mexemos no estado nem
@@ -1709,8 +1762,6 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       draft: { ...atual, status: 'finished' },
       status: 'finished',
       saveError: null,
-      pendingCount,
-      quarantineCount,
     });
     // Só limpa o rascunho DEPOIS de finalizar localmente, e só porque o draft atual
     // AINDA é esta sessão (não por userId cego — evita apagar a sessão trocada).
