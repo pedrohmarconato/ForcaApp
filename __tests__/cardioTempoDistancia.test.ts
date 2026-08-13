@@ -432,18 +432,22 @@ describe('store: trocar modalidade de cardio', () => {
     }
   });
 
-  it('chama swapSessionExercise com o par exercício/modalidade e aplica ao draft', async () => {
+  it('aplica a troca ao draft imediatamente e enfileira swapSessionExercise com o par exercício/modalidade', async () => {
     const ok = await store().swapExercise('ex-cardio', 'Remo Ergômetro');
 
+    // Fase 4 (REQ-07): swapExercise enfileira em vez de aguardar a RPC (D-05
+    // estendido) — a troca aplica ao draft antes de a rede confirmar.
     expect(ok).toBe(true);
+    expect(store().draft!.exercises[0].name).toBe('Remo Ergômetro');
+    expect(store().draft!.exercises[0].metric).toBe('tempo_distancia');
+
+    await drainAll('user-1');
     expect(mock(swapSessionExercise)).toHaveBeenCalledWith(
       expect.objectContaining({
         plannedExerciseId: 'ex-cardio',
         toModality: 'Remo Ergômetro',
       }),
     );
-    expect(store().draft!.exercises[0].name).toBe('Remo Ergômetro');
-    expect(store().draft!.exercises[0].metric).toBe('tempo_distancia');
   });
 });
 

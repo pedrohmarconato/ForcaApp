@@ -75,6 +75,10 @@ import {
 import { saveDraft, loadDraft, clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDetail } from '../src/services/trainingRepository';
+// Fase 4 (REQ-07): swapExercise enfileira em vez de aguardar a RPC direto
+// (D-05 estendido) — os testes que verificavam a chamada SÍNCRONA a
+// swapSessionExercise agora drenam explicitamente para observar o payload.
+import { drainAll } from '../src/services/sessionOutboxDrain';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 const store = () => useActiveSessionStore.getState();
@@ -184,8 +188,8 @@ beforeEach(() => {
   });
 });
 
-describe('modo de falha 1: servidor primeiro', () => {
-  it('grava no servidor a nova modalidade antes de aplicar na tela', async () => {
+describe('modo de falha 1: fila offline-first (D-05 estendido, Fase 4/REQ-07)', () => {
+  it('aplica a troca na tela imediatamente e enfileira swapSessionExercise com a nova modalidade', async () => {
     await abrirSessao();
     mock(swapSessionExercise).mockResolvedValue({
       plannedExerciseId: 'ex-2',
@@ -196,28 +200,37 @@ describe('modo de falha 1: servidor primeiro', () => {
     const ok = await store().swapExercise('ex-2', 'Remo Ergômetro');
 
     expect(ok).toBe(true);
+    const trocado = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
+    expect(trocado.name).toBe('Remo Ergômetro');
+    expect(trocado.swappedFrom).toBe('Corrida');
+
+    // A gravação no servidor acontece em segundo plano, via fila (D-05
+    // estendido) — drena explicitamente para observar o payload enviado.
+    await drainAll('user-1');
     expect(swapSessionExercise).toHaveBeenCalledWith({
       sessionLogId: 'sl-1',
       plannedExerciseId: 'ex-2',
       toModality: 'Remo Ergômetro',
       note: null,
     });
-    const trocado = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
-    expect(trocado.name).toBe('Remo Ergômetro');
-    expect(trocado.swappedFrom).toBe('Corrida');
   });
 
-  it('falha do servidor NÃO aplica a troca na tela e reporta o erro', async () => {
+  it('falha do servidor NÃO desfaz a troca na tela nem seta saveError (D-05 estendido)', async () => {
     await abrirSessao();
     mock(swapSessionExercise).mockRejectedValue(new Error('log já finalizado'));
 
     const ok = await store().swapExercise('ex-2', 'Remo Ergômetro');
 
-    expect(ok).toBe(false);
-    const naoTrocado = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
-    expect(naoTrocado.name).toBe('Corrida');
-    expect(naoTrocado.swappedFrom).toBeUndefined();
-    expect(store().saveError).toBe('log já finalizado');
+    // Fase 4 (REQ-07): a mudança local já aplicou antes de a fila tentar a
+    // rede — falha de servidor NUNCA reverte a tela nem seta saveError a
+    // partir de agora (só a guarda CR-01 local, que continua igual).
+    expect(ok).toBe(true);
+    const trocado = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
+    expect(trocado.name).toBe('Remo Ergômetro');
+    expect(store().saveError).toBeNull();
+
+    await drainAll('user-1');
+    expect(swapSessionExercise).toHaveBeenCalled();
   });
 });
 
@@ -268,10 +281,13 @@ describe('CR-01 (decisão a): troca bloqueada com série concluída', () => {
     const ok = await store().swapExercise('ex-2', 'Remo Ergômetro');
 
     expect(ok).toBe(true);
-    expect(swapSessionExercise).toHaveBeenCalled();
     expect(store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!.name).toBe(
       'Remo Ergômetro',
     );
+
+    // Fase 4 (REQ-07): swapSessionExercise é chamado em segundo plano, via fila.
+    await drainAll('user-1');
+    expect(swapSessionExercise).toHaveBeenCalled();
   });
 });
 

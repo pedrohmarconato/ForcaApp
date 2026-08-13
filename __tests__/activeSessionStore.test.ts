@@ -785,13 +785,19 @@ describe('concluir a sessão', () => {
     const ok = await store().finishSession();
 
     expect(ok).toBe(true);
-    expect(finishSessionLog).toHaveBeenCalled();
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
     expect(store().status).toBe('finished');
+
+    // Fase 4 (REQ-07/D-08): finishSession enfileira em vez de aguardar a RPC —
+    // finishSessionLog só é chamado quando a drenagem fire-and-forget assenta.
+    await drainAll('user-1');
+    expect(finishSessionLog).toHaveBeenCalled();
   });
 
-  it('erro ao fechar não engole: mantém erro e não conclui', async () => {
-    mock(finishSessionLog).mockRejectedValue(new Error('timeout'));
+  it('D-08: falha ao fechar NÃO bloqueia — a sessão finaliza local (sem saveError) e o item fica pendente na fila mesmo com o draft já limpo', async () => {
+    mock(finishSessionLog).mockRejectedValue(
+      new SessionExecutionRequestError(new Error('timeout'), { status: 0 }),
+    );
     await store().startOrResume({
       sessionId: 'sess-1',
       userId: 'user-1',
@@ -800,9 +806,27 @@ describe('concluir a sessão', () => {
     await confirmarCheckInSePedido();
     const ok = await store().finishSession();
 
-    expect(ok).toBe(false);
-    expect(store().saveError).toMatch(/timeout/);
-    expect(store().status).not.toBe('finished');
+    // Sob D-08, finalizar nunca aguarda a confirmação do servidor: a tela de
+    // fim aparece IMEDIATAMENTE, sem erro, mesmo que a RPC subjacente falhe.
+    expect(ok).toBe(true);
+    expect(store().status).toBe('finished');
+    expect(store().saveError).toBeNull();
+    expect(store().draft?.status).toBe('finished');
+    // retireLocalDraft já rodou — o rascunho local (AsyncStorage) foi limpo.
+    expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
+
+    // A fila drena em segundo plano, inclusive DEPOIS de o rascunho local já
+    // ter sido limpo — prova de nível-mock do critério de sucesso #3 do
+    // 04-CONTEXT.md ("drena o que faltou, inclusive quando a sessão já foi
+    // finalizada").
+    await drainAll('user-1');
+    expect(finishSessionLog).toHaveBeenCalled();
+    const doc = await loadOutbox('user-1');
+    // Erro de transporte nunca quarentena (Pitfall 2) — o item continua
+    // pendente, com backoff agendado, para retentar depois.
+    expect(doc.items).toHaveLength(1);
+    expect(doc.items[0].kind).toBe('finish_session');
+    expect(doc.quarantine).toHaveLength(0);
   });
 
   it('F4: finish idempotente — 2ª chamada (RPC já finalizou, resolve) NÃO trava o cliente em erro', async () => {
@@ -981,7 +1005,18 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
     );
   });
 
-  it('save que resolve depois do finish não recria rascunho finalizado', async () => {
+  it('completeSet chamado depois do finish não recria rascunho finalizado', async () => {
+    // Fase 4 (REQ-07/D-05+D-08): completeSet e finishSession decidem se
+    // commitam localmente com base SÓ no estado local (draft.status), ANTES
+    // de qualquer chamada de rede — a mutação do draft nunca mais espera a
+    // resolução da RPC (que agora corre em segundo plano via drainAll e não
+    // toca `draft`). Por isso o cenário que este teste prova é mais forte que
+    // antes: mesmo que a RPC subjacente de um completeSet atrasado NUNCA
+    // resolva, a guarda de CAS (`atual.status !== 'active'`) já bloqueia o
+    // commit local antes de qualquer rede ser envolvida — "gravação atrasada"
+    // deixou de ser um cenário de rede (estruturalmente impossível agora) e
+    // passou a ser cenário de CHAMADA atrasada (completeSet invocado depois
+    // do finish já ter resolvido localmente).
     await store().startOrResume({
       sessionId: 'sess-1',
       userId: 'user-1',
@@ -991,49 +1026,19 @@ describe('compare-and-set: troca de sessão durante o await (F7)', () => {
     store().activateSet('ex-1', 1);
     store().setReps('ex-1', 1, 8);
     store().setLoad('ex-1', 1, 40);
-    const pendingSave = deferred<{
-      setLogId: string;
-      actualReps: number;
-      actualLoadKg: number | null;
-      actualRir: number | null;
-      outcome: 'on_target';
-    }>();
-    mock(saveSetLog).mockReturnValueOnce(pendingSave.promise);
+
+    expect(await store().finishSession()).toBe(true);
     mock(saveDraft).mockClear();
 
-    const completing = store().completeSet('ex-1', 1);
-    expect(await store().finishSession()).toBe(true);
-    pendingSave.resolve({
-      setLogId: 'set-after-finish',
-      actualReps: 8,
-      actualLoadKg: 40,
-      actualRir: null,
-      outcome: 'on_target',
-    });
-    expect(await completing).toBe(true);
+    // completeSet chamado DEPOIS que a sessão já finalizou localmente —
+    // bloqueado pela guarda de CAS, sem gravar nada.
+    const ok = await store().completeSet('ex-1', 1);
+    expect(ok).toBe(true); // bail-out de CAS: nada a fazer, não é erro
 
     expect(store().status).toBe('finished');
-    // A conclusão grava apenas o tombstone `finished`; a gravação atrasada da
-    // série não pode recriar um rascunho ativo depois dele.
-    expect(saveDraft).toHaveBeenCalledTimes(1);
-    expect(saveDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        plannedSessionId: 'sess-1',
-        sessionLogId: 'sl-1',
-        status: 'finished',
-      }),
-    );
-    expect(saveDraft).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        exercises: expect.arrayContaining([
-          expect.objectContaining({
-            sets: expect.arrayContaining([
-              expect.objectContaining({ setLogId: 'set-after-finish' }),
-            ]),
-          }),
-        ]),
-      }),
-    );
+    // A conclusão grava apenas o tombstone `finished` (via retireLocalDraft,
+    // já chamado antes do mockClear); o completeSet tardio não recria nada.
+    expect(saveDraft).not.toHaveBeenCalled();
     expect(clearDraft).toHaveBeenCalledWith('user-1', 'sess-1', 'sl-1');
   });
 });

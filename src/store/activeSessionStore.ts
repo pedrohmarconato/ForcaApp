@@ -30,20 +30,19 @@ import {
 import type { CardioModalidade } from '../constants/cardioModalidades';
 import {
   startSessionLog,
-  finishSessionLog,
   getOpenSessionLog,
   getLastLoadByExercise,
-  updateSetLogAdaptation,
-  skipSessionExercise,
-  unskipSessionExercise,
   skipPlannedSession,
-  swapSessionExercise,
   isTransportSessionExecutionError,
   type OpenSessionLog,
 } from '../services/sessionExecutionRepository';
 import {
   enqueueAndDrain,
   type SaveSetLogPayload,
+  type UpdateSetLogAdaptationPayload,
+  type SkipSessionExercisePayload,
+  type UnskipSessionExercisePayload,
+  type SwapSessionExercisePayload,
 } from '../services/sessionOutboxDrain';
 import {
   evaluateSet,
@@ -85,7 +84,11 @@ type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 
 export type PendingAdaptation = {
   exerciseId: string;
   setOrder: number;
+  // Fase 4 (REQ-07/D-05/Pitfall 1): sempre null a partir do commit otimista —
+  // mantido só por compatibilidade de shape. plannedSetId é a chave usada para
+  // persistir a decisão via fila (resolução tardia de setLogId no drenador).
   setLogId: string | null;
+  plannedSetId: string;
   // Sessão a que esta decisão pertence — resolveAdaptation só aplica ao rascunho se ainda
   // for esta sessão (defesa contra troca de sessão durante a decisão).
   sessionLogId: string | null;
@@ -1295,10 +1298,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               exerciseId,
               setOrder,
               // setLogId ainda não existe (commit otimista, D-05) — fica null até a
-              // fila confirmar. resolveAdaptation já trata pending.setLogId nulo;
-              // 04-02-PLAN.md reintroduz a persistência da decisão via fila com
-              // resolução tardia de setLogId (Pitfall 1).
+              // fila confirmar. plannedSetId é a chave usada por resolveAdaptation
+              // para enfileirar update_set_log_adaptation com resolução tardia de
+              // setLogId (Pitfall 1, fechado nesta fase).
               setLogId: null,
+              plannedSetId: serie.plannedSetId,
               sessionLogId: sid,
               recommendation,
             };
@@ -1319,11 +1323,31 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
               },
             });
             finalDraft = applyAdjustmentToNextSet(finalDraft, exerciseId, setOrder, autoKeep);
-            // A persistência desta decisão via updateSetLogAdaptation foi REMOVIDA
-            // aqui: setLogId ainda não existe no commit otimista (D-05).
-            // 04-02-PLAN.md reintroduz via fila (kind update_set_log_adaptation),
-            // que resolve o setLogId tardiamente (Pitfall 1) — a máquina de
-            // classificação/drenagem já existe em sessionOutboxDrain.ts.
+            // Fase 4 (REQ-07/Pitfall 1, fechado): a persistência desta decisão
+            // AUTOMÁTICA via updateSetLogAdaptation volta a acontecer, agora via
+            // fila — setLogId ainda não existe no commit otimista (D-05), então o
+            // drenador resolve tardiamente via getOpenSessionLog. Best-effort,
+            // fire-and-forget: NUNCA bloqueia o retorno de completeSet (já está
+            // depois do commit otimista acima).
+            void enqueueAndDrain(
+              draft.userId,
+              {
+                sessionLogId: sid,
+                kind: 'update_set_log_adaptation',
+                payload: {
+                  userId: draft.userId,
+                  plannedSessionId: draft.plannedSessionId,
+                  plannedSetId: serie.plannedSetId,
+                  adaptation: autoKeep,
+                  decision: buildAdaptationDecision(recommendation, autoKeep, true),
+                } satisfies UpdateSetLogAdaptationPayload,
+              },
+              {
+                onSessionClosed: (closedSessionLogId) =>
+                  get().reconcileRemoteSessionClosed(closedSessionLogId),
+                onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+              },
+            );
           }
           // on_target + keep (sem progressão possível): nada — a série conclui e segue.
         }
@@ -1361,13 +1385,17 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Fecha o sheet e aplica ao rascunho da MESMA sessão (applyAdjustmentToNextSet é puro):
     // registra a escolha na série concluída e ajusta o alvo da próxima. Nunca sem confirmar.
     const atual = get().draft;
-    if (
-      atual &&
-      atual.sessionLogId === pending.sessionLogId &&
-      atual.exercises.some((e) => e.exerciseId === pending.exerciseId)
-    ) {
+    // Captura userId/plannedSessionId ANTES de qualquer await (mesma cautela de
+    // CAS do resto do arquivo): se a sessão ativa já não for mais a de `pending`
+    // agora, não há como saber com segurança para qual sessão enfileirar — a
+    // fila NUNCA recebe um item endereçado à sessão errada.
+    const sessionMatches = !!atual && atual.sessionLogId === pending.sessionLogId;
+    const userId = sessionMatches ? atual!.userId : null;
+    const plannedSessionId = sessionMatches ? atual!.plannedSessionId : null;
+
+    if (sessionMatches && atual!.exercises.some((e) => e.exerciseId === pending.exerciseId)) {
       const novo = applyAdjustmentToNextSet(
-        atual,
+        atual!,
         pending.exerciseId,
         pending.setOrder,
         adjustment,
@@ -1382,15 +1410,31 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     } else {
       set({ pendingAdaptation: null });
     }
-    // Registra a decisão no servidor (best-effort): a experiência não trava se falhar, mas
-    // a escolha — inclusive a recusa ("manter") — fica gravada em set_logs.adaptation.
-    if (pending.setLogId) {
-      try {
-        const decision = buildAdaptationDecision(pending.recommendation, adjustment, false);
-        await updateSetLogAdaptation(pending.setLogId, adjustment, decision);
-      } catch (e) {
-        console.warn('[activeSession] adaptação não persistida (não-fatal):', e);
-      }
+    // Fase 4 (REQ-07/Pitfall 1, fechado): a persistência da decisão — inclusive a
+    // recusa ("manter") — volta a acontecer via fila, com resolução tardia de
+    // setLogId (o drenador resolve via getOpenSessionLog). Best-effort:
+    // fire-and-forget, nunca bloqueia a experiência do aluno.
+    if (pending.sessionLogId && userId && plannedSessionId) {
+      const decision = buildAdaptationDecision(pending.recommendation, adjustment, false);
+      void enqueueAndDrain(
+        userId,
+        {
+          sessionLogId: pending.sessionLogId,
+          kind: 'update_set_log_adaptation',
+          payload: {
+            userId,
+            plannedSessionId,
+            plannedSetId: pending.plannedSetId,
+            adaptation: adjustment,
+            decision,
+          } satisfies UpdateSetLogAdaptationPayload,
+        },
+        {
+          onSessionClosed: (closedSessionLogId) =>
+            get().reconcileRemoteSessionClosed(closedSessionLogId),
+          onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+        },
+      );
     }
   },
 
@@ -1429,22 +1473,29 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    try {
-      // Servidor PRIMEIRO: aplicar na tela antes de gravar deixaria a recusa
-      // sumir na retomada (o rascunho local não é autoritativo) — o aluno
-      // reencontraria o exercício que dispensou sem entender por quê.
-      await skipSessionExercise({
+    // Fase 4 (REQ-07/D-05 estendido às 4 operações do D-01 que faltavam):
+    // enfileira em vez de aguardar a RPC. A mudança local aplica IMEDIATAMENTE
+    // após o enfileiramento resolver (só I/O local, rápido) — falha de rede ou
+    // de servidor NUNCA seta saveError a partir de agora (só falha de
+    // validação local, que já rodou acima).
+    const { pendingCount, quarantineCount } = await enqueueAndDrain(
+      draft.userId,
+      {
         sessionLogId: sid,
-        plannedExerciseId: exerciseId,
-        reason,
-        note: note ?? null,
-      });
-    } catch (e) {
-      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
-        set({ saveError: errMsg(e) });
-      }
-      return false;
-    }
+        kind: 'skip_session_exercise',
+        payload: {
+          sessionLogId: sid,
+          plannedExerciseId: exerciseId,
+          reason,
+          note: note ?? null,
+        } satisfies SkipSessionExercisePayload,
+      },
+      {
+        onSessionClosed: (closedSessionLogId) =>
+          get().reconcileRemoteSessionClosed(closedSessionLogId),
+        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+      },
+    );
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
@@ -1452,6 +1503,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     set({
       draft: novo,
       saveError: null,
+      pendingCount,
+      quarantineCount,
       // Uma adaptação pendente do exercício recusado não faz mais sentido: o
       // sheet pediria decisão de carga para o que acabou de ser dispensado.
       pendingAdaptation:
@@ -1476,19 +1529,29 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     }
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    try {
-      await unskipSessionExercise({ sessionLogId: sid, plannedExerciseId: exerciseId });
-    } catch (e) {
-      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
-        set({ saveError: errMsg(e) });
-      }
-      return false;
-    }
+    // Fase 4 (REQ-07): mesmo molde de skipExercise — enfileira, aplica local
+    // imediatamente, nunca seta saveError por falha de rede.
+    const { pendingCount, quarantineCount } = await enqueueAndDrain(
+      draft.userId,
+      {
+        sessionLogId: sid,
+        kind: 'unskip_session_exercise',
+        payload: {
+          sessionLogId: sid,
+          plannedExerciseId: exerciseId,
+        } satisfies UnskipSessionExercisePayload,
+      },
+      {
+        onSessionClosed: (closedSessionLogId) =>
+          get().reconcileRemoteSessionClosed(closedSessionLogId),
+        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+      },
+    );
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
     const novo = removeExerciseSkipFromDraft(atual, exerciseId);
-    set({ draft: novo, saveError: null });
+    set({ draft: novo, saveError: null, pendingCount, quarantineCount });
     try {
       await saveDraft(novo);
     } catch (e) {
@@ -1520,22 +1583,27 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    try {
-      // Servidor PRIMEIRO: aplicar na tela antes de gravar deixaria a troca
-      // sumir na retomada (o rascunho local não é autoritativo) — o aluno
-      // reencontraria a modalidade original sem entender por quê.
-      await swapSessionExercise({
+    // Fase 4 (REQ-07): mesmo molde de skipExercise/unskipExercise — enfileira,
+    // aplica local imediatamente, nunca seta saveError por falha de rede. A
+    // guarda CR-01 acima já rodou ANTES de qualquer chamada de fila.
+    const { pendingCount, quarantineCount } = await enqueueAndDrain(
+      draft.userId,
+      {
         sessionLogId: sid,
-        plannedExerciseId: exerciseId,
-        toModality,
-        note: null,
-      });
-    } catch (e) {
-      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
-        set({ saveError: errMsg(e) });
-      }
-      return false;
-    }
+        kind: 'swap_session_exercise',
+        payload: {
+          sessionLogId: sid,
+          plannedExerciseId: exerciseId,
+          toModality,
+          note: null,
+        } satisfies SwapSessionExercisePayload,
+      },
+      {
+        onSessionClosed: (closedSessionLogId) =>
+          get().reconcileRemoteSessionClosed(closedSessionLogId),
+        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+      },
+    );
 
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid) return true;
@@ -1543,6 +1611,8 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     set({
       draft: novo,
       saveError: null,
+      pendingCount,
+      quarantineCount,
       // Uma adaptação pendente do exercício trocado não faz mais sentido: o
       // sheet pediria decisão de carga para uma modalidade que não é mais esta.
       pendingAdaptation:
@@ -1613,20 +1683,24 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // CAS: fixa a sessão desta conclusão ANTES do await (F7).
     const epoch = operationEpoch;
     const sid = draft.sessionLogId;
-    try {
-      // RPC atômica e IDEMPOTENTE (0004): finaliza, ou é sucesso se já estava finalizada
-      // (dela); só inexistente/alheia levanta erro — sem "concluído" falso (F4/F6).
-      await finishSessionLog(sid);
-    } catch (e) {
-      // Só reporta o erro se AINDA estamos nesta sessão (não polui uma sessão trocada).
-      if (operationEpoch === epoch && get().draft?.sessionLogId === sid) {
-        set({ saveError: errMsg(e) });
-      }
-      return false;
-    }
+    // Fase 4 (REQ-07/D-08): finalizar NÃO bloqueia — enfileira `finish_session`
+    // (RPC idempotente, migration 0004) em vez de aguardar a confirmação do
+    // servidor. A tela de fim aparece como hoje; o item fica pendente na fila
+    // (storage próprio, D-09) e drena em segundo plano mesmo depois de
+    // `retireLocalDraft` limpar o rascunho abaixo.
+    const { pendingCount, quarantineCount } = await enqueueAndDrain(
+      draft.userId,
+      { sessionLogId: sid, kind: 'finish_session', payload: {} },
+      {
+        onSessionClosed: (closedSessionLogId) =>
+          get().reconcileRemoteSessionClosed(closedSessionLogId),
+        onSummaryChanged: (p, q) => set({ pendingCount: p, quarantineCount: q }),
+      },
+    );
 
-    // CAS (F7): se o usuário trocou de sessão durante o await, o servidor finalizou a
-    // certa, mas NÃO mexemos no estado nem limpamos o rascunho da OUTRA sessão.
+    // CAS (F7): se o usuário trocou de sessão durante o enfileiramento, o item
+    // já está na fila do USUÁRIO certo (D-10), mas NÃO mexemos no estado nem
+    // limpamos o rascunho da OUTRA sessão.
     const atual = get().draft;
     if (operationEpoch !== epoch || !atual || atual.sessionLogId !== sid)
       return true;
@@ -1635,8 +1709,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       draft: { ...atual, status: 'finished' },
       status: 'finished',
       saveError: null,
+      pendingCount,
+      quarantineCount,
     });
-    // Só limpa o rascunho DEPOIS de finalizar de verdade, e só porque o draft atual
+    // Só limpa o rascunho DEPOIS de finalizar localmente, e só porque o draft atual
     // AINDA é esta sessão (não por userId cego — evita apagar a sessão trocada).
     await retireLocalDraft(atual);
     return true;

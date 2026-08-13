@@ -648,7 +648,13 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
     } finally { if (descriptor) Object.defineProperty(Platform, 'OS', descriptor); }
   });
 
-  it('falha ao trocar: Alert avisa e o sheet permanece aberto', async () => {
+  it('falha ao trocar: fila offline-first (D-05 estendido) aplica a troca e fecha o sheet mesmo com a RPC rejeitando', async () => {
+    // Fase 4 (REQ-07): swapExercise passou a enfileirar em vez de aguardar a
+    // RPC direto — a troca aplica na tela IMEDIATAMENTE e o sheet fecha, sem
+    // Alert, mesmo que a chamada ao servidor (agora em segundo plano, via
+    // fila) rejeite. Substitui o teste pré-fase "falha ao trocar: Alert avisa
+    // e o sheet permanece aberto", que testava o comportamento síncrono
+    // anterior (removido nesta fase).
     const descriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
@@ -671,10 +677,12 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
       fireEvent.press(screen.getByTestId('swap-modality-Remo Ergômetro'));
       fireEvent.press(screen.getByTestId('swap-modality-confirm'));
 
-      await waitFor(() => expect(alertSpy).toHaveBeenCalled());
-      // O sheet PERMANECE aberto — falha do servidor não fecha nem aplica a troca.
-      expect(screen.getByText('Trocar Caminhada')).toBeTruthy();
-      expect(useActiveSessionStore.getState().draft!.exercises[0].name).toBe('Caminhada');
+      await waitFor(() =>
+        expect(useActiveSessionStore.getState().draft!.exercises[0].name).toBe('Remo Ergômetro'),
+      );
+      // O sheet FECHA — a troca aplica local mesmo com a RPC subjacente rejeitando.
+      await waitFor(() => expect(screen.queryByText('Trocar Caminhada')).toBeNull());
+      expect(alertSpy).not.toHaveBeenCalled();
     } finally {
       alertSpy.mockRestore();
       if (descriptor) Object.defineProperty(Platform, 'OS', descriptor);
