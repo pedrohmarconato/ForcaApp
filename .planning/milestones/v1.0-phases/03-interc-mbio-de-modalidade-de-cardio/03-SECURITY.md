@@ -1,7 +1,8 @@
 ---
 phase: 03
 slug: interc-mbio-de-modalidade-de-cardio
-status: draft
+status: verified
+verified: 2026-08-13
 # threats_open conta somente ameaças OPEN com severidade >= workflow.security_block_on.
 # 2026-08-10: de 2 para 0 — a 0036 entrou em produção e a guarda P0005 foi confirmada viva lá.
 threats_open: 0
@@ -188,6 +189,19 @@ build sem o guard e corrida entre dois dispositivos.
 - [x] `threats_open: 0` confirmado — T-03-11 e T-03-12 fechadas em 10/08/2026, nos dois ambientes.
       Homologação com prova comportamental; produção com verificação de leitura mais igualdade
       de `md5(pg_get_functiondef(...))` contra a função já provada em homologação.
-- [ ] `status: verified` no frontmatter
+- [x] `status: verified` no frontmatter
 
-**Approval:** pending
+**Approval:** verified em 2026-08-13 — re-verificação SECURED 15/15 (gsd-security-auditor; aplicação do diff pelo orquestrador da sessão de auditoria do milestone v1.0)
+
+## Re-verificação 2026-08-13
+
+**Veredicto: SECURED — 15/15 ameaças fechadas.** Reconfirmado por leitura direta do código
+vivo (sem tocar banco): guarda de posse (T-03-01), revoke/grant anon (T-03-02, T-03-12),
+vocabulário fechado (T-03-03), guarda de métrica cardio (T-03-04) e guarda P0005/set_logs
+(T-03-11) permanecem byte a byte preservados em `0037_swap_guard_codigo_oficial.sql`
+(follow-up de Fase 4, aplicado SOMENTE no stack local — 0037 troca só o
+literal do errcode P0005→23505; staging e produção seguem na 0036, per `AGENTS.md:48-58`).
+Regressão checada: outbox de Fase 4 (`sessionOutboxPolicy.ts:136`) trata `23505` como recusa
+definitiva → quarentena imediata; código não classificado nunca reagenda para sempre — degrada
+por idade (D-11), nunca por tentativa infinita. Nenhum threat flag não mapeado nos 9
+03-SUMMARY.md da fase.

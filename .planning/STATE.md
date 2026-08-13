@@ -2,52 +2,36 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3
-current_phase_name: Intercâmbio de modalidade de cardio
-status: planning
-stopped_at: "Fase 04 com contexto capturado (16 decisoes). Proximo passo: /gsd-plan-phase 4. Antes de planejar, substituir o TBD dos Success Criteria da Fase 4 no ROADMAP.md pelos criterios derivados no 04-CONTEXT.md."
-last_updated: "2026-08-13T01:37:02.698Z"
-last_activity: 2026-08-12
-last_activity_desc: Phase 04 complete, transitioned to Phase 3
+status: Awaiting next milestone
+stopped_at: "Milestone v1.0 'Cardio e alongamento' arquivado em 2026-08-13 (override_closeout, 1 item deferido). Próximo passo: /gsd-new-milestone."
+last_updated: "2026-08-13T17:36:39.879Z"
+last_activity: 2026-08-13
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 19
   completed_plans: 19
+current_phase: 4
+current_phase_name: Escrita de execução de treino em lote e offline-first
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-08)
+See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
 meta com fonte única e condução guiada.
-**Current focus:** Phase 04 — escrita-de-execu-o-de-treino-em-lote-e-offline-first
+**Current focus:** Fechamento do milestone v1.0
 
 ## Current Position
 
-Phase: 3 — Intercâmbio de modalidade de cardio
-Plan: Not started
-Status: Ready to plan
-(tsc limpo, 141 suítes / 1619 testes, code review 0 critical). A re-verificação devolveu
-`human_needed` (6/8 must-haves) — a fase NÃO foi marcada completa.
-Migration 0036: APLICADA NOS DOIS AMBIENTES em 10/08/2026. Homologação com prova
-comportamental (recusa `P0005`, 0 linhas em `cardio_exercise_swaps`, resíduo 0);
-produção com verificação de leitura (`guarda_p0005_viva=true`, `anon_executa=false`)
-mais `md5(pg_get_functiondef(...))` idêntico ao de homologação — produção não recebe
-dado semeado. G-03-5-servidor: **resolvido**. `threats_open` de 2 para 0.
-Ressalva de processo, registrada em 03-UAT.md e 03-SECURITY.md: o `db push` de produção
-rodou SEM o portão do preflight, porque o runbook não encadeou os comandos com `&&`.
-Sem dano — alvo e migration corretos, conferidos depois — mas o controle não operou.
-Pendente: (1) teste 8, caveats de build nativo iOS/Android; (2) re-rodar
-`/gsd-secure-phase 03` e `/gsd-verify-work 03` para fechar a fase formalmente.
-Resolvido nesta sessão: teste 6 (harness de integração do 03-07) e teste 7 (0036).
-Ver 03-UAT.md (testes 6, 7, 8), 03-SECURITY.md e 03-VERIFICATION.md.
-Last activity: 2026-08-12 — Phase 04 complete, transitioned to Phase 3
-
-Progress: [█████████░] 94%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-13 — Milestone v1.0 completed and archived
 
 ## Accumulated Context
 
@@ -56,28 +40,33 @@ Progress: [█████████░] 94%
 Decisions are logged in PROJECT.md Key Decisions table.
 
 - REQ-02: meta de cardio derivada da prescrição do treino (decisão do dono, 2026-08-08).
+- Teste 8(c) da Fase 3 (fechar/reabrir em build nativo): pedido do dono ("teste você",
+  2026-08-13) atendido nos itens (a)/(b); item (c) impossível nesta máquina — deferido.
 
 ### Roadmap Evolution
 
 - Phase 4 added (2026-08-10): Escrita de execução de treino em lote e offline-first
   (REQ-07). Origem: sessão de debug `.planning/debug/typeerror-envio-series-treino.md`,
-  causa-raiz (2) — não existe hoje fila/lote/retry para as escritas de execução de
-  sessão. Escopo (buffer+flush versus offline-first completo) adiado por decisão do dono
-  para `/gsd-discuss-phase 04`. Não bloqueia o fechamento da Fase 03.
+  causa-raiz (2). Concluída e verificada em 2026-08-12 (passed 5/5).
 
 ### Pending Todos
 
-- Fase 03: teste 8 do 03-UAT.md (build nativo iOS/Android) e o fechamento formal
-  (`/gsd-secure-phase 03` + `/gsd-verify-work 03`) seguem pendentes.
+- Deploy da migration 0037 (P0005→23505) em staging e produção pelo fluxo normal —
+  até lá, recusa definitiva de swap em produção cai em retry-até-expirar (limitado por
+  idade) no cliente, em vez de quarentena imediata. Ação do dono.
 
-- Fase 04: rodar `/gsd-discuss-phase 04` para fechar a decisão de escopo antes de planejar.
-- Sessão de debug `typeerror-envio-series-treino`: causa-raiz (1) corrigida e verificada
-  (142 suítes / 1623 testes verdes, `tsc` exit 0); a mudança está no working tree, NÃO
-  commitada — o clone está em `main`.
+- Teste 8(c) do 03-UAT.md: reconfirmar "fechar e reabrir o app" em build nativo
+  iOS/Android real — deferido (máquina do ciclo sem toolchain nativa).
 
-- Ressalva aberta da mesma sessão: `errMsg` devolve `e.message` sem o nome da classe,
-  então a tela nunca exibe a palavra "TypeError". Falta o texto literal do erro visto em
-  produção para provar que o caminho corrigido é exatamente o que o dono observou.
+- Sessão de debug `typeerror-envio-series-treino`: resolved_partial — a correção está
+  COMMITADA e verificada (working tree limpo em 2026-08-13); ressalva aberta: `errMsg`
+  não exibe o nome da classe do erro, e falta o texto literal do erro de produção para
+  prova final.
+
+- Dívidas registradas no audit: migrations sem GRANT DML de tabela para `authenticated`
+  (projeto Supabase novo sobe quebrado); `Alert.alert` é no-op no react-native-web
+  ("Concluir treino" com séries pendentes parece morto no alvo web); tabela
+  `cardio_goals` órfã; Nyquist not-validated nas 4 fases (validate-phase nunca rodou).
 
 ### Blockers/Concerns
 
@@ -85,20 +74,29 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Clone principal (~/Projects/ForcaApp) ocupado por outra sessão em feat/treino-conjunto-2.0;
   este ciclo roda em ~/ForcaApp.
 
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-08-13:
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | typeerror-envio-series-treino | resolved_partial — fix commitado e verificado; falta o texto literal do erro de produção (só o dono tem) e a ressalva do errMsg sem nome de classe |
+
 ## Session Continuity
 
-Last session: 2026-08-11T20:14:59.182Z
-Stopped at: Fase 04 com contexto capturado (16 decisoes). Proximo passo: /gsd-plan-phase 4. Antes de planejar, substituir o TBD dos Success Criteria da Fase 4 no ROADMAP.md pelos criterios derivados no 04-CONTEXT.md.
-Detalhe: 9/9 planos executados e mesclados. A 0036 foi aplicada em homologação e em
-produção em 10/08/2026 — homologação com prova comportamental, produção com verificação
-de leitura mais md5 de pg_get_functiondef idêntico ao da função já provada. threats_open
-foi de 2 para 0. Ressalva: o db push de produção rodou sem o portão do preflight, porque
-o runbook não encadeou os comandos com &&; sem dano, mas o controle não operou.
-Próximo passo: teste 8 (build nativo iOS/Android, único pendente), depois
-/gsd-secure-phase 03 e /gsd-verify-work 03 para fechar a fase formalmente.
-Resume file: .planning/phases/04-escrita-de-execu-o-de-treino-em-lote-e-offline-first/04-CONTEXT.md
+Last session: 2026-08-13T18:00:00.000Z
+Stopped at: Milestone v1.0 "Cardio e alongamento" arquivado em 2026-08-13 —
+override_closeout com 1 item deferido (debug typeerror-envio-series-treino).
+Requisitos 7/7, fases 4/4 verificadas, integração 6/6, E2E completo.
+Dados UAT semeados preservados no banco local (sessão
+00000000-0000-4000-8000-000000000008). Próximo passo: /gsd-new-milestone.
+Resume file: .planning/milestones/v1.0-MILESTONE-AUDIT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,
 não o frontmatter — verificado em 10/08/2026, quando `state json` devolveu
 `stopped_at: "Planning inicializado..."` (texto que só existia aqui embaixo) enquanto o
 frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os dois.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

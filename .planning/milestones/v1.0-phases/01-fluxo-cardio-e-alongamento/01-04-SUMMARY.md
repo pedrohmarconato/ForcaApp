@@ -41,7 +41,7 @@ key-decisions:
 patterns-established:
   - "Catálogo é a fonte única de nomes oferecidos à IA (backend/services/exercise_catalog.py) — expansão de grupo muscular existente é sempre aditiva, sem migration"
 
-requirements-completed: []  # REQ-03 fica pendente até a Task 3 (checkpoint humano) ser aprovada — ver seção Checkpoint Pendente
+requirements-completed: [REQ-03]  # Task 3 (checkpoint humano) aprovada pelo dono em 2026-08-09 (geração real no HML, registrada no ROADMAP via PR #77); reconfirmada pelo dono em 2026-08-13 durante a auditoria do milestone v1.0
 
 coverage:
   - id: D1
@@ -124,7 +124,7 @@ Nenhum bloqueio técnico. `grep -c "^[0-9]\."` restrito ao range de linhas fixo 
 
 None - nenhuma configuração de serviço externo necessária.
 
-## Checkpoint Pendente — Task 3 (gate="blocking", checkpoint:human-verify)
+## Checkpoint — Task 3 (gate="blocking", checkpoint:human-verify) — APROVADO pelo dono em 2026-08-09
 
 **Esta Task NÃO foi executada pelo executor** — envolve uma chamada real e paga à API de IA (geração de plano), fora do escopo automatizável desta sessão, e o próprio plano proíbe chamá-la aqui.
 
@@ -141,10 +141,10 @@ None - nenhuma configuração de serviço externo necessária.
 
 **Resume signal esperado:** "aprovado" (se o plano gerado refletiu o foco pedido) ou descrição do que saiu diferente.
 
-**REQ-03 permanece aberto** (não marcado em `requirements-completed`) até a Task 3 ser aprovada pelo dono.
+**REQ-03 fechado**: a Task 3 foi executada e aprovada pelo dono em 2026-08-09 (geração real no HML — registro no ROADMAP.md, PR #77) e a aprovação foi reconfirmada pelo dono em 2026-08-13 na auditoria do milestone v1.0. Este arquivo ficou defasado até 2026-08-13 (o frontmatter dizia "pendente" enquanto o ROADMAP já registrava a aprovação); corrigido nesta data.
 
 ## Next Phase Readiness
-- Tasks 1 e 2 prontas para review; REQ-03 fecha assim que a Task 3 for aprovada pelo dono
+- Tasks 1 e 2 prontas para review; REQ-03 fechado (Task 3 aprovada pelo dono em 2026-08-09)
 - Nenhum blocker técnico para as próximas fases (REQ-04/05/06, Fases 2-3)
 
 ---

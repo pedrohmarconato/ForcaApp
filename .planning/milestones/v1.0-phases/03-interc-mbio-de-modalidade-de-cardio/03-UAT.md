@@ -1,11 +1,15 @@
 ---
-status: testing
+status: complete
 phase: 03-interc-mbio-de-modalidade-de-cardio
 source: [03-VERIFICATION.md]
 started: 2026-08-10T14:01:28Z
-updated: 2026-08-10T18:45:00Z
-round: 2
+updated: 2026-08-13T17:30:00Z
+round: 3
 round_note: |
+  Rodada 3 (2026-08-13, auditoria do milestone v1.0): teste 8 itens (a) e (b) executados por
+  execução assistida contra Postgres real (stack local, migrations até 0037) — ambos PASS.
+  Item (c) segue pendente: exige build nativo iOS/Android e a máquina do ciclo não tem
+  Xcode nem Android SDK. Detalhes e evidência na seção do teste 8.
   Rodada 1 (testes 1–5) foi executada em 2026-08-10 contra Postgres real e produziu os dois
   gaps registrados no fim deste arquivo. A onda de gap closure (planos 03-07/03-08/03-09)
   fechou o CÓDIGO dos dois; a re-verificação (03-VERIFICATION.md, 6/8 must-haves) devolveu
@@ -280,8 +284,40 @@ expected: |
   NÃO escolhe trocar; (b) o km realizado da semana soma corretamente com MÚLTIPLAS modalidades
   diferentes na mesma semana (a rodada 1 só teve uma); (c) o teste 1 ("fechar e reabrir o app")
   se confirma num build nativo iOS/Android real, não só reload de página web.
-result: [pending]
+result: partial — (a) PASS, (b) PASS (2026-08-13, rodada 3); (c) pending (sem toolchain nativa)
 source: 03-VERIFICATION.md — Human Verification item 3
+evidence_round_3: |
+  Execução assistida por agente em 2026-08-13, contra Postgres REAL local (migrations até
+  0037 — guarda de swap com errcode 23505). Cenário: sessão nova semeada
+  (planned_sessions 00000000-0000-4000-8000-000000000008, "Treino UAT teste 8",
+  2026-08-13) clonada da sessão da rodada 1, com dois momentos de cardio (Caminhada e
+  Corrida) e um de força (Supino Reto), zero set_logs iniciais.
+  (a) PASS — no cardio "Caminhada" (0 séries), motivo "Equipamento indisponível" exibiu
+      "Trocar modalidade" (skip-reason-oferecer-troca) e "Recusar mesmo assim"
+      (skip-reason-confirm); "Recusar mesmo assim" marcou o exercício como recusado na
+      fila ("Você não vai fazer hoje — equipamento indisponível. O exercício segue nas
+      próximas semanas." + link "Voltar a fazer"), a sessão continuou utilizável,
+      cardio_exercise_swaps permaneceu com 1 linha (INALTERADO) e a recusa gravou
+      exatamente 1 linha em exercise_skips com reason='sem_equipamento' — comportamento
+      idêntico ao antigo "Não vou fazer".
+  (b) PASS — série de Corrida 20 min / 3 km registrada (set_logs 1200 s / 3000 m) e
+      sessão FINALIZADA pela UI (session_logs.finished_at = 2026-08-13 17:18:45+00).
+      Progresso da semana somou modalidades DIFERENTES: "45 de 90 min / 7 de 15 km /
+      2 de 2 dias com cardio" (25+20 min; 4 km Caminhada via swap de 10/08 + 3 km
+      Corrida de 13/08). Nota de desenho confirmada no caminho: o realizado só conta
+      sessão com finished_at não-nulo (cardioGoalRepository.ts:33) — coerente com a
+      rodada 1, onde a soma apareceu após concluir a sessão.
+  (c) pending — "fechar e reabrir o app" em build nativo real segue não exercitado:
+      a máquina do ciclo não tem Xcode (só CommandLineTools, sem simulador) nem
+      Android SDK. Ação do dono: rodar num ambiente com toolchain nativa.
+  Achado colateral (web-only, registrado como dívida): com séries pendentes,
+  "Concluir treino" chama Alert.alert de confirmação (ActiveSessionScreen.tsx:256),
+  que é NO-OP no react-native-web — o botão parece morto no alvo web. Em build nativo
+  o diálogo funciona. Contornado no teste completando a série pendente (sessão completa
+  finaliza direto, sem diálogo).
+  Screenshots: scratchpad da sessão (item_a_fila_pos_recusa.jpg,
+  item_b_fila_corrida_concluida.jpg, treino-concluido.jpg, item_b_progresso_final.jpg).
+  Dados semeados preservados no banco local (IDs no relatório da sessão de auditoria).
 why_human: |
   Depende de interação de UI real (build nativo, múltiplos cenários de dados) que nem teste de
   componente isolado nem a execução assistida da rodada 1 (um único exercício de cardio,
@@ -292,9 +328,9 @@ why_human: |
 ## Summary
 
 total: 8
-passed: 6
+passed: 7
 issues: 1
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -307,6 +343,9 @@ round_2: 3 testes — 2 pass, 1 pending.
            em homologação — produção não recebe dado semeado. Ver `incidente_de_processo` no
            item: o portão do preflight não rodou nesse push.
          Teste 8 (pending): caveats de build nativo, intocado — depende de build iOS/Android real.
+round_3: teste 8 itens (a) e (b) PASS em 2026-08-13 (execução assistida, Postgres real local);
+         item (c) segue pendente — exige build nativo e a máquina do ciclo não tem
+         Xcode/Android SDK. Ver evidence_round_3 na seção do teste 8.
 
 ## Gaps
 
