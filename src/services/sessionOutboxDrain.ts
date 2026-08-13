@@ -204,6 +204,66 @@ const idFor = (sessionLogId: string, kind: OutboxItemKind, payload: unknown): st
 };
 
 /**
+ * WR-02 (code review 04): payloads persistem como JSON em AsyncStorage e
+ * podem ser lidos de volta por uma versão FUTURA do app (usuário fecha o
+ * app com item pendente, depois atualiza) — uma mudança de shape entre
+ * versões (campo renomeado/removido) faria o `as SaveSetLogPayload` etc. de
+ * `dispatchItem` produzir uma chamada de RPC malformada em vez de um erro
+ * diagnosticável, porque o cast bypassa a garantia do TypeScript. Guarda
+ * mínima por kind, na fronteira da persistência — mesmo espírito do
+ * version-guard de `parseDocument` (sessionOutboxStorage.ts): nunca lança,
+ * só reporta se o formato bate com o esperado.
+ */
+const hasValidPayloadShape = (kind: OutboxItemKind, payload: unknown): boolean => {
+  if (kind === 'finish_session') return true; // payload ignorado, ver dispatchItem
+  if (typeof payload !== 'object' || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  switch (kind) {
+    case 'save_set_log':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedSetId === 'string' &&
+        (p.actualReps === null || typeof p.actualReps === 'number') &&
+        (p.actualLoadKg === null || typeof p.actualLoadKg === 'number') &&
+        (p.actualRir === null || typeof p.actualRir === 'number') &&
+        typeof p.outcome === 'string'
+      );
+    case 'update_set_log_adaptation':
+      return (
+        typeof p.userId === 'string' &&
+        typeof p.plannedSessionId === 'string' &&
+        typeof p.plannedSetId === 'string'
+      );
+    case 'skip_session_exercise':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedExerciseId === 'string' &&
+        typeof p.reason === 'string'
+      );
+    case 'unskip_session_exercise':
+      return typeof p.sessionLogId === 'string' && typeof p.plannedExerciseId === 'string';
+    case 'swap_session_exercise':
+      return (
+        typeof p.sessionLogId === 'string' &&
+        typeof p.plannedExerciseId === 'string' &&
+        typeof p.toModality === 'string'
+      );
+    default: {
+      const exhaustive: never = kind;
+      return false;
+    }
+  }
+};
+
+/** WR-02: payload não bate com o shape esperado do kind — nunca chega à RPC. */
+class InvalidPayloadShapeError extends Error {
+  constructor(kind: OutboxItemKind) {
+    super(`payload malformado para ${kind} (versão incompatível)`);
+    this.name = 'InvalidPayloadShapeError';
+  }
+}
+
+/**
  * Único ponto que decide "chamar a RPC agora". As 6 operações do D-01 têm
  * dispatcher aqui (fechado no 04-02): `save_set_log`/`update_set_log_adaptation`
  * (04-01) e `skip_session_exercise`/`unskip_session_exercise`/
@@ -211,6 +271,10 @@ const idFor = (sessionLogId: string, kind: OutboxItemKind, payload: unknown): st
  * `withTimeout` e a MESMA classificação de erro em `classifyAndApply`.
  */
 const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void> => {
+  // WR-02: valida o shape ANTES de qualquer cast/RPC — ver hasValidPayloadShape.
+  if (!hasValidPayloadShape(item.kind, item.payload)) {
+    throw new InvalidPayloadShapeError(item.kind);
+  }
   switch (item.kind) {
     case 'save_set_log': {
       const p = item.payload as SaveSetLogPayload;
@@ -326,9 +390,11 @@ const discardSessionSubQueue = (doc: OutboxDocument, sessionLogId: string): Outb
 /**
  * Classifica UM erro de drenagem e devolve o documento atualizado. Ordem de
  * checagem importa: P0001 primeiro (Pitfall 3, não é recusa de item), depois
- * transporte, depois allowlist definitiva (D-14), depois o caso especial de
- * setLogId não resolvido (Pitfall 1), por fim qualquer erro não classificado
- * (Pitfall 2 — retentável até expirar, NUNCA quarentena por default).
+ * payload malformado (WR-02 — nunca chegou a tentar a RPC, retentar não
+ * ajuda), depois transporte, depois allowlist definitiva (D-14), depois o
+ * caso especial de setLogId não resolvido (Pitfall 1), por fim qualquer erro
+ * não classificado (Pitfall 2 — retentável até expirar, NUNCA quarentena por
+ * default).
  */
 const classifyAndApply = (
   doc: OutboxDocument,
@@ -340,6 +406,14 @@ const classifyAndApply = (
   if (isSessionClosedCode(codeOf(error)) || error instanceof SessionClosedForAdaptationError) {
     callbacks?.onSessionClosed?.(item.sessionLogId);
     return discardSessionSubQueue(doc, item.sessionLogId);
+  }
+
+  if (error instanceof InvalidPayloadShapeError) {
+    // WR-02: shape errado nunca vai se resolver sozinho com backoff — vai
+    // direto para quarentena, com reason clara para diagnóstico, em vez de
+    // retentar (Pitfall 2 é para erro DESCONHECIDO do servidor, não para
+    // este caso — aqui a causa já está identificada no cliente).
+    return quarantineItem(doc, item, 'payload malformado (versão incompatível)', null, nowISO);
   }
 
   const expired = isExpired(item.enqueuedAt, nowISO);

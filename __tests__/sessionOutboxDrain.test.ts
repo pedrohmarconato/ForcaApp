@@ -401,3 +401,36 @@ describe('CR-01: drainAll/enqueueItem concorrentes não perdem item pendente (D-
     expect(doc.items.some((it) => it.kind === 'save_set_log')).toBe(false);
   });
 });
+
+describe('WR-02: payload com shape inválido na fronteira da persistência nunca chega à RPC', () => {
+  it('save_set_log com plannedSetId ausente (payload de versão futura/incompatível): quarentena direta, saveSetLog NUNCA chamado', async () => {
+    // Simula um item persistido por uma versão FUTURA do app com o shape do
+    // payload já mudado (campo renomeado/removido) — não dá para construir
+    // isto via enqueueItem (o tipo TS impediria), então grava o documento
+    // direto via saveOutbox, como o disco real teria.
+    await saveOutbox('user-1', {
+      version: 1,
+      items: [
+        {
+          id: 'log-1:set:st-1',
+          sessionLogId: 'log-1',
+          kind: 'save_set_log',
+          // payload malformado: sem plannedSetId (renomeado numa versão futura hipotética).
+          payload: { sessionLogId: 'log-1', actualReps: 8, actualLoadKg: 40, actualRir: 2, outcome: 'on_target' },
+          enqueuedAt: new Date().toISOString(),
+          nextAttemptAt: new Date().toISOString(),
+          attempts: 0,
+        },
+      ],
+      quarantine: [],
+    });
+
+    const result = await drainAll('user-1');
+
+    expect(saveSetLog).not.toHaveBeenCalled();
+    expect(result.pendingCount).toBe(0);
+    expect(result.quarantineCount).toBe(1);
+    const doc = await loadOutbox('user-1');
+    expect(doc.quarantine[0].reason).toMatch(/payload/i);
+  });
+});
