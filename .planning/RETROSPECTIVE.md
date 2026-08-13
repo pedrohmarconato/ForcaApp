@@ -68,7 +68,7 @@
 
 ### Cost Observations
 - Execução delegada a subagentes (Haiku/Sonnet) com orquestração no modelo da sessão;
-  auditoria do fechamento: 6 subagentes Sonnet, ~680k tokens somados das notificações.
+  auditoria do fechamento: 6 subagentes Sonnet, 559.401 tokens somados das notificações.
 - Sessions: não medido com precisão (transcript diferido; ver `~/.claude/usage/db.json`).
 - Notable: a auditoria + fechamento de gaps do v1.0 (integração, verificação retroativa,
   re-verificação, segurança e UAT assistido) coube num único dia de sessão.
