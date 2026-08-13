@@ -77,6 +77,11 @@ import { saveDraft, loadDraft, clearDraft } from '../src/services/sessionDraftSt
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import { sessionProgress } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
+// Fase 4 (REQ-07): skipExercise/unskipExercise enfileiram em vez de aguardar a
+// RPC direto (D-05 estendido) — os testes que antes verificavam a chamada
+// SÍNCRONA a skipSessionExercise/unskipSessionExercise agora drenam
+// explicitamente para observar o payload enviado.
+import { drainAll } from '../src/services/sessionOutboxDrain';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
 const store = () => useActiveSessionStore.getState();
@@ -186,8 +191,8 @@ beforeEach(() => {
   });
 });
 
-describe('modo de falha 1: servidor primeiro', () => {
-  it('grava no servidor com motivo e nota antes de aplicar na tela', async () => {
+describe('modo de falha 1: fila offline-first (D-05 estendido, Fase 4/REQ-07)', () => {
+  it('aplica a recusa na tela imediatamente e enfileira skipSessionExercise com motivo e nota', async () => {
     await abrirSessao();
     mock(skipSessionExercise).mockResolvedValue({
       plannedExerciseId: 'ex-2',
@@ -198,34 +203,44 @@ describe('modo de falha 1: servidor primeiro', () => {
     const ok = await store().skipExercise('ex-2', 'dor_ou_lesao', 'joelho');
 
     expect(ok).toBe(true);
+    const corrida = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
+    expect(corrida.skippedByUser).toBe(true);
+    expect(corrida.skipReason).toBe('dor_ou_lesao');
+    // A série pendente da corrida saiu da conta; a do supino continua.
+    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 1 });
+
+    // A gravação no servidor acontece em segundo plano, via fila (D-05
+    // estendido) — drena explicitamente para observar o payload enviado.
+    await drainAll('user-1');
     expect(skipSessionExercise).toHaveBeenCalledWith({
       sessionLogId: 'sl-1',
       plannedExerciseId: 'ex-2',
       reason: 'dor_ou_lesao',
       note: 'joelho',
     });
-    const corrida = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
-    expect(corrida.skippedByUser).toBe(true);
-    expect(corrida.skipReason).toBe('dor_ou_lesao');
-    // A série pendente da corrida saiu da conta; a do supino continua.
-    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 1 });
   });
 
-  it('falha do servidor NÃO marca a recusa na tela e reporta o erro', async () => {
+  it('falha do servidor NÃO desfaz a recusa na tela nem seta saveError (D-05 estendido)', async () => {
     await abrirSessao();
     mock(skipSessionExercise).mockRejectedValue(new Error('log já finalizado'));
 
     const ok = await store().skipExercise('ex-2', 'nao_gosto');
 
-    expect(ok).toBe(false);
+    // Fase 4 (REQ-07): a mudança local já aplicou antes de a fila tentar a
+    // rede — falha de servidor NUNCA reverte a tela nem seta saveError a
+    // partir de agora (só a validação local, que já passou).
+    expect(ok).toBe(true);
     const corrida = store().draft!.exercises.find((e) => e.exerciseId === 'ex-2')!;
-    expect(corrida.skippedByUser).not.toBe(true);
-    expect(store().saveError).toBe('log já finalizado');
-    // As duas séries continuam exigidas: nada foi dispensado de fato.
-    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 2 });
+    expect(corrida.skippedByUser).toBe(true);
+    expect(store().saveError).toBeNull();
+    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 1 });
+
+    // O item fica pendente na fila (retentável), não quarentena por default.
+    await drainAll('user-1');
+    expect(skipSessionExercise).toHaveBeenCalled();
   });
 
-  it('desfazer também passa pelo servidor antes de voltar à tela', async () => {
+  it('desfazer também aplica na tela imediatamente e enfileira o desfazimento', async () => {
     await abrirSessao();
     mock(skipSessionExercise).mockResolvedValue({
       plannedExerciseId: 'ex-2',
@@ -233,16 +248,19 @@ describe('modo de falha 1: servidor primeiro', () => {
       note: null,
     });
     await store().skipExercise('ex-2', 'cansaco');
+    await drainAll('user-1');
     mock(unskipSessionExercise).mockResolvedValue(true);
 
     await store().unskipExercise('ex-2');
 
+    expect(store().draft!.exercises[1].skippedByUser).toBe(false);
+    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 2 });
+
+    await drainAll('user-1');
     expect(unskipSessionExercise).toHaveBeenCalledWith({
       sessionLogId: 'sl-1',
       plannedExerciseId: 'ex-2',
     });
-    expect(store().draft!.exercises[1].skippedByUser).toBe(false);
-    expect(sessionProgress(store().draft!)).toEqual({ done: 0, total: 2 });
   });
 });
 
