@@ -10,7 +10,8 @@
 // INTEIRA daquela sessionLogId e reconcilia o estado local via callback
 // (Pitfall 3) — nunca silencioso, diferente da quarentena comum do D-06.
 
-import type { Outcome } from '../engine/sessionModel';
+import type { Outcome, SkipReason } from '../engine/sessionModel';
+import type { CardioModalidade } from '../constants/cardioModalidades';
 import {
   buildItemId,
   upsertItem,
@@ -30,6 +31,10 @@ import {
   saveSetLog,
   updateSetLogAdaptation,
   getOpenSessionLog,
+  skipSessionExercise,
+  unskipSessionExercise,
+  swapSessionExercise,
+  finishSessionLog,
   isTransportSessionExecutionError,
   SessionExecutionRequestError,
 } from './sessionExecutionRepository';
@@ -58,6 +63,25 @@ export type UpdateSetLogAdaptationPayload = {
   plannedSetId: string;
   adaptation: unknown;
   decision?: unknown;
+};
+
+export type SkipSessionExercisePayload = {
+  sessionLogId: string;
+  plannedExerciseId: string;
+  reason: SkipReason;
+  note: string | null;
+};
+
+export type UnskipSessionExercisePayload = {
+  sessionLogId: string;
+  plannedExerciseId: string;
+};
+
+export type SwapSessionExercisePayload = {
+  sessionLogId: string;
+  plannedExerciseId: string;
+  toModality: CardioModalidade;
+  note: string | null;
 };
 
 export type DrainCallbacks = {
@@ -164,10 +188,11 @@ const idFor = (sessionLogId: string, kind: OutboxItemKind, payload: unknown): st
 };
 
 /**
- * Único ponto que decide "chamar a RPC agora". Nesta fase (04-01), só
- * `save_set_log` e `update_set_log_adaptation` têm dispatcher — os outros 4
- * kinds do D-01 ainda não são gerados por lugar nenhum do store (04-02 os
- * adiciona).
+ * Único ponto que decide "chamar a RPC agora". As 6 operações do D-01 têm
+ * dispatcher aqui (fechado no 04-02): `save_set_log`/`update_set_log_adaptation`
+ * (04-01) e `skip_session_exercise`/`unskip_session_exercise`/
+ * `swap_session_exercise`/`finish_session` (04-02) — todos sob o MESMO
+ * `withTimeout` e a MESMA classificação de erro em `classifyAndApply`.
  */
 const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void> => {
   switch (item.kind) {
@@ -203,11 +228,42 @@ const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void
       await updateSetLogAdaptation(setLogId, p.adaptation, p.decision);
       return;
     }
-    default:
-      // 04-02-PLAN.md adiciona os dispatchers de skip/unskip/swap/finish.
-      throw new Error(
-        `sessionOutboxDrain: kind '${item.kind}' ainda não tem dispatcher (04-02-PLAN.md).`,
-      );
+    case 'skip_session_exercise': {
+      const p = item.payload as SkipSessionExercisePayload;
+      await skipSessionExercise({
+        sessionLogId: p.sessionLogId,
+        plannedExerciseId: p.plannedExerciseId,
+        reason: p.reason,
+        note: p.note,
+      });
+      return;
+    }
+    case 'unskip_session_exercise': {
+      const p = item.payload as UnskipSessionExercisePayload;
+      await unskipSessionExercise({
+        sessionLogId: p.sessionLogId,
+        plannedExerciseId: p.plannedExerciseId,
+      });
+      return;
+    }
+    case 'swap_session_exercise': {
+      const p = item.payload as SwapSessionExercisePayload;
+      await swapSessionExercise({
+        sessionLogId: p.sessionLogId,
+        plannedExerciseId: p.plannedExerciseId,
+        toModality: p.toModality,
+        note: p.note,
+      });
+      return;
+    }
+    case 'finish_session': {
+      await finishSessionLog(item.sessionLogId);
+      return;
+    }
+    default: {
+      const exhaustive: never = item.kind;
+      throw new Error(`sessionOutboxDrain: kind não reconhecido: ${JSON.stringify(exhaustive)}`);
+    }
   }
 };
 
