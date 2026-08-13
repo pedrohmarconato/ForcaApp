@@ -31,6 +31,7 @@ import {
   saveSetLog,
   updateSetLogAdaptation,
   getOpenSessionLog,
+  getSessionLogFinishedStatus,
   skipSessionExercise,
   unskipSessionExercise,
   swapSessionExercise,
@@ -152,6 +153,21 @@ class UnresolvedSetLogIdError extends Error {
   }
 }
 
+/**
+ * CR-03 (code review 04): sessão da adaptação CONFIRMADAMENTE fechada no
+ * servidor — distinto de `UnresolvedSetLogIdError` (que ainda pode resolver
+ * numa próxima passada, Pitfall 1). `classifyAndApply` trata este erro
+ * IGUAL ao P0001 de qualquer outro item: descarta a sub-fila inteira da
+ * sessão e reconcilia via `onSessionClosed` (Pitfall 3) — nunca quarentena
+ * comum, nunca silencioso.
+ */
+class SessionClosedForAdaptationError extends Error {
+  constructor() {
+    super('sessão fechada — adaptação sem set_log para carimbar');
+    this.name = 'SessionClosedForAdaptationError';
+  }
+}
+
 const codeOf = (error: unknown): string | null =>
   error instanceof SessionExecutionRequestError ? error.code : null;
 
@@ -220,9 +236,19 @@ const dispatchItem = async (item: OutboxItem, signal: AbortSignal): Promise<void
       const aberta = await getOpenSessionLog(p.userId, p.plannedSessionId);
       const setLogId = aberta?.setLogs.find((sl) => sl.planned_set_id === p.plannedSetId)?.id;
       if (!setLogId) {
-        // Sessão fechada ou o save_set_log correspondente nunca confirmou —
-        // não há setLogId a carimbar ainda (Pitfall 1). Não é transporte nem
-        // código de servidor: tratamento próprio no classificador de drainAll.
+        // CR-03 (fechado): getOpenSessionLog só enxerga sessão ABERTA — não
+        // encontrar aqui é ambíguo entre "sessão fechada" (precisa da
+        // reconciliação P0001/Pitfall 3) e "o save_set_log correspondente
+        // ainda não confirmou" (Pitfall 1, retry normal). Checagem extra e
+        // barata (SELECT simples, mesma RLS, sem RPC nova) resolve a
+        // ambiguidade antes de decidir qual erro lançar.
+        const status = await getSessionLogFinishedStatus(p.userId, item.sessionLogId);
+        if (status?.finished) {
+          throw new SessionClosedForAdaptationError();
+        }
+        // Sessão ainda aberta (ou log não encontrado/RLS) — não há setLogId
+        // a carimbar ainda (Pitfall 1). Não é transporte nem código de
+        // servidor: tratamento próprio no classificador de drainAll.
         throw new UnresolvedSetLogIdError();
       }
       await updateSetLogAdaptation(setLogId, p.adaptation, p.decision);
@@ -311,7 +337,7 @@ const classifyAndApply = (
   nowISO: string,
   callbacks: DrainCallbacks | undefined,
 ): OutboxDocument => {
-  if (isSessionClosedCode(codeOf(error))) {
+  if (isSessionClosedCode(codeOf(error)) || error instanceof SessionClosedForAdaptationError) {
     callbacks?.onSessionClosed?.(item.sessionLogId);
     return discardSessionSubQueue(doc, item.sessionLogId);
   }

@@ -40,6 +40,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     saveSetLog: jest.fn(),
     updateSetLogAdaptation: jest.fn(),
     getOpenSessionLog: jest.fn(),
+    getSessionLogFinishedStatus: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (e: unknown) =>
       e instanceof SessionExecutionRequestError && e.kind === 'transport',
@@ -50,6 +51,7 @@ import {
   saveSetLog,
   updateSetLogAdaptation,
   getOpenSessionLog,
+  getSessionLogFinishedStatus,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 import { enqueueItem, enqueueAndDrain, drainAll } from '../src/services/sessionOutboxDrain';
@@ -273,6 +275,39 @@ describe('update_set_log_adaptation — resolução tardia de setLogId (Pitfall 
     expect(result.pendingCount).toBe(1);
     expect(result.quarantineCount).toBe(0);
   });
+
+  it('CR-03: sessão REALMENTE fechada (não apenas set_log não confirmado) descarta a sub-fila e chama onSessionClosed', async () => {
+    // getOpenSessionLog não encontra a sessão ABERTA (filtra finished_at IS
+    // NULL) — sozinho, isso é ambíguo entre "fechada" e "save_set_log ainda
+    // não confirmou" (Pitfall 1). A checagem extra (getSessionLogFinishedStatus,
+    // SELECT simples, mesma RLS, sem RPC nova) resolve a ambiguidade.
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(getSessionLogFinishedStatus).mockResolvedValue({ finished: true });
+
+    const payload: UpdateSetLogAdaptationPayload = {
+      userId: 'user-1',
+      plannedSessionId: 'sess-1',
+      plannedSetId: 'st-1',
+      adaptation: { kind: 'keep', auto: true },
+    };
+    // Sub-fila da MESMA sessão: item de adaptação sozinho (o save_set_log
+    // correspondente já drenou em outra rodada/dispositivo) + um item extra
+    // qualquer para provar que a sub-fila INTEIRA é descartada, não só o
+    // item de adaptação (mesmo contrato de P0001, Pitfall 3).
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'update_set_log_adaptation', payload });
+    await enqueueItem('user-1', { sessionLogId: 'log-1', kind: 'finish_session', payload: {} });
+
+    const onSessionClosed = jest.fn();
+    const result = await drainAll('user-1', { onSessionClosed });
+
+    expect(onSessionClosed).toHaveBeenCalledWith('log-1');
+    expect(updateSetLogAdaptation).not.toHaveBeenCalled();
+    expect(result.pendingCount).toBe(0);
+    expect(result.quarantineCount).toBe(0);
+    const doc = await loadOutbox('user-1');
+    expect(doc.items).toHaveLength(0);
+    expect(doc.quarantine).toHaveLength(0);
+  });
 });
 
 describe('CR-02: falha transitória de loadOutbox em enqueueItem NUNCA persiste por cima da fila real', () => {
@@ -316,6 +351,15 @@ describe('CR-01: drainAll/enqueueItem concorrentes não perdem item pendente (D-
           releaseX = () => resolve(savedRow());
         }),
     );
+    // Y (update_set_log_adaptation) pode chegar a ser despachado numa
+    // rodada seguinte, depois de X sair da fila — mocks explícitos (em vez
+    // de depender de implementação deixada por outro teste, jest.clearAllMocks
+    // limpa histórico de chamadas mas NÃO reverte mockResolvedValue) fazem
+    // esse despacho cair no ramo "ainda não confirmado" (retenta), não no
+    // ramo "sessão fechada" (que descartaria a sub-fila e apagaria Y de
+    // propósito — não é o que este teste quer provar).
+    mock(getOpenSessionLog).mockResolvedValue(null);
+    mock(getSessionLogFinishedStatus).mockResolvedValue({ finished: false });
 
     // X enfileirado e SEU drain (Drain-X) começa a rodada — fica preso na
     // RPC de saveSetLog (rede em voo), exatamente como completeSet dispara
