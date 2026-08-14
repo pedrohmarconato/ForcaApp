@@ -75,6 +75,65 @@
 
 ---
 
+## Milestone: v1.1 — Release em produção
+
+**Shipped:** 2026-08-14
+**Phases:** 4 (5-8; 6-8 em execução direta) | **Plans:** 2 (Fase 5)
+
+### What Was Built
+
+Nada de feature nova — o milestone levou o v1.0 inteiro a produção com evidência:
+gráfico de evolução de cardio integrado com higiene de git e painel adversarial
+(7 achados, 4 corrigidos com teste-antes-do-fix, 3 aceitos); 68 commits publicados
+com CI verde; migration 0037 (P0005→23505) verificada em staging e produção
+(md5 idêntico); PWA no ar com verificação visual do dono.
+
+### What Worked
+
+- Painel adversarial antes do push pegou 7 achados reais no diff acumulado — barato
+  comparado a caçá-los em produção.
+- Protocolo de verificação de migration por leitura + md5 (herdado da 0036) provou
+  a 0037 mesmo quando o push do dono retornou "up to date" (sessão paralela já havia
+  aplicado) — a prova por leitura independe de quem aplicou.
+- Portões humanos explícitos (deploy prod, UAT visual) com roteiro pronto: o dono
+  executou e reportou "passou" em minutos.
+
+### What Was Inefficient
+
+- Fases 6-8 executadas sem diretórios de fase → o fechamento virou override_closeout
+  e a projeção do GSD (init.manager) as via como não iniciadas — atrito em todo o
+  fluxo de close.
+- Preview+smoke da Vercel pulado por decisão do dono; funcionou, mas o smoke acabou
+  acontecendo direto em produção — risco aceito, não repetível como padrão.
+- Trabalho do gráfico feito FORA do GSD (pós-arquivamento do v1.0) precisou de uma
+  fase inteira (5) só para reintegrá-lo com higiene.
+
+### Patterns Established
+
+- UAT deferido para produção: quando a máquina não cobre o alvo (sem toolchain
+  nativa), o item vira portão do dono com roteiro explícito e reporte literal.
+- Milestone operacional de release pode fechar por evidência direta (CI run, md5,
+  HTTP 200) sem SUMMARY por fase — mas custa override e nota de fechamento.
+
+### Key Lessons
+
+1. Trabalho fora do ciclo GSD cobra reintegração formal depois — capturar no ciclo
+   desde o início sai mais barato.
+2. Fase operacional também merece diretório e SUMMARY mínimo — o custo é minutos e
+   evita override no close.
+3. Evidência de produção pertence ao artefato na hora (frontmatter/STATE), não à
+   memória da sessão — o close do v1.1 só foi rápido porque a sessão anterior
+   registrou push/CI/md5/URL no ROADMAP e STATE.
+
+### Cost Observations
+- Model mix: não medido por modelo (sem split de cache na sessão em curso).
+- Sessions: fechamento do v1.1 + abertura do v1.2 numa única sessão Fable 5 com
+  execução delegada (pesquisa Apple/CADE: 1 subagente Sonnet, 108.303 tokens).
+- Notable: a verificação visual do dono em produção fechou Fase 5, PUB-04 e o
+  milestone num único reporte ("passou").
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -82,9 +141,11 @@
 | Milestone | Phases | Key Change |
 |-----------|--------|------------|
 | v1.0 | 4 | Primeiro ciclo GSD do repo; estabeleceu checkpoints de banco vivo, prova contra Postgres real e auditoria pré-fechamento |
+| v1.1 | 4 | Primeiro milestone de release-ops; painel adversarial pré-push como portão padrão; UAT do dono direto em produção; override_closeout por execução direta sem diretórios de fase |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Notable |
 |-----------|-------|---------|
 | v1.0 | ~1623 (142 suítes) + harness de integração real | tsc limpo; 0 threats abertos; integração cross-phase 6/6 |
+| v1.1 | 1692 (147 suítes) + 617 pytest | CI session-contract verde no remoto (run 31822228262); 7 achados de painel fechados; migration 0037 com paridade md5 staging×prod |
