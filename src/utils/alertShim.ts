@@ -24,7 +24,18 @@ export const showAlert = (
   buttons?: AlertButton[],
 ): void => {
   if (Platform.OS !== 'web') {
-    Alert.alert(title, message, buttons);
+    // Repasse com a MESMA aridade da chamada original (D-03): forçar sempre
+    // 3 argumentos passaria `undefined` explícito onde o call site nunca
+    // passou nada, quebrando spies que verificam a lista exata de
+    // argumentos (ex.: toHaveBeenCalledWith('t', 'm') falha se o terceiro
+    // arg for `undefined` em vez de ausente).
+    if (buttons !== undefined) {
+      Alert.alert(title, message, buttons);
+    } else if (message !== undefined) {
+      Alert.alert(title, message);
+    } else {
+      Alert.alert(title);
+    }
     return;
   }
   useAlertStore.getState().show({
