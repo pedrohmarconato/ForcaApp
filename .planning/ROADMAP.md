@@ -69,7 +69,7 @@ desbloqueia UAT confiável das telas que as fases seguintes vão afetar)
   3. UAT do dono no iPhone real (PWA instalado): durante uma sessão de treino ativa,
      a tela nunca escurece/bloqueia enquanto o Wake Lock está ativo, e ao concluir ou
      sair da sessão o bloqueio automático do iPhone volta ao normal.
-**Plans**: 1/4 plans executed
+**Plans**: 3/4 plans executed
 Plans:
 **Wave 1**
 
@@ -77,8 +77,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — Migrar Alert.alert em QuestionnaireScreen (6) + SignUpScreen (1)
-- [ ] 09-03-PLAN.md — Migrar confirmarPadrao (JointLobbyScreen) + remover import morto (PostQuestionnaireChat)
+- [x] 09-02-PLAN.md — Migrar Alert.alert em QuestionnaireScreen (6) + SignUpScreen (1)
+- [x] 09-03-PLAN.md — Migrar confirmarPadrao (JointLobbyScreen) + remover import morto (PostQuestionnaireChat)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -197,7 +197,7 @@ registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
 | 6. Publicação do código | v1.1 | direto | Complete | 2026-08-14 |
 | 7. Migration 0037 em staging e produção | v1.1 | direto | Complete | 2026-08-14 |
 | 8. Deploy web e fechamento | v1.1 | direto | Complete | 2026-08-14 |
-| 9. Fechamento de gaps do runtime web | v1.2 | 1/4 | In Progress|  |
+| 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | In Progress|  |
 | 10. Identidade do app instalável | v1.2 | 0/TBD | Not started | - |
 | 11. Service worker e atualização segura | v1.2 | 0/TBD | Not started | - |
 | 12. Página de instalação guiada | v1.2 | 0/TBD | Not started | - |
