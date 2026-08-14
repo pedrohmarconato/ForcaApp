@@ -22,7 +22,7 @@ const AlertHost = () => {
 
   if (!current) return null;
 
-  const buttons = current.buttons ?? DEFAULT_BUTTONS;
+  const buttons = current.buttons && current.buttons.length > 0 ? current.buttons : DEFAULT_BUTTONS;
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={dismiss}>

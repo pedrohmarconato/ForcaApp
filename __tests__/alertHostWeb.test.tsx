@@ -70,4 +70,13 @@ describe('AlertHost (web)', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(useAlertStore.getState().current).toBeNull();
   });
+
+  it('showAlert(..., []) (buttons vazio) cai para o botão padrão "OK" em vez de renderizar zero botões (WR-01)', () => {
+    const screen = render(<AlertHost />);
+    act(() => {
+      showAlert('Aviso', 'Mensagem informativa', []);
+    });
+    expect(screen.getByTestId('alert-host-button-0')).toBeTruthy();
+    expect(screen.getByText('OK')).toBeTruthy();
+  });
 });
