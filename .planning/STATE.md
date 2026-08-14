@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: App de iPhone instalável via site (PWA)
-current_phase: 9
-current_phase_name: Fechamento de gaps do runtime web
+current_phase: 09
+current_phase_name: fechamento-de-gaps-do-runtime-web
 status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-08-14T19:30:40.315Z"
+last_updated: "2026-08-14T19:34:43.396Z"
 last_activity: 2026-08-14
-last_activity_desc: ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
+last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 5
   completed_phases: 0
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** O PWA da Vercel vira app instalável de primeira classe no iPhone —
 sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
-**Current focus:** Phase 9 — Fechamento de gaps do runtime web (Alert.alert + Wake Lock)
+**Current focus:** Phase 09 — fechamento-de-gaps-do-runtime-web
 
 ## Current Position
 
-Phase: 9 of 13 (Fechamento de gaps do runtime web)
-Plan: — (not planned yet)
-Status: Ready to execute
-Last activity: 2026-08-14 — ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
+Phase: 09 (fechamento-de-gaps-do-runtime-web) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 09
+Last activity: 2026-08-14 — Phase 09 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
