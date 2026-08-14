@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: App de iPhone instalável via site (PWA)
+current_phase: 9
+current_phase_name: Fechamento de gaps do runtime web
 status: planning
-last_updated: "2026-08-14T18:00:00.000Z"
+stopped_at: Phase 9 context gathered
+last_updated: "2026-08-14T18:47:27.412Z"
 last_activity: 2026-08-14
+last_activity_desc: ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
 progress:
   total_phases: 5
   completed_phases: 0
@@ -35,6 +39,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0 (v1.2)
 - Average duration: —
 - Total execution time: —
@@ -47,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P02 | 1 tasks | 9min | 9min |
 
 **Recent Trend:**
+
 - v1.2 ainda não iniciou execução — sem amostra.
 
 ## Accumulated Context
@@ -58,12 +64,15 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - v1.2 segue o caminho PWA sem Apple Developer pago (2026-08-14) — pesquisa
   confirmou que a única alternativa (marketplace do TCC CADE) também exige conta
   paga; dono optou por não pagar.
+
 - Ordem das fases 9-13 segue a dependência técnica real da pesquisa: Alert.alert +
   Wake Lock primeiro (ortogonal, desbloqueia UAT limpo), depois identidade
   (manifest/splash), depois service worker, depois página de instalação, push por
   último (depende de SW registrado e do alertShim para o opt-in).
+
 - Push (PUSH-01) exige spike técnico prévio de expiração/HTTP 410 do `pywebpush`
   antes da implementação principal — confiança MEDIUM-BAIXA nas fontes.
+
 - Service worker nunca intercepta chamadas Supabase/API — outbox offline-first do
   v1.0 segue como única camada de retry de dados (pitfall confirmado na pesquisa).
 
@@ -77,6 +86,7 @@ do v1.0/v1.1.
 - Máquina de dev sem toolchain nativa (sem Xcode) — cada fase relevante deste
   milestone termina com item de UAT explícito do dono no iPhone real (nunca
   "passou no Lighthouse" como critério de conclusão).
+
 - Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest).
 - Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção `zanqygwsgxkyjiuhrzju`)
   — conferir `supabase/.temp/project-ref` antes de qualquer comando linkado
@@ -96,12 +106,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-14T18:00:00.000Z
-Stopped at: ROADMAP.md v1.2 criado (Fases 9-13: Fechamento de gaps do runtime web,
+Last session: 2026-08-14T18:47:27.407Z
+Stopped at: Phase 9 context gathered
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: None
+Resume file: .planning/phases/09-fechamento-de-gaps-do-runtime-web/09-CONTEXT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
