@@ -7,6 +7,7 @@ import { useFonts } from 'expo-font';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import AlertHost from './src/components/AlertHost';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
     <AuthProvider>
       <StatusBar style="light" />
       <RootNavigator />
+      <AlertHost />
     </AuthProvider>
   );
 }

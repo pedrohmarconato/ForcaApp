@@ -19,9 +19,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 import theme from '../theme/theme';
+import { showAlert } from '../utils/alertShim';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -59,6 +60,12 @@ import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
 
+// Tag fixa fora do componente (D-05/D-06): ao contrário de useKeepAwake() sem
+// tag (que gera um ID novo por montagem e não pode ser desligado
+// condicionalmente — Pitfall 2 do RESEARCH.md), esta tag identifica UMA lock
+// que este componente ativa/desativa deliberadamente por status.
+const WAKE_LOCK_TAG = 'active-session';
+
 const ActiveSessionScreen = ({ route }: Props) => {
   const { sessionId } = route.params;
   // ActiveSession existe na Home e no Training stack; o ParamList da Home basta
@@ -66,10 +73,6 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const navigation =
     useNavigation<StackNavigationProp<HomeStackParamList, 'ActiveSession'>>();
   const { user } = useAuth();
-
-  // Direção 03: tela acesa durante a sessão inteira — treino não morre com o
-  // descanso na mão. No web vira wake lock; sem suporte, no-op.
-  useKeepAwake();
 
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState(false);
@@ -81,6 +84,43 @@ const ActiveSessionScreen = ({ route }: Props) => {
 
   const draft = useActiveSessionStore((s) => s.draft);
   const status = useActiveSessionStore((s) => s.status);
+
+  // Ciclo de vida do Wake Lock (SESS-01, D-05/D-06/D-07): a tela fica acesa
+  // enquanto a sessão está em andamento ('active'/'awaiting_checkin') e é
+  // liberada assim que sai desses estados — inclusive ao concluir
+  // ('finished') e no unmount. `.catch(() => {})` cobre D-06 (sem suporte a
+  // Wake Lock — iOS < 16.4, browser incompatível — falha silenciosa, sem
+  // aviso novo na UI) e o CodedError que deactivate lança quando a tag nunca
+  // foi ativada (ExpoKeepAwake.web.ts).
+  useEffect(() => {
+    if (status === 'active' || status === 'awaiting_checkin') {
+      void activateKeepAwakeAsync(WAKE_LOCK_TAG).catch(() => {});
+      return () => {
+        void deactivateKeepAwake(WAKE_LOCK_TAG).catch(() => {});
+      };
+    }
+    void deactivateKeepAwake(WAKE_LOCK_TAG).catch(() => {});
+    return undefined;
+  }, [status]);
+
+  // Readquisição em volta de background/tela bloqueada (D-07): o Screen Wake
+  // Lock nativo do browser é liberado automaticamente pelo sistema quando a
+  // aba perde visibilidade, e expo-keep-awake NÃO reativa sozinho ao voltar
+  // (confirmado lendo ExpoKeepAwake.web.ts na íntegra — sem esse listener).
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined; // nativo não tem `document` global
+    if (status !== 'active' && status !== 'awaiting_checkin') return undefined;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void activateKeepAwakeAsync(WAKE_LOCK_TAG).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [status]);
+
   const saveError = useActiveSessionStore((s) => s.saveError);
   const startOrResume = useActiveSessionStore((s) => s.startOrResume);
   const confirmCheckIn = useActiveSessionStore((s) => s.confirmCheckIn);
@@ -261,7 +301,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
       setResumoFinal(resumo);
     };
     if (!isSessionComplete(draft)) {
-      Alert.alert(
+      showAlert(
         'Concluir treino?',
         'Ainda há séries não registradas. Deseja concluir mesmo assim?',
         [
