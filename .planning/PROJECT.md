@@ -65,11 +65,24 @@ staging/produção; teste 8(c) em build nativo; sessão de debug `resolved_parti
 novos; `Alert.alert` no-op no react-native-web; tabela `cardio_goals` órfã; Nyquist
 not-validated nas 4 fases. Detalhe: STATE.md (Pending Todos/Deferred Items) e o audit.
 
-## Next Milestone Goals
+## Current Milestone: v1.1 Release em produção
 
-A definir via `/gsd-new-milestone`. Candidatos naturais herdados do v1.0: promoção da
-0037, limpeza de `cardio_goals`, GRANTs de tabela nas migrations, e o canal contínuo de
-foco de alongamento pós-geração (deferred na decisão de 2026-08-08).
+**Goal:** Tudo que está pronto e verificado neste clone chega em produção com
+evidência — código no GitHub com CI verde, migration 0037 viva em staging e produção,
+PWA atualizado na Vercel e pendências fechadas no STATE.md.
+
+**Target features:**
+- Gráfico de evolução de cardio integrado, revisado (painel adversarial) e commitado
+  com higiene (`.claude/` no `.gitignore`, adds nomeados — nunca `git add -A`)
+- ~46 commits locais publicados em `origin/main` com CI `session-contract` verde
+- Migration 0037 (P0005→23505) aplicada em staging e produção COM preflight,
+  verificada por leitura + md5 (mesmo protocolo da 0036)
+- Deploy web Vercel manual (preview → smoke → `--prod`) com verificação pós-produção
+
+**Fora do escopo:** config ESLint, flakiness de timeouts da suíte, deploy automático
+Vercel, `test:integration:pg`, backend HML na VPS. Comandos de produção
+(`supabase db push` prod e `vercel deploy --prod`) são portão do dono: a sessão
+entrega os comandos prontos com preflight validado; o dono executa.
 
 ## Restrições
 
@@ -96,5 +109,22 @@ foco de alongamento pós-geração (deferred na decisão de 2026-08-08).
 | 2026-08-13 | Teste 8(c) da Fase 3 (build nativo) deferido como caveat; itens (a)/(b) executados a pedido do dono ("teste você") e PASS | Fechamento do v1.0; máquina do ciclo sem Xcode/Android SDK; persistência já provada por leitura direta no banco |
 | 2026-08-13 | v1.0 fechado como override_closeout com 1 item deferido (debug resolved_partial) | Decisão do dono no fechamento; demais portões todos verdes (4/4 fases verificadas) |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-08-13 after v1.0 milestone*
+*Last updated: 2026-08-14 — milestone v1.1 started*
