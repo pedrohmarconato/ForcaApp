@@ -12,7 +12,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   Modal,
 } from 'react-native';
@@ -211,7 +210,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
         if (!ok) {
           // Falha do servidor NÃO fecha o sheet nem mente que aplicou: o aluno
           // vê o motivo e pode tentar de novo com a escolha preservada.
-          Alert.alert('Não foi possível registrar', saveError ?? 'Tente novamente.');
+          showAlert('Não foi possível registrar', saveError ?? 'Tente novamente.');
           return;
         }
         setRecusa(null);
@@ -233,7 +232,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
         if (!ok) {
           // Mesmo padrão de onConfirmarRecusa: falha do servidor não fecha o
           // sheet nem aplica a troca — o aluno vê o motivo e pode tentar de novo.
-          Alert.alert('Não foi possível trocar', saveError ?? 'Tente novamente.');
+          showAlert('Não foi possível trocar', saveError ?? 'Tente novamente.');
           return;
         }
         setTroca(null);
@@ -292,7 +291,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
       const resumo = montarResumoSessao(draft);
       const ok = await finishSession();
       if (!ok) {
-        Alert.alert(
+        showAlert(
           'Não foi possível concluir',
           saveError ?? 'Tente novamente.',
         );
