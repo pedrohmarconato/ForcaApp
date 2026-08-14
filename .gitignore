@@ -177,3 +177,10 @@ supabase/.temp/
 # estado local do Expo (devices, cache web) — não versionar
 .expo/
 .vercel
+
+# -------------------------------------------------
+# 🤖 Claude Code
+# -------------------------------------------------
+# Config local de sessão (settings.local.json, worktrees, locks de agendamento) —
+# carrega metadado da máquina/sessão e não deve viajar no repositório.
+.claude/
