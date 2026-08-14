@@ -50,4 +50,10 @@ trabalho do gráfico de cardio feito fora do GSD após o arquivamento do v1.0.
 
 | REQ | Phase | Status |
 |-----|-------|--------|
-| (preenchido pelo roadmap) | | |
+| INT-01 | Phase 5 | Pending |
+| INT-02 | Phase 5 | Pending |
+| PUB-01 | Phase 6 | Pending |
+| PUB-02 | Phase 7 | Pending |
+| PUB-03 | Phase 7 | Pending |
+| PUB-04 | Phase 8 | Pending |
+| PUB-05 | Phase 8 | Pending |

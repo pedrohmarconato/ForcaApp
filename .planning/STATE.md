@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Release em produção
 status: planning
-last_updated: "2026-08-14T13:04:27.615Z"
+last_updated: "2026-08-14T14:20:00.000Z"
 last_activity: 2026-08-14
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +17,18 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-12)
+See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
 meta com fonte única e condução guiada.
-**Current focus:** Fechamento do milestone v1.0
+**Current focus:** Fase 5 — Integração e review do gráfico de cardio (milestone v1.1)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-08-14 — Milestone v1.1 started
+Phase: 5 of 8 (Integração e review do gráfico de cardio)
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-08-14 — Roadmap v1.1 criado (Fases 5-8)
 
 ## Accumulated Context
 
@@ -46,11 +46,16 @@ Decisions are logged in PROJECT.md Key Decisions table.
   (REQ-07). Origem: sessão de debug `.planning/debug/typeerror-envio-series-treino.md`,
   causa-raiz (2). Concluída e verificada em 2026-08-12 (passed 5/5).
 
+- Roadmap v1.1 criado (2026-08-14): Fases 5-8 derivadas dos 7 requisitos de release
+  (INT-01, INT-02, PUB-01..05) — Fase 5 integração e review do gráfico de cardio, Fase 6
+  publicação do código, Fase 7 migration 0037 em staging+produção, Fase 8 deploy web +
+  fechamento. Cobertura 7/7 validada, sem órfãos.
+
 ### Pending Todos
 
 - Deploy da migration 0037 (P0005→23505) em staging e produção pelo fluxo normal —
   até lá, recusa definitiva de swap em produção cai em retry-até-expirar (limitado por
-  idade) no cliente, em vez de quarentena imediata. Ação do dono.
+  idade) no cliente, em vez de quarentena imediata. Ação do dono. (Endereçado pela Fase 7.)
 
 - Teste 8(c) do 03-UAT.md: reconfirmar "fechar e reabrir o app" em build nativo
   iOS/Android real — deferido (máquina do ciclo sem toolchain nativa).
@@ -67,9 +72,14 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ### Blockers/Concerns
 
-- Repo sem CI de testes: verificação sempre local (tsc + jest + pytest).
+- Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest); CI
+  `session-contract` remoto é o gate da Fase 6.
 - Clone principal (~/Projects/ForcaApp) ocupado por outra sessão em feat/treino-conjunto-2.0;
   este ciclo roda em ~/ForcaApp.
+- Working tree no início do v1.1 já contém trabalho não commitado do gráfico de cardio
+  (ProgressScreen.tsx modificado; CardioEvolucaoChart.tsx, cardioEvolucao.ts,
+  cardioEvolucao.test.ts e .planning/reviews/ não rastreados; .claude/ não rastreado) —
+  exatamente o escopo da Fase 5.
 
 ## Deferred Items
 
@@ -81,13 +91,11 @@ Items acknowledged and deferred at milestone close on 2026-08-13:
 
 ## Session Continuity
 
-Last session: 2026-08-13T18:00:00.000Z
-Stopped at: Milestone v1.0 "Cardio e alongamento" arquivado em 2026-08-13 —
-override_closeout com 1 item deferido (debug typeerror-envio-series-treino).
-Requisitos 7/7, fases 4/4 verificadas, integração 6/6, E2E completo.
-Dados UAT semeados preservados no banco local (sessão
-00000000-0000-4000-8000-000000000008). Próximo passo: /gsd-new-milestone.
-Resume file: .planning/milestones/v1.0-MILESTONE-AUDIT.md
+Last session: 2026-08-14T14:20:00.000Z
+Stopped at: Roadmap do milestone v1.1 criado — 4 fases (5-8) derivadas de 7 requisitos
+(INT-01, INT-02, PUB-01..05), cobertura 7/7 validada, sem órfãos. Próximo passo:
+/gsd-plan-phase 5.
+Resume file: .planning/ROADMAP.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,
 não o frontmatter — verificado em 10/08/2026, quando `state json` devolveu
@@ -96,4 +104,4 @@ frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os d
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan phase 5 with /gsd-plan-phase 5
