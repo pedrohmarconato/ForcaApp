@@ -89,7 +89,7 @@ import type { SessionDetail } from '../src/services/trainingRepository';
 // Fase 4 (REQ-07): a gravação de série virou item de fila — vários testes
 // desta suíte agora precisam drenar EXPLICITAMENTE (drainAll) para observar o
 // resultado da RPC, já que completeSet nunca mais aguarda a rede (D-05).
-import { drainAll } from '../src/services/sessionOutboxDrain';
+import { drainAll, enqueueItem } from '../src/services/sessionOutboxDrain';
 import { loadOutbox } from '../src/services/sessionOutboxStorage';
 
 
@@ -1184,5 +1184,45 @@ describe('falha de persistência local → storageWarning não bloqueante', () =
     expect(store().draft!.exercises[0].sets[0].status).toBe('done');
     expect(store().storageWarning).toContain('salvar localmente');
     expect(store().status).toBe('active');
+  });
+});
+
+describe('Achado 5 (painel 05-02): reset() resincroniza pendingCount/quarantineCount da fila REAL, não zera às cegas', () => {
+  it('reset(userId) com item real pendente na fila do usuário: contagem NÃO fica travada em zero', async () => {
+    // Wifi ruim no fim do treino A: item real fica na fila do USUÁRIO (D-10),
+    // não da tela.
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-A',
+      kind: 'save_set_log',
+      payload: {
+        sessionLogId: 'log-A',
+        plannedSetId: 'st-A',
+        actualReps: 8,
+        actualLoadKg: 40,
+        actualRir: 2,
+        outcome: 'on_target',
+      },
+    });
+
+    // Aluno entra no treino B do MESMO usuário — iniciar() chama reset(userId).
+    store().reset('user-1');
+
+    // Antes do fix: reset() zerava pendingCount/quarantineCount
+    // incondicionalmente e nada resincronizava contra a fila real — o selo
+    // "N registros a caminho" ficava invisível até a próxima mutação ou
+    // AppState. Espera o resync assíncrono (loadOutbox) terminar.
+    for (let i = 0; i < 20 && store().pendingCount === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(store().pendingCount).toBe(1);
+    expect(store().quarantineCount).toBe(0);
+  });
+
+  it('reset() sem userId (fallback defensivo) continua zerando síncrono, como antes', () => {
+    useActiveSessionStore.setState({ pendingCount: 3, quarantineCount: 1 });
+    store().reset();
+    expect(store().pendingCount).toBe(0);
+    expect(store().quarantineCount).toBe(0);
   });
 });
