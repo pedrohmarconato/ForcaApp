@@ -8,7 +8,6 @@ import {
     KeyboardAvoidingView,
     Platform,
     Modal,
-    Alert,
     Pressable,
     Text,
     TextInput,
