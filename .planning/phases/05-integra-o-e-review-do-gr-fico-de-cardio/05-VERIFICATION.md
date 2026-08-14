@@ -1,8 +1,9 @@
 ---
 phase: 05-integra-o-e-review-do-gr-fico-de-cardio
 verified: 2026-08-14T18:00:00Z
-status: human_needed
-score: 10/11 must-haves verified
+status: passed
+human_verified: 2026-08-14 — dono confirmou o gráfico no PWA de produção ("passou"); ver 05-UAT.md
+score: 11/11 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
@@ -15,7 +16,7 @@ human_verification:
 
 **Phase Goal:** O gráfico de evolução de cardio (trabalho feito fora do GSD após o arquivamento do v1.0) está integrado ao repositório com higiene de git e passou por painel adversarial antes de qualquer push a produção.
 **Verified:** 2026-08-14T18:00:00Z
-**Status:** human_needed
+**Status:** passed (item humano cumprido: dono confirmou "passou" no PWA de produção em 2026-08-14 — ver 05-UAT.md)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
@@ -34,9 +35,9 @@ human_verification:
 | 8 | Nenhum `git push` ocorreu durante a fase | ✓ VERIFIED | `git status -sb` → `main...origin/main [ahead 66]`. `git rev-list --count origin/main..HEAD` = 66, maior que o baseline 55 registrado no início da Task 1 do 05-02 — só cresceu, nunca diminuiu. |
 | 9 | Achados corrigidos são substantivos, não superficiais (fix real, não só cosmético) | ✓ VERIFIED | Inspeção direta de `enqueueItem` em `sessionOutboxDrain.ts` (achado 1) mostra loop de retry bounded real (`ENQUEUE_MAX_ATTEMPTS`), comentários explicando o mecanismo, distinção entre falha de leitura vs escrita — não é um patch cosmético. |
 | 10 | Nenhum debt marker (TBD/FIXME/XXX) sem referência de follow-up nos arquivos tocados pela fase | ✓ VERIFIED | Varredura de TODO/FIXME/XXX/TBD/HACK/PLACEHOLDER nos 12 arquivos tocados pela fase (4 do gráfico + 4 de fix + 4 de teste). Único achado: um `// TODO (dono): seção própria "Dupla"...` em `ProgressScreen.tsx:294` — confirmado via `git blame` como pré-existente do commit `6007033` (2026-08-06), fora do diff desta fase (que só tocou 4 linhas de import/render do componente). Não é debt introduzido nesta fase. |
-| 11 | Gráfico renderiza corretamente no app real (verificação visual) | ⚠️ Não coberto por teste automatizado | Ver Human Verification abaixo — a máquina não tem toolchain nativo iOS/Android; nenhum teste de snapshot/screenshot foi escrito para o componente visual. |
+| 11 | Gráfico renderiza corretamente no app real (verificação visual) | ✓ VERIFIED (humano) | Dono verificou no PWA de PRODUÇÃO (https://forca-app-six.vercel.app) em 2026-08-14 e reportou "passou" — registro em 05-UAT.md (1/1 passed). |
 
-**Score:** 10/11 truths verified (1 item roteado para verificação humana — não é falha, é limitação de ambiente já documentada nos artefatos da própria fase).
+**Score:** 11/11 truths verified (item 11 fechado por verificação humana do dono em produção, 2026-08-14).
 
 ### Required Artifacts
 
