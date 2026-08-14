@@ -69,6 +69,31 @@ produção); GRANT DML ausente para projetos Supabase novos; `Alert.alert` no-op
 react-native-web; tabela `cardio_goals` órfã; Nyquist not-validated nas fases do
 v1.0. Detalhe: STATE.md (Pending Todos/Deferred Items).
 
+## Current Milestone: v1.2 App de iPhone instalável via site (PWA)
+
+**Goal:** O ForcaApp vira um app instalável de primeira classe no iPhone — baixado
+do site do dono, sem App Store e sem conta Apple — elevando o PWA da Vercel a uma
+experiência indistinguível de app nativo para os ~20 usuários (família/alunos).
+
+**Target features:**
+- Manifest completo + ícones e splash screens iOS — instalação pela Tela de Início
+  com identidade própria (nome, ícone, standalone, sem chrome do Safari)
+- Service worker com offline real — o app abre e funciona sem rede, casando com o
+  outbox offline-first entregue no v1.0
+- Push notification no iPhone (iOS 16.4+, exige PWA instalado) com infra de envio
+  no backend
+- Página de instalação guiada no site ("instale no seu iPhone em 3 passos")
+- Fechamento dos gaps do runtime web — inclui a dívida conhecida do `Alert.alert`
+  no-op (botão "Concluir treino" parece morto no alvo web)
+
+**Restrição de contorno (decisão do dono, pesquisa datada de 2026-08-14):**
+distribuição nativa fora da App Store no Brasil segue exigindo Apple Developer pago
+— o TCC do CADE trouxe só marketplaces alternativos (iOS 26.5, jun/2026), que também
+exigem conta paga + notarização; a conta gratuita assina para 3 aparelhos por 7 dias.
+O dono optou por não pagar; Ad Hoc/TestFlight ficam registrados como porta reaberta
+caso decida pagar os US$ 99/ano. Máquina sem toolchain nativa (sem Xcode) — tudo
+deve ser verificável via Expo web + Supabase local.
+
 ## Restrições
 
 - Sem CI de testes no repo — verificação é local: `tsc` + `jest` + `pytest`.

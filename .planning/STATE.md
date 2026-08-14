@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Release em produção
-status: Awaiting next milestone
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-08-14T17:43:07.745Z"
+milestone: v1.2
+milestone_name: App de iPhone instalável via site (PWA)
+status: planning
+last_updated: "2026-08-14T17:46:52.514Z"
 last_activity: 2026-08-14
-last_activity_desc: Milestone v1.1 completed and archived
 progress:
-  total_phases: 4
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 25
-current_phase: 5
-current_phase_name: Integração e review do gráfico de cardio
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ meta com fonte única e condução guiada.
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-14 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-08-14 — Milestone v1.2 started
 
 ## Accumulated Context
 
