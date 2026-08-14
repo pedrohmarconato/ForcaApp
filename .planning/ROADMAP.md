@@ -65,7 +65,12 @@ desbloqueia UAT confiável das telas que as fases seguintes vão afetar)
   3. UAT do dono no iPhone real (PWA instalado): durante uma sessão de treino ativa,
      a tela nunca escurece/bloqueia enquanto o Wake Lock está ativo, e ao concluir ou
      sair da sessão o bloqueio automático do iPhone volta ao normal.
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 09-01-PLAN.md — Núcleo alertShim/alertStore/AlertHost + Wake Lock lifecycle em ActiveSessionScreen (tracer)
+- [ ] 09-02-PLAN.md — Migrar Alert.alert em QuestionnaireScreen (6) + SignUpScreen (1)
+- [ ] 09-03-PLAN.md — Migrar confirmarPadrao (JointLobbyScreen) + remover import morto (PostQuestionnaireChat)
+- [ ] 09-04-PLAN.md — Guarda de regressão D-08 + UAT do dono no iPhone real
 
 #### Phase 10: Identidade do app instalável
 **Goal**: O ForcaApp instalado pela Tela de Início abre em modo standalone, com
