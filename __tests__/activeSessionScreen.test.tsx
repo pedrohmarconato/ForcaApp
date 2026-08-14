@@ -356,6 +356,27 @@ it('erro ao carregar o detalhe mostra erro (não sessão vazia)', async () => {
   );
 });
 
+it('achado 2 (painel 05-02): quarentena da fila fica VISÍVEL na tela, não some em silêncio', async () => {
+  const screen = renderScreen();
+  await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+  fireEvent.press(screen.getByLabelText('Normal'));
+  fireEvent.press(screen.getByLabelText('Tempo cheio'));
+  fireEvent.press(screen.getByLabelText('Começar treino'));
+  await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
+
+  // Simula o que drainAll faz de verdade quando um item é recusado em
+  // definitivo (código 23505/42501/22023/22004/P0002 ou WR-02): incrementa
+  // quarantineCount via onSummaryChanged/setOutboxSummary. Antes do fix,
+  // NENHUMA UI observava este campo — o item saía da fila sem aviso.
+  act(() => {
+    useActiveSessionStore.getState().setOutboxSummary(0, 2);
+  });
+
+  await waitFor(() =>
+    expect(screen.getByText(/2 registros.*recusad/i)).toBeTruthy(),
+  );
+});
+
 it('bloqueia edição da medição enquanto a gravação está em voo', async () => {
   const pending = deferred<{
     setLogId: string;
