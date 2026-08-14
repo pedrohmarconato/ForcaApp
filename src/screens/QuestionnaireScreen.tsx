@@ -17,7 +17,6 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   Animated,
   Keyboard,
@@ -33,6 +32,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 
 import { getItem as secureGetItem, setItem as secureSetItem, removeLegacyPlaintextCopy } from '../services/auth/secureStorage';
+import { showAlert } from '../utils/alertShim';
 import { probeSessionValidity } from '../services/auth/sessionProbe';
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
@@ -159,7 +159,7 @@ const QuestionnaireScreen = () => {
 
   // --- Lidar com expiração da sessão ---
   const handleSessionExpiration = useCallback(async () => {
-    Alert.alert(
+    showAlert(
     'Sessão Expirada',
     'Sua sessão expirou. Por favor, faça login novamente.',
     [
@@ -421,13 +421,13 @@ const QuestionnaireScreen = () => {
   // mesma, só muda o destino — a tela de chat recebe skipChat para disparar
   // a geração sem mostrar a escolha inicial.
   const handleSubmit = async (pularChat: boolean = false) => {
-    if (typeof updateProfile !== 'function') { console.error("[QuestionnaireScreen] A função updateProfile não está disponível no AuthContext!"); Alert.alert('Erro Interno', 'Funcionalidade indisponível. Tente novamente mais tarde.'); return; }
-    if (!userId || !authToken) { Alert.alert('Erro', 'Usuário não autenticado. Faça login novamente.'); return; }
-    if (!userStorageKey) { Alert.alert('Erro Interno', 'Não foi possível determinar o armazenamento local.'); return; }
+    if (typeof updateProfile !== 'function') { console.error("[QuestionnaireScreen] A função updateProfile não está disponível no AuthContext!"); showAlert('Erro Interno', 'Funcionalidade indisponível. Tente novamente mais tarde.'); return; }
+    if (!userId || !authToken) { showAlert('Erro', 'Usuário não autenticado. Faça login novamente.'); return; }
+    if (!userStorageKey) { showAlert('Erro Interno', 'Não foi possível determinar o armazenamento local.'); return; }
 
     if (!isFormValid()) {
     setError('Por favor, preencha todos os campos obrigatórios corretamente.');
-    Alert.alert('Campos Incompletos', 'Verifique se todos os campos obrigatórios foram preenchidos corretamente, incluindo data de nascimento, peso e altura válidos.');
+    showAlert('Campos Incompletos', 'Verifique se todos os campos obrigatórios foram preenchidos corretamente, incluindo data de nascimento, peso e altura válidos.');
     return;
     }
 
@@ -509,7 +509,7 @@ const QuestionnaireScreen = () => {
         setError('Sua sessão expirou. Por favor, faça login novamente.');
       } else {
         setError(`Erro ao salvar: ${errorMessage}`);
-        Alert.alert('Erro ao Salvar', `Não foi possível salvar seus dados. Detalhes: ${errorMessage}`);
+        showAlert('Erro ao Salvar', `Não foi possível salvar seus dados. Detalhes: ${errorMessage}`);
       }
     } finally {
       setIsLoading(false); // Desativa o loading geral
