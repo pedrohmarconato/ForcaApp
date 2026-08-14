@@ -434,3 +434,34 @@ describe('WR-02: payload com shape inválido na fronteira da persistência nunca
     expect(doc.quarantine[0].reason).toMatch(/payload/i);
   });
 });
+
+describe('Achado 1 (painel adversarial 05-02): hiccup TRANSITÓRIO do AsyncStorage no enqueue nunca perde a mutação', () => {
+  it('setItem falha UMA vez ao persistir o enqueue — o item ainda é escrito em disco (retry) e drainAll o encontra', async () => {
+    mock(saveSetLog).mockResolvedValue(savedRow());
+    // Mesmo "hiccup" do cenário de falha do relatório (contenção SQLite no
+    // Android): a ESCRITA de `withOutboxTransaction` falha uma vez, de forma
+    // transitória — sem retry, o item enfileirado nunca chegava ao disco (o
+    // catch de `enqueueItem` só devolvia um doc em memória, nunca reaplicado)
+    // e `drainAll`, que relê o disco de forma independente, nunca o via.
+    mock(AsyncStorage.setItem).mockImplementationOnce(() =>
+      Promise.reject(new Error('falha nativa transitória de escrita')),
+    );
+
+    await enqueueItem('user-1', {
+      sessionLogId: 'log-1',
+      kind: 'save_set_log',
+      payload: savePayload({ plannedSetId: 'st-hiccup' }),
+    });
+
+    // Antes do fix: nada foi persistido — a fila em disco está vazia e
+    // drainAll não encontra (nem despacha) o item perdido.
+    const persistedBeforeDrain = await loadOutbox('user-1');
+    expect(persistedBeforeDrain.items.some((it) => it.id.includes('st-hiccup'))).toBe(true);
+
+    const result = await drainAll('user-1');
+
+    expect(saveSetLog).toHaveBeenCalledTimes(1);
+    expect(result.pendingCount).toBe(0);
+    expect(result.quarantineCount).toBe(0);
+  });
+});
