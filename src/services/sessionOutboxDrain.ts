@@ -442,21 +442,42 @@ const classifyAndApply = (
     : rescheduleItem(doc, item, nowISO);
 };
 
+// Achado 1 (painel adversarial 05-02, ALTA): um hiccup TRANSITÓRIO do
+// AsyncStorage (leitura OU escrita) não pode, sozinho, apagar a mutação.
+// Antes desta correção, `loadFailed`/`skipSave` (leitura) e o catch de
+// escrita abaixo devolviam um documento SÓ-EM-MEMÓRIA sem nunca retentar —
+// `enqueueAndDrain` não repassa esse doc a `drainAll`, que relê o disco de
+// forma independente, então o item nunca chegava a ser drenado. Poucas
+// tentativas imediatas bastam para o caso descrito no relatório (contenção
+// SQLite/native module no Android): cada tentativa relê o disco do zero, e
+// uma escrita que lança NUNCA chega a mudar o disco (CR-01/CR-02 continuam
+// garantidos — nada é sobrescrito por uma tentativa que falhou).
+const ENQUEUE_MAX_ATTEMPTS = 3;
+const ENQUEUE_RETRY_DELAY_MS = 20;
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Enfileira UM item (D-13: chave natural, no-op de duplicação). Todo o ciclo
- * leitura→mutação→escrita roda dentro de `withOutboxTransaction` (CR-01):
- * nenhuma segunda chamada de `enqueueItem`/`drainAll` para o MESMO userId
- * pode intercalar sua própria leitura/escrita no meio deste ciclo.
+ * leitura→mutação→escrita de CADA tentativa roda dentro de
+ * `withOutboxTransaction` (CR-01): nenhuma segunda chamada de
+ * `enqueueItem`/`drainAll` para o MESMO userId pode intercalar sua própria
+ * leitura/escrita no meio de uma tentativa.
  *
  * CR-02: se a LEITURA falhar de forma transitória, `loadFailed=true` — NÃO
- * persiste (evita sobrescrever a fila real em disco com um documento vazio +
- * o item novo, perdendo qualquer item que já estivesse lá). O item novo
- * ainda é devolvido "pendente" só em memória, para a contagem síncrona do
- * chamador e para a tentativa de drenagem imediata funcionarem mesmo assim.
+ * persiste nesta tentativa (evita sobrescrever a fila real em disco com um
+ * documento vazio + o item novo, perdendo qualquer item que já estivesse
+ * lá); a PRÓXIMA tentativa relê o disco do zero (achado 1).
  *
- * Se a ESCRITA falhar (D-12), NÃO relança — o item ainda é considerado
- * "pendente" no documento devolvido (contagem síncrona correta), e a
- * drenagem tenta do mesmo jeito a partir da versão em memória.
+ * Se a ESCRITA falhar (D-12), a exceção propaga daqui para o catch — o disco
+ * não mudou (o `setItem` que lançou nunca completou), então nada foi
+ * perdido além desta tentativa; a próxima tentativa relê o disco intacto e
+ * tenta persistir de novo (achado 1).
+ *
+ * Só depois de `ENQUEUE_MAX_ATTEMPTS` tentativas (hiccup deixou de ser
+ * transitório) o item degrada para o fallback só-em-memória do D-12: ainda
+ * "pendente" no documento devolvido (contagem síncrona do chamador), mas sem
+ * garantia de que uma drenagem subsequente vá encontrá-lo em disco.
  */
 export const enqueueItem = async (
   userId: string,
@@ -473,29 +494,46 @@ export const enqueueItem = async (
     attempts: 0,
   };
 
-  let lastKnownDoc: OutboxDocument | null = null;
-  try {
-    return await withOutboxTransaction(userId, async (doc, loadFailed) => {
-      if (loadFailed) {
-        console.warn(
-          '[sessionOutboxDrain] falha ao carregar a fila local (não-fatal) — pulando persistência para não sobrescrever a fila real em disco (CR-02)',
-        );
-        const inMemoryOnly: OutboxDocument = { version: 1, items: [newItem], quarantine: [] };
-        return { doc: inMemoryOnly, result: inMemoryOnly, skipSave: true };
+  let fallbackDoc: OutboxDocument = { version: 1, items: [newItem], quarantine: [] };
+
+  for (let attempt = 1; attempt <= ENQUEUE_MAX_ATTEMPTS; attempt++) {
+    let readFailedThisAttempt = false;
+    try {
+      const persisted = await withOutboxTransaction(userId, async (doc, loadFailed) => {
+        if (loadFailed) {
+          readFailedThisAttempt = true;
+          const inMemoryOnly: OutboxDocument = { version: 1, items: [newItem], quarantine: [] };
+          return { doc: inMemoryOnly, result: inMemoryOnly, skipSave: true };
+        }
+        const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
+        return { doc: updatedDoc, result: updatedDoc };
+      });
+      if (!readFailedThisAttempt) {
+        return persisted; // leitura E escrita OK nesta tentativa — item realmente em disco.
       }
-      const updatedDoc: OutboxDocument = { ...doc, items: upsertItem(doc.items, newItem) };
-      lastKnownDoc = updatedDoc;
-      return { doc: updatedDoc, result: updatedDoc };
-    });
-  } catch (e) {
-    // D-12: falha de AsyncStorage ao ESCREVER não bloqueia — o item segue
-    // "pendente" em memória (contagem síncrona reflete o último merge
-    // conhecido, calculado com o doc real lido acima) e uma tentativa de
-    // drenagem acontece do mesmo jeito. Chamador (store) reusa
-    // storageWarning/STORAGE_WARNING_MSG existente.
-    console.warn('[sessionOutboxDrain] item não persistido localmente (não-fatal, D-12):', e);
-    return lastKnownDoc ?? { version: 1, items: [newItem], quarantine: [] };
+      fallbackDoc = persisted;
+      console.warn(
+        `[sessionOutboxDrain] tentativa ${attempt}/${ENQUEUE_MAX_ATTEMPTS} de ler a fila local falhou (não-fatal, achado 1) — retentando antes de aceitar perda de persistência`,
+      );
+    } catch (e) {
+      // D-12: ESCRITA falhou nesta tentativa — o disco NÃO mudou (setItem
+      // nunca completou), então a próxima tentativa relê o disco intacto.
+      console.warn(
+        `[sessionOutboxDrain] tentativa ${attempt}/${ENQUEUE_MAX_ATTEMPTS} de persistir item falhou (não-fatal, D-12/achado 1):`,
+        e,
+      );
+    }
+    if (attempt < ENQUEUE_MAX_ATTEMPTS) await wait(ENQUEUE_RETRY_DELAY_MS);
   }
+
+  // Todas as tentativas falharam — hiccup persistente, não mais transitório
+  // (fora do cenário do achado 1). Chamador (store) reusa storageWarning/
+  // STORAGE_WARNING_MSG existente para avisar o aluno.
+  console.warn(
+    '[sessionOutboxDrain] item não persistido localmente após retries (não-fatal, D-12) — pendente só em memória:',
+    fallbackDoc,
+  );
+  return fallbackDoc;
 };
 
 const MAX_DRAIN_ROUNDS = 50;
