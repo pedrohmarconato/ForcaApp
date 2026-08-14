@@ -12,8 +12,9 @@
 //     Sprint 03.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Alert, BackHandler, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, BackHandler, StyleSheet, View } from 'react-native';
 import theme from '../theme/theme';
+import { showAlert } from '../utils/alertShim';
 import { Button } from '../components/ui';
 import { Card, Screen, ScreenTitle, SectionHeader } from '../components/ui/Surface';
 import { EmptyState, Notice } from '../components/ui/Feedback';
@@ -78,7 +79,7 @@ export const ehSaidaExplicita = (tipo: unknown): boolean =>
   typeof tipo === 'string' && SAIDAS_EXPLICITAS.has(tipo);
 
 const confirmarPadrao = (titulo: string, mensagem: string, onSim: () => void) =>
-  Alert.alert(titulo, mensagem, [
+  showAlert(titulo, mensagem, [
     { text: 'Ficar no treino', style: 'cancel' },
     { text: 'Encerrar', style: 'destructive', onPress: onSim },
   ]);
