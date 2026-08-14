@@ -54,12 +54,12 @@ qualquer push a produção.
      achados CONFIRMADOS foram corrigidos no código ou aceitos explicitamente pelo
      dono antes do push.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — verificação local (tsc/jest/pytest) + 3 commits com adds nomeados (gitignore, .planning/reviews, gráfico de cardio)
+- [x] 05-01-PLAN.md — verificação local (tsc/jest/pytest) + 3 commits com adds nomeados (gitignore, .planning/reviews, gráfico de cardio)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -132,7 +132,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 2. Anamnese e calibração do cardio | v1.0 | 3/3 | Complete | 2026-08-09 |
 | 3. Intercâmbio de modalidade de cardio | v1.0 | 9/9 | Complete | 2026-08-13 |
 | 4. Escrita de execução de treino em lote e offline-first | v1.0 | 3/3 | Complete | 2026-08-12 |
-| 5. Integração e review do gráfico de cardio | v1.1 | 0/2 | Planned | - |
+| 5. Integração e review do gráfico de cardio | v1.1 | 1/2 | In Progress|  |
 | 6. Publicação do código | v1.1 | 0/? | Not started | - |
 | 7. Migration 0037 em staging e produção | v1.1 | 0/? | Not started | - |
 | 8. Deploy web e fechamento | v1.1 | 0/? | Not started | - |

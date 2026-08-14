@@ -5,15 +5,15 @@ milestone_name: Release em produção
 current_phase: 5
 current_phase_name: Integração e review do gráfico de cardio
 status: executing
-stopped_at: Roadmap do milestone v1.1 criado — 4 fases (5-8) derivadas de 7 requisitos
-last_updated: "2026-08-14T14:16:24.427Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-08-14T14:22:00.638Z"
 last_activity: 2026-08-14
-last_activity_desc: Roadmap v1.1 criado (Fases 5-8)
+last_activity_desc: Phase 5 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
 meta com fonte única e condução guiada.
-**Current focus:** Fase 5 — Integração e review do gráfico de cardio (milestone v1.1)
+**Current focus:** Phase 5 — Integração e review do gráfico de cardio
 
 ## Current Position
 
-Phase: 5 of 8 (Integração e review do gráfico de cardio)
-Plan: — (not yet planned)
+Phase: 5 (Integração e review do gráfico de cardio) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-14 — Roadmap v1.1 criado (Fases 5-8)
+Last activity: 2026-08-14 — Phase 5 execution started
 
 ## Accumulated Context
 
@@ -43,6 +43,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - REQ-02: meta de cardio derivada da prescrição do treino (decisão do dono, 2026-08-08).
 - Teste 8(c) da Fase 3 (fechar/reabrir em build nativo): pedido do dono ("teste você",
   2026-08-13) atendido nos itens (a)/(b); item (c) impossível nesta máquina — deferido.
+
+- [Phase ?]: D-01/D-07 (05-CONTEXT.md): commit de feature restrito aos 4 arquivos do gráfico de cardio, escopo fechado sem refactor.
+- [Phase ?]: D-02 (05-CONTEXT.md): .claude/ gitignorado antes de qualquer commit da fase; .planning/reviews/ commitado como documentação sem editar conteúdo.
 
 ### Roadmap Evolution
 
@@ -97,11 +100,11 @@ Items acknowledged and deferred at milestone close on 2026-08-13:
 
 ## Session Continuity
 
-Last session: 2026-08-14T14:20:00.000Z
-Stopped at: Roadmap do milestone v1.1 criado — 4 fases (5-8) derivadas de 7 requisitos
+Last session: 2026-08-14T14:22:00.634Z
+Stopped at: Completed 05-01-PLAN.md
 (INT-01, INT-02, PUB-01..05), cobertura 7/7 validada, sem órfãos. Próximo passo:
 /gsd-plan-phase 5.
-Resume file: .planning/ROADMAP.md
+Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,
 não o frontmatter — verificado em 10/08/2026, quando `state json` devolveu
@@ -111,3 +114,9 @@ frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os d
 ## Operator Next Steps
 
 - Plan phase 5 with /gsd-plan-phase 5
+
+## Performance Metrics
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 05 P01 | 4min | 3 tasks | 6 files |
