@@ -86,14 +86,14 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 
 | REQ | Phase | Status |
 |-----|-------|--------|
-| INST-01 | TBD | Pending |
-| INST-02 | TBD | Pending |
-| OFF-01 | TBD | Pending |
-| OFF-02 | TBD | Pending |
-| PUSH-01 | TBD | Pending |
-| PUSH-02 | TBD | Pending |
-| PUSH-03 | TBD | Pending |
-| PUSH-04 | TBD | Pending |
-| PUSH-05 | TBD | Pending |
-| SESS-01 | TBD | Pending |
-| WEB-01 | TBD | Pending |
+| INST-01 | Phase 10 | Pending |
+| INST-02 | Phase 12 | Pending |
+| OFF-01 | Phase 11 | Pending |
+| OFF-02 | Phase 11 | Pending |
+| PUSH-01 | Phase 13 | Pending |
+| PUSH-02 | Phase 13 | Pending |
+| PUSH-03 | Phase 13 | Pending |
+| PUSH-04 | Phase 13 | Pending |
+| PUSH-05 | Phase 13 | Pending |
+| SESS-01 | Phase 9 | Pending |
+| WEB-01 | Phase 9 | Pending |

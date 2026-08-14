@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: App de iPhone instalável via site (PWA)
 status: planning
-last_updated: "2026-08-14T17:46:52.514Z"
+last_updated: "2026-08-14T18:00:00.000Z"
 last_activity: 2026-08-14
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,16 +19,35 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-08-14)
 
-**Core value:** Cardio e alongamento como parte coerente do treino — registro fiel,
-meta com fonte única e condução guiada.
-**Current focus:** Phase 5 — Integração e review do gráfico de cardio
+**Core value:** O PWA da Vercel vira app instalável de primeira classe no iPhone —
+sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
+**Current focus:** Phase 9 — Fechamento de gaps do runtime web (Alert.alert + Wake Lock)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-08-14 — Milestone v1.2 started
+Phase: 9 of 13 (Fechamento de gaps do runtime web)
+Plan: — (not planned yet)
+Status: Ready to plan
+Last activity: 2026-08-14 — ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0 (v1.2)
+- Average duration: —
+- Total execution time: —
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| Phase 05 P01 | 3 tasks | 4min | 4min |
+| Phase 05 P02 | 1 tasks | 9min | 9min |
+
+**Recent Trend:**
+- v1.2 ainda não iniciou execução — sem amostra.
 
 ## Accumulated Context
 
@@ -36,92 +55,58 @@ Last activity: 2026-08-14 — Milestone v1.2 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
-- REQ-02: meta de cardio derivada da prescrição do treino (decisão do dono, 2026-08-08).
-- Teste 8(c) da Fase 3 (fechar/reabrir em build nativo): pedido do dono ("teste você",
-  2026-08-13) atendido nos itens (a)/(b); item (c) impossível nesta máquina — deferido.
-
-- [Phase ?]: D-01/D-07 (05-CONTEXT.md): commit de feature restrito aos 4 arquivos do gráfico de cardio, escopo fechado sem refactor.
-- [Phase ?]: D-02 (05-CONTEXT.md): .claude/ gitignorado antes de qualquer commit da fase; .planning/reviews/ commitado como documentação sem editar conteúdo.
-- [Phase ?]: Painel adversarial 05-02: dono corrigiu achados 1/2/4/5 e aceitou 3/6/7 com justificativa registrada em 05-PAINEL-REPORT.md
-
-### Roadmap Evolution
-
-- Phase 4 added (2026-08-10): Escrita de execução de treino em lote e offline-first
-  (REQ-07). Origem: sessão de debug `.planning/debug/typeerror-envio-series-treino.md`,
-  causa-raiz (2). Concluída e verificada em 2026-08-12 (passed 5/5).
-
-- Roadmap v1.1 criado (2026-08-14): Fases 5-8 derivadas dos 7 requisitos de release
-  (INT-01, INT-02, PUB-01..05) — Fase 5 integração e review do gráfico de cardio, Fase 6
-  publicação do código, Fase 7 migration 0037 em staging+produção, Fase 8 deploy web +
-  fechamento. Cobertura 7/7 validada, sem órfãos.
+- v1.2 segue o caminho PWA sem Apple Developer pago (2026-08-14) — pesquisa
+  confirmou que a única alternativa (marketplace do TCC CADE) também exige conta
+  paga; dono optou por não pagar.
+- Ordem das fases 9-13 segue a dependência técnica real da pesquisa: Alert.alert +
+  Wake Lock primeiro (ortogonal, desbloqueia UAT limpo), depois identidade
+  (manifest/splash), depois service worker, depois página de instalação, push por
+  último (depende de SW registrado e do alertShim para o opt-in).
+- Push (PUSH-01) exige spike técnico prévio de expiração/HTTP 410 do `pywebpush`
+  antes da implementação principal — confiança MEDIUM-BAIXA nas fontes.
+- Service worker nunca intercepta chamadas Supabase/API — outbox offline-first do
+  v1.0 segue como única camada de retry de dados (pitfall confirmado na pesquisa).
 
 ### Pending Todos
 
-- Verificação visual do dono no PWA de produção (https://forca-app-six.vercel.app):
-  aba Progresso → gráfico de evolução de cardio (roteiro em 05-UAT.md). Ao confirmar,
-  rodar /gsd-verify-work 5 (ou marcar o UAT como passed) → fase 5 fecha → milestone
-  v1.1 pronto para /gsd-complete-milestone.
-
-- ~~Deploy da migration 0037~~ **FECHADO em 2026-08-14**: 0037 aplicada e verificada
-  por leitura em staging (mjdjtiujhwklchalquhc) E produção (zanqygwsgxkyjiuhrzju) —
-  errcode 23505 vivo, md5 662cbd9e07482334228a89dfbd8475ce idêntico, histórico com a
-  0037 nos dois. Achado 3 do painel (drift de errcode) morre aqui: cliente e servidor
-  falam 23505 em produção.
-
-- Teste 8(c) do 03-UAT.md: reconfirmar "fechar e reabrir o app" em build nativo
-  iOS/Android real — deferido (máquina do ciclo sem toolchain nativa).
-
-- Sessão de debug `typeerror-envio-series-treino`: resolved_partial — a correção está
-  COMMITADA e verificada (working tree limpo em 2026-08-13); ressalva aberta: `errMsg`
-  não exibe o nome da classe do erro, e falta o texto literal do erro de produção para
-  prova final.
-
-- Dívidas registradas no audit: migrations sem GRANT DML de tabela para `authenticated`
-  (projeto Supabase novo sobe quebrado); `Alert.alert` é no-op no react-native-web
-  ("Concluir treino" com séries pendentes parece morto no alvo web); tabela
-  `cardio_goals` órfã; Nyquist not-validated nas 4 fases (validate-phase nunca rodou).
+Nenhum novo desde o início do v1.2. Ver Deferred Items abaixo para dívidas herdadas
+do v1.0/v1.1.
 
 ### Blockers/Concerns
 
-- Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest); CI
-  `session-contract` remoto é o gate da Fase 6.
-
-- Clone principal (~/Projects/ForcaApp) ocupado por outra sessão em feat/treino-conjunto-2.0;
-  este ciclo roda em ~/ForcaApp.
-
-- Working tree no início do v1.1 já contém trabalho não commitado do gráfico de cardio
-  (ProgressScreen.tsx modificado; CardioEvolucaoChart.tsx, cardioEvolucao.ts,
-  cardioEvolucao.test.ts e .planning/reviews/ não rastreados; .claude/ não rastreado) —
-  exatamente o escopo da Fase 5.
+- Máquina de dev sem toolchain nativa (sem Xcode) — cada fase relevante deste
+  milestone termina com item de UAT explícito do dono no iPhone real (nunca
+  "passou no Lighthouse" como critério de conclusão).
+- Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest).
+- Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção `zanqygwsgxkyjiuhrzju`)
+  — conferir `supabase/.temp/project-ref` antes de qualquer comando linkado
+  (relevante para a migration de `push_subscriptions` na Fase 13).
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-08-13:
+Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14):
 
-| Category | Item | Status |
-|----------|------|--------|
-| debug | typeerror-envio-series-treino | resolved_partial — fix commitado e verificado; falta o texto literal do erro de produção (só o dono tem) e a ressalva do errMsg sem nome de classe |
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| debug | typeerror-envio-series-treino | resolved_partial — fix commitado e verificado; falta o texto literal do erro de produção (só o dono tem) e a ressalva do errMsg sem nome de classe | v1.0 close (2026-08-13) |
+| tech-debt | Migrations sem GRANT DML para `authenticated` (projeto Supabase novo sobe quebrado) | Deferred — Future Requirements do v1.2 | v1.0 close (2026-08-13) |
+| tech-debt | Tabela `cardio_goals` órfã (sem drop/arquivamento) | Deferred — Future Requirements do v1.2 | v1.0 close (2026-08-13) |
+| tech-debt | Nyquist not-validated nas fases do v1.0 | Deferred | v1.0 close (2026-08-13) |
+| scope | `Alert.alert` no-op no react-native-web | **Endereçado nesta milestone — Phase 9 (WEB-01)** | v1.0 close (2026-08-13) |
 
 ## Session Continuity
 
-Last session: 2026-08-14T14:58:11.981Z
-Stopped at: Completed 05-02-PLAN.md
-(INT-01, INT-02, PUB-01..05), cobertura 7/7 validada, sem órfãos. Próximo passo:
-/gsd-plan-phase 5.
+Last session: 2026-08-14T18:00:00.000Z
+Stopped at: ROADMAP.md v1.2 criado (Fases 9-13: Fechamento de gaps do runtime web,
+Identidade do app instalável, Service worker e atualização segura, Página de
+instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
+mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
 Resume file: None
 
-Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE CORPO,
-não o frontmatter — verificado em 10/08/2026, quando `state json` devolveu
-`stopped_at: "Planning inicializado..."` (texto que só existia aqui embaixo) enquanto o
-frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os dois.
+Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
+CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
+atualize os dois.
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
-
-## Performance Metrics
-
-| Plan | Duration | Tasks | Files |
-|------|----------|-------|-------|
-| Phase 05 P01 | 4min | 3 tasks | 6 files |
-| Phase 05 P02 | 9min | 1 tasks | 8 files |
+- Próximo comando: `/gsd-plan-phase 9`
