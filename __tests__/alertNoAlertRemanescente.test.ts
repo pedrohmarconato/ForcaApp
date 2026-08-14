@@ -12,11 +12,11 @@
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
-const DIRS = [
-  join(__dirname, '..', 'src', 'screens'),
-  join(__dirname, '..', 'src', 'components'),
-  join(__dirname, '..', 'src', 'store'),
-];
+// Raiz única (não uma lista de subpastas hardcoded, WR-02): varrer src/
+// inteiro recursivamente garante que qualquer pasta nova (ex.: um futuro
+// src/hooks/useXyz.ts das Fases 10-13) entra automaticamente na varredura,
+// sem exigir lembrar de atualizar esta lista a cada pasta criada.
+const ROOT_DIR = join(__dirname, '..', 'src');
 
 // Únicos arquivos onde Alert/Alert.alert é esperado: o próprio shim (repasse
 // nativo puro, D-03) e o host visual (comentário/JSDoc que documenta o
@@ -44,16 +44,14 @@ describe('guarda: nenhum Alert.alert fora do shim (D-08)', () => {
     const infratores: string[] = [];
     let arquivosVarridos = 0;
 
-    for (const dir of DIRS) {
-      for (const caminho of listarArquivosRecursivo(dir)) {
-        const nomeArquivo = caminho.split('/').pop() as string;
-        if (PERMITIDOS.has(nomeArquivo)) continue;
+    for (const caminho of listarArquivosRecursivo(ROOT_DIR)) {
+      const nomeArquivo = caminho.split('/').pop() as string;
+      if (PERMITIDOS.has(nomeArquivo)) continue;
 
-        arquivosVarridos += 1;
-        const conteudo = readFileSync(caminho, 'utf8');
-        if (/\bAlert\s*[.,]/.test(conteudo)) {
-          infratores.push(caminho.replace(join(__dirname, '..') + '/', ''));
-        }
+      arquivosVarridos += 1;
+      const conteudo = readFileSync(caminho, 'utf8');
+      if (/\bAlert\s*[.,]/.test(conteudo)) {
+        infratores.push(caminho.replace(join(__dirname, '..') + '/', ''));
       }
     }
 
@@ -62,5 +60,21 @@ describe('guarda: nenhum Alert.alert fora do shim (D-08)', () => {
     // olha nada passa sempre. Molde loadInputLayoutWeb.test.ts:172.
     expect(arquivosVarridos).toBeGreaterThan(20);
     expect(infratores).toEqual([]);
+  });
+
+  it('cobre todas as subpastas de src/, não só as 3 originais (WR-02)', () => {
+    // Regressão específica: a versão antiga hardcodeava DIRS = [screens,
+    // components, store] e deixava 55+ arquivos em hooks/services/engine/
+    // navigation/contexts fora do alcance do guarda — um Alert.alert cru
+    // em qualquer uma dessas pastas passaria com check verde. Varrer a
+    // partir de ROOT_DIR = src/ deve cobrir todas elas sem listar cada uma
+    // manualmente.
+    const arquivos = listarArquivosRecursivo(ROOT_DIR);
+    const cobreSubpasta = (nome: string) =>
+      arquivos.some((caminho) => caminho.includes(`${join('src', nome)}/`));
+
+    for (const subpasta of ['hooks', 'services', 'engine', 'navigation', 'contexts']) {
+      expect(cobreSubpasta(subpasta)).toBe(true);
+    }
   });
 });
