@@ -87,6 +87,13 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   loadDraft: jest.fn(async () => null),
   clearDraft: jest.fn(async () => undefined),
 }));
+// SESS-01 (Plano 09-01): ciclo de vida do Wake Lock reescrito por status —
+// mocka o módulo para asserções diretas sem depender do Screen Wake Lock
+// real do jsdom (que não existe no ambiente de teste).
+jest.mock('expo-keep-awake', () => ({
+  activateKeepAwakeAsync: jest.fn().mockResolvedValue(undefined),
+  deactivateKeepAwake: jest.fn().mockResolvedValue(undefined),
+}));
 
 const detail = {
   id: 'sess-1',
@@ -183,6 +190,7 @@ import { clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
 import { getSessionDetail } from '../src/services/trainingRepository';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 // Fixture local de 1 exercício de cardio — NÃO reutiliza/modifica o `detail`
 // module-level (fixture de força, dezenas de asserções já fixas nele).
@@ -708,5 +716,76 @@ describe('modal "Ver andamento" — uma camada nativa também no Android', () =>
       alertSpy.mockRestore();
       if (descriptor) Object.defineProperty(Platform, 'OS', descriptor);
     }
+  });
+});
+
+describe('Wake Lock lifecycle (SESS-01)', () => {
+  // O ambiente de teste (react-native/jest-preset) roda em Node puro — sem
+  // `document` global, igual ao nativo. Precisamos de um `document` de
+  // mentira SÓ para o efeito de visibilitychange (D-07), mesmo raciocínio do
+  // `localStorage` de mentira em __tests__/secureStorageWeb.test.ts.
+  const originalDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+
+  beforeAll(() => {
+    const fakeDocument = Object.assign(new EventTarget(), { visibilityState: 'hidden' });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: fakeDocument,
+    });
+  });
+
+  afterAll(() => {
+    if (originalDocumentDescriptor) {
+      Object.defineProperty(globalThis, 'document', originalDocumentDescriptor);
+    } else {
+      delete (globalThis as any).document;
+    }
+  });
+
+  const abrirCheckIn = async (screen: any) => {
+    await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
+  };
+
+  it('status "active"/"awaiting_checkin": activateKeepAwakeAsync chamado com "active-session"', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    // O check-in em si já é 'awaiting_checkin' — um dos dois status que ativam.
+    expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
+
+    mock(activateKeepAwakeAsync).mockClear();
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'active' });
+    });
+    expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
+  });
+
+  it('transição para "finished": deactivateKeepAwake chamado com "active-session"', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'active' });
+    });
+
+    mock(deactivateKeepAwake).mockClear();
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'finished' });
+    });
+    expect(mock(deactivateKeepAwake)).toHaveBeenCalledWith('active-session');
+  });
+
+  it('D-07: visibilitychange com visibilityState "visible" readquire o Wake Lock', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'active' });
+    });
+
+    mock(activateKeepAwakeAsync).mockClear();
+    (document as any).visibilityState = 'visible';
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
   });
 });
