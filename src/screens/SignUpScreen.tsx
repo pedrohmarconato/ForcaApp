@@ -2,7 +2,7 @@
 // Cadastro — mesma moldura e mesma geometria do Login (princípio 4).
 
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
@@ -10,6 +10,7 @@ import AuthLayout from '../components/ui/AuthLayout';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
 import { Notice } from '../components/ui/Feedback';
+import { showAlert } from '../utils/alertShim';
 
 const SignUpScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -44,7 +45,7 @@ const SignUpScreen = ({ navigation }) => {
         }
         console.error('[SignUpScreen] Erro no cadastro:', signUpError);
       } else {
-        Alert.alert(
+        showAlert(
           'Cadastro realizado!',
           'Um email de confirmação foi enviado. Por favor, verifique sua caixa de entrada.',
           [{ text: 'OK', onPress: () => navigation.navigate('Login') }],
