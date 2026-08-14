@@ -17,6 +17,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn(), from: jest.fn() } }));
+jest.mock('../src/utils/alertShim', () => ({ showAlert: jest.fn() }));
 
 const estadoFalso: any = { atual: null, erro: null };
 jest.mock('../src/hooks/useJointSession', () => ({
@@ -27,6 +28,7 @@ jest.mock('../src/hooks/useJointSession', () => ({
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { JointLobbyView } from '../src/screens/JointLobbyScreen';
+import { showAlert } from '../src/utils/alertShim';
 import type { SessaoElegivel } from '../src/engine/jointLobbyModel';
 
 const HOST = 'u-host';
@@ -241,6 +243,31 @@ describe('saída — bilateral, confirmada e transacional', () => {
     fireEvent.press(getByLabelText('Voltar'));
     await waitFor(() => expect(hook.sair).toHaveBeenCalled());
     expect(navigation.goBack).not.toHaveBeenCalled();
+  });
+});
+
+describe('confirmarPadrao real — sem mock de confirmar injetado', () => {
+  it('pressionar Voltar chama showAlert com título, mensagem e botão destructive "Encerrar"', () => {
+    const hook = montarHook();
+    estadoFalso.hook = hook;
+    const navigation = { goBack: jest.fn(), navigate: jest.fn() };
+    const { getByLabelText } = render(
+      <JointLobbyView
+        navigation={navigation as any}
+        route={{ params: { jointSessionId: 'js-1' } }}
+        meuUserId={HOST}
+        minhasSessoes={[sessao()]}
+      />,
+    );
+    fireEvent.press(getByLabelText('Voltar'));
+    expect(showAlert).toHaveBeenCalledWith(
+      'Encerrar o treino conjunto?',
+      'Sair encerra o treino para você e para o seu parceiro.',
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'Ficar no treino', style: 'cancel' }),
+        expect.objectContaining({ text: 'Encerrar', style: 'destructive', onPress: expect.any(Function) }),
+      ]),
+    );
   });
 });
 
