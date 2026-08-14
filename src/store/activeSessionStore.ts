@@ -44,6 +44,7 @@ import {
   type UnskipSessionExercisePayload,
   type SwapSessionExercisePayload,
 } from '../services/sessionOutboxDrain';
+import { loadOutbox } from '../services/sessionOutboxStorage';
 import {
   evaluateSet,
   recommendByRules,
@@ -203,7 +204,13 @@ interface ActiveSessionState {
   skipWholeSession: (reason: SkipReason, note?: string | null) => Promise<boolean>;
   finishSession: () => Promise<boolean>;
   clearError: () => void;
-  reset: () => void;
+  /**
+   * Achado 5 (painel adversarial 05-02): `userId`, quando fornecido,
+   * resincroniza pendingCount/quarantineCount contra a fila REAL do usuário
+   * (D-10: a fila é do usuário, não da tela) em vez de zerar às cegas —
+   * itens pendentes de um treino anterior continuam visíveis no novo.
+   */
+  reset: (userId?: string | null) => void;
 }
 
 const errMsg = (e: unknown): string => {
@@ -1773,8 +1780,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   clearStorageWarning: () => set({ storageWarning: null }),
   clearReplanWarning: () => set({ replanWarning: null }),
 
-  reset: () => {
+  reset: (userId) => {
     operationEpoch += 1;
+    const resyncEpoch = operationEpoch;
     set({
       draft: null,
       status: 'idle',
@@ -1788,8 +1796,29 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       checkInMinutes: null,
       pendingCheckIn: null,
       lastAutoDecision: null,
-      pendingCount: 0,
-      quarantineCount: 0,
+      // Achado 5 (painel 05-02): SEM userId (fallback defensivo — nenhum
+      // chamador real do produto omite hoje), não há como resincronizar
+      // contra a fila real, então mantém o comportamento anterior (zera).
+      // COM userId, os contadores atuais ficam como estão (a fila é do
+      // usuário, D-10 — não zeram) até o resync abaixo confirmar o valor
+      // real; zerar aqui só para o resync sobrescrever um instante depois
+      // seria o mesmo "some e volta" que o achado 5 reportou.
+      ...(userId ? {} : { pendingCount: 0, quarantineCount: 0 }),
     });
+    if (!userId) return;
+    void loadOutbox(userId)
+      .then((doc) => {
+        // Outro reset()/troca de sessão aconteceu enquanto o resync estava
+        // em voo — o valor mais fresco já venceu, não sobrescreve (mesma
+        // cautela de CAS do resto do arquivo).
+        if (operationEpoch !== resyncEpoch) return;
+        set({ pendingCount: doc.items.length, quarantineCount: doc.quarantine.length });
+      })
+      .catch((e) => {
+        console.warn(
+          '[activeSession] falha ao resincronizar selo de pendência no reset (não-fatal, achado 5):',
+          e,
+        );
+      });
   },
 }));

@@ -207,7 +207,10 @@ const ActiveSessionScreen = ({ route }: Props) => {
     const isCurrent = () => loadGeneration.current === generation;
     setDetailLoading(true);
     setDetailError(false);
-    reset();
+    // Achado 5 (painel 05-02): passa o userId para reset() resincronizar
+    // pendingCount/quarantineCount contra a fila REAL do usuário (D-10) em
+    // vez de zerar às cegas.
+    reset(user.id);
     try {
       const d = await getSessionDetail(sessionId);
       if (!isCurrent()) return;
