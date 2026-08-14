@@ -36,6 +36,7 @@ import type { CardioLog } from '../engine/cardioGoals';
 import { getPrescricaoSemanaCorrente } from '../services/cardioPrescritoRepository';
 import type { PrescricaoCardio } from '../engine/cardioPrescrito';
 import CardioPrescritoSection from '../components/progress/CardioPrescritoSection';
+import CardioEvolucaoChart from '../components/progress/CardioEvolucaoChart';
 import { Screen, ScreenTitle, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
@@ -268,6 +269,9 @@ const ProgressScreen = () => {
         erro={erroCardio}
         onRecarregar={carregar}
       />
+
+      {/* --- Cardio: evolução de pace/km por modalidade ------------------ */}
+      <CardioEvolucaoChart />
 
       {/* --- Recordes ---------------------------------------------------- */}
       <View style={styles.section}>
