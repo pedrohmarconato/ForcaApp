@@ -4,15 +4,15 @@ milestone: v1.2
 milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 9
 current_phase_name: Fechamento de gaps do runtime web
-status: planning
+status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-08-14T18:47:27.412Z"
+last_updated: "2026-08-14T19:30:40.315Z"
 last_activity: 2026-08-14
 last_activity_desc: ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -31,7 +31,7 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 
 Phase: 9 of 13 (Fechamento de gaps do runtime web)
 Plan: — (not planned yet)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-14 — ROADMAP v1.2 criado (Fases 9-13), cobertura 11/11 validada
 
 Progress: [░░░░░░░░░░] 0%
