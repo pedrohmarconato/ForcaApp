@@ -106,6 +106,11 @@ const ActiveSessionScreen = ({ route }: Props) => {
   // bloqueia nada. Ausente quando pendingCount é 0 (convenção "sem dado
   // inventado": nunca renderiza "0 pendentes").
   const pendingCount = useActiveSessionStore((s) => s.pendingCount);
+  // Achado 2 (painel 05-02): antes invisível — nenhuma UI observava este
+  // campo. Item recusado em definitivo (23505/42501/22023/22004/P0002 ou
+  // WR-02) sai da fila sem reverter o estado otimista já aplicado; o aluno
+  // precisa saber que aquela ação nunca chegou ao servidor.
+  const quarantineCount = useActiveSessionStore((s) => s.quarantineCount);
 
   const skipExercise = useActiveSessionStore((s) => s.skipExercise);
   const skipWholeSession = useActiveSessionStore((s) => s.skipWholeSession);
@@ -405,6 +410,17 @@ const ActiveSessionScreen = ({ route }: Props) => {
           <Chip
             label={`${pendingCount} registro${pendingCount > 1 ? 's' : ''} a caminho`}
             tone="neutral"
+            style={styles.pendingChip}
+          />
+        ) : null}
+        {/* Achado 2 (painel 05-02): quarentena não tinha UI própria — a ação
+            nunca chegou ao servidor e ninguém avisava o aluno. Nunca cor
+            neutra (é uma recusa em definitivo), some quando não há nada em
+            quarentena (sem dado inventado). */}
+        {quarantineCount > 0 ? (
+          <Chip
+            label={`${quarantineCount} registro${quarantineCount > 1 ? 's' : ''} recusado${quarantineCount > 1 ? 's' : ''} pelo servidor`}
+            tone="danger"
             style={styles.pendingChip}
           />
         ) : null}
