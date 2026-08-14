@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Release em produção
-current_phase: 5
-current_phase_name: Integração e review do gráfico de cardio
-status: awaiting owner production verification
-stopped_at: "Fases 6-8 executadas em 2026-08-14: push 82fd8db + CI verde, 0037 verificada em staging+prod (md5 idêntico), deploy Vercel no ar"
-last_updated: "2026-08-14T15:30:00.000Z"
+status: Awaiting next milestone
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-08-14T17:43:07.745Z"
 last_activity: 2026-08-14
-last_activity_desc: Release em produção — falta só a verificação visual do dono no PWA
+last_activity_desc: Milestone v1.1 completed and archived
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 25
+current_phase: 5
+current_phase_name: Integração e review do gráfico de cardio
 ---
 
 # Project State
@@ -29,20 +29,10 @@ meta com fonte única e condução guiada.
 
 ## Current Position
 
-Phase: 8 de 8 executada — release em produção (2026-08-14)
+Phase: Milestone v1.1 complete
 Plan: —
-Status: Aguardando verificação visual do dono no PWA de produção (fecha Fase 5 e o milestone)
-Last activity: 2026-08-14 — Fases 6-8 executadas: push `0193742..82fd8db` (68 commits),
-CI session-contract verde (run 31822228262), migration 0037 VERIFICADA por leitura em
-staging e produção (errcode 23505 vivo; único P0005 remanescente é comentário; md5
-`662cbd9e07482334228a89dfbd8475ce` idêntico nos dois ambientes; histórico registra 0037
-nos dois), deploy web `vercel deploy --prod` pelo dono → https://forca-app-six.vercel.app
-(status 200, title "Força"). Deviação registrada: preview+smoke da Fase 8 pulado por
-decisão do dono ("manda tudo para prod logo"); pushes de migration do dono retornaram
-"up to date" — a 0037 já estava aplicada nos remotos (provavelmente pela sessão paralela
-do clone principal); a prova exigida por PUB-02/03 foi feita por leitura nesta sessão.
-Fase 5 formalmente aberta (verification human_needed) até o dono confirmar o gráfico
-em produção — item registrado em 05-UAT.md.
+Status: Awaiting next milestone
+Last activity: 2026-08-14 — Milestone v1.1 completed and archived
 
 ## Accumulated Context
 
@@ -131,8 +121,7 @@ frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os d
 
 ## Operator Next Steps
 
-- Verificar o gráfico na aba Progresso do PWA de produção e reportar "passou"/achados
-- Com o "passou": fechar 05-UAT.md como passed → verificação da fase 5 → /gsd-complete-milestone
+- Start the next milestone with /gsd-new-milestone
 
 ## Performance Metrics
 

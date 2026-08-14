@@ -47,42 +47,27 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
   errcode P0005 da 0036, mascarado pelo PostgREST; aplicada só no stack local —
   staging/produção pendem do fluxo normal de deploy de migrations).
 
-## Current State (v1.0 shipped 2026-08-13)
+## Current State (v1.1 shipped 2026-08-14)
 
-**Shipped:** v1.0 "Cardio e alongamento" — 4 fases, 19 planos, 28 tasks; 126 commits,
-183 arquivos, +26.702/−1.603 linhas em 6 dias (2026-08-08 → 2026-08-13). Todos os 7
-requisitos validados; 4/4 fases com verificação `passed`; integração cross-phase 6/6 e
-fluxo E2E completo (auditoria em `milestones/v1.0-MILESTONE-AUDIT.md`).
+**Shipped:** v1.1 "Release em produção" — tudo que o v1.0 construiu está VIVO em
+produção com evidência: 68 commits publicados (`0193742..82fd8db`) com CI
+`session-contract` verde (run 31822228262); migration 0037 (P0005→23505) verificada
+por leitura em staging e produção (md5 `662cbd9e` idêntico); PWA em produção na
+Vercel (https://forca-app-six.vercel.app) com o gráfico de evolução de cardio
+verificado visualmente pelo dono ("passou", 2026-08-14). Fase 5 verificada 11/11;
+fases 6-8 executadas com evidência direta registrada (override_closeout — sem
+diretórios de fase próprios, sem audit formal de milestone).
 
-**O que existe agora:** cardio com registro decimal fiel; meta derivada da prescrição
-(fonte única); alongamento guiado pilotável pelo chat; gerador calibrado por anamnese;
-troca de modalidade com guarda no servidor; execução de treino offline-first (outbox
-durável com retry/dedupe/quarentena).
+**O que existe agora:** tudo do v1.0 (cardio decimal fiel, meta por prescrição,
+alongamento guiado, anamnese calibrada, troca de modalidade com guarda, execução
+offline-first) MAIS o gráfico de evolução de cardio (pace/km por modalidade) em
+produção, revisado por painel adversarial (7 achados, todos terminais).
 
-**Dívidas conhecidas (com dono e caminho):** deploy da migration 0037 em
-staging/produção; teste 8(c) em build nativo; sessão de debug `resolved_partial`
-(falta o texto literal do erro de produção); GRANT DML ausente para projetos Supabase
-novos; `Alert.alert` no-op no react-native-web; tabela `cardio_goals` órfã; Nyquist
-not-validated nas 4 fases. Detalhe: STATE.md (Pending Todos/Deferred Items) e o audit.
-
-## Current Milestone: v1.1 Release em produção
-
-**Goal:** Tudo que está pronto e verificado neste clone chega em produção com
-evidência — código no GitHub com CI verde, migration 0037 viva em staging e produção,
-PWA atualizado na Vercel e pendências fechadas no STATE.md.
-
-**Target features:**
-- Gráfico de evolução de cardio integrado, revisado (painel adversarial) e commitado
-  com higiene (`.claude/` no `.gitignore`, adds nomeados — nunca `git add -A`)
-- ~46 commits locais publicados em `origin/main` com CI `session-contract` verde
-- Migration 0037 (P0005→23505) aplicada em staging e produção COM preflight,
-  verificada por leitura + md5 (mesmo protocolo da 0036)
-- Deploy web Vercel manual (preview → smoke → `--prod`) com verificação pós-produção
-
-**Fora do escopo:** config ESLint, flakiness de timeouts da suíte, deploy automático
-Vercel, `test:integration:pg`, backend HML na VPS. Comandos de produção
-(`supabase db push` prod e `vercel deploy --prod`) são portão do dono: a sessão
-entrega os comandos prontos com preflight validado; o dono executa.
+**Dívidas conhecidas (com dono e caminho):** teste 8(c) em build nativo (máquina sem
+toolchain); sessão de debug `resolved_partial` (falta o texto literal do erro de
+produção); GRANT DML ausente para projetos Supabase novos; `Alert.alert` no-op no
+react-native-web; tabela `cardio_goals` órfã; Nyquist not-validated nas fases do
+v1.0. Detalhe: STATE.md (Pending Todos/Deferred Items).
 
 ## Restrições
 
@@ -108,6 +93,10 @@ entrega os comandos prontos com preflight validado; o dono executa.
 | 2026-08-12 | REQ-07: errcode P0005 da 0036 → 23505 via migration 0037 (supersede) | Decisão do dono no checkpoint do 04-03; PostgREST mascara SQLSTATE não oficial — achado do teste de integração contra Postgres real |
 | 2026-08-13 | Teste 8(c) da Fase 3 (build nativo) deferido como caveat; itens (a)/(b) executados a pedido do dono ("teste você") e PASS | Fechamento do v1.0; máquina do ciclo sem Xcode/Android SDK; persistência já provada por leitura direta no banco |
 | 2026-08-13 | v1.0 fechado como override_closeout com 1 item deferido (debug resolved_partial) | Decisão do dono no fechamento; demais portões todos verdes (4/4 fases verificadas) |
+| 2026-08-14 | Fase 8: preview+smoke da Vercel pulado — deploy direto `--prod` | Decisão do dono ("manda tudo para prod logo"); smoke cumprido em produção (200 + verificação visual) |
+| 2026-08-14 | UAT visual da Fase 5 cumprido pelo dono no PWA de produção ("passou") | Fecha a verificação 11/11; supera o alvo original (Expo web local) |
+| 2026-08-14 | v1.1 fechado como override_closeout: fases 6-8 sem diretórios de fase (evidência direta em ROADMAP/STATE), sem audit formal; debug resolved_partial segue deferida | Milestone operacional de release; trilha de evidência completa (CI, md5, 200) |
+| 2026-08-14 | v1.2 será app de iPhone via site pelo caminho PWA — SEM Apple Developer pago | Pesquisa 2026-08-14: TCC CADE trouxe só marketplaces alternativos (iOS 26.5), que exigem conta paga; dono não quer pagar; Ad Hoc/TestFlight ficam como porta reaberta se pagar US$ 99/ano |
 
 ## Evolution
 
@@ -127,4 +116,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-14 — milestone v1.1 started*
+*Last updated: 2026-08-14 after v1.1 milestone*

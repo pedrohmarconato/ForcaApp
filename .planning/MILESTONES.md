@@ -1,5 +1,28 @@
 # Milestones
 
+## v1.1 Release em produção (Shipped: 2026-08-14)
+
+**Phases completed:** 4 fases (5-8) — Fase 5 com 2 plans/4 tasks e verificação 11/11;
+fases 6-8 executadas direto (sem diretórios de fase), com evidência registrada em
+ROADMAP/STATE.
+**Stats:** ~25 commits (v1.0 → HEAD), 2026-08-13 → 2026-08-14 (2 dias)
+**Closeout:** override_closeout — Known verification overrides: 2 (fases 6-8
+completion-by-evidence sem SUMMARY próprio; debug `typeerror-envio-series-treino`
+resolved_partial segue deferida — see STATE.md Deferred Items). Sem audit formal de
+milestone (decisão registrada: milestone operacional de release com trilha de
+evidência direta; auditoria retroativa disponível via /gsd-audit-milestone).
+
+**Key accomplishments:**
+
+- 3 commits locais (chore/docs/feat) integram o gráfico de evolução de cardio (motor + componente + 20 testes + wiring de 4 linhas) já pronto no working tree, com `.claude/` gitignorado antes de qualquer commit e `.planning/reviews/` versionado sem edição — nenhum push, verificação local 100% verde na primeira rodada (tsc 0 erros, 147/147 suites jest, 617 testes pytest).
+- Painel adversarial de 4 revisores sobre os 63 commits acumulados de v1.0/v1.1 confirmou 7 achados na fila offline-first e no gráfico de cardio; 4 corrigidos com teste-antes-do-fix (retry em `enqueueItem`, resync do selo de pendência, quarentena visível, identidade correta do gráfico por troca de modalidade), 3 aceitos pelo dono — zero push, fase pronta para a Fase 6.
+- **Publicação (Fase 6):** push `0193742..82fd8db` (68 commits) para `origin/main` com CI `session-contract` verde (run 31822228262).
+- **Migration 0037 (Fase 7):** P0005→23505 verificada por leitura em staging E produção — errcode 23505 vivo, md5 `662cbd9e07482334228a89dfbd8475ce` idêntico nos dois ambientes, histórico registra a 0037 em ambos.
+- **Deploy web (Fase 8):** `vercel deploy --prod` executado pelo dono → https://forca-app-six.vercel.app (200, title "Força"); deviação registrada: preview+smoke pulado por decisão do dono ("manda tudo para prod logo").
+- **UAT visual em produção:** dono verificou o gráfico de evolução de cardio no PWA de produção e reportou "passou" (2026-08-14) — fecha a Fase 5 em 11/11 e o requisito PUB-04 com o smoke cumprido direto em produção.
+
+---
+
 ## v1.0 Cardio e alongamento (Shipped: 2026-08-13)
 
 **Phases completed:** 4 phases, 19 plans, 28 tasks
