@@ -551,3 +551,69 @@ describe('QuestionnaireScreen — opção de gerar o treino direto', () => {
     expect(chamada[1]).not.toHaveProperty('skipChat', true);
   });
 });
+
+describe('QuestionnaireScreen — peso com vírgula (teclado decimal no iOS/PWA)', () => {
+  // No iOS/PWA, keyboardType="numeric" vira inputMode="numeric" no
+  // react-native-web — teclado sem tecla de vírgula. O aluno digita "75,5" do
+  // jeito que o placeholder pede ("Ex: 75.5" também aceita vírgula pelo
+  // costume local) e a validação/regra de negócio precisa aceitar E preservar
+  // o decimal, não truncar em "75".
+  beforeEach(() => jest.clearAllMocks());
+
+  it('aceita peso com vírgula na validação e envia o valor decimal correto na submissão', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    // 1 — nome
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    // 2 — nascimento
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    // 3 — gênero (avanço automático)
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
+
+    // 4 — corpo: peso com VÍRGULA — modo de falha original (regex rejeitava,
+    // Continuar ficava travado para sempre com "75,5").
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '75,5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+
+    fireEvent.press(getByLabelText('Continuar'));
+    // 5 — experiência (auto)
+    fireEvent.press(getByLabelText('Intermediário (6 meses - 2 anos)'));
+    await findByLabelText('Ganho de Massa Muscular');
+    // 6 — objetivo (auto)
+    fireEvent.press(getByLabelText('Ganho de Massa Muscular'));
+    await findByLabelText('Terça-feira');
+    // 7 — dias (Continuar)
+    fireEvent.press(getByLabelText('Terça-feira'));
+    fireEvent.press(getByLabelText('Continuar'));
+    // 8 — tempo (auto)
+    fireEvent.press(getByLabelText('45-60 min'));
+    // 9 — cardio (auto, "Não" desliga a dose)
+    await waitFor(() => expect(utils.getByText('Incluir cardio no plano?')).toBeTruthy());
+    fireEvent.press(getByLabelText('Não'));
+    // 10 — alongamento (auto)
+    await waitFor(() => expect(utils.getByText('Incluir alongamentos no plano?')).toBeTruthy());
+    fireEvent.press(getByLabelText('Sim'));
+    // 11 — lesões (passo final)
+    await waitFor(() => expect(utils.getByText('Alguma lesão ou restrição?')).toBeTruthy());
+    fireEvent.press(getByLabelText('Não'));
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    await waitFor(() => expect(mockSaveQuestionnaire).toHaveBeenCalledTimes(1));
+    // "75,5" tem de chegar como 75.5 — não 75 (truncado pelo parseFloat direto
+    // na vírgula) nem null.
+    expect(mockSaveQuestionnaire).toHaveBeenCalledWith(
+      expect.objectContaining({ peso_kg: 75.5 }),
+    );
+  });
+});
