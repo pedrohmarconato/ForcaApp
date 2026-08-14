@@ -528,7 +528,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
               <TextInput
                 style={styles.bigInput}
                 editable={!saving}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
                 value={
                   textoDistancia ??
                   (set.actualDistanceM != null
@@ -689,7 +689,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
                 <TextInput
                   style={[styles.bigInput, styles.loadInput]}
                   editable={!saving}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   value={
                     textoCarga ??
                     (set.actualLoadKg != null ? String(set.actualLoadKg) : '')

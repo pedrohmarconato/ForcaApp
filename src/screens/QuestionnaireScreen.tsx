@@ -43,7 +43,7 @@ import theme from '../theme/theme';
 import { easeImpulso } from '../utils/motion';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
-import NumericField from '../components/ui/NumericField';
+import NumericField, { numericTextToNumber } from '../components/ui/NumericField';
 import { OptionButton, DayToggle } from '../components/ui/Controls';
 import { Notice } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
@@ -346,7 +346,7 @@ const QuestionnaireScreen = () => {
       !!nome,
       isDateValid,
       !!genero,
-      !!peso && /^\d+(\.\d+)?$/.test(peso) && parseFloat(peso) > 0 &&
+      !!peso && /^\d+([.,]\d+)?$/.test(peso) && parseFloat(peso) > 0 &&
         !!altura && /^\d+$/.test(altura) && parseInt(altura, 10) > 0,
       !!experienciaTreino,
       !!objetivo,
@@ -438,7 +438,10 @@ const QuestionnaireScreen = () => {
 
     // Prepara os dados para API e Storage
     const formattedDate = `${anoNascimento}-${mesNascimento.padStart(2, '0')}-${diaNascimento.padStart(2, '0')}`;
-    const pesoNum = parseFloat(peso) || null;
+    // "75,5" tem de chegar como 75.5, não 75 (parseFloat direto trunca na
+    // vírgula) — mesma normalização que NumericField já usa nos outros campos
+    // decimais do questionário (cardioDistanciaConfortavelKm).
+    const pesoNum = numericTextToNumber(peso);
     const alturaNum = parseInt(altura, 10) || null;
     const lesoesDetalhes = temLesoes ? `${lesoes}${descricaoLesao ? ` (${descricaoLesao})` : ''}`.trim() || null : null;
     const formDataForApi = { usuario_id: userId, data_nascimento: formattedDate, genero: genero, peso_kg: pesoNum, altura_cm: alturaNum, experiencia_treino: experienciaTreino, objetivo: objetivo, tem_lesoes: temLesoes, lesoes_detalhes: lesoesDetalhes, dias_treino: getSelectedDays(), inclui_cardio: includeCardio, inclui_alongamento: includeStretching, tempo_medio_treino_min: averageTrainingTime,
@@ -638,7 +641,7 @@ const QuestionnaireScreen = () => {
                 selectionColor={theme.colors.accent.main}
                 value={peso}
                 onChangeText={setPeso}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
               />
             </View>
             <View style={styles.pairItem}>
@@ -809,7 +812,7 @@ const QuestionnaireScreen = () => {
                     onChangeNumber={setCardioDistanciaConfortavelKm}
                     error={erroDistanciaCardio}
                     placeholder="Ex: 3,5"
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                   />
                 </View>
               )}
