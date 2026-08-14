@@ -4,11 +4,11 @@ milestone: v1.1
 milestone_name: Release em produção
 current_phase: 5
 current_phase_name: Integração e review do gráfico de cardio
-status: verifying
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-08-14T14:58:11.985Z"
+status: awaiting owner production verification
+stopped_at: "Fases 6-8 executadas em 2026-08-14: push 82fd8db + CI verde, 0037 verificada em staging+prod (md5 idêntico), deploy Vercel no ar"
+last_updated: "2026-08-14T15:30:00.000Z"
 last_activity: 2026-08-14
-last_activity_desc: Phase 5 execution started
+last_activity_desc: Release em produção — falta só a verificação visual do dono no PWA
 progress:
   total_phases: 4
   completed_phases: 1
@@ -29,10 +29,20 @@ meta com fonte única e condução guiada.
 
 ## Current Position
 
-Phase: 5 (Integração e review do gráfico de cardio) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-08-14 — Phase 5 execution started
+Phase: 8 de 8 executada — release em produção (2026-08-14)
+Plan: —
+Status: Aguardando verificação visual do dono no PWA de produção (fecha Fase 5 e o milestone)
+Last activity: 2026-08-14 — Fases 6-8 executadas: push `0193742..82fd8db` (68 commits),
+CI session-contract verde (run 31822228262), migration 0037 VERIFICADA por leitura em
+staging e produção (errcode 23505 vivo; único P0005 remanescente é comentário; md5
+`662cbd9e07482334228a89dfbd8475ce` idêntico nos dois ambientes; histórico registra 0037
+nos dois), deploy web `vercel deploy --prod` pelo dono → https://forca-app-six.vercel.app
+(status 200, title "Força"). Deviação registrada: preview+smoke da Fase 8 pulado por
+decisão do dono ("manda tudo para prod logo"); pushes de migration do dono retornaram
+"up to date" — a 0037 já estava aplicada nos remotos (provavelmente pela sessão paralela
+do clone principal); a prova exigida por PUB-02/03 foi feita por leitura nesta sessão.
+Fase 5 formalmente aberta (verification human_needed) até o dono confirmar o gráfico
+em produção — item registrado em 05-UAT.md.
 
 ## Accumulated Context
 
@@ -61,9 +71,16 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-- Deploy da migration 0037 (P0005→23505) em staging e produção pelo fluxo normal —
-  até lá, recusa definitiva de swap em produção cai em retry-até-expirar (limitado por
-  idade) no cliente, em vez de quarentena imediata. Ação do dono. (Endereçado pela Fase 7.)
+- Verificação visual do dono no PWA de produção (https://forca-app-six.vercel.app):
+  aba Progresso → gráfico de evolução de cardio (roteiro em 05-UAT.md). Ao confirmar,
+  rodar /gsd-verify-work 5 (ou marcar o UAT como passed) → fase 5 fecha → milestone
+  v1.1 pronto para /gsd-complete-milestone.
+
+- ~~Deploy da migration 0037~~ **FECHADO em 2026-08-14**: 0037 aplicada e verificada
+  por leitura em staging (mjdjtiujhwklchalquhc) E produção (zanqygwsgxkyjiuhrzju) —
+  errcode 23505 vivo, md5 662cbd9e07482334228a89dfbd8475ce idêntico, histórico com a
+  0037 nos dois. Achado 3 do painel (drift de errcode) morre aqui: cliente e servidor
+  falam 23505 em produção.
 
 - Teste 8(c) do 03-UAT.md: reconfirmar "fechar e reabrir o app" em build nativo
   iOS/Android real — deferido (máquina do ciclo sem toolchain nativa).
@@ -114,7 +131,8 @@ frontmatter já trazia o estado da Fase 03. Ao atualizar o estado, atualize os d
 
 ## Operator Next Steps
 
-- Plan phase 5 with /gsd-plan-phase 5
+- Verificar o gráfico na aba Progresso do PWA de produção e reportar "passou"/achados
+- Com o "passou": fechar 05-UAT.md como passed → verificação da fase 5 → /gsd-complete-milestone
 
 ## Performance Metrics
 

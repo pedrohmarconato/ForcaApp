@@ -26,9 +26,9 @@ evidência — código no GitHub com CI verde, migration 0037 viva em staging e 
 PWA atualizado na Vercel e pendências fechadas no STATE.md.
 
 - [ ] **Phase 5: Integração e review do gráfico de cardio** - Gráfico de evolução de cardio commitado com higiene de git e revisado por painel adversarial antes do push
-- [ ] **Phase 6: Publicação do código** - Todos os commits locais publicados em origin/main com CI session-contract verde
-- [ ] **Phase 7: Migration 0037 em staging e produção** - Migration 0037 (P0005→23505) aplicada e verificada nos dois ambientes
-- [ ] **Phase 8: Deploy web e fechamento** - PWA de produção atualizado via Vercel e pendências fechadas com evidência no STATE.md
+- [x] **Phase 6: Publicação do código** - Todos os commits locais publicados em origin/main com CI session-contract verde — completed 2026-08-14 (push `0193742..82fd8db`, run 31822228262 verde)
+- [x] **Phase 7: Migration 0037 em staging e produção** - Migration 0037 (P0005→23505) aplicada e verificada nos dois ambientes — completed 2026-08-14 (errcode 23505 vivo, md5 `662cbd9e` idêntico staging×prod)
+- [x] **Phase 8: Deploy web e fechamento** - PWA de produção atualizado via Vercel e pendências fechadas com evidência no STATE.md — completed 2026-08-14 (https://forca-app-six.vercel.app, 200; preview pulado por decisão do dono)
 
 ## Phase Details
 
@@ -133,6 +133,6 @@ Phases execute in numeric order: 5 → 6 → 7 → 8
 | 3. Intercâmbio de modalidade de cardio | v1.0 | 9/9 | Complete | 2026-08-13 |
 | 4. Escrita de execução de treino em lote e offline-first | v1.0 | 3/3 | Complete | 2026-08-12 |
 | 5. Integração e review do gráfico de cardio | v1.1 | 2/2 | In Progress|  |
-| 6. Publicação do código | v1.1 | 0/? | Not started | - |
-| 7. Migration 0037 em staging e produção | v1.1 | 0/? | Not started | - |
-| 8. Deploy web e fechamento | v1.1 | 0/? | Not started | - |
+| 6. Publicação do código | v1.1 | direto | Complete | 2026-08-14 |
+| 7. Migration 0037 em staging e produção | v1.1 | direto | Complete | 2026-08-14 |
+| 8. Deploy web e fechamento | v1.1 | direto | Complete | 2026-08-14 |
