@@ -12,7 +12,7 @@ trabalho do gráfico de cardio feito fora do GSD após o arquivamento do v1.0.
   com higiene de git — adds nomeados (nunca `git add -A`), `.claude/` no `.gitignore`,
   `.planning/reviews/` commitado como docs — com suíte completa e typecheck verdes.
 
-- [ ] **INT-02**: Todo o diff que vai a produção passa por painel adversarial
+- [x] **INT-02**: Todo o diff que vai a produção passa por painel adversarial
   (4 revisores) antes do push; achados CONFIRMADOS são corrigidos ou explicitamente
   aceitos pelo dono.
 
@@ -56,7 +56,7 @@ trabalho do gráfico de cardio feito fora do GSD após o arquivamento do v1.0.
 | REQ | Phase | Status |
 |-----|-------|--------|
 | INT-01 | Phase 5 | Complete |
-| INT-02 | Phase 5 | Pending |
+| INT-02 | Phase 5 | Complete |
 | PUB-01 | Phase 6 | Pending |
 | PUB-02 | Phase 7 | Pending |
 | PUB-03 | Phase 7 | Pending |
