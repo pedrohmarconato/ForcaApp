@@ -2,13 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Release em produção
-status: planning
-last_updated: "2026-08-14T14:20:00.000Z"
+current_phase: 5
+current_phase_name: Integração e review do gráfico de cardio
+status: executing
+stopped_at: Roadmap do milestone v1.1 criado — 4 fases (5-8) derivadas de 7 requisitos
+last_updated: "2026-08-14T14:16:24.427Z"
 last_activity: 2026-08-14
+last_activity_desc: Roadmap v1.1 criado (Fases 5-8)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -27,7 +31,7 @@ meta com fonte única e condução guiada.
 
 Phase: 5 of 8 (Integração e review do gráfico de cardio)
 Plan: — (not yet planned)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-14 — Roadmap v1.1 criado (Fases 5-8)
 
 ## Accumulated Context
@@ -74,8 +78,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 - Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest); CI
   `session-contract` remoto é o gate da Fase 6.
+
 - Clone principal (~/Projects/ForcaApp) ocupado por outra sessão em feat/treino-conjunto-2.0;
   este ciclo roda em ~/ForcaApp.
+
 - Working tree no início do v1.1 já contém trabalho não commitado do gráfico de cardio
   (ProgressScreen.tsx modificado; CardioEvolucaoChart.tsx, cardioEvolucao.ts,
   cardioEvolucao.test.ts e .planning/reviews/ não rastreados; .claude/ não rastreado) —

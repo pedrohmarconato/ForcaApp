@@ -33,6 +33,7 @@ PWA atualizado na Vercel e pendências fechadas no STATE.md.
 ## Phase Details
 
 ### Phase 5: Integração e review do gráfico de cardio
+
 **Goal**: O gráfico de evolução de cardio (trabalho feito fora do GSD após o
 arquivamento do v1.0 — `CardioEvolucaoChart`, `cardioEvolucao.ts`, testes) está
 integrado ao repositório com higiene de git e passou por painel adversarial antes de
@@ -56,10 +57,16 @@ qualquer push a produção.
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 05-01-PLAN.md — verificação local (tsc/jest/pytest) + 3 commits com adds nomeados (gitignore, .planning/reviews, gráfico de cardio)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02-PLAN.md — painel adversarial (4 revisores) sobre origin/main..HEAD, decisão do dono por achado, resolução e fechamento sem push
 
 ### Phase 6: Publicação do código
+
 **Goal**: Todo o histórico local — os ~46 commits acumulados de v1.0/v1.1 mais a
 integração da Fase 5 — chega a `origin/main` com o CI verde.
 **Depends on**: Phase 5
@@ -75,6 +82,7 @@ integração da Fase 5 — chega a `origin/main` com o CI verde.
 **Plans**: TBD
 
 ### Phase 7: Migration 0037 em staging e produção
+
 **Goal**: A correção de errcode da migration 0037 (P0005→23505) está viva nos dois
 projetos Supabase, com paridade comprovada entre eles.
 **Depends on**: Phase 6
@@ -95,6 +103,7 @@ projetos Supabase, com paridade comprovada entre eles.
 **Plans**: TBD
 
 ### Phase 8: Deploy web e fechamento
+
 **Goal**: O PWA de produção reflete o código publicado e as pendências de deploy
 registradas em STATE.md ficam fechadas com evidência.
 **Depends on**: Phase 6, Phase 7
