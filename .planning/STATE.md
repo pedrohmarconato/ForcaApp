@@ -5,16 +5,16 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 11
 current_phase_name: Service worker e atualização segura
 status: executing
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-08-15T03:39:57.989Z"
+stopped_at: Phase 12 UI-SPEC approved
+last_updated: "2026-08-15T13:11:49.194Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 8
-  completed_plans: 6
-  percent: 20
+  completed_phases: 2
+  total_plans: 10
+  completed_plans: 7
+  percent: 40
 ---
 
 # Project State
@@ -126,12 +126,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T03:39:57.984Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-08-15T12:43:52.590Z
+Stopped at: Phase 12 UI-SPEC approved
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: None
+Resume file: .planning/phases/12-p-gina-de-instala-o-guiada/12-UI-SPEC.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
