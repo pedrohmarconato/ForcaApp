@@ -616,4 +616,31 @@ describe('QuestionnaireScreen — peso com vírgula (teclado decimal no iOS/PWA)
       expect.objectContaining({ peso_kg: 75.5 }),
     );
   });
+
+  it('WR-05: aceita peso decimal com vírgula abaixo de 1kg ("0,5") em vez de travar em "Continuar" (parseFloat trunca na vírgula, numericTextToNumber não)', async () => {
+    const utils = await renderQuestionario();
+    const { getByLabelText, findByLabelText } = utils;
+
+    // 1 — nome
+    fireEvent.changeText(getByLabelText('Nome completo'), 'Pedro Marconato');
+    fireEvent.press(getByLabelText('Continuar'));
+    // 2 — nascimento
+    fireEvent.changeText(getByLabelText('Dia de nascimento'), '5');
+    fireEvent.changeText(getByLabelText('Mês de nascimento'), '3');
+    fireEvent.changeText(getByLabelText('Ano de nascimento'), '1990');
+    fireEvent.press(getByLabelText('Continuar'));
+    // 3 — gênero (avanço automático)
+    fireEvent.press(getByLabelText('Masculino'));
+    await findByLabelText('Peso em quilos');
+
+    // 4 — corpo: peso "0,5" — regex /^\d+([.,]\d+)?$/ aceita, mas o guard de
+    // positividade usava parseFloat("0,5") === 0, travando "Continuar" para
+    // sempre mesmo com um peso válido digitado.
+    fireEvent.changeText(getByLabelText('Peso em quilos'), '0,5');
+    fireEvent.changeText(getByLabelText('Altura em centímetros'), '181');
+
+    expect(getByLabelText('Continuar').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
 });

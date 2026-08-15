@@ -346,7 +346,13 @@ const QuestionnaireScreen = () => {
       !!nome,
       isDateValid,
       !!genero,
-      !!peso && /^\d+([.,]\d+)?$/.test(peso) && parseFloat(peso) > 0 &&
+      // parseFloat("0,5") === 0 (trunca no separador ",", já que parseFloat só
+      // entende "."), então um peso sub-1kg digitado com vírgula travava
+      // "Continuar" mesmo passando na regex acima. numericTextToNumber (usado
+      // no submit, linha ~444) normaliza "," -> "." antes de converter — usar
+      // a mesma função aqui elimina a divergência entre os dois caminhos
+      // (WR-05).
+      !!peso && /^\d+([.,]\d+)?$/.test(peso) && (numericTextToNumber(peso) ?? 0) > 0 &&
         !!altura && /^\d+$/.test(altura) && parseInt(altura, 10) > 0,
       !!experienciaTreino,
       !!objetivo,
