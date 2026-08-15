@@ -60,7 +60,19 @@ const UpdateBanner = () => {
       w.__swUpdateAvailable = false;
     }
 
-    const handleUpdateAvailable = () => setWaiting(true);
+    // WR-01 (iteração 3): o listener ao vivo é o caminho MAIS comum de
+    // ativação (updatefound/statechange real, minutos/horas depois do
+    // mount) — sem limpar a flag aqui também, register-sw.js deixa
+    // window.__swUpdateAvailable travada em `true` para sempre após
+    // qualquer atualização real, e um remount futuro sem novo dispatch
+    // (StrictMode, key trocada, error boundary, render condicional)
+    // rereleria a flag obsoleta e reabriria o banner silenciosamente —
+    // a mesma classe de bug do branch de replay acima, pelo caminho que
+    // falta.
+    const handleUpdateAvailable = () => {
+      setWaiting(true);
+      w.__swUpdateAvailable = false;
+    };
     window.addEventListener('sw-update-available', handleUpdateAvailable);
     return () => window.removeEventListener('sw-update-available', handleUpdateAvailable);
   }, [setWaiting]);

@@ -27,7 +27,15 @@ import { render, fireEvent, act } from '@testing-library/react-native';
 import UpdateBanner from '../src/components/UpdateBanner';
 import { useUpdateStore } from '../src/store/updateStore';
 
+// WR-01 (iteração 3): espelha o contrato real de register-sw.js, que SEMPRE
+// grava `window.__swUpdateAvailable = true` imediatamente antes de despachar
+// o CustomEvent (linhas 43 e 57) — nunca só o dispatchEvent isolado. Um
+// helper que só despacha o evento (versão anterior deste helper) não
+// reproduz o caminho do listener ao vivo pós-mount, então nenhum teste
+// existente conseguia observar a flag ficando obsoleta depois de um evento
+// consumido pelo listener ao vivo (em vez do branch de replay no mount).
 const dispatchSwUpdateAvailable = () => {
+  (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable = true;
   window.dispatchEvent(new CustomEvent('sw-update-available'));
 };
 
@@ -165,6 +173,32 @@ describe('UpdateBanner (web)', () => {
     } finally {
       delete (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable;
     }
+  });
+
+  it('window.__swUpdateAvailable consumida também pelo listener ao vivo pós-mount: um remount sem novo flag/dispatch NÃO reabre o banner depois de "Depois" (WR-01 iteração 3: caminho live-listener, mais comum que a corrida pré-mount)', () => {
+    // Sem o fix, handleUpdateAvailable (o listener ao vivo registrado após o
+    // mount) chama setWaiting(true) mas nunca zera a flag — diferente do
+    // branch de replay síncrono no mount, que já limpava. dispatchSwUpdateAvailable
+    // agora grava a flag antes do dispatchEvent (mesmo contrato de
+    // register-sw.js), então este teste reproduz exatamente o caminho real:
+    // update chega minutos/horas depois do mount, quando só o listener ao
+    // vivo está ativo.
+    const primeiraMontagem = render(<UpdateBanner />);
+    act(() => {
+      dispatchSwUpdateAvailable();
+    });
+    expect(primeiraMontagem.getByText('Nova versão disponível')).toBeTruthy();
+    fireEvent.press(primeiraMontagem.getByText('Depois'));
+    expect(primeiraMontagem.queryByText('Nova versão disponível')).toBeNull();
+    primeiraMontagem.unmount();
+
+    // Nenhum novo flag write nem dispatch acontece aqui — se o listener ao
+    // vivo não limpou window.__swUpdateAvailable, o branch de replay do
+    // próximo mount releria a flag ainda `true` e reabriria o banner,
+    // contornando a escolha "Depois" do usuário.
+    useUpdateStore.setState({ waiting: false, dismissed: false });
+    const segundaMontagem = render(<UpdateBanner />);
+    expect(segundaMontagem.queryByText('Nova versão disponível')).toBeNull();
   });
 
   it('múltiplas montagens/desmontagens e disparos repetidos do evento nunca produzem chamada a reload (guarda contra auto-reload)', () => {
