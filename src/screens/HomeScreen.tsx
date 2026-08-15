@@ -10,7 +10,7 @@
 // placeholder. Não existe meta semanal persistida no app, então a semana é
 // apresentada como contagem e dias marcados, sem percentual de adesão.
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -38,6 +38,7 @@ import {
 import { semanasConstantes } from '../engine/progressStats';
 import { localTodayISO } from '../engine/agendaDias';
 import { normalizeName } from '../engine/sessionModel';
+import { updateTrainingBadge } from '../utils/pushBadge';
 import theme from '../theme/theme';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
@@ -190,6 +191,15 @@ const HomeScreen = () => {
 
   const ehHoje = todaySession?.scheduled_date === hoje;
   const tituloDestaque = todaySession && !ehHoje ? 'Seu próximo treino' : 'Seu treino de hoje';
+
+  // Badge do ícone do app (PUSH-04): reflete a MESMA condição de "treino
+  // pendente hoje" já usada acima para o título/atraso — nenhuma segunda
+  // fonte de verdade sobre pendência. Gated por suporte + permissão dentro
+  // de updateTrainingBadge (no-op silencioso sem os dois, ver src/utils/
+  // pushBadge.ts); a Home é a única tela que atualiza este badge.
+  useEffect(() => {
+    updateTrainingBadge(ehHoje && todaySession?.status === 'pending');
+  }, [ehHoje, todaySession?.status]);
 
   // Verifica se o treino está atrasado
   const ehAtrasado = todaySession &&
