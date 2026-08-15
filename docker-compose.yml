@@ -46,7 +46,13 @@ services:
       # thread única) para ler/marcar planned_sessions across-user na hora do
       # lembrete diário — bypassa RLS por design, nunca usada em nenhuma rota
       # HTTP alcançável pelo cliente (T-13-06).
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?defina SUPABASE_SERVICE_ROLE_KEY no ambiente do projeto (Supabase Dashboard -> Settings -> API -> service_role key) — usado SÓ pelo scheduler de lembrete para ler across-user}
+      # Obrigatória SOMENTE quando PUSH_REMINDER_SCHEDULER_ENABLED=true (o
+      # scheduler é o único consumidor; desligado, a chave nunca é lida —
+      # iniciar_scheduler() retorna antes). Default vazio para o deploy
+      # VAPID-only não travar; ligar o scheduler sem a chave falha no
+      # primeiro tick com log de erro. Fonte: Supabase Dashboard ->
+      # Settings -> API -> service_role key.
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       # PUSH-01/02/03: assinatura VAPID do Web Push (pywebpush). A privada é a
       # base64url do escalar bruto (32 bytes) — formato que py_vapid
       # Vapid.from_string aceita; NUNCA commitar nem logar. O subject é o
