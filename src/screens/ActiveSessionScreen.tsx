@@ -84,15 +84,22 @@ const ActiveSessionScreen = ({ route }: Props) => {
   const draft = useActiveSessionStore((s) => s.draft);
   const status = useActiveSessionStore((s) => s.status);
 
-  // Ciclo de vida do Wake Lock (SESS-01, D-05/D-06/D-07): a tela fica acesa
-  // enquanto a sessão está em andamento ('active'/'awaiting_checkin') e é
-  // liberada assim que sai desses estados — inclusive ao concluir
-  // ('finished') e no unmount. `.catch(() => {})` cobre D-06 (sem suporte a
-  // Wake Lock — iOS < 16.4, browser incompatível — falha silenciosa, sem
-  // aviso novo na UI) e o CodedError que deactivate lança quando a tag nunca
-  // foi ativada (ExpoKeepAwake.web.ts).
+  // Ciclo de vida do Wake Lock (SESS-01, D-05/D-06/D-07, WR-04): a tela fica
+  // acesa enquanto a sessão está em andamento e é liberada assim que sai
+  // desses estados — inclusive ao concluir ('finished') e no unmount.
+  // `sessaoEmAndamento` (e não `status` cru) é a dependência do efeito: usar
+  // `status` direto fazia o cleanup+setup rodar a cada transição de status,
+  // mesmo entre dois estados "em sessão" (ex.: confirmCheckIn passa por
+  // awaiting_checkin → loading → active) — cada tick soltava e reativava o
+  // lock à toa. Com o booleano derivado como dependência, o efeito só
+  // roda de novo ao ENTRAR ou SAIR da sessão, não a cada sub-transição
+  // interna. `.catch(() => {})` cobre D-06 (sem suporte a Wake Lock — iOS
+  // < 16.4, browser incompatível — falha silenciosa, sem aviso novo na UI)
+  // e o CodedError que deactivate lança quando a tag nunca foi ativada
+  // (ExpoKeepAwake.web.ts).
+  const sessaoEmAndamento = status !== 'idle' && status !== 'finished' && status !== 'error';
   useEffect(() => {
-    if (status === 'active' || status === 'awaiting_checkin') {
+    if (sessaoEmAndamento) {
       void activateKeepAwakeAsync(WAKE_LOCK_TAG).catch(() => {});
       return () => {
         void deactivateKeepAwake(WAKE_LOCK_TAG).catch(() => {});
@@ -100,7 +107,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
     }
     void deactivateKeepAwake(WAKE_LOCK_TAG).catch(() => {});
     return undefined;
-  }, [status]);
+  }, [sessaoEmAndamento]);
 
   // Readquisição em volta de background/tela bloqueada (D-07): o Screen Wake
   // Lock nativo do browser é liberado automaticamente pelo sistema quando a

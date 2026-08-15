@@ -747,17 +747,40 @@ describe('Wake Lock lifecycle (SESS-01)', () => {
     await waitFor(() => expect(screen.getByLabelText('Começar treino')).toBeTruthy());
   };
 
-  it('status "active"/"awaiting_checkin": activateKeepAwakeAsync chamado com "active-session"', async () => {
+  it('status "awaiting_checkin": activateKeepAwakeAsync chamado com "active-session"', async () => {
     const screen = renderScreen();
     await abrirCheckIn(screen);
-    // O check-in em si já é 'awaiting_checkin' — um dos dois status que ativam.
+    // O check-in em si já é 'awaiting_checkin' — um dos status que ativam.
     expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
+  });
 
+  it('status "active" (a partir de um estado fora de sessão): activateKeepAwakeAsync chamado com "active-session"', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+
+    mock(activateKeepAwakeAsync).mockClear();
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'idle' });
+    });
     mock(activateKeepAwakeAsync).mockClear();
     await act(async () => {
       useActiveSessionStore.setState({ status: 'active' });
     });
     expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
+  });
+
+  it('WR-04: awaiting_checkin → active direto (sem passar por "loading") não reativa o Wake Lock à toa — já estava mantido', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    // Já em 'awaiting_checkin' — lock mantido (sessaoEmAndamento continua true).
+    mock(activateKeepAwakeAsync).mockClear();
+    mock(deactivateKeepAwake).mockClear();
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'active' });
+    });
+    // Transição entre dois status "em sessão": não deve soltar nem readquirir.
+    expect(mock(deactivateKeepAwake)).not.toHaveBeenCalled();
+    expect(mock(activateKeepAwakeAsync)).not.toHaveBeenCalled();
   });
 
   it('transição para "finished": deactivateKeepAwake chamado com "active-session"', async () => {
@@ -772,6 +795,27 @@ describe('Wake Lock lifecycle (SESS-01)', () => {
       useActiveSessionStore.setState({ status: 'finished' });
     });
     expect(mock(deactivateKeepAwake)).toHaveBeenCalledWith('active-session');
+  });
+
+  it('WR-04: transição awaiting_checkin → loading → active não libera o Wake Lock no meio (sem churn)', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    // Já em 'awaiting_checkin' aqui (abrirCheckIn espera o botão de check-in).
+    mock(activateKeepAwakeAsync).mockClear();
+    mock(deactivateKeepAwake).mockClear();
+
+    // confirmCheckIn passa por 'loading' antes de assentar em 'active'
+    // (src/store/activeSessionStore.ts confirmCheckIn). Esse tick
+    // intermediário não pode soltar o Wake Lock.
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'loading' });
+    });
+    expect(mock(deactivateKeepAwake)).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'active' });
+    });
+    expect(mock(deactivateKeepAwake)).not.toHaveBeenCalled();
   });
 
   it('D-07: visibilitychange com visibilityState "visible" readquire o Wake Lock', async () => {
