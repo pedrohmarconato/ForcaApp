@@ -624,9 +624,9 @@ script this session]`.
 | A3 | Vercel's "multiple header rules matching the same path, same key" merge order is not officially documented as last-wins or first-wins | Pitfall #5 | Low — mitigated by recommending the deterministic carve-out approach (non-overlapping source patterns) rather than relying on any merge order at all. |
 | A4 | The recommended `refreshing`-guard `controllerchange`→reload pattern (Pattern 4 / Pitfall 8) | Architecture Patterns | Low — this is a widely-documented community/Google pattern (CITED, not a single authoritative spec citation), but functionally uncontroversial and easy to unit-test. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Is the Vercel project's Node.js Version build setting ≥ 20?**
+1. **Is the Vercel project's Node.js Version build setting ≥ 20?** — RESOLVED: fechado pelo checkpoint bloqueante 11-03 Task 1 (confirmação humana no dashboard da Vercel antes do primeiro deploy da fase).
    - What we know: `workbox-cli@7.4.1` requires Node ≥20 per its own `package.json`
      engines field (verified via `npm view`); this repo's local dev Node is v24.17.0.
    - What's unclear: The actual Node version configured in the linked Vercel project
@@ -636,7 +636,7 @@ script this session]`.
    - Recommendation: Plan should add a `checkpoint:human-verify` task, before the first
      `vercel deploy --prod` of this phase, to confirm the setting in the Vercel dashboard.
 
-2. **Should the SW register on Vercel Preview deployments, or only on the production domain?**
+2. **Should the SW register on Vercel Preview deployments, or only on the production domain?** — RESOLVED: 11-01 usa gate de protocolo https no register-sw.js (registra em produção; previews https também registram — aceitável: os ~20 usuários usam apenas o domínio de produção e a fase 8 dispensou previews).
    - What we know: `CONTEXT.md` says "registra só em produção/https" (`11-CONTEXT.md:38`).
      `location.protocol === 'https:'` is true for BOTH production and Preview deployments
      (Vercel serves both over HTTPS) — only local `expo start --web` (http://localhost)
