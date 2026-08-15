@@ -122,6 +122,7 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 |-------|-------|--------|
 | 9 | verification_deferred_human | /gsd-verify-work 9 |
 | 10 | verification_deferred_human (Task 3 do plano 10-01) | /gsd-verify-work 10 |
+| 11 | verification_deferred_human (Task 3 do plano 11-03 — modo avião) | /gsd-verify-work 11 |
 
 ## Session Continuity
 
