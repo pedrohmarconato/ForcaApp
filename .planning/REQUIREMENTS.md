@@ -38,7 +38,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 - [x] **PUSH-03**: Aluno recebe notificação quando o replanejamento semanal fica
   pronto (gatilho no job existente do Flask).
 
-- [ ] **PUSH-04**: Badge no ícone do app com pendência de treino (gated por
+- [x] **PUSH-04**: Badge no ícone do app com pendência de treino (gated por
   permissão de push concedida).
 
 - [x] **PUSH-05**: Tocar na notificação de treino abre o app direto na tela da
@@ -98,7 +98,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 | PUSH-01 | Phase 13 | Complete |
 | PUSH-02 | Phase 13 | Complete |
 | PUSH-03 | Phase 13 | Complete |
-| PUSH-04 | Phase 13 | Pending |
+| PUSH-04 | Phase 13 | Complete |
 | PUSH-05 | Phase 13 | Complete |
 | SESS-01 | Phase 9 | Pending |
 | WEB-01 | Phase 9 | Pending |
