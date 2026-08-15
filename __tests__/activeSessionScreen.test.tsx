@@ -832,4 +832,24 @@ describe('Wake Lock lifecycle (SESS-01)', () => {
     });
     expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
   });
+
+  it('WR-01: visibilitychange durante status "loading" (meio do confirmCheckIn) ainda readquire o Wake Lock', async () => {
+    const screen = renderScreen();
+    await abrirCheckIn(screen);
+    // 'awaiting_checkin' -> 'loading' é o tick intermediário do confirmCheckIn
+    // (src/store/activeSessionStore.ts). Antes do fix, o efeito de
+    // visibilitychange usava o predicado antigo de 2 status e removia o
+    // listener nesse tick, perdendo a readquisição se a aba voltasse a
+    // ficar visível durante essa janela.
+    await act(async () => {
+      useActiveSessionStore.setState({ status: 'loading' });
+    });
+
+    mock(activateKeepAwakeAsync).mockClear();
+    (document as any).visibilityState = 'visible';
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(mock(activateKeepAwakeAsync)).toHaveBeenCalledWith('active-session');
+  });
 });

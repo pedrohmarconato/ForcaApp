@@ -113,9 +113,14 @@ const ActiveSessionScreen = ({ route }: Props) => {
   // Lock nativo do browser é liberado automaticamente pelo sistema quando a
   // aba perde visibilidade, e expo-keep-awake NÃO reativa sozinho ao voltar
   // (confirmado lendo ExpoKeepAwake.web.ts na íntegra — sem esse listener).
+  // Usa o mesmo `sessaoEmAndamento` do efeito de ciclo de vida acima (WR-01,
+  // iteração 2): manter os dois efeitos no MESMO predicado evita que o tick
+  // intermediário 'loading' de confirmCheckIn (awaiting_checkin → loading →
+  // active) derrube o listener de visibilitychange e perca a readquisição
+  // caso a aba volte a ficar visível durante essa janela.
   useEffect(() => {
     if (typeof document === 'undefined') return undefined; // nativo não tem `document` global
-    if (status !== 'active' && status !== 'awaiting_checkin') return undefined;
+    if (!sessaoEmAndamento) return undefined;
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void activateKeepAwakeAsync(WAKE_LOCK_TAG).catch(() => {});
@@ -125,7 +130,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [status]);
+  }, [sessaoEmAndamento]);
 
   const saveError = useActiveSessionStore((s) => s.saveError);
   const startOrResume = useActiveSessionStore((s) => s.startOrResume);
