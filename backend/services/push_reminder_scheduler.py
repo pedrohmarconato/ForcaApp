@@ -144,8 +144,18 @@ def processar_tick(agora: datetime.datetime) -> int:
         if not subscriptions:
             # Aluno sem subscription: marca mesmo assim — senão o mesmo aluno
             # seria reprocessado eternamente no mesmo dia sem nunca ter push
-            # nenhum para enviar.
-            _marcar_lembrete_enviado(sessao["id"], quando_iso)
+            # nenhum para enviar. Envolvido em try/except (CR-01 de
+            # 13-REVIEW.md): uma falha aqui não pode abortar o `for` e
+            # deixar os alunos seguintes sem NENHUMA tentativa neste tick.
+            try:
+                _marcar_lembrete_enviado(sessao["id"], quando_iso)
+            except Exception:
+                logger.exception(
+                    "Falha ao marcar reminder_sent_at (sessão %s sem "
+                    "subscription) — será reprocessada no próximo tick "
+                    "dentro da mesma hora, se houver.",
+                    sessao["id"],
+                )
             continue
 
         payload = json.dumps(
@@ -187,7 +197,18 @@ def processar_tick(agora: datetime.datetime) -> int:
                         "Falha ao apagar subscription expirada (endpoint %s).",
                         subscription.get("endpoint"),
                     )
-        _marcar_lembrete_enviado(sessao["id"], quando_iso)
+        # CR-01 de 13-REVIEW.md: mesma proteção do ramo "sem subscription" —
+        # uma falha ao marcar reminder_sent_at desta sessão não pode abortar
+        # o `for` e impedir a tentativa dos alunos seguintes no mesmo tick.
+        try:
+            _marcar_lembrete_enviado(sessao["id"], quando_iso)
+        except Exception:
+            logger.exception(
+                "Falha ao marcar reminder_sent_at da sessão %s — será "
+                "reprocessada no próximo tick dentro da mesma hora, se "
+                "houver.",
+                sessao["id"],
+            )
 
     return enviados
 

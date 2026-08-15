@@ -16,6 +16,7 @@ import sys
 import unittest.mock as mock
 
 import pytest
+import requests
 
 os.environ["SUPABASE_URL"] = "https://teste.supabase.co"
 os.environ["SUPABASE_ANON_KEY"] = "anon-key-teste"
@@ -44,6 +45,7 @@ class _FakeSupabase:
     def __init__(self):
         self.planned_sessions = {}
         self.subscriptions = []
+        self.raise_on_patch_for = set()
 
     def seed_session(self, session_id, user_id, title, scheduled_date="2026-08-17", status="pending"):
         self.planned_sessions[session_id] = {
@@ -85,6 +87,10 @@ class _FakeSupabase:
     def patch(self, url, headers=None, params=None, json=None, timeout=None):
         assert url.endswith("/rest/v1/planned_sessions")
         session_id = params["id"].split("eq.", 1)[1]
+        if session_id in self.raise_on_patch_for:
+            raise requests.exceptions.HTTPError(
+                "500 Server Error (simulado) ao marcar reminder_sent_at de {}".format(session_id)
+            )
         self.planned_sessions[session_id]["reminder_sent_at"] = json["reminder_sent_at"]
         response = mock.Mock()
         response.status_code = 204
@@ -223,6 +229,57 @@ def test_enviar_push_retornando_false_apaga_subscription_expirada(fake_db):
         USER_A, "service-role-key-teste", "https://web.push.apple.com/expirado"
     )
     assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is not None
+
+
+# --- CR-01: exceção ao marcar reminder_sent_at de UM aluno não pode abortar
+# o resto do tick (REVIEW.md 13-REVIEW.md CR-01) ---
+
+
+def test_excecao_ao_marcar_reminder_sent_at_de_um_aluno_sem_subscription_nao_aborta_os_demais(fake_db):
+    """sess-1 (USER_A, sem subscription) falha ao marcar reminder_sent_at
+    (linha 148 do scheduler); sess-2 (USER_B, sem subscription) deve ainda
+    assim ser processada e marcada no MESMO tick — antes do fix, a exceção em
+    sess-1 propagava e abortava o `for` antes de sess-2 ser sequer tentada."""
+    fake_db.seed_session("sess-1", USER_A, "Treino de pernas")
+    fake_db.seed_session("sess-2", USER_B, "Treino de costas")
+    fake_db.raise_on_patch_for = {"sess-1"}
+
+    with mock.patch(
+        "backend.services.push_reminder_scheduler.push_sender.enviar_push"
+    ) as fake_enviar:
+        enviados = scheduler.processar_tick(AGORA_08H_UTC)
+
+    assert enviados == 0
+    fake_enviar.assert_not_called()
+    # sess-1 falhou ao marcar: reminder_sent_at continua None (será
+    # reprocessada num próximo tick dentro da mesma hora, se houver).
+    assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is None
+    # sess-2 NÃO pode ser vítima colateral da falha de sess-1.
+    assert fake_db.planned_sessions["sess-2"]["reminder_sent_at"] is not None
+
+
+def test_excecao_ao_marcar_reminder_sent_at_apos_envio_de_push_nao_aborta_os_demais(fake_db):
+    """Mesmo cenário, mas para a chamada de _marcar_lembrete_enviado que
+    ocorre APÓS o loop de push (linha 190) — sess-1 tem subscription, recebe
+    o push com sucesso, mas falha ao marcar; sess-2 ainda deve ser
+    processada."""
+    fake_db.seed_session("sess-1", USER_A, "Treino de pernas")
+    fake_db.seed_subscription(USER_A, "https://web.push.apple.com/abc")
+    fake_db.seed_session("sess-2", USER_B, "Treino de costas")
+    fake_db.seed_subscription(USER_B, "https://web.push.apple.com/def")
+    fake_db.raise_on_patch_for = {"sess-1"}
+
+    with mock.patch(
+        "backend.services.push_reminder_scheduler.push_sender.enviar_push", return_value=True
+    ) as fake_enviar:
+        enviados = scheduler.processar_tick(AGORA_08H_UTC)
+
+    # sess-1 recebeu o push (enviados conta o envio, não a marcação) e sess-2
+    # também — ambas subscriptions foram tentadas, apesar da falha de marcação.
+    assert enviados == 2
+    assert fake_enviar.call_count == 2
+    assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is None
+    assert fake_db.planned_sessions["sess-2"]["reminder_sent_at"] is not None
 
 
 # --- datetime.now() nunca dentro de processar_tick (T-13-08) ---
