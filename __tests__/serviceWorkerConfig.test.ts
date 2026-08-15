@@ -184,4 +184,8 @@ describe('guarda: public/register-sw.js — controlador, SKIP_WAITING e reload �
     const ocorrencias = codigoSemComentarios.match(/location\.reload\(\)/g) ?? [];
     expect(ocorrencias.length).toBe(1);
   });
+
+  it('register() tem .catch() — falha de registro nunca vira unhandled rejection silenciosa (WR-01)', () => {
+    expect(codigoSemComentarios).toMatch(/navigator\.serviceWorker\.register\(['"]\/sw\.js['"]\)[\s\S]*?\.catch\(/);
+  });
 });

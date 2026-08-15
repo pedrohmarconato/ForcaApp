@@ -52,6 +52,14 @@
         }
       });
     });
+  }).catch(function (err) {
+    // Falha de registro (rede, script inválido, quota, CSP bloqueando
+    // worker-src): o app continua funcionando, só sem offline/atualização
+    // automática. `registration` permanece undefined — sem isto a rejeição
+    // ficava não tratada e sem nenhum sinal de diagnóstico (WR-01).
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[sw] registration failed', err);
+    }
   });
 
   window.addEventListener('sw-apply-update', function () {
