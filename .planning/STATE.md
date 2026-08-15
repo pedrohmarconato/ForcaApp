@@ -5,8 +5,8 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 13
 current_phase_name: Push notification ponta a ponta
 status: executing
-stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-08-15T15:56:31.231Z"
+stopped_at: "Milestone v1.2: 5/5 fases executadas; UAT/infra do dono pendentes (deferred)"
+last_updated: "2026-08-15T17:16:06.362Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 13 execution started
 progress:
@@ -144,12 +144,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T15:56:31.225Z
-Stopped at: Completed 13-05-PLAN.md
+Last session: 2026-08-15T17:16:06.354Z
+Stopped at: Milestone v1.2: 5/5 fases executadas; UAT/infra do dono pendentes (deferred)
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: None
+Resume file: .planning/STATE.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
