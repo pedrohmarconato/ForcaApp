@@ -56,12 +56,30 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-cache"
+          "value": "no-cache, must-revalidate"
         }
       ]
     },
     {
-      "source": "/((?!_expo|icons|assets|splash|manifest\\.json|favicon\\.ico).*)",
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/register-sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/((?!_expo|icons|assets|splash|manifest\\.json|favicon\\.ico|sw\\.js|register-sw\\.js).*)",
       "headers": [
         {
           "key": "Cache-Control",
