@@ -4,6 +4,18 @@
 // bodyweight (sem kg) → concluir o treino. Também cobre a barreira da 1ª carga
 // e a ausência de campo de kg no bodyweight.
 
+// PUSH-03: activeSessionStore agora importa apiClient (confirmReplan()
+// dispara a notificacao best-effort). Mocka o modulo inteiro para nao
+// carregar o cliente Supabase real no jest -- mesmo padrao de
+// manualPlanStore.test.ts/replanFlow.test.ts.
+jest.mock('../src/services/api/apiClient', () => ({
+  __esModule: true,
+  default: { post: jest.fn(() => Promise.resolve()) },
+  ENDPOINTS: {
+    PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
+  },
+}));
+
 import React from 'react';
 import { Alert, Modal, Platform } from 'react-native';
 import { act, render, waitFor, fireEvent } from '@testing-library/react-native';

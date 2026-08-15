@@ -66,6 +66,16 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('../src/services/planEditRepository', () => ({
   reagendarSessoesDaSemana: jest.fn(),
 }));
+// PUSH-03: confirmReplan() agora chama apiClient.post best-effort. Mocka o
+// módulo inteiro (não só supabaseClient) para não carregar o cliente
+// Supabase real no jest — mesmo padrão de manualPlanStore.test.ts.
+jest.mock('../src/services/api/apiClient', () => ({
+  __esModule: true,
+  default: { post: jest.fn(() => Promise.resolve()) },
+  ENDPOINTS: {
+    PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
+  },
+}));
 
 import {
   startSessionLog,

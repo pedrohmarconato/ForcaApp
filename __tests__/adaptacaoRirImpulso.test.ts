@@ -49,6 +49,18 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   clearDraft: jest.fn(async () => undefined),
 }));
 
+// PUSH-03: activeSessionStore agora importa apiClient (confirmReplan()
+// dispara a notificacao best-effort). Mocka o modulo inteiro para nao
+// carregar o cliente Supabase real no jest -- mesmo padrao de
+// manualPlanStore.test.ts/replanFlow.test.ts.
+jest.mock('../src/services/api/apiClient', () => ({
+  __esModule: true,
+  default: { post: jest.fn(() => Promise.resolve()) },
+  ENDPOINTS: {
+    PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
+  },
+}));
+
 import { recommendByRules, evaluateSet } from '../src/engine/intraSessionAdaptation';
 import { ADAPT_CONFIG } from '../src/engine/config';
 

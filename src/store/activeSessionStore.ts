@@ -77,6 +77,8 @@ import {
   loadDraft,
   clearDraft,
 } from '../services/sessionDraftStorage';
+import apiClient, { ENDPOINTS } from '../services/api/apiClient';
+import { logger } from '../utils/logger';
 
 type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
@@ -898,6 +900,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         proposal: pr.proposal,
         sessionLogId: sid,
         confirmedAtISO: new Date().toISOString(),
+      });
+      // PUSH-03: aviso de replanejamento aplicado, best-effort. NUNCA
+      // await'ado — a UX de "replanejamento confirmado" nunca deve esperar
+      // nem falhar por causa do envio da notificação (fire-and-forget
+      // deliberado, decisão explícita assumida pelo plano).
+      apiClient.post(ENDPOINTS.PUSH.NOTIFY_REPLAN, {}).catch((e) => {
+        logger.warn('[activeSession] notificação de replanejamento não enviada (não-fatal):', e);
       });
       // CAS (mesma defesa do completeSet): aplicado no servidor; se o usuário
       // trocou de sessão durante o await, não mexemos no rascunho da outra.

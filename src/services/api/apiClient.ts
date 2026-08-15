@@ -35,6 +35,7 @@ export const ENDPOINTS = {
   READY: '/ready', // GET /api/ready — readiness (config + deps locais)
   PUSH: {
     SUBSCRIBE: '/push/subscribe', // POST/DELETE /api/push/subscribe — opt-in/opt-out de Web Push
+    NOTIFY_REPLAN: '/push/notify-replan-applied', // POST — aviso best-effort de replanejamento aplicado (PUSH-03)
   },
 };
 
