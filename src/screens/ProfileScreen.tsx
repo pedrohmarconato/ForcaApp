@@ -147,6 +147,12 @@ const ProfileScreen = () => {
   // deste handler — nenhum await/checagem antes, ou o iOS descarta o gesto
   // do usuário (Pitfall 3 de 13-RESEARCH.md).
   const onAtivarNotificacoes = useCallback(() => {
+    // WR-01 de 13-REVIEW.md: 'subscribing' precisa ser setado aqui — depois
+    // de subscribeToPush() (Critério 2 acima), mas antes de qualquer outro
+    // trabalho assíncrono — para o guard `disabled={notifState ===
+    // 'subscribing'}` do botão realmente impedir um segundo toque enquanto a
+    // cadeia subscribeToPush()->POST /api/push/subscribe está em voo.
+    setNotifState('subscribing');
     subscribeToPush()
       .then((subJson) => apiClient.post(ENDPOINTS.PUSH.SUBSCRIBE, subJson))
       .then(() => setNotifState('subscribed'))
@@ -155,6 +161,10 @@ const ProfileScreen = () => {
         if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
           setNotifState('denied');
         } else {
+          // Sai de 'subscribing' de volta para 'default' — senão o botão
+          // ficaria permanentemente desabilitado após uma falha que não seja
+          // de permissão negada.
+          setNotifState('default');
           setNotifError(true);
         }
       });

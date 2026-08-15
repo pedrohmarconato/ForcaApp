@@ -151,4 +151,32 @@ describe('ProfileScreen — opt-in/opt-out de notificações (PUSH-01)', () => {
     expect(queryByText('Ativar notificações')).toBeNull();
     expect(mockSubscribeToPush).toHaveBeenCalledTimes(1);
   });
+
+  it('WR-01 (13-REVIEW.md): botão "Ativar notificações" fica DESABILITADO enquanto a subscription está em andamento, evitando duplo toque', async () => {
+    setNotificationPermission('default');
+    // Promise controlada manualmente: representa subscribeToPush() ainda
+    // "em voo" (nem resolvido, nem rejeitado) — é a janela exata em que o
+    // notifState deveria estar em 'subscribing'.
+    let resolverSubscribe: (value: unknown) => void = () => {};
+    mockSubscribeToPush.mockReturnValue(
+      new Promise((resolve) => {
+        resolverSubscribe = resolve;
+      }),
+    );
+
+    const { getByText } = render(<ProfileScreen />);
+    await waitFor(() => expect(getByText('Ativar notificações')).toBeTruthy());
+
+    fireEvent.press(getByText('Ativar notificações'));
+
+    // Antes do fix: notifState nunca vira 'subscribing', então o botão
+    // continua habilitado durante todo o subscribeToPush() em voo — um
+    // segundo toque aqui dispararia uma segunda chamada de
+    // PushManager.subscribe()/POST /api/push/subscribe concorrente.
+    await waitFor(() => expect(getByText('Ativar notificações')).toBeDisabled());
+
+    resolverSubscribe({ endpoint: 'https://web.push.apple.com/x', keys: { p256dh: 'a', auth: 'b' } });
+
+    await waitFor(() => expect(getByText('Desativar notificações')).toBeTruthy());
+  });
 });
