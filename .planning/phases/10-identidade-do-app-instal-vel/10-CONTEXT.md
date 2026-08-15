@@ -48,7 +48,7 @@ visual da identidade no iPhone real.**
   `npx pwa-asset-generator@<versão pinada>` — sem devDependency pesada.
 - O bloco `<link rel="apple-touch-startup-image">` emitido pelo generator é
   colado diretamente no `public/index.html`.
-- Guard automatizável (estilo D-08 da fase 9): teste jest leve que confere que
+- Guard automatizável, no mesmo padrão do guard permanente de Alert.alert da fase 9: teste jest leve que confere que
   todo `apple-touch-startup-image` referenciado no `public/index.html` aponta
   para arquivo existente em `public/splash/`.
 - Escopo de devices: resoluções de iPhone dos últimos ~5 anos (cobre os ~20
