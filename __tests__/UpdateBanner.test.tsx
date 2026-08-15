@@ -147,6 +147,26 @@ describe('UpdateBanner (web)', () => {
     expect(screen.getByText('Depois')).toBeTruthy();
   });
 
+  it('window.__swUpdateAvailable consumida no mount: um remount sem novo dispatch/flag NÃO reabre o banner depois de "Depois" (WR-01: flag write-only)', () => {
+    (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable = true;
+    try {
+      const primeiraMontagem = render(<UpdateBanner />);
+      expect(primeiraMontagem.getByText('Nova versão disponível')).toBeTruthy();
+      fireEvent.press(primeiraMontagem.getByText('Depois'));
+      expect(primeiraMontagem.queryByText('Nova versão disponível')).toBeNull();
+      primeiraMontagem.unmount();
+
+      // Flag nunca foi resetada por nada além do próprio UpdateBanner — sem o
+      // fix, o remount abaixo releria __swUpdateAvailable ainda `true` e
+      // sobrescreveria silenciosamente a escolha "Depois" do usuário.
+      useUpdateStore.setState({ waiting: false, dismissed: false });
+      const segundaMontagem = render(<UpdateBanner />);
+      expect(segundaMontagem.queryByText('Nova versão disponível')).toBeNull();
+    } finally {
+      delete (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable;
+    }
+  });
+
   it('múltiplas montagens/desmontagens e disparos repetidos do evento nunca produzem chamada a reload (guarda contra auto-reload)', () => {
     const primeiraMontagem = render(<UpdateBanner />);
     act(() => {

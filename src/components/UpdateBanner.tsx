@@ -45,8 +45,19 @@ const UpdateBanner = () => {
     // CustomEvent é fire-and-forget — sem checar a flag síncrona gravada por
     // register-sw.js, um update já pronto em registration.waiting nunca
     // seria surfaced pelo banner nessa carga de página específica.
-    if ((window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable) {
+    //
+    // WR-01: consome a flag no mesmo mount que a lê (mesmo contrato "read
+    // once, then clear" de jointInvitePending.ts). register-sw.js só regrava
+    // a flag em `true` num dispatchEvent futuro genuíno; sem este reset, um
+    // remount deste componente (StrictMode, key trocada, error boundary,
+    // render condicional) releria a flag ainda `true` de uma atualização já
+    // vista/dispensada e reabriria o banner silenciosamente, contornando a
+    // escolha "Depois" do usuário — a mesma classe de bug do CR-01, por um
+    // gatilho diferente.
+    const w = window as unknown as { __swUpdateAvailable?: boolean };
+    if (w.__swUpdateAvailable) {
       setWaiting(true);
+      w.__swUpdateAvailable = false;
     }
 
     const handleUpdateAvailable = () => setWaiting(true);
