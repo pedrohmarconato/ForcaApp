@@ -38,7 +38,7 @@ jest.mock('../src/config/supabaseClient', () => ({
         mockAuthCallback = cb;
         return { data: { subscription: { unsubscribe: jest.fn() } } };
       }),
-      signOut: (...args: unknown[]) => mockSupabaseSignOut(...args),
+      signOut: () => mockSupabaseSignOut(),
     },
     from: jest.fn(() => mockBuilder()),
   },
@@ -55,7 +55,7 @@ const mockUnsubscribeFromPush = jest.fn(async () => undefined);
 
 jest.mock('../src/services/pushSubscription', () => ({
   isPushSupported: () => mockIsPushSupported(),
-  unsubscribeFromPush: (...args: unknown[]) => mockUnsubscribeFromPush(...args),
+  unsubscribeFromPush: () => mockUnsubscribeFromPush(),
 }));
 
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
