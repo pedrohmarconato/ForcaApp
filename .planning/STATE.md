@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 11
 current_phase_name: Service worker e atualização segura
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-08-15T03:27:04.623Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-08-15T03:39:57.989Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 20
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 11 (Service worker e atualização segura) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-15 — Phase 11 execution started
 
-Progress: [██████░░░░] 63%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████░░░░] 63%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 11 P01 | 5min | 2 tasks | 7 files |
+| Phase 11 P02 | 12min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 - [Phase ?]: sw.js/register-sw.js/manifest.json servidos com Cache-Control: no-cache, must-revalidate; carve-out do rewrite de SPA e do header catch-all (mesma técnica da Fase 10 para /splash/*.png)
 - [Phase ?]: workbox-config.cjs nunca ativa runtimeCaching — SW só precacheia app shell estático, outbox offline-first do v1.0 segue como única camada de retry de dados
+- [Phase ?]: UpdateBanner nao le nenhuma flag sincrona de register-sw.js (a que o plano citava nao existe no arquivo real do Plano 11-01) - risco residual registrado em WINDOWS.md em vez de modificar o arquivo travado do Wave 1
+- [Phase ?]: Testes que precisam de window.addEventListener/dispatchEvent reais usam @jest-environment jsdom por arquivo (docblock deve ser o primeiro token literal) - a config jest padrao do repo roda em ambiente Node puro sem EventTarget
 
 ### Pending Todos
 
@@ -122,8 +125,8 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T03:27:04.618Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-08-15T03:39:57.984Z
+Stopped at: Completed 11-02-PLAN.md
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.

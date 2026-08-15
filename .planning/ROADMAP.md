@@ -137,7 +137,7 @@ rodar em paralelo à Fase 10)
 
   4. UAT do dono no iPhone real: com o PWA instalado, ativa o modo avião, abre o app
      pela Tela de Início e confirma que a casca do app aparece mesmo sem rede.
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 Plans:
 **Wave 1**
 
@@ -145,7 +145,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — UpdateBanner + updateStore, banner não-bloqueante de atualização montado em App.tsx
+- [x] 11-02-PLAN.md — UpdateBanner + updateStore, banner não-bloqueante de atualização montado em App.tsx
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -216,6 +216,6 @@ registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
 | 8. Deploy web e fechamento | v1.1 | direto | Complete | 2026-08-14 |
 | 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | In Progress|  |
 | 10. Identidade do app instalável | v1.2 | 0/1 | Not started | - |
-| 11. Service worker e atualização segura | v1.2 | 1/3 | In Progress|  |
+| 11. Service worker e atualização segura | v1.2 | 2/3 | In Progress|  |
 | 12. Página de instalação guiada | v1.2 | 0/TBD | Not started | - |
 | 13. Push notification ponta a ponta | v1.2 | 0/TBD | Not started | - |
