@@ -104,7 +104,12 @@ sequenciada aqui para o fluxo do milestone)
   3. UAT do dono no iPhone real: o ícone na Tela de Início e o nome abaixo dele são
      os do ForcaApp (não a URL genérica da Vercel), e o app abre sem a barra de
      endereço do Safari (modo standalone).
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — Gerar splash iOS curada (pwa-asset-generator), ligar a index.html, corrigir rewrite do vercel.json e UAT do dono no iPhone real
+
 **UI hint**: yes
 
 #### Phase 11: Service worker e atualização segura
@@ -198,7 +203,7 @@ registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
 | 7. Migration 0037 em staging e produção | v1.1 | direto | Complete | 2026-08-14 |
 | 8. Deploy web e fechamento | v1.1 | direto | Complete | 2026-08-14 |
 | 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | In Progress|  |
-| 10. Identidade do app instalável | v1.2 | 0/TBD | Not started | - |
+| 10. Identidade do app instalável | v1.2 | 0/1 | Not started | - |
 | 11. Service worker e atualização segura | v1.2 | 0/TBD | Not started | - |
 | 12. Página de instalação guiada | v1.2 | 0/TBD | Not started | - |
 | 13. Push notification ponta a ponta | v1.2 | 0/TBD | Not started | - |
