@@ -6,7 +6,7 @@
 // travestido de resultado. Nenhuma linha de preferência é exibida sem tela
 // correspondente — controle morto é pior que ausência.
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -30,7 +30,12 @@ import {
   ProfileStackParamList,
   MainTabParamList,
 } from '../navigation/MainNavigator';
-import { isPushSupported, subscribeToPush } from '../services/pushSubscription';
+import {
+  getExistingSubscriptionState,
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '../services/pushSubscription';
 import apiClient, { ENDPOINTS } from '../services/api/apiClient';
 import { logger } from '../utils/logger';
 
@@ -155,6 +160,30 @@ const ProfileScreen = () => {
       });
   }, []);
 
+  const onDesativarNotificacoes = useCallback(() => {
+    unsubscribeFromPush()
+      .then(() => setNotifState('default'))
+      .catch((err) => {
+        logger.warn('[profile] falha ao desativar notificações:', err);
+        setNotifError(true);
+      });
+  }, []);
+
+  // Reflete uma subscription JÁ existente de uma sessão anterior: sem isto,
+  // um aluno que já ativou numa visita anterior veria o botão errado
+  // ("Ativar" em vez de "Desativar") até tocar de novo.
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    getExistingSubscriptionState()
+      .then((estado) => {
+        if (estado === 'subscribed') setNotifState('subscribed');
+      })
+      .catch((err) => {
+        logger.warn('[profile] falha ao checar subscription existente:', err);
+      });
+  }, []);
+
   // Foco, não montagem: voltar de uma sessão recém-concluída via popToTop não
   // remonta esta tela — sem isso, as métricas ficariam obsoletas.
   useFocusEffect(
@@ -246,11 +275,11 @@ const ProfileScreen = () => {
           style={styles.notice}
         />
       ) : notifState === 'subscribed' ? (
-        <Notice
-          tone="info"
-          title="Notificações ativadas"
-          description="Você vai receber lembretes de treino e avisos de replanejamento."
-          style={styles.notice}
+        <Button
+          label="Desativar notificações"
+          variant="outline"
+          onPress={onDesativarNotificacoes}
+          style={styles.refazer}
         />
       ) : (
         <>

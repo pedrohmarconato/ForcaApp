@@ -67,7 +67,7 @@ const mockGetExistingSubscriptionState = jest.fn();
 let mockIsPushSupported = jest.fn(() => true);
 
 jest.mock('../src/services/pushSubscription', () => ({
-  isPushSupported: (...args: unknown[]) => mockIsPushSupported(...args),
+  isPushSupported: () => mockIsPushSupported(),
   subscribeToPush: (...args: unknown[]) => mockSubscribeToPush(...args),
   unsubscribeFromPush: (...args: unknown[]) => mockUnsubscribeFromPush(...args),
   getExistingSubscriptionState: (...args: unknown[]) => mockGetExistingSubscriptionState(...args),
@@ -138,16 +138,17 @@ describe('ProfileScreen — opt-in/opt-out de notificações (PUSH-01)', () => {
     expect(queryByText('Notificações desativadas')).toBeNull();
   });
 
-  it('ativar notificações com sucesso persiste e mostra "Notificações ativadas"', async () => {
+  it('ativar notificações com sucesso persiste e o botão vira "Desativar notificações"', async () => {
     setNotificationPermission('default');
     mockSubscribeToPush.mockResolvedValue({ endpoint: 'https://web.push.apple.com/x', keys: { p256dh: 'a', auth: 'b' } });
 
-    const { getByText } = render(<ProfileScreen />);
+    const { getByText, queryByText } = render(<ProfileScreen />);
     await waitFor(() => expect(getByText('Ativar notificações')).toBeTruthy());
 
     fireEvent.press(getByText('Ativar notificações'));
 
-    await waitFor(() => expect(getByText('Notificações ativadas')).toBeTruthy());
+    await waitFor(() => expect(getByText('Desativar notificações')).toBeTruthy());
+    expect(queryByText('Ativar notificações')).toBeNull();
     expect(mockSubscribeToPush).toHaveBeenCalledTimes(1);
   });
 });

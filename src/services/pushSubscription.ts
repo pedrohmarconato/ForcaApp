@@ -9,6 +9,8 @@
 
 import { Platform } from 'react-native';
 
+import apiClient, { ENDPOINTS } from './api/apiClient';
+
 /** Chave pública VAPID, embutida em build time — nunca via fetch. */
 export const VAPID_PUBLIC_KEY = process.env.EXPO_PUBLIC_VAPID_PUBLIC_KEY ?? '';
 
@@ -61,3 +63,29 @@ export const subscribeToPush = (): Promise<PushSubscriptionJSON> =>
       }),
     )
     .then((sub) => sub.toJSON() as PushSubscriptionJSON);
+
+/**
+ * Desfaz a subscription tanto no navegador (`sub.unsubscribe()`) quanto no
+ * backend (DELETE /api/push/subscribe), em paralelo. Sem subscription ativa,
+ * resolve sem fazer nada (nada para desativar).
+ */
+export const unsubscribeFromPush = (): Promise<void> =>
+  navigator.serviceWorker.ready
+    .then((reg) => reg.pushManager.getSubscription())
+    .then((sub) => {
+      if (!sub) return Promise.resolve();
+      return Promise.all([
+        sub.unsubscribe(),
+        apiClient.delete(ENDPOINTS.PUSH.SUBSCRIBE, { data: { endpoint: sub.endpoint } }),
+      ]).then(() => undefined);
+    });
+
+/**
+ * Reflete uma subscription JÁ existente de uma sessão anterior (não só o que
+ * aconteceu nesta visita) — usado no mount da tela para o botão não ficar
+ * preso em "Ativar" quando o aluno já ativou antes.
+ */
+export const getExistingSubscriptionState = (): Promise<'subscribed' | 'unsubscribed'> =>
+  navigator.serviceWorker.ready
+    .then((reg) => reg.pushManager.getSubscription())
+    .then((sub) => (sub ? 'subscribed' : 'unsubscribed'));

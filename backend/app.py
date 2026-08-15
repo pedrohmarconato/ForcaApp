@@ -2175,6 +2175,38 @@ def handle_push_subscribe():
     return jsonify({"status": "subscribed"}), 201
 
 
+@app.route('/api/push/subscribe', methods=['DELETE'])
+@token_required
+def handle_push_unsubscribe():
+    user_id = (g.user or {}).get('id')
+    if not user_id:
+        return jsonify({"error": "ID do usuário não fornecido."}), 400
+
+    # Mesmo bucket da rota POST: ativar/desativar contam para o mesmo limite.
+    if _rate_limit_hit("push_subscribe", user_id, PUSH_RATE_LIMIT, PUSH_RATE_WINDOW_SECONDS):
+        return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
+
+    corpo = request.get_json(silent=True)
+    if not isinstance(corpo, dict):
+        return jsonify({"error": "Corpo JSON inválido."}), 400
+
+    endpoint = corpo.get('endpoint')
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        return jsonify({"error": "Campo 'endpoint' é obrigatório."}), 400
+
+    try:
+        # user_id SEMPRE de g.user (JWT) — nunca de um campo do corpo, mesmo
+        # que o corpo tente injetar um user_id de outro aluno.
+        delete_subscription(user_id, g.access_token, endpoint)
+    except SubscriptionError:
+        app_logger.exception(f"Falha ao remover subscription de push do usuário {user_id}.")
+        return jsonify({"error": "Não foi possível desativar as notificações. Tente novamente."}), 502
+
+    # Sempre 200, mesmo se a subscription já não existia: DELETE é
+    # idempotente por natureza, "já desativado" nunca é 404.
+    return jsonify({"status": "unsubscribed"}), 200
+
+
 # --- Health check (liveness) ---
 # Indica apenas que o processo Flask está vivo. Não verifica configuração
 # nem dependências externas: um 200 aqui não significa que a IA está
