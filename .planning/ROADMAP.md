@@ -209,11 +209,11 @@ registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
   5. Com permissão de push concedida, o ícone do app exibe badge de treino
      pendente; subscriptions que retornam HTTP 410/404 são removidas da tabela
      automaticamente, sem ficarem órfãs.
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 13-01-PLAN.md — Fim-a-fim: migration 0038 (staging), endpoint Flask de subscribe/unsubscribe, botão no Perfil (gesto síncrono), handlers do service worker via importScripts (tracer)
+- [x] 13-01-PLAN.md — Fim-a-fim: migration 0038 (staging), endpoint Flask de subscribe/unsubscribe, botão no Perfil (gesto síncrono), handlers do service worker via importScripts (tracer)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -241,4 +241,4 @@ Plans:
 | 10. Identidade do app instalável | v1.2 | 0/1 | Not started | - |
 | 11. Service worker e atualização segura | v1.2 | 2/3 | In Progress|  |
 | 12. Página de instalação guiada | v1.2 | 1/2 | In Progress|  |
-| 13. Push notification ponta a ponta | v1.2 | 0/5 | Not started | - |
+| 13. Push notification ponta a ponta | v1.2 | 1/5 | In Progress|  |

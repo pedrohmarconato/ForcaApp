@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 0
+open_count: 1
 waived_count: 0
 fixed_count: 1
-total_count: 1
-last_updated: 2026-08-15T11:58:01.555Z
+total_count: 2
+last_updated: 2026-08-15T15:23:22.926Z
 ---
 
 # Broken Windows Ledger
@@ -16,6 +16,7 @@ last_updated: 2026-08-15T11:58:01.555Z
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 11 | deviation | public/register-sw.js |  | UpdateBanner (11-02) nao le nenhuma flag sincrona de register-sw.js (11-01) para o caso do evento sw-update-available ja ter disparado antes do useEffect montar (register() resolvendo antes do React montar). Nenhum truth/behavior testado exige isso e o arquivo esta fora do files_modified de 11-02; risco residual: em visita repetida rapida, o banner pode nao aparecer nessa carga de pagina especifica (a proxima carga natural ainda funciona). Considerar window.__swUpdateAvailable em register-sw.js se o UAT de producao (11-03) confirmar o caso. | fixed |  | 2026-08-15T03:38:11.325Z | 2026-08-15T11:58:01.555Z |
+| 2 | 13 | deviation | supabase/migrations/0038_push_subscriptions.sql |  | Migration 0038 criada e testada (DO-block de asserção) mas aplicação em staging (mjdjtiujhwklchalquhc) BLOQUEADA: SUPABASE_ACCESS_TOKEN do ambiente pertence a outra conta/org sem acesso ao ForcaApp. Dono precisa supabase login + relink + db push antes do UAT do Plano 13-04. | open |  | 2026-08-15T15:23:22.926Z |  |
 
 ````json
 [
@@ -30,6 +31,18 @@ last_updated: 2026-08-15T11:58:01.555Z
     "reason": "",
     "recorded_at": "2026-08-15T03:38:11.325Z",
     "resolved_at": "2026-08-15T11:58:01.555Z"
+  },
+  {
+    "id": 2,
+    "kind": "deviation",
+    "phase": "13",
+    "file": "supabase/migrations/0038_push_subscriptions.sql",
+    "line": null,
+    "description": "Migration 0038 criada e testada (DO-block de asserção) mas aplicação em staging (mjdjtiujhwklchalquhc) BLOQUEADA: SUPABASE_ACCESS_TOKEN do ambiente pertence a outra conta/org sem acesso ao ForcaApp. Dono precisa supabase login + relink + db push antes do UAT do Plano 13-04.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-15T15:23:22.926Z",
+    "resolved_at": null
   }
 ]
 ````

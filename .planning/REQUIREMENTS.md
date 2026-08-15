@@ -28,7 +28,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 
 ### Push (PUSH)
 
-- [ ] **PUSH-01**: Infra de push ponta a ponta — botão "Ativar notificações" com
+- [x] **PUSH-01**: Infra de push ponta a ponta — botão "Ativar notificações" com
   gesto síncrono do usuário, tabela `push_subscriptions` no Supabase (RLS por
   usuário), envio via `pywebpush` no Flask existente; spike técnico prévio de
   expiração/HTTP 410 antes da implementação (decisão da pesquisa).
@@ -41,7 +41,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 - [ ] **PUSH-04**: Badge no ícone do app com pendência de treino (gated por
   permissão de push concedida).
 
-- [ ] **PUSH-05**: Tocar na notificação de treino abre o app direto na tela da
+- [x] **PUSH-05**: Tocar na notificação de treino abre o app direto na tela da
   sessão para registrar reps/peso — 1 toque do bloqueio ao registro.
 
 ### Sessão de treino (SESS)
@@ -95,10 +95,10 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 | INST-02 | Phase 12 | Complete |
 | OFF-01 | Phase 11 | Complete |
 | OFF-02 | Phase 11 | Complete |
-| PUSH-01 | Phase 13 | Pending |
+| PUSH-01 | Phase 13 | Complete |
 | PUSH-02 | Phase 13 | Pending |
 | PUSH-03 | Phase 13 | Pending |
 | PUSH-04 | Phase 13 | Pending |
-| PUSH-05 | Phase 13 | Pending |
+| PUSH-05 | Phase 13 | Complete |
 | SESS-01 | Phase 9 | Pending |
 | WEB-01 | Phase 9 | Pending |

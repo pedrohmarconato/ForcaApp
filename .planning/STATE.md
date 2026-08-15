@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 13
 current_phase_name: Push notification ponta a ponta
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-08-15T15:00:00.113Z"
+stopped_at: Completed 13-01-PLAN.md — staging migration bloqueada por credencial
+last_updated: "2026-08-15T15:24:00.190Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 15
-  completed_plans: 8
+  completed_plans: 9
   percent: 40
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 13 (Push notification ponta a ponta) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 13
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-08-15 — Phase 13 execution started
 
-Progress: [████████░░] 80%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░] 80%
 | Phase 11 P01 | 5min | 2 tasks | 7 files |
 | Phase 11 P02 | 12min | 2 tasks | 4 files |
 | Phase 12-p-gina-de-instala-o-guiada P01 | 35min | 2 tasks | 10 files |
+| Phase 13 P01 | 25min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Testes que precisam de window.addEventListener/dispatchEvent reais usam @jest-environment jsdom por arquivo (docblock deve ser o primeiro token literal) - a config jest padrao do repo roda em ambiente Node puro sem EventTarget
 - [Phase ?]: useNavigation<any>() no CTA do Estado 4 de InstallScreen (mesmo padrao de ExercisePickerScreen.tsx) - a tela monta em 3 arvores com tipos de navigator distintos
 - [Phase ?]: Guard de regressao do Pitfall 2 (tabBarButton) implementado como teste de proximidade textual (<=200 chars) em MainNavigator.tsx, nao snapshot
+- [Phase ?]: Migration 0038 criada+testada mas aplicação em staging BLOQUEADA por credencial (SUPABASE_ACCESS_TOKEN sem acesso ao org ForçaApp) — dono precisa supabase login+relink+db push antes do UAT 13-04
+- [Phase ?]: notificationclick usa client.navigate() direto em vez de postMessage — reusa a rota recuperável por URL de linkingConfig.ts, menos código
 
 ### Pending Todos
 
@@ -106,6 +109,8 @@ do v1.0/v1.1.
 - Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção `zanqygwsgxkyjiuhrzju`)
   — conferir `supabase/.temp/project-ref` antes de qualquer comando linkado
   (relevante para a migration de `push_subscriptions` na Fase 13).
+
+- Migration 0038 (push_subscriptions) não aplicada em staging — dono precisa relogar supabase CLI com a conta correta do ForçaApp e rodar supabase db push antes do Plano 13-04
 
 ## Deferred Items
 
@@ -130,8 +135,8 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T13:21:30.474Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-08-15T15:24:00.183Z
+Stopped at: Completed 13-01-PLAN.md — staging migration bloqueada por credencial
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
