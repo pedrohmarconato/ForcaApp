@@ -40,6 +40,15 @@ const UpdateBanner = () => {
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
 
+    // WR-02: replay para o caso do CustomEvent ter disparado antes deste
+    // efeito montar (register() resolvendo antes do React montar/hidratar).
+    // CustomEvent é fire-and-forget — sem checar a flag síncrona gravada por
+    // register-sw.js, um update já pronto em registration.waiting nunca
+    // seria surfaced pelo banner nessa carga de página específica.
+    if ((window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable) {
+      setWaiting(true);
+    }
+
     const handleUpdateAvailable = () => setWaiting(true);
     window.addEventListener('sw-update-available', handleUpdateAvailable);
     return () => window.removeEventListener('sw-update-available', handleUpdateAvailable);

@@ -121,6 +121,16 @@ describe('UpdateBanner (web)', () => {
     }
   });
 
+  it('window.__swUpdateAvailable=true ANTES do mount faz o banner aparecer no primeiro render, sem novo dispatchEvent (WR-02: replay de evento perdido)', () => {
+    (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable = true;
+    try {
+      const screen = render(<UpdateBanner />);
+      expect(screen.getByText('Nova versão disponível')).toBeTruthy();
+    } finally {
+      delete (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable;
+    }
+  });
+
   it('depois de "Depois", um NOVO sw-update-available faz o banner reaparecer (CR-01: dismissed nao pode grudar entre atualizacoes)', () => {
     const screen = render(<UpdateBanner />);
     act(() => {

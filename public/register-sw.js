@@ -35,6 +35,12 @@
     // corre na frente do evento 'updatefound'), o evento pode disparar antes
     // do React montar o listener. Checagem síncrona cobre esse caso.
     if (reg.waiting && navigator.serviceWorker.controller) {
+      // WR-02: grava a flag síncrona ANTES do dispatchEvent — CustomEvent é
+      // fire-and-forget, então um listener que monta depois deste ponto
+      // (React ainda hidratando) nunca veria o evento. Um listener que monta
+      // depois consegue ler window.__swUpdateAvailable no próprio mount e
+      // fazer o replay (mesmo padrão de host global de alertStore/AlertHost).
+      window.__swUpdateAvailable = true;
       window.dispatchEvent(new CustomEvent('sw-update-available'));
     }
 
@@ -48,6 +54,7 @@
         // banner apareceria também na primeira instalação, sem nenhuma
         // versão anterior para atualizar).
         if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+          window.__swUpdateAvailable = true;
           window.dispatchEvent(new CustomEvent('sw-update-available'));
         }
       });

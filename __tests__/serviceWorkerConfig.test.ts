@@ -188,4 +188,18 @@ describe('guarda: public/register-sw.js — controlador, SKIP_WAITING e reload �
   it('register() tem .catch() — falha de registro nunca vira unhandled rejection silenciosa (WR-01)', () => {
     expect(codigoSemComentarios).toMatch(/navigator\.serviceWorker\.register\(['"]\/sw\.js['"]\)[\s\S]*?\.catch\(/);
   });
+
+  it('window.__swUpdateAvailable é gravado antes de CADA dispatchEvent de sw-update-available (WR-02: replay para listener que monta depois)', () => {
+    const dispatch = "window.dispatchEvent(new CustomEvent('sw-update-available'));";
+    const blocos = codigoSemComentarios.split(dispatch);
+    // blocos.length - 1 == número de dispatches deste evento no arquivo. Duas
+    // ocorrências esperadas: a checagem síncrona pós-register() e o handler
+    // 'statechange' de updatefound — CustomEvent é fire-and-forget, então
+    // cada uma precisa gravar a flag síncrona imediatamente antes, ou um
+    // listener que monta depois do dispatch nunca vê o evento.
+    expect(blocos.length - 1).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < blocos.length - 1; i += 1) {
+      expect(blocos[i]).toMatch(/window\.__swUpdateAvailable = true;\s*$/);
+    }
+  });
 });
