@@ -13,6 +13,16 @@
 
 import { CAMINHO_CONVITE, PREFIXOS } from './inviteLink';
 
+/**
+ * Path da rota pública de instalação guiada (INST-02, Fase 12). Fonte única
+ * consumida por `LINKING_CONFIG` (árvore Main, abaixo) e por
+ * `linkingInterceptor.config` em `linking.ts` (árvores Auth/Onboarding) —
+ * mesmo padrão de `CAMINHO_CONVITE`, importado de um único lugar e reusado
+ * nos dois pontos, para uma renomeação futura não poder atualizar uma cópia
+ * e esquecer a outra (WR-03, 12-REVIEW.md).
+ */
+export const CAMINHO_INSTALAR = 'instalar';
+
 const webOrigin =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
@@ -106,6 +116,6 @@ export const LINKING_CONFIG = {
     // sibling de Home/Training/Progress/Profile — nunca aninhada sob
     // nenhuma delas (aninhar produziria /home/instalar, quebrando a URL
     // literal que o Estado 3 de InstallScreen exibe de volta ao usuário).
-    Instalar: 'instalar',
+    Instalar: CAMINHO_INSTALAR,
   },
 };

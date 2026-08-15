@@ -37,7 +37,7 @@ import type { LinkingOptions } from '@react-navigation/native';
 import { getStateFromPath as getStateFromPathPadrao } from '@react-navigation/native';
 import { guardarConvitePendente } from '../services/jointInvitePending';
 import { CAMINHO_CONVITE, parseInviteUrl, parseInvitePath } from './inviteLink';
-import { LINKING_CONFIG, LINKING_PREFIXES } from './linkingConfig';
+import { LINKING_CONFIG, LINKING_PREFIXES, CAMINHO_INSTALAR } from './linkingConfig';
 
 // Reexporta as puras para quem já importa daqui.
 export {
@@ -114,7 +114,7 @@ export const linkingInterceptor: LinkingOptions<any> = {
   // Compartilhado por Auth E Onboarding (ambos os containers passam este
   // mesmo objeto como `linking`) — um aluno deslogado ou em onboarding que
   // abre /instalar chega na tela em qualquer um dos dois estados.
-  config: { screens: { Instalar: 'instalar' } },
+  config: { screens: { Instalar: CAMINHO_INSTALAR } },
   getInitialURL: async () => {
     const url = await urlInicialDoSistema();
     const codigo = parseInviteUrl(url);

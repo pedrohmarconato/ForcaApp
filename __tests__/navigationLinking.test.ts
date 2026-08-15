@@ -10,7 +10,12 @@ import { getStateFromPath, getPathFromState } from '@react-navigation/native';
 // De `linkingConfig`, não de `linking`: a config de rotas é pura, e importá-la
 // pelo módulo que carrega o convite pendente arrastaria AsyncStorage para um
 // teste que não tem nada com storage.
-import { LINKING_CONFIG } from '../src/navigation/linkingConfig';
+import { LINKING_CONFIG, CAMINHO_INSTALAR } from '../src/navigation/linkingConfig';
+// `linkingInterceptor` só é usado no describe de WR-03 abaixo — ele arrasta
+// `jointInvitePending.ts` (AsyncStorage), coberto pelo mock manual em
+// __mocks__/@react-native-async-storage/async-storage.js (aplicado a toda
+// a suíte automaticamente, sem jest.mock() explícito).
+import { linkingInterceptor } from '../src/navigation/linking';
 
 // Shape do estado parcial aninhado devolvido pelo linking:
 // { routes: [ { name: 'Home', state: { routes: [ { name, params } ] } } ] }
@@ -96,6 +101,24 @@ describe('linking: /instalar resolve na árvore Main (INST-02, Fase 12 Plano 01,
     const state = getStateFromPath('/instalar', LINKING_CONFIG);
     expect(state).not.toBeNull();
     expect(state!.routes[0].name).toBe('Instalar');
+  });
+
+  it('WR-03 (12-REVIEW.md): getStateFromPath("/instalar", linkingInterceptor.config) resolve para a rota Instalar na árvore Auth/Onboarding', () => {
+    // `linkingInterceptor` (Auth/Onboarding) tinha o path 'instalar' como um
+    // segundo literal independente do de LINKING_CONFIG (Main) — sem teste
+    // cobrindo esta cópia, uma renomeação que só atualizasse uma delas
+    // quebraria silenciosamente /instalar numa das duas árvores.
+    const state = getStateFromPath('/instalar', linkingInterceptor.config as any);
+    expect(state).not.toBeNull();
+    expect(state!.routes[0].name).toBe('Instalar');
+  });
+
+  it('WR-03: as duas cópias do path de /instalar vêm da mesma constante CAMINHO_INSTALAR', () => {
+    // Amarra os dois arquivos (linkingConfig.ts e linking.ts) ao mesmo
+    // literal, para uma futura renomeação não poder atualizar um lugar e
+    // esquecer o outro sem quebrar este teste.
+    expect(LINKING_CONFIG.screens.Instalar).toBe(CAMINHO_INSTALAR);
+    expect((linkingInterceptor.config as any).screens.Instalar).toBe(CAMINHO_INSTALAR);
   });
 
   it('MainNavigator.tsx: guard estrutural de regressão do Pitfall 2 — tabBarButton: () => null perto de name="Instalar"', () => {
