@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 13
 current_phase_name: Push notification ponta a ponta
 status: executing
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-08-15T15:48:38.464Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-08-15T15:56:31.231Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 40
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 13 (Push notification ponta a ponta) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-08-15 — Phase 13 execution started
 
-Progress: [███████░░░] 73%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [███████░░░] 73%
 | Phase 13 P01 | 25min | 3 tasks | 16 files |
 | Phase 13 P02 | 30min | 3 tasks | 21 files |
 | Phase 13 P03 | 12min | 2 tasks | 3 files |
+| Phase 13 P05 | ~15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: iniciar_scheduler() chamado no IMPORT de backend/app.py (não em if __name__ == '__main__'), porque o gunicorn de produção sobe via backend.app:app e nunca executa esse bloco — sem isto PUSH-02 nunca rodaria em produção.
 - [Phase ?]: Badging API já tipada não-opcional no lib.dom local — guard de runtime via cast pontual (navigator as unknown as Record<string, unknown>) em vez de interface NavegadorComBadge custom (TS2430)
 - [Phase ?]: useEffect da HomeScreen reusa literalmente ehHoje && todaySession?.status === 'pending' — nenhuma segunda fonte de verdade sobre pendência de treino
+- [Phase ?]: PushInviteHost: convite único de opt-in via alertShim, flag push_invite_shown gravada nos dois caminhos (aceitar/recusar), subscribeToPush() como primeira expressão síncrona do onPress do botão do Modal web.
 
 ### Pending Todos
 
@@ -141,8 +143,8 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T15:48:38.457Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-08-15T15:56:31.225Z
+Stopped at: Completed 13-05-PLAN.md
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
