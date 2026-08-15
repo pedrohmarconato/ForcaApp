@@ -5,16 +5,16 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 09
 current_phase_name: fechamento-de-gaps-do-runtime-web
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-08-14T19:34:43.396Z"
+stopped_at: Phase 10 UI-SPEC approved
+last_updated: "2026-08-15T02:06:29.275Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 4
+  percent: 20
 ---
 
 # Project State
@@ -31,7 +31,7 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 
 Phase: 09 (fechamento-de-gaps-do-runtime-web) — EXECUTING
 Plan: 1 of 4
-Status: Executing Phase 09
+Status: Ready to execute
 Last activity: 2026-08-14 — Phase 09 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -112,12 +112,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-14T18:47:27.407Z
-Stopped at: Phase 9 context gathered
+Last session: 2026-08-15T01:42:41.319Z
+Stopped at: Phase 10 UI-SPEC approved
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: .planning/phases/09-fechamento-de-gaps-do-runtime-web/09-CONTEXT.md
+Resume file: .planning/phases/10-identidade-do-app-instal-vel/10-UI-SPEC.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
