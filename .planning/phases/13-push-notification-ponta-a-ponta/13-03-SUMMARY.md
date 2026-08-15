@@ -16,7 +16,7 @@ affects: [13-04-producao-e-uat]
 actuals:
   tokens: 2347
   tasks: 2
-  commits: 3
+  commits: 4
 
 tech-stack:
   added: []
@@ -116,8 +116,9 @@ Cada task foi commitada atomicamente (Task 1 seguiu TDD RED→GREEN):
 1. **Task 1 RED: cobertura falha de updateTrainingBadge** - `03722b3` (test)
 2. **Task 1 GREEN: updateTrainingBadge — badge gated por suporte e permissão (PUSH-04)** - `62e26f4` (feat)
 3. **Task 2: Hook em HomeScreen.tsx — badge reflete o treino de hoje (PUSH-04)** - `e72dd3c` (feat)
+4. **Fix: substitui setImmediate por Promise.resolve() no teste de Promise rejeitada** - `0d023ba` (fix — deveria ter entrado em `62e26f4`, ficou destravado sem stage, corrigido em commit separado)
 
-**Plan metadata:** (este commit — docs de fechamento do plano)
+**Plan metadata:** `fd708a0` (docs: complete plan)
 
 ## Files Created/Modified
 
@@ -140,7 +141,7 @@ Cada task foi commitada atomicamente (Task 1 seguiu TDD RED→GREEN):
 - **Fix:** Substituído por dois `await Promise.resolve()` encadeados, que dependem só de APIs padrão do ambiente de teste.
 - **Files modified:** `__tests__/pushBadge.test.ts`
 - **Verification:** 7/7 testes passam, sem unhandled rejection.
-- **Committed in:** `62e26f4` (parte do commit GREEN da Task 1, já que a correção precedeu o primeiro commit verde do teste)
+- **Committed in:** `0d023ba` — a correção foi aplicada antes do primeiro `git add` da Task 1, mas o arquivo de teste não foi re-staged junto de `src/utils/pushBadge.ts` no commit GREEN (`62e26f4`); detectado no `git status --short` residual antes do commit de metadados e corrigido em commit `fix` separado, mesmo diff.
 
 **2. [Rule 1 - Bug] `TS2430` ao tipar a checagem de suporte da Badging API**
 - **Found during:** Task 1, `npx tsc --noEmit -p .` após a primeira implementação de `pushBadge.ts`.
@@ -175,4 +176,4 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 
-All 3 files created/modified by this plan verified present on disk (`src/utils/pushBadge.ts`, `__tests__/pushBadge.test.ts`, `src/screens/HomeScreen.tsx`); all 3 task commits (`03722b3`, `62e26f4`, `e72dd3c`) verified present in `git log`. No missing items.
+All 3 files created/modified by this plan verified present on disk (`src/utils/pushBadge.ts`, `__tests__/pushBadge.test.ts`, `src/screens/HomeScreen.tsx`); all 4 commits (`03722b3`, `62e26f4`, `e72dd3c`, `0d023ba`) verified present in `git log`; `git status --short` clean before the final metadata commit. No missing items.
