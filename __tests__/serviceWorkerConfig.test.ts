@@ -78,6 +78,12 @@ describe('guarda: workbox-config.cjs nunca intercepta chamada de dado (runtimeCa
     expect(config.globIgnores).toEqual([]);
     expect(config.maximumFileSizeToCacheInBytes).toBeGreaterThanOrEqual(BUNDLE_SIZE_MEDIDO_BYTES);
   });
+
+  it('nunca ativa skipWaiting automático (prohibition da fase 11 — update só ao toque)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const config = require('../workbox-config.cjs');
+    expect(config.skipWaiting === undefined || config.skipWaiting === false).toBe(true);
+  });
 });
 
 describe('guarda: navigateFallbackDenylist cobre _expo/ e api/ sem bloquear rotas comuns', () => {
