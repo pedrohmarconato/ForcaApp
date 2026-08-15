@@ -1,21 +1,24 @@
+/**
+ * @jest-environment jsdom
+ */
 // __tests__/UpdateBanner.test.tsx
 // Guarda RTL permanente do banner de atualização (OFF-02, Fase 11 Plano 02).
 // Molde: __tests__/alertHostWeb.test.tsx (Platform.OS mockado para 'web' via
 // Object.defineProperty, preservando os componentes reais do RN).
 //
-// `@jest-environment jsdom`: register-sw.js (Plano 11-01) fala com a UI só
-// via `window` CustomEvent — a config jest padrão deste repo
-// (`react-native/jest-preset.js`) roda em ambiente Node puro, onde
-// `window === global` não tem `addEventListener`/`dispatchEvent` reais. Este
-// override por arquivo troca só este teste para o ambiente jsdom real (mesmo
-// pacote `jest-environment-jsdom` já presente em node_modules), preservando
-// o `render`/`fireEvent` do @testing-library/react-native (react-test-renderer
-// não depende de DOM) e dando ao componente um `window` de verdade para
-// escutar/despachar eventos e para o espião de `location.reload` provar
-// ausência de chamada.
-/**
- * @jest-environment jsdom
- */
+// `@jest-environment jsdom` (pragma acima, TEM que ser o primeiro token do
+// arquivo — jest-docblock só reconhece um bloco `/** */` que abre a partir do
+// primeiro caractere não-whitespace, `^\s*(\/\*\*?...)`; comentários `//`
+// antes dele fazem o pragma ser silenciosamente ignorado): register-sw.js
+// (Plano 11-01) fala com a UI só via `window` CustomEvent — a config jest
+// padrão deste repo (`react-native/jest-preset.js`) roda em ambiente Node
+// puro, onde `window === global` não tem `addEventListener`/`dispatchEvent`
+// reais. Este override por arquivo troca só este teste para o ambiente jsdom
+// real (mesmo pacote `jest-environment-jsdom` já presente em node_modules),
+// preservando o `render`/`fireEvent` do @testing-library/react-native
+// (react-test-renderer não depende de DOM) e dando ao componente um `window`
+// de verdade para escutar/despachar eventos e para o espião de
+// `location.reload` provar ausência de chamada.
 
 import React from 'react';
 import { Platform } from 'react-native';
