@@ -3,6 +3,13 @@ import React, { createContext, useState, useEffect, useContext, useCallback, use
 import { supabase, storageReady } from '../config/supabaseClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+// WR-01 (13-REVIEW.md, iteração 2): unsubscribeFromPush existia mas nunca era
+// chamado a partir de signOut() — num browser/device compartilhado a
+// subscription (escopo origem+SW, não conta) sobrevivia ao logout e podia ser
+// reassinada silenciosamente pela próxima conta a ativar notificações no
+// mesmo device. isPushSupported/unsubscribeFromPush são web-only (usam
+// navigator.serviceWorker) — módulo leve, sem custo de import no nativo.
+import { isPushSupported, unsubscribeFromPush } from '../services/pushSubscription';
 
 const AuthContext = createContext(undefined);
 
@@ -136,6 +143,17 @@ export const AuthProvider = ({ children }) => {
             await AsyncStorage.removeItem('@userShouldStayLoggedIn');
         } catch (e) {
             console.error("[AuthContext] Erro ao remover preferência no logout:", e);
+        }
+
+        // WR-01: desativa a push subscription do device best-effort, ANTES
+        // de limpar a sessão local — nunca aguardado de forma bloqueante
+        // (fire-and-forget, mesmo espírito do aviso de replanejamento em
+        // activeSessionStore.ts) e nunca capaz de impedir/atrasar o logout
+        // em si (try/catch próprio, sem propagar).
+        if (isPushSupported()) {
+            unsubscribeFromPush().catch((e) => {
+                console.warn("[AuthContext] Falha ao desativar push no logout (não-fatal):", e?.message ?? e);
+            });
         }
 
         try {
