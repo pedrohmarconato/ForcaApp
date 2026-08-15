@@ -18,11 +18,11 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 
 ### Offline e atualização (OFF)
 
-- [ ] **OFF-01**: O app instalado abre sem rede (app shell via service worker);
+- [x] **OFF-01**: O app instalado abre sem rede (app shell via service worker);
   o outbox offline-first do v1.0 segue como única camada de retry de dados — o SW
   nunca intercepta chamadas Supabase/PostgREST/API.
 
-- [ ] **OFF-02**: Versão nova chega com aviso não-bloqueante (nunca reload forçado
+- [x] **OFF-02**: Versão nova chega com aviso não-bloqueante (nunca reload forçado
   durante sessão de treino) e os headers de cache da Vercel impedem usuário preso
   em versão velha (`sw.js`/manifest com no-cache).
 
@@ -62,9 +62,11 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 
 - Persistent Storage API para blindar o outbox contra evicção (deferido: com PWA
   instalado a evicção já é branda; sem relato real de perda).
+
 - Cartão de treino vivo na tela bloqueada (Live Activity) com botões de série —
   porta que só reabre com app nativo + Apple Developer pago (US$ 99/ano); mesmo
   nativo, digitação livre de peso no bloqueio não existe (limite da Apple).
+
 - Detecção Safari vs Chrome iOS na página `/instalar` (não selecionado pelo dono).
 - Herdados do v1.1: limpeza da tabela `cardio_goals` órfã; GRANT DML para
   `authenticated` nas migrations; texto literal do erro de produção do debug
@@ -75,10 +77,13 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 - Registrar reps/peso NA notificação/tela bloqueada sem abrir o app — API nativa
   (Live Activities/ações interativas), inexistente para PWA; substituído por
   SESS-01 (tela nunca bloqueia durante o treino) + PUSH-05 (1 toque para a sessão).
+
 - Distribuição nativa (Ad Hoc/TestFlight/marketplace alternativo do TCC CADE) —
   todas exigem Apple Developer pago; decisão do dono de não pagar (2026-08-14).
+
 - SDK de push de terceiros (OneSignal etc.) — iOS 16.4+ implementa Web Push padrão;
   infra própria via `pywebpush` no Flask existente.
+
 - Service worker interceptando chamadas de dados (Supabase/API) — duplicaria a
   camada de retry do outbox validado no v1.0 (pitfall confirmado na pesquisa).
 
@@ -88,8 +93,8 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 |-----|-------|--------|
 | INST-01 | Phase 10 | Pending |
 | INST-02 | Phase 12 | Pending |
-| OFF-01 | Phase 11 | Pending |
-| OFF-02 | Phase 11 | Pending |
+| OFF-01 | Phase 11 | Complete |
+| OFF-02 | Phase 11 | Complete |
 | PUSH-01 | Phase 13 | Pending |
 | PUSH-02 | Phase 13 | Pending |
 | PUSH-03 | Phase 13 | Pending |

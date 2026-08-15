@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 11
 current_phase_name: Service worker e atualização segura
 status: executing
-stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-08-15T03:15:18.527Z"
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-08-15T03:27:04.623Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 11 (Service worker e atualização segura) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 11
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-08-15 — Phase 11 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████░░░░] 63%
 
 ## Performance Metrics
 
@@ -54,6 +54,12 @@ Progress: [░░░░░░░░░░] 0%
 **Recent Trend:**
 
 - v1.2 ainda não iniciou execução — sem amostra.
+
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 11 P01 | 5min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -75,6 +81,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 - Service worker nunca intercepta chamadas Supabase/API — outbox offline-first do
   v1.0 segue como única camada de retry de dados (pitfall confirmado na pesquisa).
+
+- [Phase ?]: sw.js/register-sw.js/manifest.json servidos com Cache-Control: no-cache, must-revalidate; carve-out do rewrite de SPA e do header catch-all (mesma técnica da Fase 10 para /splash/*.png)
+- [Phase ?]: workbox-config.cjs nunca ativa runtimeCaching — SW só precacheia app shell estático, outbox offline-first do v1.0 segue como única camada de retry de dados
 
 ### Pending Todos
 
@@ -113,12 +122,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T01:42:41.319Z
-Stopped at: Phase 10 UI-SPEC approved
+Last session: 2026-08-15T03:27:04.618Z
+Stopped at: Completed 11-01-PLAN.md
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: .planning/phases/10-identidade-do-app-instal-vel/10-UI-SPEC.md
+Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
