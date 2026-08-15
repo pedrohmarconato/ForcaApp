@@ -13,7 +13,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 - [ ] **INST-01**: Aluno instala o ForcaApp pela Tela de Início e o app abre
   standalone — splash screen iOS correta (sem flash branco), ícone e nome próprios.
 
-- [ ] **INST-02**: Usuário leigo instala sozinho pela página `/instalar` do app:
+- [x] **INST-02**: Usuário leigo instala sozinho pela página `/instalar` do app:
   passo a passo com detecção de iOS/Safari e de "já instalado".
 
 ### Offline e atualização (OFF)
@@ -92,7 +92,7 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 | REQ | Phase | Status |
 |-----|-------|--------|
 | INST-01 | Phase 10 | Pending |
-| INST-02 | Phase 12 | Pending |
+| INST-02 | Phase 12 | Complete |
 | OFF-01 | Phase 11 | Complete |
 | OFF-02 | Phase 11 | Complete |
 | PUSH-01 | Phase 13 | Pending |

@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 12
 current_phase_name: Página de instalação guiada
 status: executing
-stopped_at: Phase 12 UI-SPEC approved
-last_updated: "2026-08-15T13:12:05.843Z"
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-08-15T13:21:30.480Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 40
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 12 (Página de instalação guiada) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 12
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-08-15 — Phase 12 execution started
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [████████░░] 75%
 |------|----------|-------|-------|
 | Phase 11 P01 | 5min | 2 tasks | 7 files |
 | Phase 11 P02 | 12min | 2 tasks | 4 files |
+| Phase 12-p-gina-de-instala-o-guiada P01 | 35min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: workbox-config.cjs nunca ativa runtimeCaching — SW só precacheia app shell estático, outbox offline-first do v1.0 segue como única camada de retry de dados
 - [Phase ?]: UpdateBanner nao le nenhuma flag sincrona de register-sw.js (a que o plano citava nao existe no arquivo real do Plano 11-01) - risco residual registrado em WINDOWS.md em vez de modificar o arquivo travado do Wave 1
 - [Phase ?]: Testes que precisam de window.addEventListener/dispatchEvent reais usam @jest-environment jsdom por arquivo (docblock deve ser o primeiro token literal) - a config jest padrao do repo roda em ambiente Node puro sem EventTarget
+- [Phase ?]: useNavigation<any>() no CTA do Estado 4 de InstallScreen (mesmo padrao de ExercisePickerScreen.tsx) - a tela monta em 3 arvores com tipos de navigator distintos
+- [Phase ?]: Guard de regressao do Pitfall 2 (tabBarButton) implementado como teste de proximidade textual (<=200 chars) em MainNavigator.tsx, nao snapshot
 
 ### Pending Todos
 
@@ -126,12 +129,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T12:43:52.590Z
-Stopped at: Phase 12 UI-SPEC approved
+Last session: 2026-08-15T13:21:30.474Z
+Stopped at: Completed 12-01-PLAN.md
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
-Resume file: .planning/phases/12-p-gina-de-instala-o-guiada/12-UI-SPEC.md
+Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,

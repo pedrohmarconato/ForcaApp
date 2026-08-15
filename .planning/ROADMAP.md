@@ -169,11 +169,11 @@ instala corretamente)
   3. UAT do dono (ou de um aluno real) no iPhone: acessa `/instalar` pelo Safari,
      segue os passos exibidos sem ajuda adicional, e consegue instalar o app pela
      Tela de Início.
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — installDetection.ts + InstallScreen (4 estados) + registro de /instalar em linkingInterceptor/AuthNavigator (tracer) e linkingConfig/OnboardingNavigator/MainNavigator
+- [x] 12-01-PLAN.md — installDetection.ts + InstallScreen (4 estados) + registro de /instalar em linkingInterceptor/AuthNavigator (tracer) e linkingConfig/OnboardingNavigator/MainNavigator
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -226,5 +226,5 @@ registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
 | 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | In Progress|  |
 | 10. Identidade do app instalável | v1.2 | 0/1 | Not started | - |
 | 11. Service worker e atualização segura | v1.2 | 2/3 | In Progress|  |
-| 12. Página de instalação guiada | v1.2 | 0/2 | Not started | - |
+| 12. Página de instalação guiada | v1.2 | 1/2 | In Progress|  |
 | 13. Push notification ponta a ponta | v1.2 | 0/TBD | Not started | - |
