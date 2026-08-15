@@ -113,6 +113,26 @@ def test_notify_replan_subscription_expirada_apaga_e_nao_conta_em_sent(client):
     fake_delete.assert_called_once_with(USER_ID, "token-valido", SUBSCRIPTION_ROW["endpoint"])
 
 
+# --- WR-01 (13-REVIEW.md, iteração 3): enviar_push devolvendo None (recusa
+# de allowlist) NÃO apaga a subscription -- distinto do 404/410 (False)
+# acima, que continua apagando. ---
+
+
+def test_notify_replan_allowlist_rejeitada_nao_apaga_e_nao_conta_em_sent(client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app.listar_subscriptions", return_value=[SUBSCRIPTION_ROW]), \
+         mock.patch("backend.app.enviar_push", return_value=None), \
+         mock.patch("backend.app.delete_subscription") as fake_delete:
+        response = client.post(
+            "/api/push/notify-replan-applied",
+            json={},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 200
+    assert response.get_json() == {"sent": 0}
+    fake_delete.assert_not_called()
+
+
 # --- Identidade: user_id do corpo é IGNORADO, só g.user decide ---
 
 

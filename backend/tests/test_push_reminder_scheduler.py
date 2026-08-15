@@ -232,6 +232,28 @@ def test_enviar_push_retornando_false_apaga_subscription_expirada(fake_db):
     assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is not None
 
 
+# --- WR-01 (13-REVIEW.md, iteração 3): enviar_push devolvendo None (recusa de
+# allowlist) NÃO pode apagar a subscription -- só o 404/410 confirmado
+# (False) apaga. Distinto do teste acima, que prova o caso False. ---
+
+
+def test_enviar_push_retornando_none_por_allowlist_nao_apaga_subscription(fake_db):
+    fake_db.seed_session("sess-1", USER_A, "Treino de pernas")
+    fake_db.seed_subscription(USER_A, "https://attacker.example.com/abc")
+
+    with mock.patch(
+        "backend.services.push_reminder_scheduler.push_sender.enviar_push", return_value=None
+    ), mock.patch(
+        "backend.services.push_reminder_scheduler.push_sender.delete_subscription"
+    ) as fake_delete:
+        enviados = scheduler.processar_tick(AGORA_08H_UTC)
+
+    assert enviados == 0
+    fake_delete.assert_not_called()
+    # Sessão ainda é marcada -- best-effort, mesmo com o pulo por allowlist.
+    assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is not None
+
+
 # --- CR-01: exceção ao marcar reminder_sent_at de UM aluno não pode abortar
 # o resto do tick (REVIEW.md 13-REVIEW.md CR-01) ---
 

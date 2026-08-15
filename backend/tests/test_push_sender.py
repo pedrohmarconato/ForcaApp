@@ -4,6 +4,7 @@
 # 201/sucesso -> sem exceção. Também cobre endpoint_e_permitido (allowlist
 # SSRF) e o upsert idempotente via PostgREST.
 
+import logging
 import os
 import sys
 import unittest.mock as mock
@@ -88,7 +89,7 @@ def test_webpush_exception_sem_response_propaga():
             enviar_push(SUBSCRIPTION_ROW, "payload", "chave-vapid", "mailto:teste@forcaapp.invalid")
 
 
-def test_enviar_push_recusa_endpoint_fora_da_allowlist_mesmo_vindo_do_banco():
+def test_enviar_push_recusa_endpoint_fora_da_allowlist_mesmo_vindo_do_banco(caplog):
     """CR-01 (13-REVIEW.md, iteração 2): endpoint_e_permitido() era checado
     SOMENTE em handle_push_subscribe (POST /api/push/subscribe). Uma linha
     maliciosa pode chegar em push_subscriptions pelo caminho PostgREST
@@ -97,19 +98,28 @@ def test_enviar_push_recusa_endpoint_fora_da_allowlist_mesmo_vindo_do_banco():
     subscription_row com endpoint fora da allowlist diretamente para
     enviar_push, como se tivesse vindo de listar_subscriptions() sobre uma
     linha inserida via PostgREST direto. Defesa em profundidade: enviar_push
-    tem que recusar e NUNCA chamar webpush(), devolvendo False pelo MESMO
-    contrato do 404/410 (o chamador apaga a linha)."""
+    tem que recusar e NUNCA chamar webpush().
+
+    WR-01 (13-REVIEW.md, iteração 3): a recusa de allowlist NÃO é um 404/410
+    confirmado pelo push service -- devolve None (distinto de False), e
+    registra um log de nível error explícito para o operador investigar
+    (linha maliciosa OU allowlist desatualizada)."""
     subscription_maliciosa = {
         "endpoint": "http://169.254.169.254/latest/meta-data/",
         "p256dh": "chave-p256dh",
         "auth": "chave-auth",
+        "user_id": "user-teste",
     }
     with mock.patch("backend.services.push_sender.webpush") as fake_webpush:
-        resultado = enviar_push(
-            subscription_maliciosa, "payload", "chave-vapid", "mailto:teste@forcaapp.invalid"
-        )
-    assert resultado is False
+        with caplog.at_level(logging.ERROR, logger="backend.services.push_sender"):
+            resultado = enviar_push(
+                subscription_maliciosa, "payload", "chave-vapid", "mailto:teste@forcaapp.invalid"
+            )
+    assert resultado is None
     fake_webpush.assert_not_called()
+    registros_error = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert registros_error, "esperava um log de nível ERROR ao recusar endpoint fora da allowlist"
+    assert any("allowlist" in registro.getMessage().lower() for registro in registros_error)
 
 
 # --- Allowlist de host (mitigação SSRF, T-13-01) ---
@@ -139,6 +149,15 @@ def test_endpoint_e_permitido_aceita_hosts_conhecidos(endpoint):
         "https://",
         "https:// web.push.apple.com",
         "ftp://web.push.apple.com/abc",
+        # IN-02 (13-REVIEW.md, iteração 3): "evilfcm.googleapis.com" NÃO pode
+        # casar o sufixo "fcm.googleapis.com" -- endswith() sem boundary de
+        # "." é o clássico anti-padrão de suffix-check
+        # ("evilfcm.googleapis.com".endswith("fcm.googleapis.com") é True).
+        # Note: um hostname como "evil.push.services.mozilla.com" continua
+        # ACEITO por design -- é um subdomínio legítimo de mozilla.com, que
+        # só a Mozilla pode registrar (não é um sibling attacker-registrable
+        # como "evilfcm.googleapis.com" seria SEM o boundary de ".").
+        "https://evilfcm.googleapis.com/fcm/send/xyz",
     ],
 )
 def test_endpoint_e_permitido_rejeita_hosts_desconhecidos(endpoint):

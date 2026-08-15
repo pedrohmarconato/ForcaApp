@@ -4,11 +4,14 @@
 # de Web Push via pywebpush, com o contrato 410/404 -> apagar subscription
 # provado em 13-SPIKE.md (seções 5a-5d).
 
+import logging
 import os
 from typing import Dict, List, Optional
 
 import requests
 from pywebpush import WebPushException, webpush
+
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 20
 
@@ -20,9 +23,14 @@ EXPIRED_STATUS_CODES = (404, 410)
 # Allowlist de hosts de push service conhecidos (Apple/Mozilla/Google) —
 # mitigação do achado de Tampering/SSRF de 13-RESEARCH.md ("Known Threat
 # Patterns"): sem isto, /api/push/subscribe viraria um proxy autenticado que
-# aceita POST assinado para QUALQUER endpoint.
+# aceita POST assinado para QUALQUER endpoint. Entradas SEM ponto à esquerda
+# (IN-02 de 13-REVIEW.md, iteração 3): o boundary de subdomínio é aplicado
+# uniformemente por `endpoint_e_permitido` (exact match OU sufixo com "."),
+# nunca por `str.endswith()` cru — isso evita que
+# "evilfcm.googleapis.com".endswith("fcm.googleapis.com") (True, bug clássico
+# de suffix-check) autorize um host que não é o vendor real.
 PUSH_SERVICE_HOST_SUFFIXES = (
-    ".push.apple.com",
+    "push.apple.com",
     "fcm.googleapis.com",
     "updates.push.services.mozilla.com",
     "push.services.mozilla.com",
@@ -56,8 +64,11 @@ def endpoint_e_permitido(endpoint: str) -> bool:
     """Valida LOCALMENTE (sem chamada externa) que o endpoint é utilizável e
     pertence a um push service conhecido — mesma lógica de base de
     `_is_usable_http_url` (backend/app.py): scheme http(s), hostname presente,
-    sem whitespace; ADICIONALMENTE checa que o hostname termina em um dos
-    sufixos da allowlist (Apple/Mozilla/Google).
+    sem whitespace; ADICIONALMENTE checa que o hostname é EXATAMENTE um dos
+    hosts da allowlist ou um subdomínio dele (boundary de "." — IN-02 de
+    13-REVIEW.md, iteração 3: `hostname.endswith(sufixo)` cru deixava
+    "evilfcm.googleapis.com" casar o sufixo "fcm.googleapis.com" por ser uma
+    substring no fim, sem "." de fronteira entre os dois).
     """
     from urllib.parse import urlparse
 
@@ -70,7 +81,10 @@ def endpoint_e_permitido(endpoint: str) -> bool:
         return False
     if parsed.scheme not in ("http", "https") or not hostname:
         return False
-    return any(hostname.endswith(sufixo) for sufixo in PUSH_SERVICE_HOST_SUFFIXES)
+    return any(
+        hostname == sufixo or hostname.endswith("." + sufixo)
+        for sufixo in PUSH_SERVICE_HOST_SUFFIXES
+    )
 
 
 def upsert_subscription(
@@ -182,15 +196,18 @@ def enviar_push(
     payload: str,
     vapid_private_key: str,
     vapid_subject: str,
-) -> bool:
+) -> Optional[bool]:
     """Envia um push real via pywebpush.
 
-    Devolve True se enviado com sucesso. Devolve False quando o push service
-    respondeu 404/410 (subscription expirada/inexistente) — o CHAMADOR é
-    responsável por apagar a linha correspondente. Qualquer outro erro
-    (WebPushException com outro status, ou sem response) é relançado, NUNCA
-    mascarado por um catch-all — mesmo contrato provado em 13-SPIKE.md
-    seções 5a-5d.
+    Devolve True se enviado com sucesso. Devolve False APENAS quando o push
+    service respondeu 404/410 (subscription confirmada expirada/inexistente)
+    — o CHAMADOR é responsável por apagar a linha correspondente nesse caso.
+    Devolve None quando o PRÓPRIO allowlist recusou o endpoint antes de
+    qualquer tentativa de envio (ver WR-01 abaixo) — isto NÃO é uma expiração
+    confirmada pelo push service, o chamador NÃO deve apagar a subscription.
+    Qualquer outro erro (WebPushException com outro status, ou sem response)
+    é relançado, NUNCA mascarado por um catch-all — mesmo contrato provado em
+    13-SPIKE.md seções 5a-5d.
 
     Defesa em profundidade (CR-01 de 13-REVIEW.md, iteração 2):
     `endpoint_e_permitido()` era checado SOMENTE em `handle_push_subscribe`
@@ -199,12 +216,30 @@ def enviar_push(
     concedido a `authenticated`, RLS só valida ownership, não o CONTEÚDO de
     `endpoint`) e ser enviada sem re-checagem por qualquer chamador de
     `enviar_push`. Por isso o allowlist é revalidado AQUI, no ponto de envio
-    real, antes de montar `subscription_info`/chamar `webpush`. Recusa
-    (nunca envia) e devolve False pelo MESMO contrato do 404/410 — os
-    chamadores já tratam False como "subscription inválida, apagar linha".
+    real, antes de montar `subscription_info`/chamar `webpush`.
+
+    WR-01 (13-REVIEW.md, iteração 3): a revalidação acima devolvia `False`
+    pelo MESMO contrato do 404/410, e todo chamador tratava `False` como
+    "apaga a linha" — mas uma recusa de allowlist não é uma confirmação do
+    push service de que a subscription não existe mais; pode ser uma linha
+    maliciosa OU a allowlist estar desatualizada (ex.: vendor migrou de
+    domínio). Apagar nesse caso destrói dado legítimo do usuário
+    silenciosamente. Por isso a recusa de allowlist é logada em nível
+    `error` (sinal explícito para o operador revisar allowlist/vendor) e
+    devolve `None` — um terceiro estado que os chamadores tratam como
+    "pular o envio, NÃO apagar a subscription", distinto do `False`
+    confirmado por 404/410.
     """
-    if not endpoint_e_permitido(subscription_row.get("endpoint") or ""):
-        return False
+    endpoint = subscription_row.get("endpoint") or ""
+    if not endpoint_e_permitido(endpoint):
+        logger.error(
+            "enviar_push recusou endpoint fora da allowlist — revisar "
+            "allowlist/vendor (endpoint=%s, user_id=%s). Subscription NÃO "
+            "apagada: isto não é um 404/410 confirmado pelo push service.",
+            endpoint,
+            subscription_row.get("user_id"),
+        )
+        return None
     subscription_info = {
         "endpoint": subscription_row["endpoint"],
         "keys": {

@@ -2278,6 +2278,12 @@ def handle_push_notify_replan():
             continue
         if sucesso:
             enviados += 1
+        elif sucesso is None:
+            # WR-01 (13-REVIEW.md, iteração 3): enviar_push devolveu None --
+            # o allowlist recusou o endpoint, NÃO é um 404/410 confirmado
+            # pelo push service. enviar_push já logou em nível error; aqui
+            # só pulamos o envio SEM apagar a subscription.
+            continue
         else:
             # enviar_push devolveu False: subscription expirada (404/410,
             # contrato provado em 13-SPIKE.md) — apaga.
