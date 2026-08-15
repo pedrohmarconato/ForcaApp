@@ -34,6 +34,7 @@ interface WorkboxConfig {
   cleanupOutdatedCaches: boolean;
   inlineWorkboxRuntime: boolean;
   runtimeCaching?: unknown;
+  importScripts?: string[];
 }
 
 interface VercelHeaderEntry {
@@ -83,6 +84,12 @@ describe('guarda: workbox-config.cjs nunca intercepta chamada de dado (runtimeCa
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const config = require('../workbox-config.cjs');
     expect(config.skipWaiting === undefined || config.skipWaiting === false).toBe(true);
+  });
+
+  it('exporta importScripts com push-handlers.js (Fase 13, PUSH-01/PUSH-05) sem tocar nas demais chaves', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const config: WorkboxConfig = require(WORKBOX_CONFIG);
+    expect(config.importScripts).toEqual(['push-handlers.js']);
   });
 });
 

@@ -19,14 +19,21 @@ const PUSH_HANDLERS_PATH = join(__dirname, '..', 'public', 'push-handlers.js');
  * os callbacks passados a self.addEventListener. */
 function carregarPushHandlers() {
   const addEventListenerMock = jest.fn();
-  (global as any).self = {
+  const selfMock = {
     addEventListener: addEventListenerMock,
     registration: { showNotification: jest.fn() },
   };
-  (global as any).clients = {
+  const clientsMock = {
     matchAll: jest.fn(),
     openWindow: jest.fn(),
   };
+
+  // jsdom define `self` como um alias real (não gravável por atribuição
+  // simples) de `window` — Object.defineProperty força a substituição pelo
+  // mock dentro do escopo deste teste (mesma técnica para `clients`, que o
+  // jsdom não define, mas mantém a simetria).
+  Object.defineProperty(global, 'self', { value: selfMock, writable: true, configurable: true });
+  Object.defineProperty(global, 'clients', { value: clientsMock, writable: true, configurable: true });
 
   jest.isolateModules(() => {
     require(PUSH_HANDLERS_PATH);

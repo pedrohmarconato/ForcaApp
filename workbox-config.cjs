@@ -29,4 +29,9 @@ module.exports = {
   clientsClaim: true,
   cleanupOutdatedCaches: true,
   inlineWorkboxRuntime: true,
+  // Fase 13 (PUSH-01/PUSH-05): injeta os handlers push/notificationclick no
+  // topo do sw.js gerado. public/push-handlers.js NÃO passa pelo build (é
+  // passthrough de public/, mesmo padrão de register-sw.js) — só a chave
+  // abaixo muda aqui, nenhuma das outras acima.
+  importScripts: ['push-handlers.js'],
 };
