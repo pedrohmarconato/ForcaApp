@@ -451,9 +451,9 @@ Not applicable in the classic sense (no library version churn here) — the one 
 
 **If this table is empty:** N/A — 2 assumptions logged above; both are MEDIUM-confidence external/runtime-timing claims, not architecture claims (all architecture claims in this document are `[VERIFIED]` against code read this session).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Which route does the State-4 CTA ("Abrir o ForçaApp") navigate to, given `InstallScreen` is mounted in 3 different trees?**
+1. **Which route does the State-4 CTA ("Abrir o ForçaApp") navigate to, given `InstallScreen` is mounted in 3 different trees?** — RESOLVED: o Plano 12-01 implementa a recomendação (prop homeRoute na InstallScreen, CTA navega corretamente em cada árvore de mounting).
    - What we know: UI-SPEC explicitly defers the exact mechanism to planner/executor discretion ("Navigates into the app (Home if authenticated, Login if not — exact target/mechanism is planner/executor discretion... do not build a new gate for this one button)"). Each of the 3 registration sites (`AuthNavigator`, `OnboardingNavigator`, `MainNavigator`) statically knows its own correct "home" screen name (`Login`, `Questionnaire`, `Home` respectively) at registration time.
    - What's unclear: whether the plan should pass this as a prop at each registration site (`children={() => <InstallScreen homeRoute="Login" />}`) or have `InstallScreen` call `useNavigation()` and rely on `navigation.navigate` resolving within whichever stack it's currently mounted in (simpler code, but only correct if the target route name always exists in the CURRENT tree — which it does, since each tree's own home route is being targeted from within that same tree).
    - Recommendation: prefer the prop-based approach — it's directly testable via `render(<InstallScreen homeRoute="Login" onOpenApp={mockNavigate} />)` without any `useNavigation()` mock plumbing beyond what `profileScreen.test.tsx` already demonstrates, and it makes the per-tree intent explicit and reviewable at each of the 3 registration call sites rather than implicit.
