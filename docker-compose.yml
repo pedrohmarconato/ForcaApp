@@ -47,6 +47,14 @@ services:
       # lembrete diário — bypassa RLS por design, nunca usada em nenhuma rota
       # HTTP alcançável pelo cliente (T-13-06).
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?defina SUPABASE_SERVICE_ROLE_KEY no ambiente do projeto (Supabase Dashboard -> Settings -> API -> service_role key) — usado SÓ pelo scheduler de lembrete para ler across-user}
+      # PUSH-01/02/03: assinatura VAPID do Web Push (pywebpush). A privada é a
+      # base64url do escalar bruto (32 bytes) — formato que py_vapid
+      # Vapid.from_string aceita; NUNCA commitar nem logar. O subject é o
+      # contato mailto: exigido pelo protocolo. Sem estas linhas o compose não
+      # REPASSAVA a chave ao container mesmo que ela existisse no .env —
+      # environment: é allowlist explícita.
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?defina VAPID_PRIVATE_KEY (base64url do escalar EC P-256; gerar com py-vapid — ver 13-SPIKE.md)}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:?defina VAPID_SUBJECT (ex. mailto:contato@dominio) — claim sub do VAPID}
       # Sem default de propósito. O default antigo era `localhost` — um valor de
       # desenvolvimento que em produção não quebra nada no servidor: o browser é
       # que bloqueia a resposta, e o app mostra "Network Error". Ficou assim em
