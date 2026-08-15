@@ -121,6 +121,22 @@ describe('UpdateBanner (web)', () => {
     }
   });
 
+  it('depois de "Depois", um NOVO sw-update-available faz o banner reaparecer (CR-01: dismissed nao pode grudar entre atualizacoes)', () => {
+    const screen = render(<UpdateBanner />);
+    act(() => {
+      dispatchSwUpdateAvailable();
+    });
+    fireEvent.press(screen.getByText('Depois'));
+    expect(screen.queryByText('Nova versão disponível')).toBeNull();
+
+    act(() => {
+      dispatchSwUpdateAvailable();
+    });
+    expect(screen.getByText('Nova versão disponível')).toBeTruthy();
+    expect(screen.getByText('Atualizar')).toBeTruthy();
+    expect(screen.getByText('Depois')).toBeTruthy();
+  });
+
   it('múltiplas montagens/desmontagens e disparos repetidos do evento nunca produzem chamada a reload (guarda contra auto-reload)', () => {
     const primeiraMontagem = render(<UpdateBanner />);
     act(() => {

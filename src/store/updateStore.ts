@@ -23,7 +23,14 @@ type UpdateState = {
 export const useUpdateStore = create<UpdateState>((set) => ({
   waiting: false,
   dismissed: false,
-  setWaiting: (value) => set({ waiting: value }),
+  // CR-01: uma nova atualização real (setWaiting(true)) sempre limpa
+  // `dismissed` — senão, depois de um "Depois", o banner fica surdo a
+  // qualquer 'sw-update-available' futuro pelo resto da sessão SPA, mesmo
+  // para uma versão completamente diferente.
+  setWaiting: (value) => set((state) => ({
+    waiting: value,
+    dismissed: value ? false : state.dismissed,
+  })),
   dismiss: () => set({ waiting: false, dismissed: true }),
   applyUpdate: () => {
     window.dispatchEvent(new CustomEvent('sw-apply-update'));
