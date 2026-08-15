@@ -45,6 +45,17 @@ falha fechado, então nenhuma automação atravessa esse portão sozinha.
 
 ## Estado das migrations
 
+- Aplicadas e registradas em produção E homologação: **0000 → 0039** (15/08/2026, `supabase db push`
+  precedido de `scripts/supabase-preflight.sh` nos dois ambientes; conferido por `supabase migration
+  list` nos dois refs após cada push). A 0038 (`push_subscriptions`: RLS por usuário + GRANT DML para
+  `authenticated`) e a 0039 (`planned_sessions.reminder_sent_at` + índice parcial) entraram primeiro
+  em homologação e depois em produção NO MESMO DIA, mesmo arquivo conferido por md5
+  (`fd3ea6916e4b9c7626a2ce19c9b6259e` / `533c640cc4ee037959d050ac2858f04f`); os DO-blocks de
+  asserção internos passaram (push concluiu sem erro). Transparência de processo: no push de
+  produção a confirmação `PRODUCAO` do preflight foi alimentada via stdin sob autorização explícita
+  do dono em prompt dedicado — o desenho da trava é exigi-la digitada. Observação: a lista remota
+  já mostrava 0000→0037 antes desta janela, embora os bullets de 10/08 abaixo digam 0036 — esta
+  seção defasa; confirme no banco antes de confiar nela.
 - Aplicadas e registradas em produção (`forcaapp-prod`, ref `zanqygwsgxkyjiuhrzju`): **0000 → 0036**
   (a 0036 aplicada em 10/08/2026 por `supabase db push` do dono). Conferido por leitura via
   Management API, sem trocar o link do diretório:
