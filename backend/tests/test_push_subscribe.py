@@ -145,3 +145,64 @@ def test_duas_chamadas_com_mesmo_endpoint_nao_geram_upserts_divergentes(client):
     assert primeira.args[2] == segunda.args[2] == ENDPOINT_VALIDO
     assert primeira.args[3] == segunda.args[3]  # mesmo p256dh
     assert primeira.args[4] == segunda.args[4]  # mesmo auth
+
+
+# --- DELETE /api/push/subscribe (Task 3): desativar notificações ---
+
+
+def test_unsubscribe_sem_token_retorna_401(client):
+    response = client.delete("/api/push/subscribe", json={"endpoint": ENDPOINT_VALIDO})
+    assert response.status_code == 401
+
+
+def test_unsubscribe_com_token_valido_chama_delete_com_user_id_do_jwt(client):
+    user_id = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response(user_id)), \
+         mock.patch("backend.app.delete_subscription") as fake_delete:
+        response = client.delete(
+            "/api/push/subscribe",
+            json={"endpoint": ENDPOINT_VALIDO},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "unsubscribed"
+    fake_delete.assert_called_once_with(user_id, "token-valido", ENDPOINT_VALIDO)
+
+
+def test_unsubscribe_ignora_endpoint_ja_removido_e_ainda_retorna_200(client):
+    """DELETE é idempotente por natureza: mesmo se a subscription já não
+    existia, a rota nunca devolve 404 — "já desativado" não é erro."""
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app.delete_subscription", return_value=None):
+        response = client.delete(
+            "/api/push/subscribe",
+            json={"endpoint": ENDPOINT_VALIDO},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 200
+
+
+def test_unsubscribe_sem_endpoint_no_corpo_retorna_400(client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()):
+        response = client.delete(
+            "/api/push/subscribe",
+            json={},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 400
+
+
+def test_unsubscribe_nunca_aceita_user_id_explicito_do_corpo(client):
+    """O user_id que decide QUAL subscription apaga vem sempre do JWT
+    (g.user['id']), nunca de um campo do corpo — mesmo que o corpo tente
+    injetar um user_id de outro aluno."""
+    user_id_do_jwt = "3f6b8f2e-9c4a-4d2e-a1b5-7c8d9e0f1a2b"
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response(user_id_do_jwt)), \
+         mock.patch("backend.app.delete_subscription") as fake_delete:
+        response = client.delete(
+            "/api/push/subscribe",
+            json={"endpoint": ENDPOINT_VALIDO, "user_id": "user-de-outro-aluno"},
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 200
+    fake_delete.assert_called_once_with(user_id_do_jwt, "token-valido", ENDPOINT_VALIDO)
