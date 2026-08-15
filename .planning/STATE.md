@@ -5,15 +5,15 @@ milestone_name: App de iPhone instalável via site (PWA)
 current_phase: 13
 current_phase_name: Push notification ponta a ponta
 status: executing
-stopped_at: Completed 13-01-PLAN.md — staging migration bloqueada por credencial
-last_updated: "2026-08-15T15:24:00.190Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-08-15T15:41:56.702Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 15
-  completed_plans: 9
+  completed_plans: 10
   percent: 40
 ---
 
@@ -30,11 +30,11 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 ## Current Position
 
 Phase: 13 (Push notification ponta a ponta) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-08-15 — Phase 13 execution started
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██████░░░░] 60%
 | Phase 11 P02 | 12min | 2 tasks | 4 files |
 | Phase 12-p-gina-de-instala-o-guiada P01 | 35min | 2 tasks | 10 files |
 | Phase 13 P01 | 25min | 3 tasks | 16 files |
+| Phase 13 P02 | 30min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Guard de regressao do Pitfall 2 (tabBarButton) implementado como teste de proximidade textual (<=200 chars) em MainNavigator.tsx, nao snapshot
 - [Phase ?]: Migration 0038 criada+testada mas aplicação em staging BLOQUEADA por credencial (SUPABASE_ACCESS_TOKEN sem acesso ao org ForçaApp) — dono precisa supabase login+relink+db push antes do UAT 13-04
 - [Phase ?]: notificationclick usa client.navigate() direto em vez de postMessage — reusa a rota recuperável por URL de linkingConfig.ts, menos código
+- [Phase ?]: push_reminder_scheduler.py reusa push_sender.delete_subscription passando SUPABASE_SERVICE_ROLE_KEY como access_token (Authorization Bearer decide o role no PostgREST, não o apikey) — evita duplicar a lógica de DELETE 410/404.
+- [Phase ?]: iniciar_scheduler() chamado no IMPORT de backend/app.py (não em if __name__ == '__main__'), porque o gunicorn de produção sobe via backend.app:app e nunca executa esse bloco — sem isto PUSH-02 nunca rodaria em produção.
 
 ### Pending Todos
 
@@ -135,8 +138,8 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 
 ## Session Continuity
 
-Last session: 2026-08-15T15:24:00.183Z
-Stopped at: Completed 13-01-PLAN.md — staging migration bloqueada por credencial
+Last session: 2026-08-15T15:41:56.696Z
+Stopped at: Completed 13-02-PLAN.md
 Identidade do app instalável, Service worker e atualização segura, Página de
 instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
 mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.

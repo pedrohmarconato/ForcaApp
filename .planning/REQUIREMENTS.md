@@ -33,9 +33,9 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
   usuário), envio via `pywebpush` no Flask existente; spike técnico prévio de
   expiração/HTTP 410 antes da implementação (decisão da pesquisa).
 
-- [ ] **PUSH-02**: Aluno recebe lembrete de treino no dia/horário configurado.
+- [x] **PUSH-02**: Aluno recebe lembrete de treino no dia/horário configurado.
 
-- [ ] **PUSH-03**: Aluno recebe notificação quando o replanejamento semanal fica
+- [x] **PUSH-03**: Aluno recebe notificação quando o replanejamento semanal fica
   pronto (gatilho no job existente do Flask).
 
 - [ ] **PUSH-04**: Badge no ícone do app com pendência de treino (gated por
@@ -96,8 +96,8 @@ Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
 | OFF-01 | Phase 11 | Complete |
 | OFF-02 | Phase 11 | Complete |
 | PUSH-01 | Phase 13 | Complete |
-| PUSH-02 | Phase 13 | Pending |
-| PUSH-03 | Phase 13 | Pending |
+| PUSH-02 | Phase 13 | Complete |
+| PUSH-03 | Phase 13 | Complete |
 | PUSH-04 | Phase 13 | Pending |
 | PUSH-05 | Phase 13 | Complete |
 | SESS-01 | Phase 9 | Pending |
