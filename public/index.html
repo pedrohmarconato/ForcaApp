@@ -16,6 +16,11 @@
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0A0A0A" />
 
+    <!-- Service worker (Fase 11, OFF-01/OFF-02): arquivo externo, NUNCA
+         inline — a CSP de produção não tem 'unsafe-inline' em script-src
+         (11-RESEARCH.md Pitfall #4). -->
+    <script src="/register-sw.js" defer></script>
+
     <!-- iOS / Safari: sem estas tags o "Adicionar à Tela de Início" abre com a
          barra do Safari por cima e com um ícone genérico (print da página).
          O iOS ignora o manifest para isto — precisa das meta apple-*. -->

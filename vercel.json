@@ -3,12 +3,12 @@
   "git": {
     "deploymentEnabled": false
   },
-  "buildCommand": "npx expo export -p web && node scripts/verify-web-bundle.mjs",
+  "buildCommand": "npx expo export -p web && npx workbox generateSW workbox-config.cjs && node scripts/verify-web-bundle.mjs",
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
     {
-      "source": "/((?!_expo|icons|assets|splash|manifest\\.json|favicon\\.ico).*)",
+      "source": "/((?!_expo|icons|assets|splash|manifest\\.json|favicon\\.ico|sw\\.js|register-sw\\.js).*)",
       "destination": "/index.html"
     }
   ],
