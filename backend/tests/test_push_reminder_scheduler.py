@@ -11,6 +11,7 @@
 # is.null` faria contra o Postgres.
 
 import datetime
+import json
 import os
 import sys
 import unittest.mock as mock
@@ -280,6 +281,34 @@ def test_excecao_ao_marcar_reminder_sent_at_apos_envio_de_push_nao_aborta_os_dem
     assert fake_enviar.call_count == 2
     assert fake_db.planned_sessions["sess-1"]["reminder_sent_at"] is None
     assert fake_db.planned_sessions["sess-2"]["reminder_sent_at"] is not None
+
+
+# --- WR-02: payload do lembrete NÃO pode incluir o título da sessão (13-REVIEW.md,
+# iteração 2) — "detalhe de treino" é exatamente o exemplo de Information
+# Disclosure listado em 13-RESEARCH.md para um device compartilhado; o
+# payload de replan-notify (app.py) já é genérico, o do lembrete diário
+# precisa seguir o MESMO padrão. ---
+
+
+def test_payload_do_lembrete_nao_inclui_titulo_da_sessao(fake_db):
+    titulo_sensivel = "Treino de pernas — lesão no joelho"
+    fake_db.seed_session("sess-1", USER_A, titulo_sensivel)
+    fake_db.seed_subscription(USER_A, "https://web.push.apple.com/abc")
+
+    with mock.patch(
+        "backend.services.push_reminder_scheduler.push_sender.enviar_push", return_value=True
+    ) as fake_enviar:
+        scheduler.processar_tick(AGORA_08H_UTC)
+
+    fake_enviar.assert_called_once()
+    payload_arg = fake_enviar.call_args[0][1]
+    payload = json.loads(payload_arg)
+    assert titulo_sensivel not in payload["title"]
+    assert titulo_sensivel not in payload["body"]
+    # Genérico e alinhado ao padrão já usado no replan-notify (app.py):
+    # nenhum detalhe de treino visível na tela de bloqueio de um device
+    # compartilhado, só o deep link (não exibido no push) carrega o sessionId.
+    assert payload["body"] == "Confira seu treino de hoje."
 
 
 # --- datetime.now() nunca dentro de processar_tick (T-13-08) ---

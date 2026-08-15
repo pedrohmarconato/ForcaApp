@@ -161,7 +161,16 @@ def processar_tick(agora: datetime.datetime) -> int:
         payload = json.dumps(
             {
                 "title": "Hora do treino!",
-                "body": "{} está te esperando.".format(sessao.get("title") or "Seu treino"),
+                # WR-02 (13-REVIEW.md, iteração 2): o corpo NUNCA pode incluir
+                # o título da sessão — "detalhe de treino" é exatamente o
+                # exemplo de Information Disclosure listado em
+                # 13-RESEARCH.md ("Known Threat Patterns") para uma
+                # notificação visível na tela de bloqueio de um device
+                # compartilhado. Mesmo padrão genérico já usado no
+                # replan-notify (app.py:handle_push_notify_replan) — o
+                # detalhe da sessão só viaja no `url` do deep link, que não
+                # aparece na tela de bloqueio.
+                "body": "Confira seu treino de hoje.",
                 # MESMO id de planned_sessions, mesmo path de linkingConfig.ts
                 # (resolve de graça o sessionId do deep link — Open Question
                 # Q3 de 13-RESEARCH.md).
