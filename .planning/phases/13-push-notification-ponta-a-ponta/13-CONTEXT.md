@@ -76,9 +76,10 @@ Achados do scout (2026-08-15):
   requirements.txt sem checkpoint adicional de install.
 
 ### Jobs, envio e deploy
-- Lembrete (PUSH-02) e replanejamento (PUSH-03): usar o mecanismo de job
-  EXISTENTE do Flask (o researcher confirma qual é e onde vive; PUSH-03 é
-  gatilho no job de replanejamento que já existe).
+- Lembrete (PUSH-02) e replanejamento (PUSH-03): SUBSTITUÍDO pelas "Resoluções
+  pós-research" acima — não existe job de replanejamento no backend; PUSH-02 usa
+  scheduler novo em thread (8h fixo) e PUSH-03 dispara na confirmação via
+  endpoint novo.
 - Expiração (critério 5): resposta 410/404 no envio → DELETE imediato da
   subscription (comportamento provado no spike). Sem órfãs.
 - Deploy do backend no VPS Hostinger: FORA das tasks automáticas — checkpoint do
@@ -98,7 +99,7 @@ Achados do scout (2026-08-15):
   `__tests__/serviceWorkerConfig.test.ts` (guard a estender).
 - `src/utils/alertShim.ts` (convite de opt-in), `src/navigation/linkingConfig.ts`
   (deep link da sessão), `src/store/activeSessionStore.ts`.
-- `backend/app.py` + `backend/services/` (Flask; job de replanejamento existente).
+- `backend/app.py` + `backend/services/job_manager.py` (Flask; padrão de jobs de geração de plano — molde do scheduler novo).
 - `supabase/migrations/0034..0037` (padrão de migration com guards do projeto).
 - Padrões de teste: jest/RTL frontend; `backend/tests/` pytest.
 
