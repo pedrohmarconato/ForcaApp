@@ -26,7 +26,8 @@
     "build:android": "cd android && ./gradlew assembleRelease",
     "build:android:bundle": "cd android && ./gradlew bundleRelease",
     "postinstall": "patch-package",
-    "test:integration:pg": "jest --config jest.integration.config.js"
+    "test:integration:pg": "jest --config jest.integration.config.js",
+    "generate:pwa-assets": "CHROME_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" npx pwa-asset-generator@8.1.5 assets/icon.png public/splash --splash-only --portrait-only --scrape true --type png --padding \"20%\" --background \"#0A0A0A\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
