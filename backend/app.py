@@ -271,6 +271,14 @@ MAX_ADJUSTMENT_LENGTH = 1000
 # /api/generate-plan aceitavam qualquer dict e o serializavam inteiro dentro do
 # prompt pago — só /api/chat media o questionário.
 MAX_DIRETRIZES_JSON_BYTES = 16 * 1024  # 16 KB serializado
+# WR-04 de 13-REVIEW.md: teto combinado (endpoint + p256dh + auth) do corpo de
+# POST /api/push/subscribe. Sem ele, só o MAX_CONTENT_LENGTH global (256 KiB
+# do corpo inteiro) limitava um usuário autenticado a escrever strings enormes
+# repetidas vezes nesses campos — que na vida real são sempre pequenos
+# (contrato do W3C Push API: endpoint ~100-500 chars, p256dh 87 chars
+# base64url/65 bytes raw, auth 22-24 chars base64url/16 bytes raw). 2 KB é
+# generoso para qualquer subscription real.
+MAX_PUSH_SUBSCRIPTION_FIELD_BYTES = 2 * 1024
 # O consumidor real do chat é o app, com timeout de 30s (apiClient). O backend
 # esperar 120s só acumulava threads pagando respostas que ninguém veria
 # (achado #2 do review do PR #19): o orçamento fica ABAIXO dos 30s do app.
@@ -2161,6 +2169,13 @@ def handle_push_subscribe():
     auth_key = keys.get('auth') if isinstance(keys, dict) else None
     if not all(isinstance(v, str) and v.strip() for v in (endpoint, p256dh, auth_key)):
         return jsonify({"error": "subscription_info incompleto."}), 400
+
+    # WR-04 de 13-REVIEW.md: teto de tamanho combinado — chaves de push
+    # reais são sempre pequenas, então isto nunca deveria rejeitar um
+    # cliente legítimo, só o abuso de escrever strings gigantes nesses campos.
+    tamanho_combinado = sum(len(v.encode("utf-8")) for v in (endpoint, p256dh, auth_key))
+    if tamanho_combinado > MAX_PUSH_SUBSCRIPTION_FIELD_BYTES:
+        return jsonify({"error": "Campos de subscription excedem o limite de tamanho."}), 400
 
     if not endpoint_e_permitido(endpoint):
         app_logger.warning(

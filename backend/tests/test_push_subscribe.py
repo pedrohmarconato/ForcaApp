@@ -85,6 +85,59 @@ def test_subscribe_com_corpo_incompleto_retorna_400(client):
     assert response.status_code == 400
 
 
+# --- WR-04 (13-REVIEW.md): teto de tamanho nos campos de subscription ---
+
+
+def test_subscribe_com_p256dh_gigante_retorna_400_sem_chamar_upsert(client):
+    """Uma chave p256dh real é ~87 caracteres base64url. Sem um teto por
+    campo, só o MAX_CONTENT_LENGTH global (256 KiB do corpo inteiro)
+    limitava um usuário autenticado a escrever strings enormes repetidas
+    vezes nesse campo. Fica abaixo do limite global de propósito, para
+    provar que é o NOVO teto por campo — não o global — quem rejeita."""
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app.upsert_subscription") as fake_upsert:
+        response = client.post(
+            "/api/push/subscribe",
+            json={
+                "endpoint": ENDPOINT_VALIDO,
+                "keys": {"p256dh": "a" * 100_000, "auth": "chave-auth"},
+            },
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 400
+    fake_upsert.assert_not_called()
+
+
+def test_subscribe_com_endpoint_gigante_retorna_400_sem_chamar_upsert(client):
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app.upsert_subscription") as fake_upsert:
+        response = client.post(
+            "/api/push/subscribe",
+            json=_corpo_valido(endpoint="https://web.push.apple.com/" + "a" * 100_000),
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 400
+    fake_upsert.assert_not_called()
+
+
+def test_subscribe_com_campos_no_tamanho_real_de_producao_continua_aceito(client):
+    """Regressão negativa do WR-04: o teto novo não pode rejeitar uma
+    subscription real (endpoint ~100 chars, p256dh 87 chars base64url, auth
+    22 chars base64url — contrato do W3C Push API)."""
+    with mock.patch("backend.utils.auth.requests.get", return_value=_fake_user_response()), \
+         mock.patch("backend.app.upsert_subscription") as fake_upsert:
+        response = client.post(
+            "/api/push/subscribe",
+            json={
+                "endpoint": ENDPOINT_VALIDO,
+                "keys": {"p256dh": "B" * 87, "auth": "A" * 22},
+            },
+            headers={"Authorization": "Bearer token-valido"},
+        )
+    assert response.status_code == 201
+    fake_upsert.assert_called_once()
+
+
 # --- Upsert com sucesso ---
 
 
