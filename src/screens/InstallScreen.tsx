@@ -10,6 +10,11 @@
 // o CTA do Estado 4 nunca navega para um destino hardcoded dentro deste
 // componente (ver key_link do 12-01-PLAN.md).
 //
+// Rules of Hooks: `useNavigation()` é chamado ANTES do early return de
+// `Platform.OS !== 'web'`, mesma ordem real de UpdateBanner.tsx (hooks
+// primeiro, guarda de Platform depois) — nunca condicionar a chamada de um
+// hook a um branch (WR-01, 12-REVIEW.md).
+//
 // Zero dado de usuário: esta tela não recebe nem lê nenhuma prop/hook de
 // AuthContext/sessão/perfil, mesmo estando registrada dentro da árvore Main
 // (usuário logado) — conteúdo estático puro.
@@ -55,6 +60,14 @@ const StepRow = ({ number, icon, title, description, isLast = false }: StepRowPr
 );
 
 const InstallScreen = ({ homeRoute }: InstallScreenProps) => {
+  // Hook primeiro — Rules of Hooks (WR-01, 12-REVIEW.md): nunca condicionar
+  // a chamada de um hook a um early return. `any`: InstallScreen monta em 3
+  // árvores tipadas de forma diferente (AuthNavigator sem generic,
+  // OnboardingNavigator/MainNavigator tipados com ParamLists distintos) —
+  // mesmo padrão já usado em ExercisePickerScreen.tsx para uma tela que
+  // navega fora do seu próprio ParamList estático.
+  const navigation = useNavigation<any>();
+
   if (Platform.OS !== 'web') return null;
 
   // Síncrono, sem useEffect — o estado final já está calculado no primeiro
@@ -62,13 +75,6 @@ const InstallScreen = ({ homeRoute }: InstallScreenProps) => {
   const standalone = isStandalone();
   const ios = isIOS();
   const safari = isSafari();
-
-  // `any`: InstallScreen monta em 3 árvores tipadas de forma diferente
-  // (AuthNavigator sem generic, OnboardingNavigator/MainNavigator tipados
-  // com ParamLists distintos) — mesmo padrão já usado em
-  // ExercisePickerScreen.tsx para uma tela que navega fora do seu próprio
-  // ParamList estático.
-  const navigation = useNavigation<any>();
 
   return (
     <SafeAreaView style={styles.screen}>
