@@ -143,6 +143,9 @@ describe('updateTrainingBadge (PUSH-04)', () => {
     expect(() => updateTrainingBadge(true)).not.toThrow();
     // Dá tempo ao microtask do .catch() silencioso resolver antes do teste
     // terminar, para garantir que nenhuma unhandledRejection escape.
-    await new Promise((resolve) => setImmediate(resolve));
+    // setImmediate não existe no ambiente jsdom deste projeto — um
+    // Promise.resolve() encadeado basta para esvaziar a fila de microtasks.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });
