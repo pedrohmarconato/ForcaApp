@@ -109,6 +109,7 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 | Phase | State | Resume |
 |-------|-------|--------|
 | 9 | verification_deferred_human | /gsd-verify-work 9 |
+| 10 | verification_deferred_human (Task 3 do plano 10-01) | /gsd-verify-work 10 |
 
 ## Session Continuity
 
