@@ -102,5 +102,10 @@ export const LINKING_CONFIG = {
         ProfileMain: '',
       },
     },
+    // INST-02 (Fase 12): rota pública de instalação guiada. TOP-LEVEL,
+    // sibling de Home/Training/Progress/Profile — nunca aninhada sob
+    // nenhuma delas (aninhar produziria /home/instalar, quebrando a URL
+    // literal que o Estado 3 de InstallScreen exibe de volta ao usuário).
+    Instalar: 'instalar',
   },
 };

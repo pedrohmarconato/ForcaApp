@@ -32,6 +32,7 @@ import { withJointTrainingGate } from './JointTrainingGate';
 import ManualPlanEditorScreen from '../screens/ManualPlanEditorScreen';
 import ManualWorkoutEditorScreen from '../screens/ManualWorkoutEditorScreen';
 import ExercisePickerScreen from '../screens/ExercisePickerScreen';
+import InstallScreen from '../screens/InstallScreen';
 import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
 
 // Direção 03 — 4 abas: Hoje · Plano · Progresso · Perfil. A execução da sessão
@@ -86,6 +87,9 @@ export type MainTabParamList = {
   Training: NavigatorScreenParams<TrainingStackParamList>;
   Progress: NavigatorScreenParams<ProgressStackParamList>;
   Profile: NavigatorScreenParams<ProfileStackParamList>;
+  // INST-02 (Fase 12): rota pública /instalar, também alcançável logado
+  // (este navigator É tipado — Pitfall 3 de 12-RESEARCH.md).
+  Instalar: undefined;
 };
 
 const BottomTab = createBottomTabNavigator<MainTabParamList>();
@@ -207,6 +211,16 @@ const MainNavigator = () => {
         component={ProfileStackNavigator}
         options={{ tabBarLabel: 'Perfil' }}
       />
+      {/* INST-02 (Fase 12): rota pública /instalar, top-level sibling das 4
+          abas visíveis (para manter o path literal /instalar, sem aninhar
+          sob nenhuma delas) mas SEM aparecer como 5ª aba — tabBarButton:
+          () => null esconde o botão E o espaço reservado, confirmado contra
+          o source instalado de @react-navigation/bottom-tabs@6.6.1 (Pattern
+          2 de 12-RESEARCH.md; NÃO é garantia do v7, não levar essa suposição
+          para um upgrade futuro sem reverificar). homeRoute="Home". */}
+      <BottomTab.Screen name="Instalar" options={{ tabBarButton: () => null }}>
+        {() => <InstallScreen homeRoute="Home" />}
+      </BottomTab.Screen>
     </BottomTab.Navigator>
   );
 };
