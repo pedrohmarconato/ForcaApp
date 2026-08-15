@@ -191,7 +191,20 @@ def enviar_push(
     (WebPushException com outro status, ou sem response) é relançado, NUNCA
     mascarado por um catch-all — mesmo contrato provado em 13-SPIKE.md
     seções 5a-5d.
+
+    Defesa em profundidade (CR-01 de 13-REVIEW.md, iteração 2):
+    `endpoint_e_permitido()` era checado SOMENTE em `handle_push_subscribe`
+    (POST /api/push/subscribe) — uma linha maliciosa podia chegar em
+    `push_subscriptions` pelo caminho PostgREST direto (INSERT/UPDATE
+    concedido a `authenticated`, RLS só valida ownership, não o CONTEÚDO de
+    `endpoint`) e ser enviada sem re-checagem por qualquer chamador de
+    `enviar_push`. Por isso o allowlist é revalidado AQUI, no ponto de envio
+    real, antes de montar `subscription_info`/chamar `webpush`. Recusa
+    (nunca envia) e devolve False pelo MESMO contrato do 404/410 — os
+    chamadores já tratam False como "subscription inválida, apagar linha".
     """
+    if not endpoint_e_permitido(subscription_row.get("endpoint") or ""):
+        return False
     subscription_info = {
         "endpoint": subscription_row["endpoint"],
         "keys": {

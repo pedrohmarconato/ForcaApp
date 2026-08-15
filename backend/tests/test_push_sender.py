@@ -88,6 +88,30 @@ def test_webpush_exception_sem_response_propaga():
             enviar_push(SUBSCRIPTION_ROW, "payload", "chave-vapid", "mailto:teste@forcaapp.invalid")
 
 
+def test_enviar_push_recusa_endpoint_fora_da_allowlist_mesmo_vindo_do_banco():
+    """CR-01 (13-REVIEW.md, iteração 2): endpoint_e_permitido() era checado
+    SOMENTE em handle_push_subscribe (POST /api/push/subscribe). Uma linha
+    maliciosa pode chegar em push_subscriptions pelo caminho PostgREST
+    direto (INSERT/UPDATE concedido a `authenticated`, RLS só valida
+    ownership, não o CONTEÚDO de `endpoint`) — simulado aqui passando um
+    subscription_row com endpoint fora da allowlist diretamente para
+    enviar_push, como se tivesse vindo de listar_subscriptions() sobre uma
+    linha inserida via PostgREST direto. Defesa em profundidade: enviar_push
+    tem que recusar e NUNCA chamar webpush(), devolvendo False pelo MESMO
+    contrato do 404/410 (o chamador apaga a linha)."""
+    subscription_maliciosa = {
+        "endpoint": "http://169.254.169.254/latest/meta-data/",
+        "p256dh": "chave-p256dh",
+        "auth": "chave-auth",
+    }
+    with mock.patch("backend.services.push_sender.webpush") as fake_webpush:
+        resultado = enviar_push(
+            subscription_maliciosa, "payload", "chave-vapid", "mailto:teste@forcaapp.invalid"
+        )
+    assert resultado is False
+    fake_webpush.assert_not_called()
+
+
 # --- Allowlist de host (mitigação SSRF, T-13-01) ---
 
 
