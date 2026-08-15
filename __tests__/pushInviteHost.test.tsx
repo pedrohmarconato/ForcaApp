@@ -88,7 +88,7 @@ describe('PushInviteHost — convite único de opt-in via alertShim (PUSH-01)', 
   });
 
   it('Teste 2: flag push_invite_shown já "true" — showAlert NUNCA é chamado', async () => {
-    await AsyncStorage.setItem('push_invite_shown', 'true');
+    await AsyncStorage.setItem('push_invite_shown:user-1', 'true');
 
     await renderEAguardarConvite();
 
@@ -137,8 +137,31 @@ describe('PushInviteHost — convite único de opt-in via alertShim (PUSH-01)', 
     await flushMicrotasks();
     expect(mockApiPost).toHaveBeenCalledWith('/push/subscribe', { endpoint: 'https://web.push.apple.com/x' });
 
-    const flag = await AsyncStorage.getItem('push_invite_shown');
+    const flag = await AsyncStorage.getItem('push_invite_shown:user-1');
     expect(flag).toBe('true');
+  });
+
+  it('WR-02 (13-REVIEW.md): a flag "push_invite_shown" é isolada por usuário — conta B no MESMO navegador ainda vê o convite depois da conta A recusar/aceitar', async () => {
+    // Conta A (user-1) recusa o convite no navegador compartilhado —
+    // Teste 6 já prova que isso grava a flag para user-1.
+    await renderEAguardarConvite();
+    expect(mockShowAlert).toHaveBeenCalledTimes(1);
+    const buttonsA = mockShowAlert.mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
+    act(() => {
+      buttonsA.find((b) => b.text === 'Agora não')!.onPress?.();
+    });
+    await flushMicrotasks();
+
+    // Conta B (user-2, ID DIFERENTE) loga no MESMO navegador/AsyncStorage —
+    // nunca tomou decisão nenhuma sobre o convite. Antes do fix, a chave
+    // fixa 'push_invite_shown' já estaria 'true' (gravada por A) e o
+    // convite NUNCA apareceria para B.
+    jest.clearAllMocks();
+    mockAuthState = { user: { id: 'user-2' }, profile: { current_plan_id: 'plan-2' } };
+
+    await renderEAguardarConvite();
+
+    expect(mockShowAlert).toHaveBeenCalledTimes(1);
   });
 
   it('Teste 6: toque em "Agora não" — subscribeToPush NUNCA é chamado, mas a flag ainda assim é gravada', async () => {
@@ -156,7 +179,7 @@ describe('PushInviteHost — convite único de opt-in via alertShim (PUSH-01)', 
     expect(mockSubscribeToPush).not.toHaveBeenCalled();
 
     await flushMicrotasks();
-    const flag = await AsyncStorage.getItem('push_invite_shown');
+    const flag = await AsyncStorage.getItem('push_invite_shown:user-1');
     expect(flag).toBe('true');
   });
 });

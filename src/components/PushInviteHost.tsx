@@ -51,10 +51,16 @@ const PushInviteHost = () => {
       return undefined;
     }
 
+    // WR-02 de 13-REVIEW.md: escopada por user.id — AsyncStorage é
+    // per-navegador, não per-conta. Sem o escopo, a conta B que loga depois
+    // de A no mesmo navegador herdaria a flag gravada por A e nunca veria o
+    // convite, mesmo nunca tendo decidido nada sobre ele.
+    const chaveConviteMostrado = `push_invite_shown:${user.id}`;
+
     let cancelado = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-    AsyncStorage.getItem('push_invite_shown')
+    AsyncStorage.getItem(chaveConviteMostrado)
       .then((jaMostrado) => {
         if (cancelado || jaMostrado === 'true') return;
 
@@ -70,7 +76,7 @@ const PushInviteHost = () => {
                 onPress: () => {
                   // Convite único independente da decisão: recusar também
                   // grava a flag, para nunca reaparecer.
-                  AsyncStorage.setItem('push_invite_shown', 'true').catch((err) => {
+                  AsyncStorage.setItem(chaveConviteMostrado, 'true').catch((err) => {
                     logger.warn('[pushInvite] falha ao persistir recusa do convite:', err);
                   });
                 },
@@ -86,7 +92,7 @@ const PushInviteHost = () => {
                     .catch((err) => {
                       logger.warn('[pushInvite] falha ao ativar pelo convite:', err);
                     });
-                  AsyncStorage.setItem('push_invite_shown', 'true').catch((err) => {
+                  AsyncStorage.setItem(chaveConviteMostrado, 'true').catch((err) => {
                     logger.warn('[pushInvite] falha ao persistir aceite do convite:', err);
                   });
                 },
