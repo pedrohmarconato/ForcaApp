@@ -177,35 +177,14 @@ No step-by-step content repeats in this state (ROADMAP success criterion 2).
 
 ## UI Considerations
 
-> Populated by the ui-phase UI-consideration probe (Step 9.5) and lifted by plan-phase's
-> `## UI Considerations` lift rule via the identical rule as SPEC `## Edge Coverage`. Shape-rooted UI *state*
-> coverage (empty / loading / error / populated / partial / overflow / zero-one-many / long-text).
-> Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
-> state coverage and REFERENCES those rows rather than restating the copy (de-dup).
+Resolvidas via ui-consideration-probe + julgamento do orquestrador (elemento estático condicional; engine devolveu unclassified — classificado manualmente como superfície de conteúdo condicional).
 
-Elements classified: `install-steps` (list-collection, State 1 only), `state-block` (static-content, States 2–4), `cta-abrir-app` (interactive-control, State 4 only).
+- **populated (covered):** Os 4 estados mutuamente exclusivos (iOS+Safari / iOS+outro navegador / desktop-Android / standalone) têm copy literal definida neste contrato; testes RTL cobrem cada um mockando o utilitário de detecção.
+- **loading (covered):** Não existe estado de carregamento — a detecção é síncrona no mount (userAgent/matchMedia locais); a página nunca renderiza spinner nem placeholder.
+- **empty (covered):** Não há dados dinâmicos; o estado de menor informação é o fallback desktop/Android, que sempre exibe instrução acionável.
+- **error / detecção inconclusiva (covered):** User-agent não reconhecido ou matchMedia indisponível degrada SEMPRE para o estado 3 (mensagem genérica "abra no iPhone") — nunca tela vazia ou branca. O utilitário de detecção deve ter esse default explícito e testado.
 
-Applicable state considerations resolved: 7 covered, 1 backstop, 0 unresolved.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | install-steps | ✅ covered | `install-steps` is a literal fixed-length array of 3 items defined in source, not derived from any external/loaded data — it can never render empty. |
-| loading | install-steps, cta-abrir-app | ✅ covered | State detection (`isIOS`, `isSafari`, `isStandalone`) runs synchronously on first render via `matchMedia`/`navigator.userAgent` — no network call, no async gap, so no loading/skeleton state is needed anywhere on this page. |
-| error | install-steps, cta-abrir-app | ✅ covered | An absent/atypical `navigator.userAgent` (exotic browser) falls through to the State 3 branch ("Desktop/Android → abra no iPhone") as the safest generic default — it never fakes the iOS+Safari happy path on unrecognized input. There is no dedicated error screen because there is no network request that can fail. |
-| populated | install-steps | ✅ covered | Happy-path content is exactly the 3-step sequence (Compartilhar → Adicionar à Tela de Início → Adicionar) with the literal copy in the Copywriting Contract above. |
-| partial | install-steps | ✅ covered | The steps array is a fixed literal in source; there is no partial-data source that could leave a step incomplete. |
-| overflow | state-block (State 3 URL display) | 🧪 backstop | The URL chip in State 3 must wrap rather than clip on narrow viewports (iPhone SE 375px, small Android): standard RN `Text` wrapping (`flexWrap`, no `numberOfLines`), no horizontal scroll. Needs a held-out visual/snapshot check at a narrow width — not covered by a plain RTL text-presence test. |
-| zero-one-many | install-steps | ✅ covered | Always exactly 3 items (constant); there is no 0/1/many variance and therefore no singular/plural copy branching to test. |
-| long-text | state-block (all states), cta-abrir-app | ✅ covered | Every string in the Copywriting Contract is one to two short sentences; typography uses `lineHeight: normal` (1.5) with the RN `Text` default wrap behavior — no truncation or ellipsis appears in any state. |
-
-<!-- Status vocabulary (locked by probe-core projectTruths):
-     ✅ covered   → a plain truth string lifted into must_haves.truths
-     🧪 backstop  → a flat scalar { statement, verification: backstop }; at verify time, no explicit
-                    evidence → insufficient_spec → human_needed (never a silent pass, #1154)
-     ⚠ unresolved → an explicit planner assumption (surfaced, never silently dropped)
-     Rows are REPLACED (not appended) on a probe re-run — idempotent. -->
-
----
 
 ## Registry Safety
 
