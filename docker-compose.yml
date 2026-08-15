@@ -42,6 +42,11 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:?defina SUPABASE_URL no ambiente do projeto}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?defina SUPABASE_ANON_KEY no ambiente do projeto}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?defina ANTHROPIC_API_KEY no ambiente do projeto}
+      # PUSH-02: usada SÓ por push_reminder_scheduler.py (processo interno,
+      # thread única) para ler/marcar planned_sessions across-user na hora do
+      # lembrete diário — bypassa RLS por design, nunca usada em nenhuma rota
+      # HTTP alcançável pelo cliente (T-13-06).
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?defina SUPABASE_SERVICE_ROLE_KEY no ambiente do projeto (Supabase Dashboard -> Settings -> API -> service_role key) — usado SÓ pelo scheduler de lembrete para ler across-user}
       # Sem default de propósito. O default antigo era `localhost` — um valor de
       # desenvolvimento que em produção não quebra nada no servidor: o browser é
       # que bloqueia a resposta, e o app mostra "Network Error". Ficou assim em
@@ -83,5 +88,9 @@ services:
       # Gasto do dia inteiro, somando as rotas. É esta a trava que segura o
       # Opus — a contagem acima existe para cortar loop acidental.
       AI_DAILY_USD_LIMIT: ${AI_DAILY_USD_LIMIT:-5.00}
+      # Lembrete diário de treino (PUSH-02): default false — a thread do
+      # scheduler nunca sobe em testes/dev sem opt-in explícito. Produção
+      # liga com true (checkpoint do dono no Plano 13-04).
+      PUSH_REMINDER_SCHEDULER_ENABLED: ${PUSH_REMINDER_SCHEDULER_ENABLED:-false}
       FLASK_DEBUG: "false"
       PORT: "5001"
