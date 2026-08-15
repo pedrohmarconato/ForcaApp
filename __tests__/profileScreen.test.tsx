@@ -37,6 +37,21 @@ jest.mock('react-native-safe-area-context', () => {
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 
+// ProfileScreen passou a importar apiClient (PUSH-01, 13-01) para persistir
+// o opt-in de notificações — apiClient importa supabaseClient, que lança em
+// module-load se as env vars não estiverem presentes. Mesmo mock de
+// __tests__/apiClient.test.ts; o comportamento de push em si é coberto por
+// __tests__/profileScreen.push.test.tsx.
+jest.mock('../src/config/supabaseClient', () => ({
+  supabase: {
+    auth: {
+      getSession: jest.fn(async () => ({ data: { session: { access_token: 'token-teste' } } })),
+      refreshSession: jest.fn(),
+      signOut: jest.fn(async () => ({})),
+    },
+  },
+}));
+
 const mockAuthState = {
   user: { id: 'user-123', email: 'pedro@exemplo.com' },
   profile: { full_name: 'Pedro Marconato' },

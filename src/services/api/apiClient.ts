@@ -33,6 +33,9 @@ export const ENDPOINTS = {
   MANUAL_PLAN_PREVIEW: '/manual-plan/preview', // POST — expande sem persistir
   HEALTH: '/health', // GET /api/health (o Flask expõe /health e /api/health)
   READY: '/ready', // GET /api/ready — readiness (config + deps locais)
+  PUSH: {
+    SUBSCRIBE: '/push/subscribe', // POST/DELETE /api/push/subscribe — opt-in/opt-out de Web Push
+  },
 };
 
 type RetryableRequestConfig = AxiosError['config'] & { _retry?: boolean };

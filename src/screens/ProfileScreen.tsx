@@ -30,6 +30,13 @@ import {
   ProfileStackParamList,
   MainTabParamList,
 } from '../navigation/MainNavigator';
+import { isPushSupported, subscribeToPush } from '../services/pushSubscription';
+import apiClient, { ENDPOINTS } from '../services/api/apiClient';
+import { logger } from '../utils/logger';
+
+/** Estado do opt-in de notificações — reflete permissão real do navegador +
+ * subscription persistida (não só o clique desta visita). */
+type NotifState = 'unsupported' | 'default' | 'denied' | 'subscribing' | 'subscribed';
 
 /** Iniciais para o bloco de identidade (no máximo duas). */
 const iniciais = (nome: string): string =>
@@ -66,6 +73,15 @@ const ProfileScreen = () => {
   const [bloqueadoPorSessao, setBloqueadoPorSessao] = useState(false);
   const [guardError, setGuardError] = useState(false);
   const checandoRef = useRef(false);
+
+  // Opt-in de notificações (PUSH-01): inicializa a partir da permissão REAL
+  // do navegador — 'unsupported' fora do alvo web/Safari fora de PWA
+  // instalado (silencioso, sem Notice).
+  const [notifState, setNotifState] = useState<NotifState>(() => {
+    if (!isPushSupported()) return 'unsupported';
+    return typeof Notification !== 'undefined' ? (Notification.permission as NotifState) : 'default';
+  });
+  const [notifError, setNotifError] = useState(false);
 
   const buscarHistorico = useCallback(async () => {
     if (!user) return;
@@ -121,6 +137,23 @@ const ProfileScreen = () => {
   }, [navigation]);
 
   const fecharRefazer = useCallback(() => setSheetVisivel(false), []);
+
+  // Critério 2 (literal): subscribeToPush() é a PRIMEIRA expressão síncrona
+  // deste handler — nenhum await/checagem antes, ou o iOS descarta o gesto
+  // do usuário (Pitfall 3 de 13-RESEARCH.md).
+  const onAtivarNotificacoes = useCallback(() => {
+    subscribeToPush()
+      .then((subJson) => apiClient.post(ENDPOINTS.PUSH.SUBSCRIBE, subJson))
+      .then(() => setNotifState('subscribed'))
+      .catch((err) => {
+        logger.warn('[profile] falha ao ativar notificações:', err);
+        if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+          setNotifState('denied');
+        } else {
+          setNotifError(true);
+        }
+      });
+  }, []);
 
   // Foco, não montagem: voltar de uma sessão recém-concluída via popToTop não
   // remonta esta tela — sem isso, as métricas ficariam obsoletas.
@@ -202,6 +235,42 @@ const ProfileScreen = () => {
           }
         />
       ) : null}
+
+      {/* Opt-in de notificações (PUSH-01). 'unsupported' fica silencioso —
+          Safari fora de PWA instalado não suporta Web Push. */}
+      {notifState === 'unsupported' ? null : notifState === 'denied' ? (
+        <Notice
+          tone="info"
+          title="Notificações desativadas"
+          description="Você negou a permissão de notificações. Para reativar, vá em Ajustes do iPhone → Notificações → ForçaApp."
+          style={styles.notice}
+        />
+      ) : notifState === 'subscribed' ? (
+        <Notice
+          tone="info"
+          title="Notificações ativadas"
+          description="Você vai receber lembretes de treino e avisos de replanejamento."
+          style={styles.notice}
+        />
+      ) : (
+        <>
+          <Button
+            label="Ativar notificações"
+            variant="outline"
+            onPress={onAtivarNotificacoes}
+            disabled={notifState === 'subscribing'}
+            style={styles.refazer}
+          />
+          {notifError ? (
+            <Notice
+              tone="danger"
+              title="Não foi possível ativar as notificações"
+              description="Tente novamente quando a conexão voltar."
+              style={styles.notice}
+            />
+          ) : null}
+        </>
+      )}
 
       {/* Direção 03: o histórico virou cidadão da aba Progresso. */}
       <Button label="Sair" variant="danger" onPress={signOut} style={styles.logout} />

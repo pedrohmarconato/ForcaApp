@@ -8,6 +8,7 @@ jsonschema>=4.0,<5.0
 python-dotenv>=1.0,<2.0
 requests>=2.31,<3.0
 gunicorn>=21.0,<24.0
+pywebpush==2.1.2
 
 # Desenvolvimento/testes
 pytest>=8.0,<9.0

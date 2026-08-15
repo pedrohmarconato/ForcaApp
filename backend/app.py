@@ -38,6 +38,9 @@ try:
     from backend.services.job_manager import (
         JobStatus, PlanJob, criar_job, obter_job, executar_job,
     )
+    from backend.services.push_sender import (
+        SubscriptionError, endpoint_e_permitido, upsert_subscription, delete_subscription,
+    )
     from backend.schemas.diretrizes_schema import (
         DIRETRIZES_SCHEMA, podar_chaves_desconhecidas,
     )
@@ -83,6 +86,10 @@ MANUAL_PLAN_PREVIEW_RATE_LIMIT = int(
 # antes da validação trancava por uma hora o aluno que tentou salvar um plano
 # grande demais dez vezes seguidas — sem nunca ter criado plano nenhum.
 MANUAL_PLAN_ABUSE_LIMIT = int(os.environ.get("MANUAL_PLAN_ABUSE_LIMIT", "60"))
+# Ativar/desativar notificações contam para o mesmo bucket (PUSH-01) — um
+# aluno alternando os dois estados não precisa de limites separados.
+PUSH_RATE_LIMIT = int(os.environ.get("PUSH_RATE_LIMIT", "20"))
+PUSH_RATE_WINDOW_SECONDS = int(os.environ.get("PUSH_RATE_WINDOW_SECONDS", "60"))
 
 # Feature flag da nova arquitetura molde+expansor+job.
 # false (default): comportamento antigo (plano direto síncrono via TreinadorEspecialista).
@@ -2125,6 +2132,47 @@ def _executar_geracao_molde(
 
     job.marcar_salvo(db_plan_id)
     app_logger.info(f"Job {job.job_id}: plano {db_plan_id} gerado e salvo para usuário {user_id}.")
+
+
+# --- Push notifications (PUSH-01): opt-in do aluno ---
+# Corpo controlado pelo cliente (endpoint/keys) — o backend nunca confia
+# cegamente no endpoint como destino de rede (T-13-01, mitigação:
+# endpoint_e_permitido). Escrita sempre com o JWT do usuário + anon key;
+# RLS decide o resto (T-13-02) — nenhum service role aqui.
+@app.route('/api/push/subscribe', methods=['POST'])
+@token_required
+def handle_push_subscribe():
+    user_id = (g.user or {}).get('id')
+    if not user_id:
+        return jsonify({"error": "ID do usuário não fornecido."}), 400
+
+    if _rate_limit_hit("push_subscribe", user_id, PUSH_RATE_LIMIT, PUSH_RATE_WINDOW_SECONDS):
+        return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
+
+    corpo = request.get_json(silent=True)
+    if not isinstance(corpo, dict):
+        return jsonify({"error": "Corpo JSON inválido."}), 400
+
+    endpoint = corpo.get('endpoint')
+    keys = corpo.get('keys') or {}
+    p256dh = keys.get('p256dh') if isinstance(keys, dict) else None
+    auth_key = keys.get('auth') if isinstance(keys, dict) else None
+    if not all(isinstance(v, str) and v.strip() for v in (endpoint, p256dh, auth_key)):
+        return jsonify({"error": "subscription_info incompleto."}), 400
+
+    if not endpoint_e_permitido(endpoint):
+        app_logger.warning(
+            f"Endpoint de push fora da allowlist rejeitado para usuário {user_id}."
+        )
+        return jsonify({"error": "Endpoint de push não reconhecido."}), 400
+
+    try:
+        upsert_subscription(user_id, g.access_token, endpoint, p256dh, auth_key)
+    except SubscriptionError:
+        app_logger.exception(f"Falha ao gravar subscription de push do usuário {user_id}.")
+        return jsonify({"error": "Não foi possível ativar as notificações. Tente novamente."}), 502
+
+    return jsonify({"status": "subscribed"}), 201
 
 
 # --- Health check (liveness) ---
