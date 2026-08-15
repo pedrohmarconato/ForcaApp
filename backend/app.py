@@ -40,7 +40,9 @@ try:
     )
     from backend.services.push_sender import (
         SubscriptionError, endpoint_e_permitido, upsert_subscription, delete_subscription,
+        listar_subscriptions, enviar_push,
     )
+    from backend.services.push_reminder_scheduler import iniciar_scheduler
     from backend.schemas.diretrizes_schema import (
         DIRETRIZES_SCHEMA, podar_chaves_desconhecidas,
     )
@@ -2207,6 +2209,75 @@ def handle_push_unsubscribe():
     return jsonify({"status": "unsubscribed"}), 200
 
 
+# --- Push notifications (PUSH-03): aviso de replanejamento aplicado ---
+# Disparado pelo cliente de forma BEST-EFFORT (fire-and-forget, nunca
+# await'ado bloqueante) logo após applyConfirmedReplan() confirmar com
+# sucesso, dentro de confirmReplan() (activeSessionStore.ts). O corpo da
+# requisição é IGNORADO para fins de identidade — só g.user (JWT validado)
+# decide de quem são as subscriptions (T-13-07); nunca falha por causa de
+# UMA subscription expirada individual (mesmo espírito best-effort do
+# lembrete diário de PUSH-02).
+@app.route('/api/push/notify-replan-applied', methods=['POST'])
+@token_required
+def handle_push_notify_replan():
+    user_id = (g.user or {}).get('id')
+    if not user_id:
+        return jsonify({"error": "ID do usuário não fornecido."}), 400
+
+    # Mesmo bucket de ativar/desativar (PUSH-01): um aluno replanejando não
+    # precisa de um teto separado.
+    if _rate_limit_hit("push_notify_replan", user_id, PUSH_RATE_LIMIT, PUSH_RATE_WINDOW_SECONDS):
+        return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
+
+    try:
+        subscriptions = listar_subscriptions(user_id, g.access_token)
+    except SubscriptionError:
+        app_logger.exception(f"Falha ao listar subscriptions de push do usuário {user_id}.")
+        return jsonify({"error": "Não foi possível notificar o replanejamento agora."}), 502
+
+    if not subscriptions:
+        # Ausência de subscription NUNCA é erro do endpoint — o aluno
+        # simplesmente não ativou notificações.
+        return jsonify({"sent": 0}), 200
+
+    import json
+
+    # Replanejamento é da SEMANA, não de uma sessão isolada: o deep link leva
+    # para a Home, onde o treino de hoje/próximo já aparece em destaque.
+    payload = json.dumps({
+        "title": "Treino replanejado",
+        "body": "Sua semana foi ajustada. Toque para ver.",
+        "url": "/home",
+    })
+    vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY") or ""
+    vapid_subject = os.environ.get("VAPID_SUBJECT") or ""
+
+    enviados = 0
+    for subscription in subscriptions:
+        try:
+            sucesso = enviar_push(subscription, payload, vapid_private_key, vapid_subject)
+        except Exception:
+            app_logger.exception(
+                f"Falha ao enviar aviso de replanejamento para o usuário {user_id}."
+            )
+            continue
+        if sucesso:
+            enviados += 1
+        else:
+            # enviar_push devolveu False: subscription expirada (404/410,
+            # contrato provado em 13-SPIKE.md) — apaga.
+            try:
+                delete_subscription(user_id, g.access_token, subscription["endpoint"])
+            except SubscriptionError:
+                app_logger.exception(
+                    f"Falha ao remover subscription expirada do usuário {user_id}."
+                )
+
+    # NUNCA retorna erro por causa de uma subscription expirada individual —
+    # best-effort, mesmo espírito do envio de lembrete (PUSH-02).
+    return jsonify({"sent": enviados}), 200
+
+
 # --- Health check (liveness) ---
 # Indica apenas que o processo Flask está vivo. Não verifica configuração
 # nem dependências externas: um 200 aqui não significa que a IA está
@@ -2228,6 +2299,16 @@ def readiness_check():
     if _backend_is_ready():
         return jsonify({"status": "ready"}), 200
     return jsonify({"status": "not_ready"}), 503
+
+
+# --- Lembrete diário de treino (PUSH-02) ---
+# Chamado no IMPORT do módulo (não dentro de `if __name__ == '__main__'`)
+# porque o gunicorn de produção (backend/Dockerfile) sobe via
+# `backend.app:app`, que nunca executa esse bloco. Gated por
+# PUSH_REMINDER_SCHEDULER_ENABLED (default false): testes/dev que importam
+# `backend.app` (ex.: `from backend.app import app` nos testes acima) nunca
+# sobem a thread real.
+iniciar_scheduler()
 
 
 if __name__ == '__main__':
