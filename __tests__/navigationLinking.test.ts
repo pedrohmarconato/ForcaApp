@@ -4,6 +4,8 @@
 //    sessionId exato;
 //  - getPathFromState: ida e volta estáveis (state → URL → state preserva).
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { getStateFromPath, getPathFromState } from '@react-navigation/native';
 // De `linkingConfig`, não de `linking`: a config de rotas é pura, e importá-la
 // pelo módulo que carrega o convite pendente arrastaria AsyncStorage para um
@@ -85,5 +87,40 @@ describe('linking: ActiveSession recuperável por URL nos stacks Hoje e Plano', 
       'ActiveSession',
     ]);
     expect(trainingStack.index).toBe(1);
+  });
+});
+
+describe('linking: /instalar resolve na árvore Main (INST-02, Fase 12 Plano 01, Task 2)', () => {
+  it('getStateFromPath("/instalar", LINKING_CONFIG) resolve para a rota Instalar, top-level (sem aninhar sob outra aba)', () => {
+    // Asserção exata da seção Code Examples de 12-RESEARCH.md.
+    const state = getStateFromPath('/instalar', LINKING_CONFIG);
+    expect(state).not.toBeNull();
+    expect(state!.routes[0].name).toBe('Instalar');
+  });
+
+  it('MainNavigator.tsx: guard estrutural de regressão do Pitfall 2 — tabBarButton: () => null perto de name="Instalar"', () => {
+    // Lê o arquivo como texto (mesma técnica da suíte 4 de
+    // __tests__/serviceWorkerConfig.test.ts, que lê register-sw.js como
+    // texto) — protege contra uma futura edição que registre a tela
+    // "Instalar" sem esconder o botão da 5ª aba, o que reabriria a aba
+    // visível no bottom tab bar (Pitfall 2 de 12-RESEARCH.md).
+    const mainNavigatorSource = readFileSync(
+      join(__dirname, '..', 'src', 'navigation', 'MainNavigator.tsx'),
+      'utf8',
+    );
+
+    const indiceInstalar = mainNavigatorSource.indexOf('name="Instalar"');
+    expect(indiceInstalar).toBeGreaterThan(-1);
+
+    const indiceTabBarButtonNull = mainNavigatorSource.indexOf(
+      'tabBarButton: () => null',
+    );
+    expect(indiceTabBarButtonNull).toBeGreaterThan(-1);
+
+    // Escopado pela PROXIMIDADE (até 200 caracteres), não pela mera presença
+    // em algum lugar do arquivo — para não dar falso-positivo se outra tela
+    // também usar `tabBarButton: () => null` no futuro.
+    const distancia = Math.abs(indiceTabBarButtonNull - indiceInstalar);
+    expect(distancia).toBeLessThanOrEqual(200);
   });
 });
