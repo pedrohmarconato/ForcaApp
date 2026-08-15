@@ -104,30 +104,20 @@ mensagem nova. Preenchido para registro do que já existe e é preservado sem al
 
 ## UI Considerations
 
-> Populated by the ui-phase UI-consideration probe (Step 9.5) and lifted by plan-phase's
-> `## UI Considerations` lift rule via the identical rule as SPEC `## Edge Coverage`. Shape-rooted UI *state*
-> coverage (empty / loading / error / populated / partial / overflow / zero-one-many / long-text).
-> Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
-> state coverage and REFERENCES those rows rather than restating the copy (de-dup).
+Resolvidas via ui-consideration-probe (modo autônomo — 8 aplicáveis, 7 covered, 1 backstop).
 
-Elementos classificados nesta fase:
-- **Splash screen** (`public/splash/*.png`, referenciada via `<link rel="apple-touch-startup-image">`) — kind: `media`.
-- **Fundo do app-shell pré-montagem** (`background-color: #0a0a0a` em `#expo-reset`, `index.html`) — kind: `static-content`.
-- **Nome sob o ícone** (`apple-mobile-web-app-title`, já existente) — kind: `static-content`.
+### E1 — Splash screen (apple-touch-startup-image)
+- **populated (covered):** Estado normal = logo `F` centrado (~60% da menor dimensão) sobre `#0A0A0A`, na resolução exata do device, sem texto — é o único estado visual da splash.
+- **loading (covered):** A splash É o estado de loading do app instalado: o iOS a exibe do tap até o app shell renderizar e a descarta sozinho; não existe spinner/skeleton adicional controlável pelo app.
+- **empty (covered):** Não há estado vazio distinto: a splash não exibe dados. A ausência do PNG correto é o único "vazio" possível e degrada para flash branco do iOS — prevenida pelo guard automatizado abaixo.
+- **error (backstop):** { statement: "PNG de splash ausente ou engolido pelo rewrite SPA do vercel.json resulta em flash branco no PWA instalado", verification: backstop — teste jest que valida todo `apple-touch-startup-image` do `public/index.html` contra arquivo existente em `public/splash/` + exceção `/splash/*` no `vercel.json`; confirmação final no UAT do dono (critério 2 do ROADMAP) }
 
-Applicable state considerations resolved: 3 covered, 1 backstop, 0 unresolved (2 categorias
-dispensadas por não se aplicarem ao tipo de elemento ou por estarem fora do escopo da fase).
+### E2 — Ícone da Tela de Início + nome "Força"
+- **populated (covered):** Ícone da identidade final (180/192/512 já versionados em `public/icons/`) com o nome curto `Força` (`apple-mobile-web-app-title`) sob ele na Tela de Início.
+- **loading (covered):** O iOS captura o `apple-touch-icon` no momento da instalação e o cacheia; não existe estado de carregamento controlável pelo app após instalado.
+- **empty (covered):** Sem estado vazio possível: assets estáticos versionados no repo e servidos pela allowlist `icons` do `vercel.json` (já presente).
+- **error (covered):** Se o `apple-touch-icon` não for servido no momento da instalação, o iOS gera uma miniatura de screenshot genérica — condição coberta pelo item 3 do UAT (ícone e nome corretos) e pela presença versionada dos arquivos.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| empty | Splash screen (media) | dismissed | Asset estático gerado em build-time a partir de `assets/icon.png`; uma imagem PNG fixa não tem estado runtime "sem dados" — não há dado nenhum a carregar. |
-| loading | Splash screen (media) | ✅ covered | A splash **é** o próprio tratamento do estado de carregamento entre o toque no ícone e o React montar — é literalmente o mecanismo que resolve o critério de sucesso 2 do Roadmap ("não há flash de tela branca"). Reforçado pelo `background-color: #0A0A0A` do `#expo-reset` como fallback caso a splash do iOS já tenha saído de cena antes do JS montar. |
-| error | Splash screen (media) | 🧪 backstop | Falha do tipo "link `apple-touch-startup-image` aponta para arquivo inexistente" é coberta pelo guard jest (`__tests__` — mesmo padrão de `alertNoAlertRemanescente.test.ts` da Fase 9) que varre `public/index.html` e confere que todo `href` de splash resolve para arquivo real em `public/splash/`. Sem esse teste wireado, esta linha não pode ser considerada resolvida — é o critério que falha silenciosamente (asset ausente só apareceria como app quebrado no iPhone real, nunca em CI) se o guard não existir. |
-| populated | Splash screen (media) | ✅ covered | Estado único e definitivo: logo `F` centralizado sobre `#0A0A0A`, sem texto, sem degradê, sem sombra — especificado em `branding/forca-identidade-final.md` seção "Evitar" e confirmado por inspeção da arte-fonte `assets/icon.png`. |
-| overflow | Fundo do app-shell (static-content) | dismissed | Cor sólida de fundo (`#0A0A0A`), sem conteúdo textual ou de layout que possa transbordar. |
-| long-text | Nome sob o ícone (static-content) | dismissed | Valor fixo curto (`Força`, 5 caracteres), definido pelo dono da marca, sem input de usuário; não há cenário de texto longo a tratar. |
-
----
 
 ## Registry Safety
 
