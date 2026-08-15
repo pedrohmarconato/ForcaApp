@@ -9,6 +9,7 @@ import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
+import PushInviteHost from './src/components/PushInviteHost';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -35,6 +36,10 @@ export default function App() {
       <RootNavigator />
       <UpdateBanner />
       <AlertHost />
+      {/* Depois de AlertHost: precisa que alertStore/AlertHost já estejam
+          prontos para receber o showAlert() do convite único de opt-in
+          (PUSH-01, Fase 13 Plano 05). */}
+      <PushInviteHost />
     </AuthProvider>
   );
 }
