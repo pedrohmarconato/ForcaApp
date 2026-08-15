@@ -110,7 +110,11 @@ export const linkingMain: LinkingOptions<any> = {
  */
 export const linkingInterceptor: LinkingOptions<any> = {
   prefixes: LINKING_PREFIXES,
-  config: { screens: {} },
+  // `Instalar` (INST-02, Fase 12): a ÚNICA rota que este objeto resolve hoje.
+  // Compartilhado por Auth E Onboarding (ambos os containers passam este
+  // mesmo objeto como `linking`) — um aluno deslogado ou em onboarding que
+  // abre /instalar chega na tela em qualquer um dos dois estados.
+  config: { screens: { Instalar: 'instalar' } },
   getInitialURL: async () => {
     const url = await urlInicialDoSistema();
     const codigo = parseInviteUrl(url);
