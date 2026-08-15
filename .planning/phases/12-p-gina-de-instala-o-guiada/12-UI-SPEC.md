@@ -61,7 +61,6 @@ This phase does **not** introduce a new scale — it reuses the project's existi
 | Token | Value | Usage in this phase |
 |-------|-------|----------------------|
 | xxs | 4px | Micro gaps (badge number optical centering) |
-| xs | 6px | Tight inline gaps (icon-to-title in `StepRow`, if tighter than `sm`) |
 | sm | 8px | Icon-to-title gap in `StepRow`, chip padding |
 | md | 12px | Compact internal padding (state `Notice` internal spacing — inherited from `Feedback.tsx`) |
 | lg | 16px | `StepRow` badge-to-text gap; card horizontal padding on narrow viewports |
@@ -107,6 +106,13 @@ Rationale for size 16 on both Heading and Body: hierarchy comes from weight (600
 These three uses are mutually exclusive per state (a given render of the page never shows more than one of them at a time), so the "one neon fill per block" system rule is never at risk of being violated.
 
 ---
+
+## Focal Points (primary visual anchor per state)
+
+- Estado 1 (iOS+Safari): o badge numerado neon do Passo 1 + ícone é a primeira leitura; o olho segue a sequência vertical de passos.
+- Estado 2 (iOS+outro navegador): o título "Abra no Safari" é o anchor; instrução única abaixo.
+- Estado 3 (desktop/Android): o título "Abra no iPhone" é o anchor.
+- Estado 4 (standalone): o checkmark neon de sucesso + CTA "Abrir o ForçaApp" são o anchor.
 
 ## Copywriting Contract
 
