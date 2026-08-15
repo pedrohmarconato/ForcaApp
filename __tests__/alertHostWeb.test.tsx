@@ -79,4 +79,60 @@ describe('AlertHost (web)', () => {
     expect(screen.getByTestId('alert-host-button-0')).toBeTruthy();
     expect(screen.getByText('OK')).toBeTruthy();
   });
+
+  it('alerta de botão único (ex.: "Cadastro realizado!" do SignUpScreen): pressionar o backdrop NÃO fecha o alerta nem dispara o onPress (WR-03, mirror do bloqueio nativo de single-button alert no iOS)', () => {
+    const screen = render(<AlertHost />);
+    const onPress = jest.fn();
+    act(() => {
+      showAlert(
+        'Cadastro realizado!',
+        'Um email de confirmação foi enviado. Por favor, verifique sua caixa de entrada.',
+        [{ text: 'OK', onPress }],
+      );
+    });
+    fireEvent.press(screen.getByTestId('alert-host-backdrop'));
+    expect(onPress).not.toHaveBeenCalled();
+    expect(useAlertStore.getState().current).not.toBeNull();
+    // O caminho legítimo continua funcionando: tocar no botão dispara o
+    // onPress e fecha o alerta normalmente.
+    fireEvent.press(screen.getByText('OK'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(useAlertStore.getState().current).toBeNull();
+  });
+
+  it('alerta de múltiplos botões (ex.: "Concluir treino?" do ActiveSessionScreen): pressionar o backdrop fecha o alerta e dispara o onPress do botão style="cancel" (mirror do back-dismiss nativo do Android)', () => {
+    const screen = render(<AlertHost />);
+    const onPressCancelar = jest.fn();
+    const onPressConcluir = jest.fn();
+    act(() => {
+      showAlert(
+        'Concluir treino?',
+        'Ainda há séries não registradas. Deseja concluir mesmo assim?',
+        [
+          { text: 'Continuar treino', style: 'cancel', onPress: onPressCancelar },
+          { text: 'Concluir', onPress: onPressConcluir },
+        ],
+      );
+    });
+    fireEvent.press(screen.getByTestId('alert-host-backdrop'));
+    expect(onPressCancelar).toHaveBeenCalledTimes(1);
+    expect(onPressConcluir).not.toHaveBeenCalled();
+    expect(useAlertStore.getState().current).toBeNull();
+  });
+
+  it('alerta de múltiplos botões sem nenhum style="cancel": pressionar o backdrop fecha o alerta sem disparar nenhum onPress', () => {
+    const screen = render(<AlertHost />);
+    const onPress1 = jest.fn();
+    const onPress2 = jest.fn();
+    act(() => {
+      showAlert('Título', 'Mensagem', [
+        { text: 'Opção A', onPress: onPress1 },
+        { text: 'Opção B', onPress: onPress2 },
+      ]);
+    });
+    fireEvent.press(screen.getByTestId('alert-host-backdrop'));
+    expect(onPress1).not.toHaveBeenCalled();
+    expect(onPress2).not.toHaveBeenCalled();
+    expect(useAlertStore.getState().current).toBeNull();
+  });
 });

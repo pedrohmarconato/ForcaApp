@@ -28,7 +28,21 @@ const AlertHost = () => {
     <Modal visible transparent animationType="fade" onRequestClose={dismiss}>
       <Pressable
         style={styles.backdrop}
-        onPress={dismiss}
+        onPress={() => {
+          // WR-03: backdrop-dismiss não pode pular o onPress de um botão do
+          // jeito que Alert.alert nativo garante. Alert.alert de botão único
+          // é bloqueante no iOS (só sai pelo botão) — mirror aqui: com 1
+          // botão só, o backdrop não faz nada, forçando o toque no botão
+          // (e o onPress dele) para fechar. Com 2+ botões, o backdrop
+          // mirrora o back-dismiss nativo do Android, que aciona o botão
+          // style="cancel" quando existe; sem cancel, vira dismiss neutro
+          // (nenhum onPress), documentado como a divergência deliberada do
+          // native para esse caso.
+          if (buttons.length <= 1) return;
+          const botaoCancelar = buttons.find((b) => b.style === 'cancel');
+          dismiss();
+          botaoCancelar?.onPress?.();
+        }}
         testID="alert-host-backdrop"
         accessibilityRole="button"
         accessibilityLabel="Fechar"
