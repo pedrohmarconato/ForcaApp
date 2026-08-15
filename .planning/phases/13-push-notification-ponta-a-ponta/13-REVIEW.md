@@ -1,8 +1,8 @@
 ---
 phase: 13-push-notification-ponta-a-ponta
-reviewed: 2026-08-15T00:00:00Z
+reviewed: 2026-08-15T20:00:00Z
 depth: standard
-files_reviewed: 20
+files_reviewed: 15
 files_reviewed_list:
   - supabase/migrations/0038_push_subscriptions.sql
   - supabase/migrations/0039_push_reminder_idempotencia.sql
@@ -15,226 +15,186 @@ files_reviewed_list:
   - src/utils/pushBadge.ts
   - src/screens/HomeScreen.tsx
   - src/store/activeSessionStore.ts
+  - src/contexts/AuthContext.js
   - public/push-handlers.js
   - workbox-config.cjs
   - App.tsx
-  - backend/tests/test_push_sender.py
-  - backend/tests/test_push_subscribe.py
-  - backend/tests/test_push_reminder_scheduler.py
-  - backend/tests/test_push_replan_notify.py
-  - __tests__/pushHandlers.test.ts
-  - __tests__/pushInviteHost.test.tsx
 findings:
-  critical: 1
-  warning: 4
-  info: 1
-  total: 6
+  critical: 0
+  warning: 1
+  info: 2
+  total: 3
 status: issues_found
 ---
 
 # Phase 13: Code Review Report
 
-**Reviewed:** 2026-08-15T00:00:00Z
+**Reviewed:** 2026-08-15T20:00:00Z
 **Depth:** standard
-**Files Reviewed:** 20
+**Files Reviewed:** 15
 **Status:** issues_found
 
 ## Summary
 
-The Web Push implementation (RLS/GRANT migration, subscribe/unsubscribe/notify-replan
-endpoints, reminder scheduler, service worker handlers, and the two frontend opt-in
-paths) is generally solid: the SSRF allowlist on outbound push endpoints, the RLS
-policy + GRANT on `push_subscriptions`, the JWT-derived (never body-derived)
-`user_id` on write/delete, the fire-and-forget replan notification, and the
-service-worker guard against silent push are all correctly implemented and match
-the invariants the plan calls out.
+Iteration 3 (final) re-review. All findings raised in iteration 2
+(`13-REVIEW.iter3.md`) were verified against the live code and the commits
+that claim to fix them:
 
-One real reliability bug was found in the reminder scheduler: an unhandled
-exception while marking one student's `reminder_sent_at` aborts the rest of that
-tick's candidate loop, which directly contradicts the "one student's failure must
-never affect the others" invariant the code's own comments assert. Four warnings
-cover a dead UI state, a cross-account AsyncStorage leak in the invite host, a
-coverage gap on the specific RLS-isolation attack this phase was built to defend
-against, and unbounded field lengths on the subscribe payload.
+- **CR-01** (SSRF: `endpoint_e_permitido()` enforced only at
+  `handle_push_subscribe`, bypassable via a direct PostgREST write) —
+  **confirmed fixed**. `push_sender.enviar_push()` (`backend/services/push_sender.py:206-207`)
+  now re-validates `endpoint_e_permitido(subscription_row.get("endpoint") or "")`
+  at the point of actual send, before building `subscription_info` or calling
+  `webpush()`, closing the hole regardless of how the row entered
+  `push_subscriptions` (commit `7319fbe`).
+- **WR-01** (no unsubscribe on logout — shared-device subscription
+  reassignment/leak) — **confirmed fixed and non-regressive**.
+  `AuthContext.js:153-157` calls `unsubscribeFromPush()` guarded by
+  `isPushSupported()`, fire-and-forget (never `await`ed), with its own
+  `.catch()` that only logs — it runs *before* `await
+  supabase.auth.signOut()` (line 160) but does not block on it, so a slow or
+  failing browser unsubscribe/network call cannot delay or fail the logout
+  itself. Confirmed by re-reading the full `signOut()` body: `setSession(null)`
+  /`setUser(null)`/`setProfile(null)` execute unconditionally afterward,
+  independent of the push call's outcome.
+- **WR-02** (reminder payload leaked the session title on the lock screen) —
+  **confirmed fixed**. `push_reminder_scheduler.py:173` now sends the fixed
+  generic string `"Confira seu treino de hoje."`; `sessao["title"]` is no
+  longer read anywhere in the payload construction, only used for logging.
+- **IN-01** (`client.navigate()` not awaited before `client.focus()`,
+  `public/push-handlers.js:44-49`) — unchanged, still present, still
+  info-level and harmless in practice (both target the same client). Carried
+  forward, not re-argued in detail below.
 
-## Critical Issues
+No regressions were found in the three fixed code paths themselves, and the
+allowlist (`PUSH_SERVICE_HOST_SUFFIXES`) correctly matches real endpoint
+hosts for Apple (`web.push.apple.com` → `.push.apple.com` suffix), Google/FCM
+(`fcm.googleapis.com`, exact match) and Mozilla
+(`updates.push.services.mozilla.com` / `push.services.mozilla.com`), so the
+iteration-2 CR-01 fix does not, today, delete any subscription from those
+three vendors.
 
-### CR-01: Exception while marking `reminder_sent_at` aborts the rest of the tick's students
-
-**File:** `backend/services/push_reminder_scheduler.py:148` and `backend/services/push_reminder_scheduler.py:190`
-**Issue:**
-`processar_tick` iterates `candidatos` (one per pending session/student) and, for
-every student, calls `_marcar_lembrete_enviado(sessao["id"], quando_iso)` — once
-directly when the student has no subscription (line 148), and once
-unconditionally after the per-subscription send loop (line 190). Unlike the
-`push_sender.enviar_push` / `push_sender.delete_subscription` calls just above it
-(which are wrapped in `try/except Exception` at lines 162-175 and 181-189
-specifically so "uma falha numa subscription não impede as demais"),
-`_marcar_lembrete_enviado` itself is **not** wrapped in any try/except. It issues
-a PostgREST `PATCH` and calls `response.raise_for_status()`
-(`push_reminder_scheduler.py:116`), which raises `requests.exceptions.HTTPError`
-on any 4xx/5xx from PostgREST, and `requests.get`/`requests.patch` can also raise
-`requests.RequestException` on a transient network error.
-
-When that happens for student N (out of M candidates), the exception propagates
-straight out of the `for sessao in candidatos:` loop and out of `processar_tick`
-itself — there is no try/except around the loop in `processar_tick`, only around
-the outer call in `_loop()` (lines 195-204). The result: students N+1..M in that
-tick never get a push attempt at all this tick, and the tick silently ends after
-being logged by `_loop()`'s `except Exception: logger.exception(...)`. Because
-the reminder window is gated to a single wall-clock hour
-(`agora_local.hour != REMINDER_HOUR`, line 125) and the candidate query filters
-on **today's** `scheduled_date` (line 70), a student pushed past the last tick of
-the hour by this failure silently never receives a reminder that day — no retry,
-no alert, no log calling out which students were skipped.
-
-This is exactly the failure mode flagged as a priority to attack for this phase:
-"exceção num aluno não pode matar o loop dos demais." The current code protects
-against failures in `enviar_push`/`delete_subscription`, but not against failures
-in the idempotency-marking call itself, which sits in the same per-student loop.
-
-**Fix:**
-```python
-for sessao in candidatos:
-    subscriptions = subs_por_usuario.get(sessao["user_id"]) or []
-    if not subscriptions:
-        try:
-            _marcar_lembrete_enviado(sessao["id"], quando_iso)
-        except Exception:
-            logger.exception(
-                "Falha ao marcar lembrete (sem subscription) da sessão %s.",
-                sessao["id"],
-            )
-        continue
-
-    ...  # envio de push por subscription (já protegido)
-
-    try:
-        _marcar_lembrete_enviado(sessao["id"], quando_iso)
-    except Exception:
-        logger.exception(
-            "Falha ao marcar reminder_sent_at da sessão %s — será reprocessada "
-            "no próximo tick dentro da mesma hora, se houver.",
-            sessao["id"],
-        )
-```
-Consider also wrapping the initial `_candidatos_do_dia`/`_subscriptions_por_usuarios`
-calls (or at least documenting that a failure there aborts the whole tick, which is
-a much smaller blast radius than losing only the tail of the candidate list).
+This iteration's full re-read of the reviewed file set surfaced one new
+Warning: the iteration-2 CR-01 fix changed what a `False` return from
+`enviar_push()` *means* (it now covers both "confirmed 404/410 from the push
+service" and "our own allowlist refused to even try"), but every caller
+still treats `False` as unconditional grounds to `delete_subscription()`,
+identically for both cases. Two Info-level notes are also included.
 
 ## Warnings
 
-### WR-01: `notifState` is never set to `'subscribing'` — the disabled guard is dead code
+### WR-01: `enviar_push()` returning `False` for an allowlist rejection is treated identically to a confirmed 404/410 — every caller deletes the subscription either way
 
-**File:** `src/screens/ProfileScreen.tsx:149-161` (state declared at line 44, used at line 290)
+**File:** `backend/services/push_sender.py:195-230`, `backend/services/push_reminder_scheduler.py:194-207`, `backend/app.py:2279-2290`
+
 **Issue:**
-`NotifState` includes `'subscribing'`, and the "Ativar notificações" button reads
-`disabled={notifState === 'subscribing'}` (line 290) to prevent a second tap while
-the first `subscribeToPush()` call is in flight. But `onAtivarNotificacoes`
-(lines 149-161) never calls `setNotifState('subscribing')` — it goes straight from
-whatever the current state is to `.then(() => setNotifState('subscribed'))` on
-success. Since the state is never `'subscribing'`, the button is **never actually
-disabled** while the async subscribe chain (`subscribeToPush().then(apiClient.post)`)
-is pending, so a fast double-tap can fire two concurrent
-`PushManager.subscribe()` + `POST /api/push/subscribe` sequences. The backend
-upsert is idempotent (`on_conflict=endpoint`), so this doesn't corrupt data, but
-the intended UX guard against duplicate in-flight requests silently does nothing.
-**Fix:** Set the state at the start of the handler and only clear it on
-success/failure:
-```typescript
-const onAtivarNotificacoes = useCallback(() => {
-  setNotifState('subscribing');
-  subscribeToPush()
-    .then((subJson) => apiClient.post(ENDPOINTS.PUSH.SUBSCRIBE, subJson))
-    .then(() => setNotifState('subscribed'))
-    .catch((err) => {
-      logger.warn('[profile] falha ao ativar notificações:', err);
-      if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
-        setNotifState('denied');
-      } else {
-        setNotifState('default');
-        setNotifError(true);
-      }
-    });
-}, []);
+Before the iteration-2 CR-01 fix, `enviar_push()` returning `False` had exactly
+one meaning: the push service itself responded 404/410, i.e. "this
+subscription is confirmed gone." That is the contract both callers document
+and rely on when they unconditionally call `delete_subscription()` on
+`False` — `push_reminder_scheduler.py:197-198` ("`enviar_push` devolveu
+`False`: subscription expirada (404/410, contrato provado em 13-SPIKE.md) —
+apaga.") and `app.py:2282-2283` (identical comment).
+
+The CR-01 fix added a second, unrelated reason for `False`:
+`push_sender.py:206-207` now returns `False` *before ever attempting to
+send* whenever `endpoint_e_permitido()` rejects the stored `endpoint` — i.e.
+"our allowlist doesn't recognize this host," which says nothing about
+whether the push service itself considers the subscription valid. The
+function's own docstring acknowledges this precisely (`push_sender.py:202-204`:
+"Recusa (nunca envia) e devolve False pelo MESMO contrato do 404/410 — os
+chamadores já tratam False como 'subscription inválida, apagar linha'"), but
+neither caller was updated to distinguish the two cases — both still delete
+on any `False`, with a log message ("subscription expirada") that assumes
+the 404/410 case specifically.
+
+Today this is not observable in production because the allowlist
+(`PUSH_SERVICE_HOST_SUFFIXES`) happens to cover every push-service host this
+app's own frontend can produce (`isPushSupported()` is web-only; Apple/FCM/
+Mozilla are the only vendors reachable from the supported browsers). But the
+conflation is a latent landmine: if any push provider ever migrates its web
+push relay domain (this has happened historically, e.g. Google's own FCM/GCM
+endpoint moved from `android.googleapis.com/gcm/send` to
+`fcm.googleapis.com`), or if the allowlist is ever edited with a typo, or a
+user reaches the app from a browser/push vendor not in the list, every
+affected subscription is now **silently and permanently deleted** on the
+very next send attempt — indistinguishable in the logs from ordinary
+expiry, with no operator signal that the allowlist itself is stale or wrong.
+The user is not notified; they simply stop receiving notifications until
+they notice and manually re-subscribe. This directly undermines the CR-01
+fix's own goal: an SSRF defense that silently destroys legitimate user data
+whenever it (correctly or incorrectly) trips is a much harder fix to detect
+and roll back than an SSRF hole is to close in the first place.
+
+**Fix:** Make the allowlist-rejection case distinguishable from the
+404/410 case so callers (or at least the logs) can tell them apart, e.g.
+return a 3-state result instead of a bool, or keep the bool contract for
+transport but log at `warning`/`error` (not silently) with the specific
+reason before deleting:
+```python
+# backend/services/push_sender.py
+def enviar_push(subscription_row, payload, vapid_private_key, vapid_subject) -> bool:
+    if not endpoint_e_permitido(subscription_row.get("endpoint") or ""):
+        logger.error(
+            "enviar_push recusou endpoint fora da allowlist (possível "
+            "linha maliciosa OU allowlist desatualizada) — apagando "
+            "subscription %s do usuário implicado.",
+            subscription_row.get("endpoint"),
+        )
+        return False
+    ...
 ```
-Note `subscribeToPush()` is still the first synchronous expression, so this fix
-does not break the iOS-gesture requirement (Critério 2).
-
-### WR-02: `push_invite_shown` AsyncStorage flag is not scoped per user — second account on the same browser never sees the invite
-
-**File:** `src/components/PushInviteHost.tsx:57, 73, 89`
-**Issue:**
-The convite-único flag is stored under a fixed, unscoped key
-(`AsyncStorage.getItem('push_invite_shown')` / `.setItem('push_invite_shown', 'true')`).
-On the web target (the only target where push is supported, per `isPushSupported()`),
-`AsyncStorage` persists per-browser, not per-account. If account A dismisses or
-accepts the invite and later account B logs into the same browser/device (shared
-computer, QA/test accounts, family members), account B will **never** see the
-opt-in invite, even though B never made a choice about it — the flag was set by A.
-This silently defeats the "convite único" feature for every account after the
-first one on a given browser.
-**Fix:** Scope the key per user, e.g. `` `push_invite_shown:${user.id}` ``, when
-reading/writing the flag inside the effect (which already has `user.id` in scope
-via the dependency array).
-
-### WR-03: No test exercises the actual RLS isolation on `push_subscriptions` — the specific attack this phase was built to defend against is untested
-
-**File:** `backend/tests/test_push_sender.py`, `backend/tests/test_push_subscribe.py`, `supabase/migrations/0038_push_subscriptions.sql:43-45`
-**Issue:**
-Migration 0038's policy (`for all using (auth.uid() = user_id) with check
-(auth.uid() = user_id)`) reads correctly by inspection, and the GRANT
-assertions (`do $$ ... raise exception ...`) confirm the *privileges* exist. But
-none of the Python test suites actually exercise Postgres RLS: every backend push
-test mocks `requests.post`/`requests.get`/`requests.delete` at the HTTP-transport
-layer (`backend/tests/test_push_sender.py:129, 145, 159, 166`;
-`backend/tests/test_push_subscribe.py:69, 92, 109, 129...`), so `upsert_subscription`,
-`delete_subscription`, and `listar_subscriptions` never actually hit a real (or
-even a fake-Postgres) RLS-enforcing backend. There is no test proving that user B's
-JWT cannot read or overwrite user A's subscription row (e.g. via the `endpoint`
-`UNIQUE` + `on_conflict` upsert path, which is the one genuinely subtle interaction
-between RLS and `ON CONFLICT DO UPDATE`). A future regression to the policy text
-(e.g. a typo turning `with check` into a no-op, or a GRANT that widens `anon`)
-would not be caught by CI.
-**Fix:** Add an integration test against a real (or dockerized) Supabase/Postgres
-instance — or at minimum a `psql`/pgTAP script run in CI — that: (1) inserts a
-`push_subscriptions` row as user A, (2) attempts to `SELECT`/`UPDATE`/`DELETE` that
-row as user B and asserts 0 rows affected/visible, and (3) attempts the
-`on_conflict=endpoint` upsert as user B against A's existing `endpoint` and asserts
-it fails (or is rejected) rather than silently reassigning the row to B.
-
-### WR-04: `POST /api/push/subscribe` has no length bound on `endpoint`/`p256dh`/`auth_key`
-
-**File:** `backend/app.py:2158-2163`
-**Issue:** Unlike `questionnaireData`/`diretrizes` elsewhere in this file (which
-are explicitly measured against `MAX_QUESTIONNAIRE_JSON_BYTES`/
-`MAX_DIRETRIZES_JSON_BYTES` before being accepted), the push subscribe fields are
-only checked for `isinstance(v, str) and v.strip()` — no upper bound. The only
-backstop is the global `app.config["MAX_CONTENT_LENGTH"] = 256 * 1024` (line 61)
-and the 20/60s rate limit on the route. An authenticated user can still write
-near-256 KiB strings into `p256dh`/`auth`/`endpoint` repeatedly (bounded only by
-rate limit), which is unusual for keys that are always ~87/22 base64url
-characters in a real browser subscription.
-**Fix:** Add an explicit length ceiling (e.g. 2 KB combined, generous for any real
-VAPID key material) and reject anything larger with 400, consistent with the
-pattern already used for the other JSON-body endpoints in this file.
+and update the callers' comments to stop asserting the deletion is *always*
+"subscription expirada (404/410)" — at minimum, this makes an allowlist
+regression loud in the logs instead of indistinguishable from routine churn.
+A stronger fix is a distinct return value/exception for the allowlist case so
+callers can choose not to delete (e.g. quarantine the row and alert) instead
+of destroying it outright.
 
 ## Info
 
-### IN-01: `client.navigate()` not awaited before `client.focus()`
+### IN-02: Three of four `PUSH_SERVICE_HOST_SUFFIXES` entries lack a leading `.` boundary
+
+**File:** `backend/services/push_sender.py:24-29`
+
+**Issue:** `PUSH_SERVICE_HOST_SUFFIXES` mixes a dot-anchored suffix
+(`".push.apple.com"`) with three bare suffixes (`"fcm.googleapis.com"`,
+`"updates.push.services.mozilla.com"`, `"push.services.mozilla.com"`).
+`endswith()` without a leading `.` is the classic subdomain-suffix-check
+anti-pattern (e.g. `"evil-fcm.googleapis.com".endswith("fcm.googleapis.com")`
+is `True` in the abstract). In this specific case it is not practically
+exploitable — matching those three suffixes at all requires DNS resolution
+under `googleapis.com`/`mozilla.com`, which only Google/Mozilla control, not
+an arbitrary attacker-registrable sibling domain (unlike, say, a bare
+`"amazonaws.com"` suffix, where `"evil-amazonaws.com"` is a fully
+attacker-registrable domain). Still worth fixing for consistency with the
+one entry that already does it right, and as cheap defense-in-depth against
+any future entry added to this list without noticing the pattern.
+**Fix:** Add the leading `.` to all three, and special-case (or fold into
+the tuple as `".googleapis.com"` if a broader Google subdomain is ever
+intended) the equality case for the bare-domain scenario:
+```python
+PUSH_SERVICE_HOST_SUFFIXES = (
+    ".push.apple.com",
+    "fcm.googleapis.com",  # exact host, no subdomains expected
+)
+# and check separately: hostname == suffix or hostname.endswith("." + suffix)
+```
+
+### IN-01: `client.navigate()` not awaited before `client.focus()` (carried forward, unchanged)
 
 **File:** `public/push-handlers.js:44-49`
-**Issue:** `client.navigate(url)` returns a Promise that resolves once navigation
-completes, but the code calls `client.focus()` immediately without awaiting it.
-In practice browsers tolerate this (navigate + focus racing is harmless here
-since both target the same client), and the test suite
-(`__tests__/pushHandlers.test.ts:111-129`) only asserts `navigate` was called
-with the right URL, not ordering — so this is not a functional bug, just slightly
-imprecise sequencing.
+**Issue:** `client.navigate(url)` returns a Promise that resolves once
+navigation completes, but the code calls `client.focus()` immediately
+without awaiting it. In practice browsers tolerate this (navigate + focus
+racing is harmless here since both target the same client), and the test
+suite only asserts `navigate` was called with the right URL, not ordering —
+so this is not a functional bug, just slightly imprecise sequencing.
+Unchanged since iteration 1; still not required.
 **Fix (optional):** `return client.navigate(url).then(() => 'focus' in client ? client.focus() : client);` for stricter sequencing, though not required.
 
 ---
 
-_Reviewed: 2026-08-15T00:00:00Z_
+_Reviewed: 2026-08-15T20:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
