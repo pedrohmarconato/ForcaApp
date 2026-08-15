@@ -1,5 +1,10 @@
 # 13-INFRA-RUNBOOK — ligar o push em produção (1 comando do dono)
 
+> **EXECUTADO em 15/08/2026** pelo dono no terminal: backend rebuildado
+> (health 200, rota subscribe 401, envs no container), Vercel com a chave
+> pública + deploy `✓ Ready`. Evidências e verificação no `13-UAT.md`
+> (teste 1 = passed). Mantido como referência de operação.
+
 **Estado em 15/08/2026 (noite):** código completo do push está em produção no
 sentido de REPO (VPS `/docker/forcaapp` sincronizado em `ba31fe7`), mas o
 container ainda roda a imagem antiga: o classificador de permissões da sessão
