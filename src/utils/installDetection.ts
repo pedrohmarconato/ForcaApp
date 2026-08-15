@@ -20,9 +20,15 @@ export const isIOSDevice = (ua: string, maxTouchPoints: number): boolean => {
 /**
  * Todo navegador em iOS é WebKit e inclui "Safari" na UA — o sinal real é a
  * AUSÊNCIA de qualquer um dos tokens "-iOS" dos outros navegadores.
+ *
+ * `GSA\/` (WR-02, 12-REVIEW.md): o app do Google Search no iOS também é
+ * WebKit e mantém o token "Safari" na UA, mas é um in-app browser, não o
+ * Safari de verdade — sem essa exclusão, um usuário que abre `/instalar` a
+ * partir de um link compartilhado no app do Google cairia no Estado 1
+ * (share sheet do Safari), instruções que não existem na chrome do GSA.
  */
 export const isSafariBrowser = (ua: string): boolean => {
-  const outroNavegadorIOS = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\//.test(ua);
+  const outroNavegadorIOS = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|GSA\//.test(ua);
   return /Safari/.test(ua) && !outroNavegadorIOS;
 };
 

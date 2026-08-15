@@ -27,6 +27,12 @@ const UA_IPHONE_EDGE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/119.0.2151.58 Mobile/15E148 Safari/605.1.15';
 const UA_IPHONE_OPERA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) OPiOS/9.2.0 Mobile/15E148 Safari/605.1.15';
+// UA real do app do Google (GSA) no iOS: mantém o token "Safari" (é WebKit,
+// como todo navegador iOS) mas NÃO é Safari de verdade — in-app browser do
+// app Google Search. WR-02 (12-REVIEW.md): sem exclusão explícita de
+// "GSA/", isSafariBrowser classificava isso como Safari real.
+const UA_IPHONE_GSA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 GSA/259.0.629865990 Mobile/15E148 Safari/604.1';
 const UA_IPAD_SAFARI =
   'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const UA_MAC_SAFARI =
@@ -85,6 +91,10 @@ describe('installDetection: isSafariBrowser (helper puro)', () => {
 
   it('UA sem "Safari" e sem token nenhum -> false (fallback seguro)', () => {
     expect(isSafariBrowser('bot-desconhecido/1.0')).toBe(false);
+  });
+
+  it('UA com "GSA/" (Google app iOS, in-app browser) -> false (WR-02)', () => {
+    expect(isSafariBrowser(UA_IPHONE_GSA)).toBe(false);
   });
 });
 
