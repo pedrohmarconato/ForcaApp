@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: App de iPhone instalável via site (PWA)
-current_phase: 10
-current_phase_name: Identidade do app instalável
+current_phase: 11
+current_phase_name: Service worker e atualização segura
 status: executing
 stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-08-15T03:14:58.142Z"
-last_activity: 2026-08-14
-last_activity_desc: Phase 10 execution started
+last_updated: "2026-08-15T03:15:18.527Z"
+last_activity: 2026-08-15
+last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 1
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-14)
 
 **Core value:** O PWA da Vercel vira app instalável de primeira classe no iPhone —
 sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
-**Current focus:** Phase 10 — Identidade do app instalável
+**Current focus:** Phase 11 — Service worker e atualização segura
 
 ## Current Position
 
-Phase: 10 (Identidade do app instalável) — EXECUTING
-Plan: 1 of 1
-Status: Ready to execute
-Last activity: 2026-08-14 — Phase 10 execution started
+Phase: 11 (Service worker e atualização segura) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 11
+Last activity: 2026-08-15 — Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
