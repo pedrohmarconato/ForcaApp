@@ -59,8 +59,12 @@ services:
       # contato mailto: exigido pelo protocolo. Sem estas linhas o compose não
       # REPASSAVA a chave ao container mesmo que ela existisse no .env —
       # environment: é allowlist explícita.
-      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?defina VAPID_PRIVATE_KEY (base64url do escalar EC P-256; gerar com py-vapid — ver 13-SPIKE.md)}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:?defina VAPID_SUBJECT (ex. mailto:contato@dominio) — claim sub do VAPID}
+      # Default vazio = ENVIO de push desabilitado de forma graciosa (os
+      # endpoints de subscribe seguem funcionando e gravando subscriptions;
+      # o envio loga exceção e pula — app.py trata em try/except). Preencher
+      # as duas juntas no .env do VPS para ligar o envio (PUSH-02/03).
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       # Sem default de propósito. O default antigo era `localhost` — um valor de
       # desenvolvimento que em produção não quebra nada no servidor: o browser é
       # que bloqueia a resposta, e o app mostra "Network Error". Ficou assim em
