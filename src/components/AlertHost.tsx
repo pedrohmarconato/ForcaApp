@@ -24,25 +24,30 @@ const AlertHost = () => {
 
   const buttons = current.buttons && current.buttons.length > 0 ? current.buttons : DEFAULT_BUTTONS;
 
+  // WR-03/WR-02: dismiss-sem-botão não pode pular o onPress de um botão do
+  // jeito que Alert.alert nativo garante. Alert.alert de botão único é
+  // bloqueante no iOS (só sai pelo botão) — mirror aqui: com 1 botão só,
+  // essa tentativa de dismiss não faz nada, forçando o toque no botão (e o
+  // onPress dele) para fechar. Com 2+ botões, mirrora o back-dismiss nativo
+  // do Android, que aciona o botão style="cancel" quando existe; sem
+  // cancel, vira dismiss neutro (nenhum onPress), documentado como a
+  // divergência deliberada do native para esse caso. Compartilhado entre o
+  // backdrop Pressable e o Modal onRequestClose (que no react-native-web é
+  // ligado a um listener de keyup no Escape — WR-02, iteração 2: deixar
+  // onRequestClose chamando dismiss() diretamente reabre o mesmo bug do
+  // WR-03 por um caminho de teclado em vez de toque no backdrop).
+  const handleDismissAttempt = () => {
+    if (buttons.length <= 1) return;
+    const botaoCancelar = buttons.find((b) => b.style === 'cancel');
+    dismiss();
+    botaoCancelar?.onPress?.();
+  };
+
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={dismiss}>
+    <Modal visible transparent animationType="fade" onRequestClose={handleDismissAttempt}>
       <Pressable
         style={styles.backdrop}
-        onPress={() => {
-          // WR-03: backdrop-dismiss não pode pular o onPress de um botão do
-          // jeito que Alert.alert nativo garante. Alert.alert de botão único
-          // é bloqueante no iOS (só sai pelo botão) — mirror aqui: com 1
-          // botão só, o backdrop não faz nada, forçando o toque no botão
-          // (e o onPress dele) para fechar. Com 2+ botões, o backdrop
-          // mirrora o back-dismiss nativo do Android, que aciona o botão
-          // style="cancel" quando existe; sem cancel, vira dismiss neutro
-          // (nenhum onPress), documentado como a divergência deliberada do
-          // native para esse caso.
-          if (buttons.length <= 1) return;
-          const botaoCancelar = buttons.find((b) => b.style === 'cancel');
-          dismiss();
-          botaoCancelar?.onPress?.();
-        }}
+        onPress={handleDismissAttempt}
         testID="alert-host-backdrop"
         accessibilityRole="button"
         accessibilityLabel="Fechar"

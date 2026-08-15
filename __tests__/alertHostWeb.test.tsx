@@ -5,7 +5,7 @@
 // AlertHost usa Modal/Pressable/Text/TouchableOpacity de verdade.
 
 import React from 'react';
-import { Platform } from 'react-native';
+import { Modal, Platform } from 'react-native';
 import { render, fireEvent, act } from '@testing-library/react-native';
 
 import AlertHost from '../src/components/AlertHost';
@@ -133,6 +133,54 @@ describe('AlertHost (web)', () => {
     fireEvent.press(screen.getByTestId('alert-host-backdrop'));
     expect(onPress1).not.toHaveBeenCalled();
     expect(onPress2).not.toHaveBeenCalled();
+    expect(useAlertStore.getState().current).toBeNull();
+  });
+
+  it('WR-02: alerta de botão único — onRequestClose do Modal (Escape no web) NÃO fecha o alerta nem dispara o onPress, mirror do bloqueio do backdrop (WR-03)', () => {
+    const screen = render(<AlertHost />);
+    const onPress = jest.fn();
+    act(() => {
+      showAlert(
+        'Cadastro realizado!',
+        'Um email de confirmação foi enviado. Por favor, verifique sua caixa de entrada.',
+        [{ text: 'OK', onPress }],
+      );
+    });
+    // react-native-web's Modal liga onRequestClose a um listener de keyup no
+    // Escape (ModalContent.js) — fora do alcance do preset RN puro do Jest.
+    // Invoca a prop diretamente, igual ao que esse listener dispararia.
+    const modal = screen.UNSAFE_getByType(Modal);
+    act(() => {
+      modal.props.onRequestClose();
+    });
+    expect(onPress).not.toHaveBeenCalled();
+    expect(useAlertStore.getState().current).not.toBeNull();
+    // Caminho legítimo continua funcionando.
+    fireEvent.press(screen.getByText('OK'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(useAlertStore.getState().current).toBeNull();
+  });
+
+  it('WR-02: alerta de múltiplos botões — onRequestClose do Modal fecha o alerta e dispara o onPress do botão style="cancel", igual ao backdrop', () => {
+    const screen = render(<AlertHost />);
+    const onPressCancelar = jest.fn();
+    const onPressConcluir = jest.fn();
+    act(() => {
+      showAlert(
+        'Concluir treino?',
+        'Ainda há séries não registradas. Deseja concluir mesmo assim?',
+        [
+          { text: 'Continuar treino', style: 'cancel', onPress: onPressCancelar },
+          { text: 'Concluir', onPress: onPressConcluir },
+        ],
+      );
+    });
+    const modal = screen.UNSAFE_getByType(Modal);
+    act(() => {
+      modal.props.onRequestClose();
+    });
+    expect(onPressCancelar).toHaveBeenCalledTimes(1);
+    expect(onPressConcluir).not.toHaveBeenCalled();
     expect(useAlertStore.getState().current).toBeNull();
   });
 });
