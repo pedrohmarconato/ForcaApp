@@ -60,6 +60,21 @@ Achados do scout (2026-08-15):
 - Badge (PUSH-04): `navigator.setAppBadge` gated por permissão concedida
   (iOS 16.4+ PWA).
 
+### Resoluções pós-research (decididas pelo dono em 2026-08-15)
+- A premissa "job de replanejamento no Flask" era FALSA (13-RESEARCH.md): o
+  replanejamento roda no cliente (weeklyReplanner.ts puro) e não há scheduler no
+  backend.
+- PUSH-03: dispara NA CONFIRMAÇÃO — após a RPC reschedule_week_sessions ter
+  sucesso, o cliente chama um endpoint novo do Flask que envia a push (evento
+  real do fluxo existente).
+- PUSH-02: horário FIXO MVP — lembrete às 8h (America/Sao_Paulo) nos dias de
+  treino do questionário (dias_treino); scheduler novo em thread no processo
+  Flask, no padrão do job_manager.py existente. Campo de preferência de horário
+  fica para milestone futuro.
+- pywebpush==2.1.2 APROVADA pelo dono (gate SUS revisto: org web-push-libs /
+  ecossistema Mozilla; comportamento provado no 13-SPIKE.md) — entra pinada no
+  requirements.txt sem checkpoint adicional de install.
+
 ### Jobs, envio e deploy
 - Lembrete (PUSH-02) e replanejamento (PUSH-03): usar o mecanismo de job
   EXISTENTE do Flask (o researcher confirma qual é e onde vive; PUSH-03 é
