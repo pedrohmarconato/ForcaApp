@@ -28,6 +28,7 @@ awaiting: user response
 ### 1. Pré-requisitos de infraestrutura
 expected: Migrations 0038/0039 em staging e produção (md5 igual); VAPID + service-role no VPS; EXPO_PUBLIC_VAPID_PUBLIC_KEY na Vercel + redeploy; backend deployado.
 result: [pending] — PARCIAL em 15/08/2026: (a) supabase login com a conta certa do ForçaApp OK e (b) 0038/0039 aplicadas em staging E produção via db push com preflight, mesmo arquivo (md5 fd3ea691…/533c640c…), asserções passaram; WINDOWS.md #2/#3 fechadas. Restam (c) VAPID + envs no VPS, (d) EXPO_PUBLIC_VAPID_PUBLIC_KEY na Vercel + redeploy web, (e) deploy do backend. Atenção: supabase/.temp/project-ref ficou apontando para PRODUÇÃO.
+  Avanço noturno 15/08: par VAPID gerado e guardado em ~/.forcaapp-vapid-prod; compose corrigido (repassa VAPID; service_role/VAPID opcionais com desligamento gracioso — commits e03c52f/641c819/ba31fe7); VPS sincronizado em ba31fe7 (container ainda antigo). (c)-(e) bloqueados pelo classificador de permissões da sessão remota (nenhuma mutação de produção por agente) + MCP Hostinger sem responder. Caminho de 1 comando: 13-INFRA-RUNBOOK.md.
 
 ### 2. Opt-in e subscription (PUSH-01)
 expected: No PWA instalado, botão "Ativar notificações" no Perfil (ou o convite único) pede a permissão do iOS; após conceder, uma linha aparece em push_subscriptions do seu usuário. RLS: outro usuário não vê essa linha.
