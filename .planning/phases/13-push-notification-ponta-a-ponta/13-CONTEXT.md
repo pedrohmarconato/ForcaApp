@@ -64,9 +64,12 @@ Achados do scout (2026-08-15):
 - A premissa "job de replanejamento no Flask" era FALSA (13-RESEARCH.md): o
   replanejamento roda no cliente (weeklyReplanner.ts puro) e não há scheduler no
   backend.
-- PUSH-03: dispara NA CONFIRMAÇÃO — após a RPC reschedule_week_sessions ter
-  sucesso, o cliente chama um endpoint novo do Flask que envia a push (evento
-  real do fluxo existente).
+- PUSH-03: dispara NA CONFIRMAÇÃO do replanejamento. Alvo código-verificado
+  pelo planner: confirmReplan()/applyConfirmedReplan() (activeSessionStore.ts →
+  weeklyReplanRepository.ts) — a referência anterior à RPC
+  reschedule_week_sessions era imprecisa (aquela RPC pertence ao reagendamento
+  manual em planEditRepository.ts). O cliente chama o endpoint novo do Flask
+  após a confirmação ter sucesso (best-effort).
 - PUSH-02: horário FIXO MVP — lembrete às 8h (America/Sao_Paulo) nos dias de
   treino do questionário (dias_treino); scheduler novo em thread no processo
   Flask, no padrão do job_manager.py existente. Campo de preferência de horário
