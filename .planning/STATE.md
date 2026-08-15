@@ -104,6 +104,12 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 | tech-debt | Nyquist not-validated nas fases do v1.0 | Deferred | v1.0 close (2026-08-13) |
 | scope | `Alert.alert` no-op no react-native-web | **Endereçado nesta milestone — Phase 9 (WEB-01)** | v1.0 close (2026-08-13) |
 
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 9 | verification_deferred_human | /gsd-verify-work 9 |
+
 ## Session Continuity
 
 Last session: 2026-08-14T18:47:27.407Z
