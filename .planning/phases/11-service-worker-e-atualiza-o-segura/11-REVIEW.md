@@ -1,6 +1,6 @@
 ---
 phase: 11-service-worker-e-atualiza-o-segura
-reviewed: 2026-08-15T11:51:42Z
+reviewed: 2026-08-15T16:00:00Z
 depth: standard
 files_reviewed: 10
 files_reviewed_list:
@@ -15,135 +15,101 @@ files_reviewed_list:
   - __tests__/UpdateBanner.test.tsx
   - App.tsx
 findings:
-  critical: 1
-  warning: 2
+  critical: 0
+  warning: 1
   info: 2
-  total: 5
+  total: 3
 status: issues_found
 ---
 
-# Phase 11: Code Review Report
+# Phase 11: Code Review Report (iteration 3, final)
 
-**Reviewed:** 2026-08-15T11:51:42Z
+**Reviewed:** 2026-08-15T16:00:00Z
 **Depth:** standard
 **Files Reviewed:** 10
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the service worker registration/update pipeline (Workbox `generateSW` config, `register-sw.js`, `updateStore.ts`, `UpdateBanner.tsx`) plus the supporting Vercel headers/rewrite and the two permanent test guards. The zero-`runtimeCaching` invariant (OFF-01) is correctly enforced and covered by a real regression test; the `sw.js`/`register-sw.js`/`manifest.json` no-cache/must-revalidate headers and the SPA rewrite exclusion are also correct and tested. The single-reload guard (`refreshing` flag) in `register-sw.js` is sound.
+Re-review of the single remaining WARNING from iteration 2 (`window.__swUpdateAvailable` never cleared after consumption), fixed in `dd9e899` by adding `w.__swUpdateAvailable = false;` inside the synchronous mount-check block of `UpdateBanner.tsx`'s effect, plus a regression test (`__tests__/UpdateBanner.test.tsx:150-168`) covering "flag set before mount → consumed → dismissed → remount without a new flag write → banner stays hidden." Confirmed only `UpdateBanner.tsx` and its test file changed in `dd9e899` (`git show --stat`); no other file in scope moved since iteration 2.
 
-The one CRITICAL finding is a real functional regression the phase context explicitly asked to be attacked: once a user dismisses the banner with "Depois", `updateStore`'s `dismissed` flag is never cleared, so **any subsequent `sw-update-available` event for the rest of the SPA session is silently swallowed** — the banner will never reappear again, even for a brand-new deploy, until the user does a full page reload. This is untested: `__tests__/UpdateBanner.test.tsx` resets `dismissed: false` in `beforeEach`, so the dismiss → new-update path never runs.
+The targeted scenario (flag set before mount, consumed by the mount-check branch) is verified correct: the flag is read and cleared in the same synchronous block, no yield point exists between the two statements, and the new test proves a subsequent remount does not resurrect a dismissed banner. CR-01 (`dismissed` reset on `setWaiting(true)`) and WR-01/WR-02 from earlier iterations remain correct and untouched.
 
-Two WARNING-level robustness gaps in `register-sw.js`: the `register()` promise has no `.catch()` (unhandled rejection risk), and the already-documented `CustomEvent` race (event fired before React mounts the listener) has no fallback replay mechanism, so a lost event means an already-waiting update never surfaces until a genuinely new version installs.
-
-## Critical Issues
-
-### CR-01: Update banner permanently stops reappearing after first "Depois"
-
-**File:** `src/store/updateStore.ts:26-27` (also affects `src/components/UpdateBanner.tsx:49`)
-**Issue:** `dismiss()` sets `{ waiting: false, dismissed: true }` and nothing in the store ever resets `dismissed` back to `false`. `setWaiting(value)` only ever touches `waiting`:
-
-```ts
-setWaiting: (value) => set({ waiting: value }),
-dismiss: () => set({ waiting: false, dismissed: true }),
-```
-
-`UpdateBanner` gates rendering on `if (!waiting || dismissed) return null;`. Sequence that reproduces the bug within a single SPA session (no full page reload):
-1. `sw-update-available` fires → `setWaiting(true)` → banner shows.
-2. User taps "Depois" → `dismiss()` → `waiting=false, dismissed=true` → banner hides (correct, intended for *that* update).
-3. Later, an entirely different/newer version finishes installing → `register-sw.js` dispatches `sw-update-available` again → `setWaiting(true)` → store is now `{waiting: true, dismissed: true}`.
-4. `UpdateBanner`'s guard still evaluates `dismissed === true` → returns `null`. The banner never reappears again for the remainder of the session, even though a real, different update is sitting in `registration.waiting` ready to be applied.
-
-This directly breaks OFF-02: after one dismissal, the update-notification mechanism is permanently dead until the user manually reloads/reopens the tab. It is also untested — `__tests__/UpdateBanner.test.tsx` `beforeEach` always resets `dismissed: false`, so this exact regression path (dismiss, then a *second* `sw-update-available`) is never exercised by the suite.
-
-**Fix:** Clear `dismissed` whenever a new waiting worker is announced, not only on explicit user action:
-
-```ts
-setWaiting: (value) => set({ waiting: value, dismissed: value ? false : undefined ?? false }),
-```
-
-Simpler and clearer:
-
-```ts
-setWaiting: (value) => set((state) => ({
-  waiting: value,
-  dismissed: value ? false : state.dismissed,
-})),
-```
-
-Add a regression test to `__tests__/UpdateBanner.test.tsx`: dispatch `sw-update-available`, press "Depois", dispatch `sw-update-available` again, and assert the banner text is visible again.
+However, the fix only clears the flag on **one of the two paths** that can set `waiting=true` from this signal. `register-sw.js` writes `window.__swUpdateAvailable = true` immediately before **every** `dispatchEvent('sw-update-available')` call — including the common case where the event fires *after* `UpdateBanner` has already mounted and its live listener (`handleUpdateAvailable`) is active. That listener calls `setWaiting(true)` but never touches the flag, so after any live-dispatched update the flag is left permanently `true` on `window`. This is the same class of bug the fix was written to close (stale `true` flag surviving a remount and silently reopening a dismissed/applied banner), reachable through the live-listener path instead of the pre-mount-race path the fix actually patches. It is one WARNING, detailed below; the fix is correct but incomplete for the stated "read once, then clear" contract. IN-01/IN-02 remain unchanged and out of scope per the task.
 
 ## Warnings
 
-### WR-01: `navigator.serviceWorker.register()` has no error handling
+### WR-01: Flag-clearing fix only covers the pre-mount race, not the (more common) live-listener path — `window.__swUpdateAvailable` still goes stale after any post-mount update
 
-**File:** `public/register-sw.js:30`
-**Issue:**
-
-```js
-navigator.serviceWorker.register('/sw.js').then(function (reg) {
-  registration = reg;
-  ...
-});
-```
-
-There is no `.catch()`. If registration fails (network error fetching `/sw.js`, byte-mismatch/invalid script, storage/quota errors, or a misconfigured CSP blocking `worker-src`), this produces an unhandled promise rejection with no diagnostic signal, and `registration` stays `undefined` forever — silently disabling the entire update path with no logged reason.
-
-**Fix:**
-
-```js
-navigator.serviceWorker.register('/sw.js').then(function (reg) {
-  registration = reg;
-  // ... existing logic
-}).catch(function (err) {
-  // Registration failed — app still works, just without offline/update support.
-  // Surface for diagnostics without crashing.
-  if (typeof console !== 'undefined' && console.warn) {
-    console.warn('[sw] registration failed', err);
-  }
-});
-```
-
-### WR-02: `sw-update-available` CustomEvent can be lost before React mounts its listener
-
-**File:** `public/register-sw.js:36-39`
-**Issue:** The synchronous check `if (reg.waiting && navigator.serviceWorker.controller) { window.dispatchEvent(new CustomEvent('sw-update-available')); }` fires as soon as `register()` resolves — which can happen before `UpdateBanner`'s `useEffect` has registered its `window.addEventListener('sw-update-available', ...)` (React hasn't mounted yet, or is still hydrating). `CustomEvent` dispatch is fire-and-forget: a listener added after the dispatch never sees it. In that case the user has an update sitting in `registration.waiting` that will now **never** be surfaced by the banner — the only escape hatch is a completely new `updatefound` firing for a *different* worker version later. This is called out in the file's own comments as a "residual risk," but no mitigation exists.
-
-**Fix:** Persist last-known state on `window` so a late-mounting listener can synchronously check it on mount (mirrors the CustomEvent host pattern already used for `alertStore`/`AlertHost`):
-
-```js
-// register-sw.js
-if (reg.waiting && navigator.serviceWorker.controller) {
-  window.__swUpdateAvailable = true;
-  window.dispatchEvent(new CustomEvent('sw-update-available'));
-}
-```
+**File:** `src/components/UpdateBanner.tsx:57-66`, `public/register-sw.js:43,57`
+**Issue:** The mount effect now clears the flag correctly in the branch that replays a pre-mount-race event:
 
 ```tsx
-// UpdateBanner.tsx
+const w = window as unknown as { __swUpdateAvailable?: boolean };
+if (w.__swUpdateAvailable) {
+  setWaiting(true);
+  w.__swUpdateAvailable = false;      // only this branch clears it
+}
+
+const handleUpdateAvailable = () => setWaiting(true);   // never touches w.__swUpdateAvailable
+window.addEventListener('sw-update-available', handleUpdateAvailable);
+```
+
+But `register-sw.js` sets the flag to `true` immediately before *both* of its `dispatchEvent('sw-update-available')` call sites (lines 43 and 57), unconditionally — not only in the pre-mount race. `UpdateBanner` is mounted once, near the top of `App.tsx`, essentially at app start; a real `updatefound`/`statechange` event (the far more common real-world trigger, since it requires a network round-trip and worker install to complete) will almost always fire well *after* the component has already mounted and its live listener is already registered. In that path:
+
+1. Component mounts, flag is unset, nothing happens; live listener registered.
+2. Minutes/hours later, a real update installs. `register-sw.js` sets `window.__swUpdateAvailable = true`, dispatches the event. The live listener catches it and calls `setWaiting(true)` — correct, banner shows. **The flag is never cleared.**
+3. User taps "Depois" → `dismissed=true`. Flag is still `true` on `window`.
+4. If `UpdateBanner` is ever remounted without a fresh dispatch (any of the triggers the fix's own commit message names: `React.StrictMode`, a `key` change, an error boundary recovering, or the component moving behind conditional rendering) the mount effect re-reads the stale `true` flag and calls `setWaiting(true)` again, silently reopening the banner and resetting `dismissed` — exactly the bug this fix was written to prevent, via the untouched code path.
+
+This mirrors the reachability caveat already accepted for the prior iteration's WR-01/WR-02 findings in this phase (not reachable today because `App.tsx` renders `UpdateBanner` unconditionally and nothing wraps the tree in `StrictMode` or an error boundary), so it is not an active production bug — but it means the "read once, then clear" contract the code comments claim (lines 49-56, explicitly invoking the `jointInvitePending.ts` pattern) is only half-enforced, and it is untested: the test suite's dispatch helper does not replicate this gap because it doesn't mirror `register-sw.js`'s real contract.
+
+```ts
+// __tests__/UpdateBanner.test.tsx:30-32 — this helper only fires the CustomEvent,
+// it never sets window.__swUpdateAvailable = true the way register-sw.js always does
+// before a real dispatch, so no existing test can observe the flag staying stale
+// after a live-listener-consumed event.
+const dispatchSwUpdateAvailable = () => {
+  window.dispatchEvent(new CustomEvent('sw-update-available'));
+};
+```
+
+**Fix:** Clear the flag in the live listener too, so both paths that can turn this signal into `setWaiting(true)` leave the flag consistently consumed:
+
+```tsx
 useEffect(() => {
   if (Platform.OS !== 'web') return undefined;
-  if ((window as any).__swUpdateAvailable) setWaiting(true);
-  const handleUpdateAvailable = () => setWaiting(true);
+
+  const w = window as unknown as { __swUpdateAvailable?: boolean };
+  if (w.__swUpdateAvailable) {
+    setWaiting(true);
+    w.__swUpdateAvailable = false;
+  }
+
+  const handleUpdateAvailable = () => {
+    setWaiting(true);
+    w.__swUpdateAvailable = false;
+  };
   window.addEventListener('sw-update-available', handleUpdateAvailable);
   return () => window.removeEventListener('sw-update-available', handleUpdateAvailable);
 }, [setWaiting]);
 ```
+
+Add a regression test that mirrors `register-sw.js`'s real contract (set the flag immediately before dispatch, as production code does), dispatches live post-mount, dismisses, unmounts, and remounts without a new flag write — asserting the banner stays hidden on the second mount. The current `dispatchSwUpdateAvailable` test helper should also set `window.__swUpdateAvailable = true` before dispatching (or a second helper should be added) so the test double actually matches production behavior.
 
 ## Info
 
 ### IN-01: Build command duplicated between `package.json` and `vercel.json`
 
 **File:** `package.json:31`, `vercel.json:6`
-**Issue:** `"build:web": "npx expo export -p web && npx workbox generateSW workbox-config.cjs && node scripts/verify-web-bundle.mjs"` is copy-pasted verbatim into `vercel.json`'s `buildCommand`. Any future change to one (e.g., adding a step) has to be remembered and applied to the other, or CI and local builds silently diverge.
-**Fix:** Have `vercel.json` invoke the npm script instead of repeating it: `"buildCommand": "npm run build:web"`.
+**Issue:** Unchanged since iteration 1 — out of scope for this iteration per task instructions.
+**Fix:** `"buildCommand": "npm run build:web"` in `vercel.json`.
 
 ### IN-02: `updateStore.applyUpdate()` calls `window.dispatchEvent` with no platform guard
 
-**File:** `src/store/updateStore.ts:28-30`
-**Issue:** `applyUpdate` unconditionally references `window.dispatchEvent(new CustomEvent(...))`. Today this is only reachable through `UpdateBanner`'s "Atualizar" button, and `UpdateBanner` itself returns `null` before mount on non-web platforms, so it's not currently exploitable — but the store is a public export (`useUpdateStore`) with no platform guard of its own, unlike the rest of the file's stated design intent of mirroring `alertStore`'s host pattern. Any future caller (e.g., a settings screen "check for updates" button) that invokes `applyUpdate()` outside a `Platform.OS === 'web'` branch would throw on native, since RN's global `window` shim (where present) does not implement `dispatchEvent`/`CustomEvent`.
-**Fix:** Guard defensively inside the store itself:
+**File:** `src/store/updateStore.ts:35-37`
+**Issue:** Unchanged since iteration 1 — out of scope for this iteration per task instructions.
+**Fix:**
 
 ```ts
 applyUpdate: () => {
@@ -154,6 +120,6 @@ applyUpdate: () => {
 
 ---
 
-_Reviewed: 2026-08-15T11:51:42Z_
+_Reviewed: 2026-08-15T16:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
