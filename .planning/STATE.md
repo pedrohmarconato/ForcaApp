@@ -5,8 +5,8 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
 current_phase_name: Tela bloqueada — ver e cronometrar
 status: planning
-stopped_at: Phase 14 context gathered
-last_updated: "2026-08-16T22:19:03.370Z"
+stopped_at: Phase 15 context gathered
+last_updated: "2026-08-16T23:18:49.929Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 14 complete, transitioned to Phase 15
 progress:
@@ -145,11 +145,11 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-16T02:33:19.021Z
-Stopped at: Phase 14 context gathered
+Last session: 2026-08-16T23:18:49.922Z
+Stopped at: Phase 15 context gathered
 sem órfãos. STATE.md e REQUIREMENTS.md (traceability) atualizados. Aguardando
 aprovação do dono.
-Resume file: .planning/phases/14-funda-o-nativa/14-CONTEXT.md
+Resume file: .planning/phases/15-tela-bloqueada-ver-e-cronometrar/15-CONTEXT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
