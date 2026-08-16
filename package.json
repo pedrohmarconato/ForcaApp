@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Aplicativo de treinamento personalizado com foco em UX e performance",
+  "workspaces": [
+    "modules/*"
+  ],
   "scripts": {
     "android:dev": "ENVFILE=.env.development react-native run-android",
     "ios:dev": "ENVFILE=.env.development react-native run-ios",
@@ -33,6 +36,7 @@
     "resign": "bash scripts/resign.sh"
   },
   "dependencies": {
+    "app-group-spike": "*",
     "@bacons/apple-targets": "^5.0.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
