@@ -93,7 +93,7 @@ físico, e a extensão de widget + módulo Swift sobrevivendo a um
   4. O spike de App Groups no aparelho físico está registrado por escrito, com a
      decisão de arquitetura (com ou sem App Group) documentada para orientar as
      fases 16 e 17. (UAT do dono no aparelho físico)
-**Plans**: 8/9 plans executed
+**Plans**: 9/9 plans executed
 
 Plans:
 **Wave 1**
@@ -124,7 +124,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 14-09-PLAN.md — Sessão 2 física: UAT de reassinatura + paridade com o PWA
+- [x] 14-09-PLAN.md — Sessão 2 física: UAT de reassinatura + paridade com o PWA
 
 **UI hint**: yes
 
@@ -225,7 +225,7 @@ série/exercício antes do descanso acabar.
 | 11. Service worker e atualização segura | v1.2 | 2/3 | Complete (override) | 2026-08-15 |
 | 12. Página de instalação guiada | v1.2 | 1/2 | Complete (override) | 2026-08-15 |
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
-| 14. Fundação nativa | v1.3 | 8/9 | In Progress|  |
+| 14. Fundação nativa | v1.3 | 9/9 | In Progress|  |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 0/TBD | Not started | - |
 | 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
