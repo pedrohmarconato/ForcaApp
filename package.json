@@ -36,7 +36,6 @@
     "resign": "bash scripts/resign.sh"
   },
   "dependencies": {
-    "app-group-spike": "*",
     "native-info": "*",
     "@bacons/apple-targets": "^5.0.0",
     "@expo/vector-icons": "^15.0.3",

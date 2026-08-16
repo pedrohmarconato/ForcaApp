@@ -11,17 +11,6 @@ struct Provider: AppIntentTimelineProvider {
     }
     
     func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
-        // SPIKE-ONLY (14-05) — remover em 14-07
-        // Escreve um valor trivial no App Group compartilhado a cada geração de
-        // timeline, para o módulo modules/app-group-spike ler de volta no app
-        // principal (round-trip do spike D-09, PITFALLS.md Pitfall 3).
-        if let spikeDefaults = UserDefaults(suiteName: "group.com.pmarconato.forcaapp.shared") {
-            spikeDefaults.set("app-group-spike-\(Date())", forKey: "appGroupSpikeValue")
-            NSLog("[AppGroupSpike] write OK to suiteName group.com.pmarconato.forcaapp.shared")
-        } else {
-            NSLog("[AppGroupSpike] write FAILED — UserDefaults(suiteName:) returned nil for group.com.pmarconato.forcaapp.shared")
-        }
-
         var entries: [SimpleEntry] = []
 
         // Generate a timeline consisting of five entries an hour apart, starting from the current date.

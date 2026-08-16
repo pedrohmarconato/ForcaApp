@@ -89,9 +89,15 @@ rodar_checagens() {
   # Podfile.lock porque faltava apple.podspecPath/package.json/dependência
   # no workspace, então NativeInfoModule não existia em tempo de execução
   # no device. Por isso (e) checa o resultado terminal do `pod install`
-  # (ios/Podfile.lock) para os dois módulos locais, não só a descoberta.
+  # (ios/Podfile.lock) para o módulo local restante, não só a descoberta.
+  #
+  # AppGroupSpikeModule foi removido da lista nesta checagem na Plano 14-07:
+  # o spike D-09 terminou PASS e `modules/app-group-spike/` (módulo
+  # descartável, único propósito era esse spike) foi deletado por inteiro —
+  # não há mais um módulo com esse nome para o autolinking encontrar, então
+  # mantê-lo aqui faria a checagem falhar sempre, não protegeria nada.
   local modulo_local
-  for modulo_local in AppGroupSpikeModule NativeInfoModule; do
+  for modulo_local in NativeInfoModule; do
     if ! grep -q "^  ${modulo_local}:" ios/Podfile.lock 2>/dev/null; then
       vermelho "ABORTADO: [rodada ${rodada}] ${modulo_local} não está linkado em ios/Podfile.lock."
       echo "  Módulo presente em disco (checagem d) mas nunca compilado no" >&2
