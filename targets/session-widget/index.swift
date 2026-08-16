@@ -6,7 +6,9 @@ struct exportWidgets: WidgetBundle {
     var body: some Widget {
         // Export widgets here
         widget()
-        widgetControl()
+        if #available(iOS 18.0, *) {
+            widgetControl()
+        }
         WidgetLiveActivity()
     }
 }

@@ -2,6 +2,14 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
+// NOTE (14-02 deviation, Rule 1 auto-fix): ControlWidgetConfiguration and
+// SetValueIntent.perform() require iOS 18.0+. The target's deploymentTarget
+// is pinned to 17.0 (RESEARCH.md margin above the 16.1 Dynamic Island
+// minimum), so the whole default @bacons/apple-targets Control Widget
+// scaffold is gated behind @available(iOS 18.0, *) here and conditionally
+// included in index.swift. No product logic added — scaffold boilerplate
+// only, kept for parity with the upstream template.
+@available(iOS 18.0, *)
 struct widgetControl: ControlWidget {
     static let kind: String = "com.developer.example.widget"
 
@@ -23,6 +31,7 @@ struct widgetControl: ControlWidget {
     }
 }
 
+@available(iOS 18.0, *)
 extension widgetControl {
     struct Value {
         var isRunning: Bool
@@ -41,6 +50,7 @@ extension widgetControl {
     }
 }
 
+@available(iOS 18.0, *)
 struct TimerConfiguration: ControlConfigurationIntent {
     static let title: LocalizedStringResource = "Timer Name Configuration"
 
@@ -48,6 +58,7 @@ struct TimerConfiguration: ControlConfigurationIntent {
     var timerName: String
 }
 
+@available(iOS 18.0, *)
 struct StartTimerIntent: SetValueIntent {
     static let title: LocalizedStringResource = "Start a timer"
 
