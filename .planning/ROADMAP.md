@@ -225,7 +225,7 @@ série/exercício antes do descanso acabar.
 | 11. Service worker e atualização segura | v1.2 | 2/3 | Complete (override) | 2026-08-15 |
 | 12. Página de instalação guiada | v1.2 | 1/2 | Complete (override) | 2026-08-15 |
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
-| 14. Fundação nativa | v1.3 | 9/9 | In Progress|  |
+| 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 0/TBD | Not started | - |
 | 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |

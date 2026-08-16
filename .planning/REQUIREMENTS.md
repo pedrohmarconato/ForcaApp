@@ -12,11 +12,11 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Fundação nativa (NAT)
 
-- [ ] **NAT-01**: O dono instala o ForcaApp como app nativo no próprio iPhone a
+- [x] **NAT-01**: O dono instala o ForcaApp como app nativo no próprio iPhone a
   partir desta máquina (`expo prebuild` + assinatura com Apple ID gratuito), com
   rotina de reassinatura semanal documentada e repetível em 1 comando.
 
-- [ ] **NAT-02**: O target da extensão de widget e o módulo nativo sobrevivem a
+- [x] **NAT-02**: O target da extensão de widget e o módulo nativo sobrevivem a
   `expo prebuild --clean` (targets via `@bacons/apple-targets` + módulo Expo em
   Swift local — nada criado à mão no Xcode), e o spike de App Groups no aparelho
   registra por escrito qual arquitetura de estado vale (com ou sem App Group).
@@ -72,10 +72,12 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
   NÃO selecionada para o v1.3. Consequência aceita: com o app suspenso, o fim
   do descanso é apenas visual na tela bloqueada (timer chega a zero sem som).
   Barato de adicionar depois (infra `expo-notifications` local, sem APNs).
+
 - **Modo mãos-livres** (cues falados via `AVSpeechSynthesizer` + sessão de áudio
   `.duckOthers` convivendo com Spotify) — NÃO selecionado; a pesquisa já o
   recomendava como pós-núcleo (v1.3.x) por risco empírico de fala com tela
   bloqueada.
+
 - Reassinatura automática (AltStore/automação) — só se a rotina manual semanal
   incomodar de verdade.
 
@@ -84,10 +86,13 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 - **Widget de tela de início (WidgetKit)** — decisão do dono no escopo v3.
 - **Push nativo/APNs** — impossível no regime gratuito; notificação local cobre
   o que for preciso no futuro. Porta reaberta só pagando US$ 99/ano.
+
 - **Atualização remota da Live Activity via push** — mesma razão; updates são
   locais (`Activity.update()`).
+
 - **Campo de texto na Live Activity** — impossível na plataforma (ActivityKit
   não tem `TextField`); o stepper é o caminho, não um fallback.
+
 - **Distribuição a terceiros** (TestFlight/App Store/alunos) — app pessoal.
 - **Ações pesadas nos botões da tela bloqueada** (ex.: replanejamento via
   backend) — `perform()` grava intenção local; processamento pesado é do app.
@@ -96,8 +101,8 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NAT-01 | Phase 14 | Pending |
-| NAT-02 | Phase 14 | Pending |
+| NAT-01 | Phase 14 | Complete |
+| NAT-02 | Phase 14 | Complete |
 | LOCK-01 | Phase 15 | Pending |
 | LOCK-02 | Phase 15 | Pending |
 | LOCK-03 | Phase 15 | Pending |
