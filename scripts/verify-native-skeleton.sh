@@ -15,12 +15,18 @@
 # push (aps-environment) pode vazar para nenhum target antes da hora — só
 # a Plano 14-05, depois de um spike aprovado, pode introduzir isso.
 #
+# A checagem (e) foi adicionada depois de um bug real: native-info passava
+# em (d) — autolinking o "encontrava" no disco — mas nunca era compilado no
+# projeto Xcode porque faltava apple.podspecPath/package.json/dependência de
+# workspace. (e) prova o resultado terminal (ios/Podfile.lock), não só a
+# descoberta, para os dois módulos locais.
+#
 # Uso:
 #   bash scripts/verify-native-skeleton.sh
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das quatro checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das cinco checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 
 set -euo pipefail
@@ -33,7 +39,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As quatro checagens (a)-(d). Chamadas duas vezes (rodada 1 e rodada 2),
+# As cinco checagens (a)-(e). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -77,7 +83,26 @@ rodar_checagens() {
     exit 1
   fi
 
-  amarelo "  Rodada ${rodada}: (a)-(d) OK."
+  # (e) autolinking "search" só prova que o módulo foi ENCONTRADO no disco —
+  # não que ele foi de fato COMPILADO no projeto. O bug real (fase 14) foi
+  # exatamente esse: native-info passava em (d) mas nunca aparecia no
+  # Podfile.lock porque faltava apple.podspecPath/package.json/dependência
+  # no workspace, então NativeInfoModule não existia em tempo de execução
+  # no device. Por isso (e) checa o resultado terminal do `pod install`
+  # (ios/Podfile.lock) para os dois módulos locais, não só a descoberta.
+  local modulo_local
+  for modulo_local in AppGroupSpikeModule NativeInfoModule; do
+    if ! grep -q "^  ${modulo_local}:" ios/Podfile.lock 2>/dev/null; then
+      vermelho "ABORTADO: [rodada ${rodada}] ${modulo_local} não está linkado em ios/Podfile.lock."
+      echo "  Módulo presente em disco (checagem d) mas nunca compilado no" >&2
+      echo "  projeto Xcode gerado — confira apple.podspecPath no" >&2
+      echo "  expo-module.config.json do módulo, o .podspec correspondente e" >&2
+      echo "  a entrada de dependência (\"*\") em package.json/workspaces." >&2
+      exit 1
+    fi
+  done
+
+  amarelo "  Rodada ${rodada}: (a)-(e) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info)..."
