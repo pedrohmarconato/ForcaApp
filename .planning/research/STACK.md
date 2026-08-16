@@ -1,29 +1,20 @@
 # Stack Research
 
-**Domain:** PWA de primeira classe no iOS — instalação, offline, push (Expo SDK 54 web export + Vercel + Flask)
-**Researched:** 2026-08-14
-**Confidence:** MEDIUM-HIGH (versões verificadas direto no npm/PyPI; padrões de integração verificados no guia oficial Expo e no `vercel.json`/`public/index.html` já existentes no repo)
+**Domain:** iOS native app extras on top of an Expo SDK 54 / RN 0.81 app — interactive Live Activity (ActivityKit + App Intents), local notifications, background audio + TTS — built and signed with a **free Apple personal team** (sideload only, no APNs, no App Groups entitlement).
+**Researched:** 2026-08-15
+**Confidence:** MEDIUM — versions and official-doc claims are HIGH confidence (npm registry, Expo `bundledNativeModules.json`, Apple docs via search); the free-personal-team + App-Groups-free ActivityKit architecture is a **synthesized recommendation cross-checked across multiple sources**, not something anyone has published as a turnkey recipe. Treat the "no App Groups" path as the top implementation risk to smoke-test before building on it (see the Stack Patterns section).
 
-## Estado atual do repo (não é gap — já existe)
+## The one finding that shapes everything else
 
-Antes de recomendar qualquer coisa nova, o que já está feito precisa ficar registrado para o
-roadmap não redigitar:
+**A free/personal Apple team cannot get the App Groups entitlement.** Multiple independent sources (Apple docs mirrors, community troubleshooting threads, forum posts) agree: App Groups is a capability-based entitlement gated to Apple Developer Program members ($99/year); Xcode's "Personal Team" cannot request it, and there is no manual workaround. This kills the *tutorial-default* Live Activity architecture, which almost universally uses an App Group to share `UserDefaults`/a container between the app target and the widget-extension target.
 
-- `public/manifest.json` já existe: nome, `display: standalone`, `theme_color`/`background_color`
-  `#0A0A0A`, ícones 192/512 (`any` + `maskable`).
-- `public/index.html` já tem `<link rel="manifest">`, `apple-mobile-web-app-capable`,
-  `apple-mobile-web-app-status-bar-style`, `apple-mobile-web-app-title` e
-  `<link rel="apple-touch-icon">`.
-- `public/icons/apple-touch-icon.png`, `icon-192.png`, `icon-512.png` já existem.
-- `vercel.json` já tem CSP restritiva (`script-src 'self'` **sem** `unsafe-inline`,
-  `worker-src 'self' blob:`, `manifest-src 'self'`) e já tem `Cache-Control: no-cache` para
-  `/manifest.json`.
+The way out, also confirmed from Apple's own App Intents design: an App Intent that conforms to **`LiveActivityIntent`** (not the generic `AppIntent`) has its `perform()` executed **in the host app's process**, not the widget extension's process — this is Apple's documented mechanism for exactly this scenario (interactive Lock Screen/Dynamic Island buttons that need to talk to app state) and it needs **no shared storage**. Combined with the fact that **local-only Live Activities (no push token requested) need only `NSSupportsLiveActivities = YES` in Info.plist — no entitlement at all**, the whole feature is buildable on a free personal team as long as you deliberately avoid App Groups everywhere:
 
-**O que falta de verdade para o v1.2:** service worker (não existe nenhum arquivo `sw.js` nem
-registro), splash screens iOS (`apple-touch-startup-image` — só o ícone existe, não a
-startup image), infraestrutura de push (VAPID + envio + tabela de subscription), página de
-instalação guiada, e o header de `Cache-Control` do próprio service worker no `vercel.json`
-(hoje só cobre `manifest.json`).
+- Widget extension target: scaffolded, but its `expo-target.config.js` must **not** declare `com.apple.security.application-groups`.
+- Interactive buttons: implemented as `LiveActivityIntent`s, whose `perform()` runs in-process in the main app and can call straight into your Expo Module / JS bridge.
+- Activity lifecycle (`request` / `update` / `end`): called from a custom Expo Module in the **main app target**, using `pushType: .none` (local-only, no APNs, no `usernotifications` entitlement).
+
+This constraint is the reason the recommendation below favors a **thin, hand-written Expo Module** over any of the current third-party ActivityKit wrapper libraries — none of them document that they use `LiveActivityIntent`/App-Group-free wiring, and getting this wrong is the difference between "works on free team" and "silently needs a paid account."
 
 ## Recommended Stack
 
@@ -31,115 +22,101 @@ instalação guiada, e o header de `Cache-Control` do próprio service worker no
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **workbox-cli** | 7.4.1 (verificado no npm, `dist-tags.latest`) | Gera o service worker (`generateSW`) a partir do export estático do Metro | O suporte a PWA do `expo-cli`/webpack morreu com a migração para Metro em SDK 50+. O **guia oficial atual do Expo** (`docs.expo.dev/guides/progressive-web-apps`) recomenda explicitamente seguir o guia do Workbox CLI, trocando o "build script" deles por `npx expo export -p web`. Não existe suporte nativo Expo/Metro para isso — é tooling externo, igual a um projeto HTML puro. |
-| **pwa-asset-generator** | 8.1.5 (verificado no npm) | Gera `apple-touch-startup-image` (splash iOS) a partir de uma imagem-fonte, incluindo variantes dark-mode e as media queries de `<link>` | iOS **não lê o Web App Manifest** para ícone/splash — exige tags `<link rel="apple-touch-icon">` (já existe) e `<link rel="apple-touch-startup-image">` (não existe) para cada combinação de resolução/orientação de dispositivo. Gerar isso à mão é ~30+ combinações; `pwa-asset-generator` é o gerador padrão da comunidade (baseado em Puppeteer, atualizado 2 meses atrás, 94 versões publicadas). |
-| **pywebpush** | 2.4.0 (verificado no PyPI) | Envia push via Web Push Protocol assinado com VAPID, do backend Flask existente | O backend já é Flask/Python (`backend/Dockerfile`, `python:3.11-slim`). `pywebpush` é a lib de referência do ecossistema Python para Web Push + VAPID (traz `py-vapid` como dependência transitiva para gerar/assinar as chaves). Não há motivo para introduzir Node/Deno só para push quando o servidor de push já existe. |
-| **Web Push API nativa do navegador** (`ServiceWorkerRegistration.pushManager`, `Notification`) | Padrão da plataforma, sem pacote npm | Cliente pede permissão, cria a subscription (`pushManager.subscribe({applicationServerKey})`) e mostra a notificação (`self.registration.showNotification` dentro do SW) | iOS 16.4+ implementa o padrão Web Push nativamente — **não precisa** de SDK de push (Firebase Cloud Messaging, OneSignal etc.). Adicionar um SDK de terceiros aqui é complexidade e dependência de vendor que o app de ~20 usuários não precisa. |
+| `@bacons/apple-targets` | `^5.0.0` (peer `expo>=52`, so SDK 54-safe) | Config plugin that scaffolds the WidgetKit/ActivityKit extension target (`/targets` dir) and re-adds it on every `expo prebuild --clean` | The de facto standard for adding native Apple targets to an Expo prebuild app (formerly a Evan Bacon side project, now documented as "Expo Apple Targets"); files live outside `/ios` and survive CNG regeneration — the only property that matters given this repo has no committed `ios/` dir. Requires Xcode 16+ and CocoaPods 1.16.2+ (both satisfied: Xcode 26 installed). **Do not** put `com.apple.security.application-groups` in its `expo-target.config.js` or in `app.json`'s `ios.entitlements` — that's the App Groups trap on free team. |
+| Hand-written Expo Module (Swift), e.g. `modules/live-activity/` | N/A — built in-repo via `npx create-expo-module --local` | Bridges JS ↔ `ActivityKit`: `Activity<SessionAttributes>.request(attributes:content:pushType:.none)`, `.update(...)`, `.end(...)`, and hosts the `LiveActivityIntent` implementations for "concluir série" / "pular descanso" | No current OSS library (checked below) documents interactive-button + App-Group-free wiring. The Expo Modules API (Swift, New Architecture-native) is the sanctioned way to add native code to a prebuild app without hand-editing `/ios`, and gives full control over `pushType: .none` and `LiveActivityIntent` placement — the two details that make this work without a paid account. Building it in-repo also means only ~150-250 lines of Swift, well inside "many small files" territory. |
+| `expo-notifications` | `~0.32.17` (exact SDK 54-pinned version per Expo's `bundledNativeModules.json`) | Local (non-push) scheduled notification for "fim do descanso" | Local notifications need zero entitlements on any account tier — this is the one piece of the milestone with no free-team risk at all. Already the standard Expo notification API; this milestone only needs the local-scheduling half (`scheduleNotificationAsync`), not push. |
+| `expo-speech` | `~14.0.8` (SDK 54-pinned) | Text-to-speech for the hands-free spoken cues ("próxima série", "descanso terminado") | First-party, zero native ceremony, works in background once the audio session is configured for background playback (see `expo-audio` row). No credible third-party alternative is more current or better maintained for on-device TTS in Expo. |
+| `expo-audio` | `~1.1.1` (SDK 54-pinned) | Background audio session (`AVAudioSession` category `.playback`) that keeps the process alive during a hands-free session and lets `expo-speech` cues play with the screen locked | Successor to `expo-av` (which is legacy/frozen); SDK 54 already ships `expo-av ~16.0.8` for back-compat but **do not start new work on it** — `expo-audio` is the maintained path. Needs `ios.infoPlist.UIBackgroundModes: ["audio"]` in `app.json` (config-plugin-managed, survives prebuild) plus `setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'duckOthers' })` at runtime. |
+| `expo-build-properties` | `~1.0.10` (SDK 54-pinned) | Sets the widget-extension target's iOS deployment target / Swift settings during prebuild | Needed because the ActivityKit extension target requires iOS 16.1+ (Dynamic Island needs 16.1, interactive buttons need 17.0) while the main app may target an older floor; this plugin is the standard way to pin per-target build settings without touching generated Xcode project files by hand. |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| **workbox-build** | 7.4.1 | Variante programática do `workbox-cli generateSW` (mesma engine, chamável de um script Node) | Só se o build script do `vercel.json` precisar de lógica condicional (ex.: `runtimeCaching` diferente por ambiente). Para este projeto, o CLI (`npx workbox-cli generateSW workbox-config.js`) já resolve — não trocar sem necessidade concreta. |
-| **py-vapid** | 1.9.4 (latest no PyPI; `pywebpush` já fixa `>=1.7.0`) | Gera o par de chaves VAPID (pública/privada) uma única vez, via `vapid --applicationServerKey` | Rodar uma vez para gerar as chaves e guardá-las como env vars no backend (`VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`) — não é dependência de runtime além do que `pywebpush` já traz. |
+| `react-native-nitro-modules` | `^0.36.5` (only if you adopt a Nitro-based ActivityKit wrapper) | Native module runtime required by `@kingstinct/react-native-activity-kit` | Only pull this in if you decide to prototype against `@kingstinct/react-native-activity-kit` instead of the hand-written module (see Alternatives below) — otherwise skip it entirely, it's an unnecessary dependency for the hand-rolled path. |
+| `expo-task-manager` | `~14.0.9` (SDK 54-pinned) | Only if a later iteration needs background task registration beyond audio-session-keeps-alive | Not required for this milestone's scope (rest alert is a scheduled local notification, not a background task) — list here only so it isn't reached for by habit; background audio mode is sufficient to keep the session "alive" for the hands-free flow. |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `workbox-cli wizard` | Gera `workbox-config.js` interativamente (aponta `globDirectory: 'dist'`, `swDest: 'dist/sw.js'`) | Rodar uma vez, versionar o `workbox-config.js` resultante; não precisa rodar o wizard de novo depois. |
-| `pwa-asset-generator` (CLI) | Gera os PNGs de splash + as tags `<link rel="apple-touch-startup-image">` prontas para colar em `public/index.html` | Usa `puppeteer-core` por baixo — exige um Chrome/Chromium instalado na máquina que roda o gerador (a máquina de dev tem Chrome; não depende de Xcode/toolchain nativa, roda 100% em Node). É passo de geração de asset, não fica no bundle de produção. |
+| Xcode 26 (already installed 2026-08-15) | Compiles the widget-extension target and signs with the Personal Team | Run `sudo xcodebuild -license accept` first (flagged as pending in `PROJECT.md`) — an unaccepted license silently breaks `expo prebuild` / `pod install` on first run. |
+| `npx create-target widget` (from `@bacons/apple-targets`) | Scaffolds the first ActivityKit target interactively | Run once per target; re-running `expo prebuild -p ios --clean` afterward regenerates `/ios` with the target wired in. |
+| `xed ios` | Opens the generated Xcode workspace for manual signing checks | Free personal team requires eyeballing "Signing & Capabilities" for both the app target and the widget-extension target — Xcode will visibly show "no accounts with App Groups capability" if the trap above is hit, which is the fastest way to confirm the architecture holds before writing Swift. |
 
 ## Installation
 
 ```bash
-# Core (devDependencies — tooling de build, não entra no bundle RN)
-npm install -D workbox-cli pwa-asset-generator
+# Core — config plugin + Expo-maintained modules (SDK 54-pinned versions)
+npx expo install expo-notifications@~0.32.17 expo-speech@~14.0.8 expo-audio@~1.1.1 expo-build-properties@~1.0.10
+npm install @bacons/apple-targets@^5.0.0
 
-# Backend (Flask) — adicionar ao requirements.txt, depois regenerar o lock
-# (o Dockerfile já documenta o comando; repetir o mesmo processo):
-#   echo "pywebpush>=2.4,<3.0" >> requirements.txt
-#   uv pip compile requirements.txt --generate-hashes --python-version 3.11 \
-#     --output-file requirements.lock.txt
-pip install pywebpush
+# Scaffold the ActivityKit widget-extension target (interactive, run once)
+npx create-target widget
+
+# Regenerate the iOS project with the target wired in
+npx expo prebuild -p ios --clean
+
+# Hand-written native bridge module (Swift, in-repo)
+npx create-expo-module --local live-activity
 ```
 
-Build script (`package.json`) precisa encadear a geração do service worker **depois** do
-export do Metro, no mesmo padrão que já existe para `verify-web-bundle.mjs`:
-
-```json
-{
-  "scripts": {
-    "build:web": "expo export -p web && npx workbox-cli generateSW workbox-config.js && node scripts/verify-web-bundle.mjs"
-  }
-}
-```
-
-E o `buildCommand` do `vercel.json` precisa do mesmo encadeamento (hoje só tem
-`expo export -p web && node scripts/verify-web-bundle.mjs`).
+No Nitro/third-party ActivityKit package is installed by default — see rationale above and Alternatives below.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|--------------------------|
-| `workbox-cli generateSW` | `vite-plugin-pwa` | **Não se aplica a este projeto.** `vite-plugin-pwa` é plugin de bundler Vite; o Expo 54 usa Metro para o export web. Citar aqui só para descartar explicitamente — é o erro mais comum quando alguém busca "PWA Expo" e cai em tutoriais Vite/CRA. |
-| `workbox-cli generateSW` | `workbox-cli injectManifest` (SW próprio + `self.__WB_MANIFEST`) | Só se precisar de lógica de cache manual complexa (ex.: estratégias diferentes por rota dentro do próprio SW). Para cobrir só o app shell estático + fallback offline, `generateSW` é suficiente e é o que o guia oficial do Expo demonstra. |
-| `pywebpush` (Flask) | Supabase Edge Function (Deno) + `web-push` (npm) | Só faria sentido se o envio de push precisasse rodar fora do backend Flask (ex.: trigger direto de `pg_net`/webhook do Postgres). Como o Flask já existe e já orquestra a lógica de negócio, introduzir Edge Functions só para push é infraestrutura nova sem necessidade — mais um lugar para manter chave/segredo. |
-| Shim caseiro para `Alert.alert` no web (≈20-30 linhas: hook + Modal/`<dialog>` cross-platform) | `@blazejkustra/react-native-alert` (pacote npm, publicado há 11 meses, versão `1.0.0`, zero dependências) | O pacote é jovem (poucas versões, baixa adoção) mas tem API idêntica ao `Alert` nativo e já resolve web via `<dialog>` — vale considerar **se** o app precisar de `Alert.prompt` (input de texto) ou de mais de 2-3 chamadas de alerta espalhadas pelo código. Para o caso concreto conhecido (botão "Concluir treino" com `Alert.alert` de confirmação), um shim próprio é menos risco de dependência para o ganho. |
+| Hand-written Expo Module for the ActivityKit bridge | `@kingstinct/react-native-activity-kit@0.0.10` (Nitro Modules, peer `react-native>=0.81`, `react>=19.1.0` — both satisfied by SDK 54) | If you want a faster start and are willing to prototype interactive buttons yourself on top of it — it exposes `Activity` lifecycle calls but its README does **not** document `LiveActivityIntent`/App-Group-free interactivity, so you'd still be writing that part by hand. At version `0.0.10` it is pre-1.0 and a small team; fine for a personal app, riskier if this ever needs to be relied on unattended. |
+| `@bacons/apple-targets` | `@kingstinct/expo-apple-targets` (community fork) or `@niondigital/widgets-expo-config-plugin` (adds SPM-package support to the widget target) | Reach for the `niondigital` plugin only if the widget extension needs a Swift Package Manager dependency (e.g. a charting library) that `@bacons/apple-targets` doesn't handle — not needed for this milestone's scope. |
+| Local-only `Activity.request(..., pushType: .none)` | Push-to-start / ActivityKit push updates via APNs | Never on the free personal team — push-based Live Activity updates require `com.apple.developer.usernotifications.time-sensitive`/push entitlements that are Developer-Program-gated. Already vetoed in `PROJECT.md`. |
+| `expo-audio` for background audio | `react-native-track-player` | Only if the hands-free mode grows into a full "audio player with lock-screen transport controls" (play/pause/skip on the Lock Screen media widget, not the workout's own Live Activity) — out of scope here since the Live Activity itself *is* the lock-screen surface. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|--------------|
-| Suporte PWA embutido do `expo-cli` / webpack (`expo build:web`, `web.pwa` no `app.json` antigo) | Removido/morto desde a migração do Expo para Metro (SDK 50+). Qualquer tutorial que mencione `expo build:web` ou `app.json > expo.web.pwa` é de uma versão do Expo que não existe mais no SDK 54. | `workbox-cli` pós-build, como documentado no guia oficial atual do Expo. |
-| `react-native-alert` (pacote npm **sem escopo**, de `leecade`) | Publicado há mais de 1 ano, com `peerDependency`/`dependency` em `react-native@^0.3.11` — incompatível com RN 0.81.5 do projeto. É um nome parecido que aparece em buscas e não é o mesmo pacote do `@blazejkustra/react-native-alert`. | `@blazejkustra/react-native-alert` (se optar por lib) ou shim caseiro (recomendado acima). |
-| SDK de push de terceiro (OneSignal, Pushly, MagicBell, PushEngage) | iOS 16.4+ já expõe Web Push padrão nativamente; essas SDKs existem para abstrair diferenças entre navegadores/plataformas que este projeto não tem (é só iOS Safari PWA + eventualmente Chrome/Android). Custo, vendor lock-in e mais uma conta externa para um app de ~20 usuários. | `pywebpush` + `py-vapid` no Flask existente + Web Push API nativa no cliente. |
-| `workbox-window` no cliente | Camada de conveniência para registrar/observar o SW com eventos (`waiting`, `controlling`). Adiciona um pacote runtime para algo que é ~10 linhas de `navigator.serviceWorker.register()` + listener de `updatefound`. | Registro manual direto (ver nota de CSP abaixo) — mais simples e sem dependência nova no bundle web. |
+| `expo-widgets` (official, `expo/expo` monorepo, currently alpha) | Two disqualifying facts, both verified: (1) its first `dist-tag` is `sdk-55` — it does not exist for SDK 54, the app's current SDK, so adopting it means an SDK bump that's explicitly out of scope for this milestone; (2) its own docs say App Groups are "required for widgets to work properly" and it auto-provisions them — exactly the entitlement the free personal team cannot get. Revisit this package once the project is on SDK 55+ **and** either pays for a Developer account or Apple relaxes the App Groups restriction for personal teams (neither is true today). | `@bacons/apple-targets` + hand-written Expo Module, as recommended above. |
+| `expo-live-activity` (Software Mansion) | Archived/deprecated by its own maintainers as of 2026-06-01; the repository is explicitly read-only and its README redirects to `expo-widgets` — which is itself disqualified above. | `@bacons/apple-targets` + hand-written Expo Module. |
+| Any App Group / shared `UserDefaults(suiteName:)` / shared container between app and widget-extension target | Not provisionable on a free personal team; this is the #1 way this milestone silently turns into "needs $99/year." | `LiveActivityIntent` (perform() runs in-process in the main app) for button actions; direct `Activity.update()` calls from the main app for content refresh — neither needs shared storage. |
+| Push-based Live Activity updates / push-to-start / any APNs entitlement | Explicitly vetoed in `PROJECT.md` for the free-team constraint; also gated behind Developer Program entitlements the personal team cannot request. | Local-only `Activity.request(pushType: .none)`, updated directly from the app while it's foregrounded/backgrounded-with-audio-session-alive. |
+| `expo-av` for new background-audio work | Expo's own docs mark it legacy/frozen in favor of `expo-audio`; it will not receive the newer background-session APIs. | `expo-audio` (`~1.1.1`, SDK 54-pinned). |
+| Disabling the New Architecture to "simplify" things | SDK 54 is the *last* SDK where New Arch can even be turned off, and it's already the default; the New-Arch-only packages evaluated above (Nitro-based `@kingstinct/react-native-activity-kit`) would stop being an option, and SDK 55+ removes the toggle entirely, so any config drift here is a dead end. | Leave `newArchEnabled` unset / default (confirmed default-on for SDK 54 in this repo — `app.json` has no override). |
 
 ## Stack Patterns by Variant
 
-**Sobre o que o service worker deve (e não deve) cachear:**
-- Escopo do SW = **app shell estático** (precache dos assets do `dist/` gerados pelo Metro +
-  `navigateFallback` para `/index.html`, coerente com o rewrite já existente no `vercel.json`
-  que manda toda rota não-asset para `/index.html`).
-- **Não** adicionar `runtimeCaching` para as chamadas de API (Flask `forca-api.cadastrai.com`
-  nem Supabase) no `workbox-config.js`. O app já tem um outbox offline-first no cliente via
-  `AsyncStorage` (v1.0/REQ-07) — deixar o SW interceptar e cachear respostas de API cria uma
-  segunda camada de "verdade offline" competindo com o outbox, com risco real de dado velho
-  sobrevivendo a um retry (o mesmo modo de falha que REQ-07 já existe para evitar). Deixar a
-  chamada de API falhar naturalmente offline e o outbox já existente cuidar da fila.
+**Before writing any Swift for the interactive Live Activity:**
+- Build the smallest possible skeleton first — a static (non-interactive) Live Activity target scaffolded by `@bacons/apple-targets`, with no App Groups entitlement declared anywhere, signed to the device with the personal team.
+- If Xcode's "Signing & Capabilities" pane shows the widget-extension target signs cleanly with **zero** capabilities beyond the default, the no-App-Groups architecture is confirmed viable end to end before a line of ActivityKit/App Intents code is written.
+- Only after that smoke test succeeds, add `ActivityKit`/`SwiftUI` frameworks, the `NSSupportsLiveActivities` Info.plist key, and then the `LiveActivityIntent`-based buttons.
 
-**Sobre registrar o service worker sob a CSP atual do projeto:**
-- O guia oficial do Expo mostra registrar o SW com um `<script>` **inline** dentro de
-  `public/index.html`. O `vercel.json` deste projeto já define
-  `Content-Security-Policy: script-src 'self'` (sem `'unsafe-inline'`, sem nonce) — um
-  `<script>` inline **quebra silenciosamente sob essa CSP** (o navegador bloqueia, sem erro
-  visível fora do console).
-- Registrar o SW a partir do próprio bundle JS da aplicação (ex.: um `useEffect` no ponto de
-  entrada, chamando `navigator.serviceWorker.register('/sw.js')`) em vez do `<script>` inline
-  do guia — isso roda como parte do bundle já servido de `'self'`, respeitando a CSP existente
-  sem precisar afrouxá-la.
-- `worker-src 'self' blob:'` já presente na CSP é suficiente para o SW rodar; não precisa mexer
-  nessa diretiva.
+**If the 7-day personal-team provisioning expiry makes daily re-signing painful:**
+- Automate `expo prebuild` + `xcodebuild -allowProvisioningUpdates` + install-to-device as a single documented script (already flagged as a needed "rotina de reassinatura semanal" in `PROJECT.md`) — this is a workflow/tooling concern, not a stack choice, but it directly affects how often the Live Activity target needs re-signing since extension targets re-sign along with the app.
+
+**If interactive buttons in the Dynamic Island / Lock Screen turn out to need data the app hasn't loaded yet (cold start):**
+- Keep the `ContentState` (`ActivityAttributes.ContentState`) self-sufficient — encode everything the widget needs to render (current exercise name, set index, rest seconds remaining) directly in the pushed content rather than expecting the widget to reach back into app state, since there is no App Group to reach through anyway.
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
-|-----------|-----------------|-------|
-| `workbox-cli@7.4.1` | Node **>= 20.0.0** (`engines.node` do pacote) | `package.json` do projeto hoje declara `"engines": { "node": ">=16" }` — **atualizar para `>=20`** antes de encadear `workbox-cli` no `buildCommand` da Vercel, senão o build da Vercel pode resolver um Node antigo e o passo de `generateSW` falha. Confirmar também a versão de Node configurada no projeto Vercel (Settings → Node.js Version). |
-| `pwa-asset-generator@8.1.5` | Node **>= 18** | Compatível com o Node 24 já usado na máquina de dev; sem conflito. |
-| `pywebpush@2.4.0` | Python **>= 3.10** (`requires_python` do PyPI) | O container de produção (`backend/Dockerfile`) já roda `python:3.11-slim` — compatível. A **máquina de desenvolvimento local tem Python 3.9.6** (`python3 --version`) — não dá para rodar/testar `pywebpush` direto nesse interpretador; testar via Docker (`backend/Dockerfile`) ou criar um venv local com Python ≥3.10. |
-| `pywebpush@2.4.0` | `cryptography>=47.0.0`, `py-vapid>=1.7.0` (deps transitivas) | Nenhum conflito com o `requirements.txt` atual (Flask, anthropic, jsonschema, requests, gunicorn não fixam `cryptography`). Regenerar `requirements.lock.txt` com `uv pip compile` como o `Dockerfile` já documenta. |
-| Web Push API (cliente) | Safari iOS **16.4+**, exige o PWA **instalado na Tela de Início** | Não funciona dentro da aba do Safari (só depois de "Adicionar à Tela de Início" + reabrir pelo ícone). A permissão de notificação só pode ser solicitada a partir de um gesto explícito do usuário (tap em botão) — não pode disparar o prompt automaticamente no load. |
+|-----------|------------------|-------|
+| `expo@^54.0.36` | `react-native@0.81.x`, `react@19.1.x` | Confirmed via Expo's SDK 54 changelog: "React Native 0.81 + React 19.1." Matches this repo's existing pin. |
+| `@bacons/apple-targets@^5.0.0` | `expo>=52` (peer dep) | No SDK-54-specific dist-tag exists for this package — it's not part of the Expo-maintained `bundledNativeModules` set — but the peer range and multiple 2026 tutorials confirm SDK 54/55 usage. Requires CocoaPods 1.16.2+, Xcode 16+ (Xcode 26 exceeds this). |
+| `expo-notifications@~0.32.17`, `expo-speech@~14.0.8`, `expo-audio@~1.1.1`, `expo-build-properties@~1.0.10` | `expo@54.0.36` | These exact versions are the ones Expo's own `bundledNativeModules.json` (`sdk-54` branch) pins — installing via `npx expo install <pkg>` inside this repo will resolve to these automatically; hand-pinning avoids a silent SDK-55 drift from `npm install <pkg>@latest`. |
+| `@kingstinct/react-native-activity-kit@0.0.10` (if adopted instead of the hand-written module) | `react-native>=0.81`, `react>=19.1.0`, `react-native-nitro-modules>=0.29.4` | Requires the New Architecture (Nitro Modules only run on Fabric/TurboModules) — satisfied by SDK 54's default-on New Arch in this repo, but would be a **hard blocker** if this project ever disables New Arch. |
+| Widget-extension target (any variant) | iOS 16.1+ floor (Dynamic Island), iOS 17.0+ floor (interactive buttons via App Intents) | Device is confirmed on iOS 26.x in `PROJECT.md`, well above both floors — no runtime gating needed, but the extension target's own deployment-target build setting (via `expo-build-properties`) must not be left at the app's older default if one exists. |
 
 ## Sources
 
-- `docs.expo.dev/guides/progressive-web-apps` (guia oficial Expo, verificado via fetch direto em 2026-08-14) — confirma que o suporte PWA do Metro é manual/externo (Workbox CLI) e não nativo; confiança HIGH (fonte oficial primária, verificada por fetch direto).
-- `npmjs.com` / registry npm (`npm view <pkg>`, consulta direta em 2026-08-14) — versões `workbox-cli@7.4.1`, `workbox-build@7.4.1`, `pwa-asset-generator@8.1.5`, `react-native-alert@1.0.3` (leecade, obsoleto), `@blazejkustra/react-native-alert@1.0.0`, `web-push@3.6.7`: confiança HIGH (fonte primária — registro oficial do pacote, não busca web).
-- `pypi.org/pypi/pywebpush/json` e `pypi.org/pypi/py-vapid/json` (consulta direta em 2026-08-14) — `pywebpush@2.4.0`, `requires_python>=3.10`, `py-vapid@1.9.4`: confiança HIGH (fonte primária).
-- Busca web (WebSearch, sem MCP Exa/Context7 disponível nesta sessão) sobre requisitos de instalação PWA no iOS Safari, Web Push iOS 16.4+, `pwa-asset-generator` (README do GitHub `elegantapp/pwa-asset-generator`), configuração de `Cache-Control` no Vercel: confiança MEDIUM — resultados agregados de múltiplas fontes (MDN, web.dev, blogs de push-vendors, docs Vercel), sem fetch direto de cada página; usado só para confirmar padrões amplamente documentados, não números/versões.
-- `vercel.json`, `public/index.html`, `public/manifest.json`, `backend/Dockerfile`, `package.json`, `requirements.txt` do próprio repo (lidos diretamente em 2026-08-14) — confiança HIGH (estado real do código, não inferido).
+- npm registry (`registry.npmjs.org`) — direct version/peerDependency queries for `@bacons/apple-targets`, `expo`, `expo-notifications`, `expo-speech`, `expo-audio`, `react-native-widget-extension`, `@kingstinct/react-native-activity-kit`, `react-native-activitykit`, `react-native-live-activities`, `react-native-nitro-modules`, `expo-widgets`, `expo-build-properties` — HIGH confidence (primary registry).
+- Expo `bundledNativeModules.json` for the `sdk-54` branch (`raw.githubusercontent.com/expo/expo/sdk-54/...`) — HIGH confidence (authoritative source for what `npx expo install` resolves to on SDK 54).
+- [Expo Apple Targets docs (Mintlify mirror)](https://evanbacon-expo-apple-targets.mintlify.app/introduction) and [EvanBacon/expo-apple-targets GitHub](https://github.com/EvanBacon/expo-apple-targets) — MEDIUM-HIGH confidence (project docs, cross-checked with README).
+- [software-mansion-labs/expo-live-activity](https://github.com/software-mansion-labs/expo-live-activity) — confirms archived/deprecated status.
+- [expo-widgets on npm](https://www.npmjs.com/package/expo-widgets) and [Expo Widgets docs](https://docs.expo.dev/versions/latest/sdk/widgets/) — confirms alpha status, SDK-55+ floor, mandatory App Groups.
+- Multiple Apple Developer Forums threads and community write-ups on Personal Team limitations (App Groups restriction, 7-day/10-App-ID/3-device limits) and on `LiveActivityIntent` running `perform()` in the app's process — MEDIUM confidence individually, treated as HIGH where 3+ independent threads agreed (App Groups restriction; local-only Live Activity needing no entitlement; `LiveActivityIntent` in-app-process execution).
+- Expo SDK 54 changelog (`expo.dev/changelog/sdk-54`) and related community write-ups — confirms React Native 0.81, React 19.1, New Architecture default-on.
+- This repo's `package.json` / `app.json` — confirms current `expo@^54.0.36` pin and absence of a `newArchEnabled` override (default-on).
 
 ---
-*Stack research for: PWA de primeira classe no iOS (v1.2)*
-*Researched: 2026-08-14*
+*Stack research for: iOS native Live Activity / interactive lock-screen workout companion (v1.3 milestone), on top of an existing Expo SDK 54 / RN 0.81 PWA app*
+*Researched: 2026-08-15*

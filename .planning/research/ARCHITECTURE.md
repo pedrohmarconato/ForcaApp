@@ -1,425 +1,268 @@
 # Architecture Research
 
-**Domain:** PWA de primeira classe no iOS — integração com app Expo/RN-web existente
-**Researched:** 2026-08-14
-**Confidence:** MEDIUM (padrões de mercado bem estabelecidos — Workbox, VAPID, iOS Safari 16.4+ — cruzados com múltiplas fontes; a parte de baixa confiança é o detalhe fino de `pywebpush`, que tem documentação escassa e deve ser validado em spike antes da fase de push)
+**Domain:** Interactive iOS Live Activity + App Intents + background audio, bridged to an existing Expo/RN 0.81 (SDK 54) session-engine app
+**Researched:** 2026-08-15
+**Confidence:** MEDIUM (core mechanics cross-verified across independent sources; exact file layout / package choice is LOW — single-source blog patterns, no first-party "recipe" exists yet for this specific combination)
 
-## Contexto: o que já existe (não re-arquitetar)
+## Standard Architecture
 
-Este projeto NÃO começa do zero. O pipeline de build/deploy, o outbox offline-first,
-o manifest e os ícones iOS já existem e funcionam em produção. O trabalho de v1.2 é
-de **integração**, não de fundação.
-
-| Peça | Estado atual | Arquivo |
-|------|--------------|---------|
-| Build/export | `expo export -p web` → `dist/` → trava `verify-web-bundle.mjs` → deploy Vercel `--prod` | `vercel.json`, `scripts/verify-web-bundle.mjs` |
-| Manifest PWA | Completo — nome, ícones 192/512, standalone, `apple-touch-icon.png` | `public/manifest.json`, `public/index.html` |
-| Meta tags iOS | Já presentes — `apple-mobile-web-app-capable`, `status-bar-style`, `viewport-fit=cover` | `public/index.html` |
-| CSP | Já permite service worker (`worker-src 'self' blob:`) e chamadas Supabase (`connect-src ... https://*.supabase.co wss://*.supabase.co`) | `vercel.json` |
-| Outbox offline-first | AsyncStorage→localStorage, fila por usuário, backoff exponencial, quarentena, dedupe por chave natural | `src/services/sessionOutboxDrain.ts`, `sessionOutboxStorage.ts`, `src/engine/sessionOutboxPolicy.ts` |
-| Platform shim precedente | `Platform.OS === 'web'` guard já usado em 2 lugares (`haptics.ts`, `secureStorage.ts`) | `src/utils/haptics.ts` |
-| Alert.alert | 12 chamadas em 6 arquivos, todas via `import { Alert } from 'react-native'` direto — sem indireção hoje | grep em `src/` |
-
-**Splash screens iOS dedicadas** (`apple-touch-startup-image`) e **service worker**
-(nenhum arquivo `sw.js`/Workbox no repo) são as únicas peças de manifest/instalação
-que faltam de fato — o resto do "manifest completo" já está feito.
-
-## System Overview
+### System Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  BUILD TIME (Vercel buildCommand)                                    │
-│  expo export -p web → dist/  →  [NOVO] gerar sw.js (Workbox CLI      │
-│  generateSW ou injectManifest) → verify-web-bundle.mjs → dist/       │
-├──────────────────────────────────────────────────────────────────────┤
-│  RUNTIME NO IPHONE (PWA instalada, standalone)                       │
-│                                                                        │
-│  ┌────────────┐   ┌───────────────────┐   ┌─────────────────────┐   │
-│  │ App React  │   │ Service Worker     │   │ Push (Notification  │   │
-│  │ Native-Web │◄─►│ (novo, este ciclo) │◄─►│ API do navegador)   │   │
-│  └─────┬──────┘   └─────────┬─────────┘   └──────────┬───────────┘   │
-│        │                    │                          │              │
-│        │ escrita de série   │ cache do app shell        │ subscription │
-│        ▼                    │ (HTML/JS/CSS/ícones)      ▼              │
-│  ┌────────────┐             │                    ┌──────────────┐    │
-│  │ Outbox      │             │ NUNCA intercepta   │ push_        │    │
-│  │ (existente, │             │ POST/PATCH ao      │ subscriptions│    │
-│  │ intocado)   │             │ PostgREST/Supabase │ (Supabase,   │    │
-│  └─────┬──────┘             └──────────────────────┤ nova tabela) │    │
-│        │                                            └──────┬───────┘   │
-├────────┼───────────────────────────────────────────────────┼──────────┤
-│        ▼                                                    │          │
-│  Supabase (Postgres + PostgREST + RLS) — projetos staging/prod        │
-│                                                               │          │
-├──────────────────────────────────────────────────────────────┼──────────┤
-│  BACKEND FLASK (cadastrai.com)                                │          │
-│  [NOVO] job/endpoint que lê push_subscriptions elegíveis  ────┘          │
-│  e envia via pywebpush (VAPID) quando o evento de domínio dispara       │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────── LOCK SCREEN / DYNAMIC ISLAND ─────────────────────────┐
+│  Widget Extension target (SwiftUI, no RN, no JS engine)                            │
+│  ┌───────────────────────────┐   ┌──────────────────────────────────────────┐     │
+│  │ SessionActivityView        │   │ CompleteSetIntent / SkipRestIntent /     │     │
+│  │  - Text(timerInterval:)    │   │ AdjustRestIntent  (LiveActivityIntent)   │     │
+│  │    native countdown        │   │  - STUB copy only; real perform() lives  │     │
+│  │  - Button(_:intent:)       │   │    in the APP target (Apple routes it    │     │
+│  └───────────────────────────┘   │    there automatically), not here        │     │
+└───────────────────────────────────┴──────────────────────────────────────────┘─────┘
+                 ▲ Activity<T>.update(ContentState)          │ system runs perform()
+                 │ (native ActivityKit call)                 │ IN THE APP PROCESS
+┌────────────────┴─────────────────────────────────────────  ▼ ─────────────────────┐
+│                          MAIN APP TARGET (RN 0.81 process)                         │
+│  ┌────────────────────────┐   ┌───────────────────────────────────────────────┐   │
+│  │ modules/live-activity/  │   │ CompleteSetIntent.perform() (REAL copy)       │   │
+│  │  Swift Expo Module      │◄──┤  1. Activity<T>.update(...) immediately       │   │
+│  │  start/update/end +     │   │  2. writes action to App Group UserDefaults   │   │
+│  │  onIntentAction emitter │───►    queue (durable, cold-launch-safe)          │   │
+│  └───────────┬─────────────┘   └───────────────────────────────────────────────┘   │
+│              │ NativeEventEmitter (in-process; only fires if JS bridge is warm)     │
+│              ▼                                                                     │
+│  ┌────────────────────────────────────────────────────────────────────────────┐    │
+│  │ src/native/liveActivitySync.ts  (NEW — sole writer to native surfaces)      │    │
+│  │  subscribes to activeSessionStore; on relevant change → update()/end()      │    │
+│  │  the Activity, (re)schedule/cancel local notification, drain intent queue   │    │
+│  └───────────────────────────┬────────────────────────────────────────────────┘    │
+│                               ▼                                                     │
+│  ┌────────────────────────────────────────────────────────────────────────────┐    │
+│  │ src/store/activeSessionStore.ts  (MODIFIED — Zustand, existing session      │    │
+│  │  engine). Rest-timer state LIFTED here from SessionPlayer.tsx (currently    │    │
+│  │  UI-local). New: restEndsAt, reconcileLiveActivityIntents()                 │    │
+│  └────────────────────────────────────────────────────────────────────────────┘    │
+│                               ▼                                                     │
+│  expo-audio (background session, keeps process/JS alive) + expo-speech cues        │
+│  expo-notifications (local, non-audio-mode fallback)                               │
+└──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## (a) Onde o service worker entra no pipeline de build
+### Component Responsibilities
 
-**Decisão recomendada: pós-processamento do `dist/` gerado pelo `expo export`,
-não injeção no bundle Metro.**
+| Component | Responsibility | Typical Implementation |
+|-----------|----------------|------------------------|
+| Widget Extension target | Renders lock-screen/Dynamic-Island UI; owns the *stub* App Intent copies; **no JS/RN runs here, ever** | SwiftUI `ActivityConfiguration`, generated via `@bacons/apple-targets` |
+| `modules/live-activity/` (new local Expo Module) | Swift↔JS bridge: `startActivity`, `updateActivity`, `endActivity`, `isActivityRunning`, event emitter for intent actions | Expo Modules API (Swift), autolinked via `expo-module.config.json` |
+| App Intents (`CompleteSetIntent`, `SkipRestIntent`, `AdjustRestIntent`) | `LiveActivityIntent`s bound to lock-screen buttons; `perform()` executes **in the app's process**, not the extension | Swift, included in *both* targets (only the app-target copy runs) |
+| App Group shared storage (`group.<bundle-id>`) | Durable, cross-process, cold-launch-safe queue of intent actions; NOT used for the live countdown value (that's push-only via `ContentState`) | `UserDefaults(suiteName:)` |
+| `src/native/liveActivitySync.ts` (new) | **Single writer** to ActivityKit + local notifications; subscribes to the store, translates state diffs into native calls | Zustand `subscribe()` side-effect module, no React tree dependency |
+| `src/store/activeSessionStore.ts` (existing, modified) | Session engine, source of truth for rest-timer state (after lift), reconciliation of intent-queue actions on resume | Zustand — same shape/philosophy as existing offline-outbox reconciliation |
+| `expo-audio` background session | Keeps the iOS process (and therefore the Hermes/JS context) resident while the screen is locked, enabling `expo-speech` cues and JS-driven auto-advance | `AVAudioSession` category `.playback`, `UIBackgroundModes: ["audio"]` |
+| `expo-notifications` | Fallback rest-end alert when NOT in background-audio mode; scheduled/cancelled from the same sync layer | `scheduleNotificationAsync` / `cancelScheduledNotificationAsync` |
 
-O `expo export -p web` produz um bundle React Native-Web comum — não tem
-integração nativa com Workbox (o pacote `expo-service-worker`/PWA plugin da
-Expo foi descontinuado nas versões recentes do SDK; SDK 54 não o inclui). O
-padrão de mercado é: gerar o `dist/` primeiro, depois rodar `workbox generateSW`
-(ou `injectManifest` se quiser controle fino da lógica de runtime caching) como
-um passo adicional no `buildCommand` do `vercel.json`, encadeado da mesma forma
-que `verify-web-bundle.mjs` já é hoje.
-
-```
-"buildCommand": "npx expo export -p web && npx workbox-cli generateSW workbox-config.js && node scripts/verify-web-bundle.mjs"
-```
-
-`generateSW` varre `dist/**/*.{js,css,html,png,...}` e monta o precache manifest
-sozinho — sem precisar de acesso ao grafo interno do Metro. Preferir
-`generateSW` a `injectManifest` neste projeto: o app não tem lógica de runtime
-caching complexa o bastante para justificar escrever o service worker à mão
-(YAGNI); `generateSW` cobre o caso de uso (app shell cache-first + runtime
-caching por regra declarativa) com uma linha de config.
-
-**O que PRECACHEAR (cache-first, revisionado pelo hash do build):**
-- HTML de entrada (`index.html`)
-- Bundle JS principal em `_expo/static/js/` (hoje é 1 arquivo só — `verify-web-bundle.mjs`
-  já trava se virar mais de um, então o precache manifest também fica simples)
-- CSS/fontes/ícones estáticos em `assets/`, `icons/`
-- `manifest.json`
-
-**O que NUNCA cachear (runtime, `NetworkOnly` ou nem registrado como rota do SW):**
-- Qualquer chamada para `*.supabase.co` (REST/PostgREST, Auth, Realtime/`wss://`)
-  — o outbox já resolve offline-first para escrita; deixar o SW interceptar essas
-  chamadas duplicaria a camada de retry (ver seção "e" abaixo) e arriscaria
-  servir dado stale de leitura sem o app saber.
-- Chamadas para `forca-api.cadastrai.com` / `forca-api-hml.cadastrai.com`
-  (geração de plano por IA, chat) — respostas são caras, específicas do
-  usuário e não idempotentes o bastante para cache seguro.
-- Qualquer rota `/api/*` do backend Flask.
-
-Isso é **runtime caching por exclusão**, não por allowlist: o service worker só
-tem rota registrada para os assets estáticos do app shell; tudo que bate em
-`connect-src` do CSP (Supabase + as duas APIs) passa direto pela rede, sem o
-SW no meio. Isso também respeita a CSP existente sem precisar tocar nela — o
-`worker-src 'self' blob:` já cobre o registro do SW.
-
-**Ícones/splash:** o `generateSW` precacheia os arquivos de `public/icons/` e as
-splash screens iOS novas (`apple-touch-startup-image`) automaticamente, desde
-que estejam em `dist/` no momento do `generateSW` rodar — ou seja, DEPOIS do
-`expo export`, que é exatamente a ordem proposta.
-
-## (b) Push notification
-
-### Onde guardar as subscriptions
-
-Nova tabela `push_subscriptions` no Supabase, RLS por usuário — mesmo padrão
-já usado em todo o schema do projeto (RLS por `auth.uid()`, ver migrations
-0021-0037). Estrutura mínima:
-
-```sql
-create table push_subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  endpoint text not null,
-  p256dh text not null,
-  auth text not null,
-  user_agent text,
-  created_at timestamptz not null default now(),
-  last_seen_at timestamptz not null default now(),
-  unique (user_id, endpoint)
-);
--- RLS: usuário só lê/escreve a própria subscription (policy padrão do projeto).
--- Backend Flask usa service_role (bypassa RLS) para LER todas as subscriptions
--- elegíveis na hora de disparar — mesmo padrão que o backend já usa para outras
--- operações privilegiadas (grep GRANT DML nas dívidas conhecidas do STATE.md
--- é o precedente disso já ter mordido o projeto — não repetir).
-```
-
-`unique (user_id, endpoint)` é o dedupe natural: reinstalar o PWA ou trocar de
-iPhone gera um novo `endpoint`, então múltiplas linhas por usuário são
-esperadas (multi-dispositivo), não um bug.
-
-### Quem envia
-
-**Flask + `pywebpush`, não Supabase Edge Function.** Três razões específicas a
-este projeto:
-
-1. O backend Flask já é o único lugar que fala com serviços externos por
-   design (Claude/Anthropic para geração de plano) — introduzir Edge Functions
-   (Deno, runtime diferente, deploy separado) para push seria um SEGUNDO
-   lugar para lógica de servidor, sem necessidade.
-2. O disparo de push nesta feature é acoplado a lógica de domínio que já mora
-   no Flask ou é natural adicionar lá: replanejamento semanal roda como job
-   assíncrono (`services/job_manager.py` já existe para o job de geração de
-   plano — mesmo padrão serve para o job de replanejamento) e lembrete de
-   treino é um cron/scheduler simples de acionar do mesmo processo.
-3. Zero infra nova: `pywebpush` é `pip install pywebpush` no `requirements.txt`
-   existente; Edge Function exigiria Deno + secrets duplicados (VAPID key
-   precisaria estar tanto no Supabase quanto potencialmente no Flask de
-   qualquer forma, para os outros disparos).
-
-**Confiança MEDIUM-BAIXA nesta escolha:** a documentação do `pywebpush` em si é
-escassa (poucas fontes, nenhuma "oficial" robusta) — o padrão de uso
-(`webpush(subscription_info, data, vapid_private_key, vapid_claims={'sub':
-'mailto:...'})`) está bem documentado, mas vale um spike de 1-2h confirmando
-o comportamento de expiração de subscription (HTTP 410 → remover da tabela)
-antes de comprometer a fase inteira a essa lib.
-
-### O que dispara notificação
-
-Dois gatilhos de domínio, mapeados no `PROJECT.md` (target features de v1.2)
-e no fluxo já existente do app:
-
-| Gatilho | Fonte do evento | Quando dispara |
-|---------|------------------|----------------|
-| Lembrete de treino | Agenda do plano (já existe: `src/engine` tem lógica de "hoje é dia de treino") | Cron horário no backend consulta quem tem treino hoje e ainda não abriu a sessão |
-| Replanejamento semanal pronto | `weeklyReplanner`/`weeklyReplanRepository` (já existe, roda no fechamento de semana) | Ao final do job de replanejamento, mesmo processo que já grava o resultado dispara o push |
-
-Não inventar um terceiro gatilho nesta fase (anti-escopo) — o `PROJECT.md` só
-lista esses dois como target feature; qualquer notificação adicional
-(ex.: "série puxando atenção durante o treino") é fora do escopo do v1.2.
-
-## (c) Shim de Alert.alert para web
-
-**Achado importante:** a pesquisa de mercado mostra que `react-native-web`
-tipicamente mapeia `Alert.alert()` para `window.alert`/`window.confirm`
-nativos do browser (degradado, mas funcional — 1-2 botões). A dívida conhecida
-deste projeto (`STATE.md`, MEMORY.md) registra que aqui `Alert.alert` é
-**no-op puro** (botão "Concluir treino" parece morto) — comportamento mais
-grave que a degradação usual, possivelmente por causa da versão/configuração
-específica do `react-native-web@0.21` em uso, ou de uma chamada com `buttons`
-array que RNW não sabe resolver e descarta silenciosamente. Vale um teste
-isolado (`Alert.alert('teste')` puro no Expo web local) para confirmar se É
-mesmo no-op total ou se é `window.confirm` disparando fora do foco visível
-antes de decidir a estratégia — mas a correção proposta abaixo resolve os dois
-casos igualmente.
-
-**Padrão recomendado: wrapper próprio com a MESMA assinatura de `Alert.alert`,
-não `Platform.select` espalhado pelas 6 telas.**
-
-Razão: há 12 chamadas em 6 arquivos hoje — `Platform.select` em cada call site
-duplicaria lógica 12 vezes (viola DRY) e cada nova tela futura reintroduziria o
-bug se esquecer o guard. O precedente do próprio projeto (`haptics.ts`,
-`secureStorage.ts`) já estabelece o padrão certo: **um módulo central que
-decide por `Platform.OS`, chamado com a interface que os call sites já usam.**
-
-```typescript
-// src/utils/alertShim.ts (novo)
-// Alert.alert vira no-op/degradado no PWA (react-native-web) — este wrapper
-// resolve para um Modal próprio no web e repassa para Alert.alert nativo no
-// resto. MESMA assinatura de Alert.alert — call sites não mudam a chamada,
-// só o import.
-import { Alert, Platform } from 'react-native';
-
-type AlertButton = { text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' };
-
-export const showAlert = (title: string, message?: string, buttons?: AlertButton[]): void => {
-  if (Platform.OS !== 'web') {
-    Alert.alert(title, message, buttons);
-    return;
-  }
-  // web: dispara um Modal customizado via store global (Zustand, já é
-  // dependência do projeto) — nunca window.alert/window.confirm, porque
-  // ambos ficam feios/inconsistentes com o tema dark da marca.
-  useAlertStore.getState().show({ title, message, buttons });
-};
-```
-
-Implementação do lado de renderização: um `<AlertHost />` montado uma vez em
-`App.tsx` (raiz da árvore), lendo o mesmo `useAlertStore` (Zustand, já é
-dependência — não introduzir `react-native-modal` nem
-`react-native-web-dialog` como dependência nova quando o `Modal` do RN já
-funciona em todas as plataformas via `react-native-web`). Isso resolve
-simultaneamente a dívida do `Alert.alert` no-op E os botões
-"destructive"/"cancel" com estilo próprio (hoje limitados a `window.confirm`
-no melhor caso).
-
-**Migração dos 12 call sites:** trocar `import { Alert } from 'react-native'`
-por `import { showAlert } from '../utils/alertShim'` e `Alert.alert(...)` por
-`showAlert(...)` — mudança mecânica, sem risco de regressão de lógica porque a
-assinatura é idêntica.
-
-## (d) Página de instalação guiada
-
-**Decisão recomendada: rota dentro do app (React Navigation), não página
-estática separada no site.**
-
-Razões específicas a este projeto:
-
-1. **Site e app são o mesmo deploy.** Não existe hoje um "site" separado do
-   PWA — `forca-app-six.vercel.app` É o app. Uma página estática separada
-   exigiria um segundo projeto Vercel ou uma rota fora do `rewrites` do
-   `vercel.json` (que hoje redireciona TUDO para `index.html` exceto
-   `_expo`/`icons`/`assets`/`manifest.json`/`favicon.ico` — uma página HTML
-   estática nova quebraria esse catch-all ou exigiria uma exceção nova).
-2. **Uma rota dentro do app aproveita o design system e os componentes de UI
-   já existentes** (tema dark, tipografia da marca) em vez de recriar HTML/CSS
-   solto — consistente com o app já ter uma tela de onboarding guiado
-   (`QuestionnaireScreen`, `PostQuestionnaireChat`) no mesmo padrão de
-   passo-a-passo que "instale em 3 passos" pede.
-3. **Detecção de plataforma:** a rota pode usar `Platform.OS === 'web'` +
-   `navigator.userAgent` (checar iOS Safari não-standalone) para decidir se
-   mostra o guia ou redireciona quem já está instalado — lógica que só faz
-   sentido rodando dentro do próprio React Native-Web, não numa página HTML
-   solta sem acesso ao `Platform` do RN.
-
-Rota nova: `/instalar` (ou `/install`), acessível sem autenticação (fora do
-`AuthContext` gate), com 3 passos ilustrados (compartilhar → adicionar à tela
-de início → abrir pelo ícone). Link para essa rota fica no rodapé/tela de
-login para quem chega pelo navegador comum ainda não instalado.
-
-## (e) Interação do service worker com o outbox offline-first
-
-**Regra central: o service worker NUNCA intercepta, cacheia ou reenvia
-chamadas ao Supabase/PostgREST.** Isso não é uma escolha de performance — é
-para não duplicar a camada de retry que já existe e já está testada em
-produção (outbox: backoff exponencial, quarentena, dedupe por chave natural,
-mutex por usuário via `withOutboxTransaction`).
-
-Se o service worker registrasse uma rota de runtime caching (ou pior, Background
-Sync) para as chamadas de `saveSetLog`/`finishSessionLog` etc., o app teria
-DUAS filas de retry independentes e sem coordenação — o outbox no `AsyncStorage`
-(camada de aplicação, com política de negócio: P0001 sessão fechada, payload
-shape guard, expiração) e uma fila do Background Sync do navegador (camada de
-rede, sem noção nenhuma dessas regras). Um reenvio duplicado por duas camadas
-diferentes é exatamente o tipo de bug (mutação duplicada de estado) que as
-regras globais deste projeto pedem para prevenir com teste antes de
-implementar.
-
-**Divisão de responsabilidade, sem sobreposição:**
-
-| Camada | Responsabilidade | Não faz |
-|--------|-------------------|---------|
-| Outbox (existente) | Retry/backoff/quarentena de MUTAÇÕES de execução de treino (RPCs Supabase) | Não lida com cache de assets estáticos |
-| Service Worker (novo) | Cache do app shell (HTML/JS/CSS/ícones) para abrir offline | Não intercepta `connect-src` (Supabase/APIs) — nenhuma rota registrada para esses hosts |
-
-**O que "abrir sem rede" significa concretamente nesta arquitetura:** o SW
-serve o app shell do cache (React Native-Web monta normalmente); a partir daí,
-o outbox já sabe lidar com "sem rede" para as mutações (é o comportamento que
-a Fase 4 do v1.0 já validou com UAT em modo avião). O service worker não
-precisa reimplementar nada disso — só precisa garantir que o JS do outbox
-CARREGUE mesmo sem rede. Isso é puramente precache do bundle, já coberto pela
-seção (a).
-
-**Único ponto de atenção genuíno:** o `Content-Security-Policy` do
-`vercel.json` já declara `no-cache` para `manifest.json` e para o HTML de
-entrada (regra catch-all) — o service worker precisa de uma estratégia de
-update (`skipWaiting`/`clientsClaim` do Workbox, com prompt de "nova versão
-disponível" ou update silencioso no próximo load) para não travar o usuário
-numa versão antiga do bundle enquanto a Vercel já serve uma nova — mesma
-preocupação que o time já tem hoje com cache agressivo (headers
-`Cache-Control: public, max-age=31536000, immutable` em `_expo/static/`, que
-JÁ dependem do hash do arquivo mudar a cada build; o SW deve confiar nesse
-mesmo mecanismo, não inventar um segundo).
-
-## Anti-Patterns a evitar neste projeto
-
-### Anti-Pattern 1: Service Worker com Background Sync para as escritas do outbox
-
-**O que seria tentador fazer:** usar a Background Sync API do navegador para
-"garantir" que os POSTs cheguem mesmo com o app fechado.
-**Por que é errado aqui:** o outbox já resolve isso na camada de aplicação com
-regras de negócio específicas (P0001, quarentena, expiração) que o Background
-Sync do navegador não conhece. Duas filas = risco de duplo envio ou de
-reconciliação inconsistente.
-**Fazer em vez disso:** deixar o outbox como está; o SW só cuida do app shell.
-
-### Anti-Pattern 2: `injectManifest` com lógica de runtime caching escrita à mão para tudo
-
-**O que seria tentador fazer:** escrever um `sw.js` totalmente manual para ter
-controle fino.
-**Por que é errado aqui:** o app não tem necessidade de estratégia de cache
-complexa (é um app shell único, sem múltiplas rotas HTML) — `generateSW` do
-Workbox resolve com configuração declarativa, e reduz superfície de bug num
-sistema (service worker) notoriamente difícil de debugar/atualizar em
-produção.
-**Fazer em vez disso:** `generateSW`, revisitar `injectManifest` só se uma
-necessidade real de runtime caching custom aparecer.
-
-### Anti-Pattern 3: Edge Function do Supabase para o envio de push
-
-**O que seria tentador fazer:** já que as subscriptions moram no Supabase,
-enviar o push de lá também (Postgres trigger → Edge Function).
-**Por que é errado aqui:** fragmenta a lógica de servidor em dois runtimes
-(Flask/Python e Deno/TS) para uma feature que é naturalmente acoplada ao job
-de replanejamento e ao scheduler que já vivem no Flask.
-**Fazer em vez disso:** Flask + `pywebpush`, lendo a tabela via service_role.
-
-## Build Order Recomendada
-
-A ordem respeita dependências reais (não é só prioridade de produto):
+## Recommended Project Structure
 
 ```
-1. Fechar Alert.alert (independente de tudo)
-   └─ Sem dependência de infra nova. Desbloqueia UAT confiável das telas
-      afetadas ANTES de mexer em service worker (que também muda o
-      comportamento de load/refresh dessas mesmas telas — melhor isolar).
-
-2. Splash screens iOS (independente, paralelo ao item 1)
-   └─ Só assets + meta tags em index.html. Zero código de lógica.
-
-3. Service worker (app shell only, sem push ainda)
-   └─ Depende do pipeline de build (buildCommand do vercel.json) —
-      trava com verify-web-bundle.mjs já dá o precedente de "passo
-      adicional encadeado". Testável isoladamente (offline real) antes
-      de push, que depende de SW registrado para expor
-      PushManager.subscribe().
-
-4. Página de instalação guiada
-   └─ Pode rodar em paralelo ao item 3 (rota nova, não toca no SW) —
-      mas fica mais completa reference-ando o resultado do item 3
-      ("funciona offline") como parte do pitch de instalação.
-
-5. Push notification (subscription no cliente + tabela + endpoint Flask)
-   └─ DEPENDE do item 3 (service worker precisa estar registrado para
-      PushManager.subscribe() funcionar) e do item 1 (a UI de "permitir
-      notificações" provavelmente usa o alertShim/dialog para o convite
-      de opt-in, já que Notification.requestPermission() exige gesto
-      direto do usuário — um botão de UI é o gesto).
+app.config.ts                    # NEW — replaces static app.json (plugins need JS logic)
+targets/
+└── session-widget/              # NEW — generated target via @bacons/apple-targets
+    ├── expo-target.config.js    #   declares frameworks: SwiftUI, ActivityKit; type: "widget"
+    ├── SessionWidgetBundle.swift
+    ├── SessionActivityView.swift        # Text(timerInterval:), Button(_:intent:)
+    ├── SessionActivityAttributes.swift  # SOURCE OF TRUTH copy — see anti-pattern below
+    ├── Intents/
+    │   ├── CompleteSetIntent.swift      # STUB perform() (app target has the real one)
+    │   ├── SkipRestIntent.swift
+    │   └── AdjustRestIntent.swift
+    └── Assets.xcassets/
+modules/
+└── live-activity/               # NEW — local Expo Module (autolinked, survives prebuild)
+    ├── expo-module.config.json
+    ├── index.ts                 # startActivity/updateActivity/endActivity/drainIntentQueue
+    ├── ios/
+    │   ├── LiveActivityModule.swift
+    │   └── SessionActivityAttributes.swift  # DUPLICATE — synced by scripts/sync-activity-attrs.sh
+    └── src/types.ts              # ContentState / Attributes TS mirror, hand-kept in sync
+src/
+├── native/
+│   └── liveActivitySync.ts      # NEW — sole caller of modules/live-activity + expo-notifications
+├── store/
+│   └── activeSessionStore.ts    # MODIFIED — rest-timer state + reconcileLiveActivityIntents()
+├── components/session/
+│   └── SessionPlayer.tsx        # MODIFIED — reads restEndsAt from store, drops local timer state
+└── services/
+    └── liveActivityQueueRepository.ts  # NEW — thin read/drain wrapper over the App Group queue
 ```
 
-**Item 5 é o que mais precisa de spike prévio** (confiança MEDIUM-BAIXA em
-`pywebpush`, comportamento de expiração de subscription, teste real em iPhone
-16.4+ instalado — o iOS só permite testar o fluxo de push DE VERDADE com o
-PWA instalado na Tela de Início, não no Expo web local; isto é uma limitação
-de verificação que a máquina sem toolchain nativa já teria de qualquer forma,
-mas aqui é mais severa: nem simulador ajuda, precisa do hardware).
+### Structure Rationale
+
+- **`targets/` at repo root (not under `ios/`):** `ios/` is not committed (CNG/prebuild) — anything meant to survive `expo prebuild --clean` must live outside it. `@bacons/apple-targets` reads `targets/*/expo-target.config.js` at prebuild time and regenerates the Xcode target every run — this is the *only* mechanism in this stack that satisfies the milestone's "prebuild regenerates everything" requirement.
+- **`modules/live-activity/` as a local Expo Module, not a third-party package:** the interactive bridge here is tightly coupled to `activeSessionStore`'s exact shape (exercise id, set order, rest end timestamp) and to a one-user personal app. `expo-widgets` (Expo's own upcoming widgets library) is alpha, dated for SDK 55 (this project is on SDK 54), and its App Intents wiring is undocumented — too immature to depend on for a feature this central. `expo-live-activity` (Software Mansion Labs) is explicitly deprecated. A ~150-line hand-written Swift module gives full control over the exact ContentState shape and the intent-queue draining, and is the pattern every working interactive-Live-Activity + RN blog post converges on.
+- **`liveActivitySync.ts` as a separate module, not inlined in `SessionPlayer.tsx`:** every native-surface write (Activity update, notification schedule/cancel) must happen from exactly one place, or the widget, the notification, and the JS UI drift out of sync — the same reason this codebase already centralizes offline writes behind `sessionOutboxDrain.ts` rather than scattering them across components.
+
+## Architectural Patterns
+
+### Pattern 1: App Intent perform() runs in-process; App Group queue is the *durable* channel, not the *only* channel
+
+**What:** iOS documents that when a `LiveActivityIntent` button is tapped, `perform()` executes in the **main app's process** (confirmed independently across Apple Developer Forum threads and a dedicated blog post). If the app process is already resident (e.g. kept alive by the background-audio session), `perform()` runs in the *same* process as the live RN/Hermes JS context, so an in-process `NotificationCenter` post → `NativeEventEmitter` → JS listener round-trip is instant. If the app process was *not* resident, iOS may briefly launch it to run `perform()`, but there is no guarantee the RN bridge finishes bootstrapping before the process is suspended again — Headless JS (the Android mechanism for "run JS with no UI") does not exist on iOS.
+
+**When to use:** Any button that must eventually reach the JS session engine (`completeSet`) needs BOTH paths: (1) an immediate native `Activity<T>.update()` call inside `perform()` for lock-screen feedback that never depends on JS being alive, and (2) a durable write to an App Group `UserDefaults` queue that JS drains on the next `startOrResume`/foreground — exactly mirroring the reconciliation this codebase already does for offline writes (`applyServerSetLogs` treats the server as authoritative and replays it into the draft on resume; here the *App Group queue* plays that role for intent actions between activation and JS reconciliation).
+
+**Trade-offs:** Simpler alternatives (cross-process Darwin notifications via `CFNotificationCenter`) are unnecessary complexity here — they exist to reach a *different* process (the extension), but `perform()` never runs there for `LiveActivityIntent`. Relying only on the in-process emitter without the App Group queue is the trap: it works perfectly on-device during testing (app usually resident) and silently drops actions the one time the process was evicted — a classic "works until it doesn't" bug.
+
+**Example:**
+```swift
+// targets/session-widget/Intents/CompleteSetIntent.swift (app-target copy is the real one)
+struct CompleteSetIntent: LiveActivityIntent {
+    func perform() async throws -> some IntentResult {
+        if let activity = Activity<SessionActivityAttributes>.activities.first {
+            var state = activity.content.state
+            state = state.advancingToNextPendingSet() // pure, native-side projection
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+        }
+        IntentActionQueue.shared.append(.completeSet(exerciseId: exerciseId, setOrder: setOrder))
+        return .result()
+    }
+}
+```
+
+### Pattern 2: Absolute end-timestamp, not remaining-seconds, is the wire format for the rest timer
+
+**What:** `Text(timerInterval:pauseTime:countsDown:showsHours:)` renders a live countdown *entirely on the system's rendering side* — once pushed, it needs zero further app/JS activity to keep ticking down, which is the whole point of putting it on the lock screen. It takes a `ClosedRange<Date>`, not a mutable "seconds remaining" integer. It also has no native pause/resume: every adjustment (±30s, skip, early set completion) must compute a *new* end `Date` and push a fresh `ContentState`.
+
+**When to use:** Any time-based Live Activity element (rest timer here). This directly conflicts with the current implementation: `SessionPlayer.tsx` today tracks `restRemaining`/`restTotal` as **local component state** advanced by a JS `setInterval` (see `restTick` ref, `ajustarRest`, `endRest`) — nothing about it is expressible as a fixed Date range, and it lives outside the store entirely. This state must be **lifted into `activeSessionStore`** as a `restEndsAt: string | null` (ISO timestamp) computed once when rest starts, so both the JS UI and `liveActivitySync.ts` read the same absolute value.
+
+**Trade-offs:** Losing the "sub-second ring animation" the current `setInterval` drives is a UI-only concern — the in-app ring can still animate locally off `restEndsAt` (derive remaining = `restEndsAt - now()` each tick), it's only the *storage* of truth that needs to move, not the visual polish. `staleDate` has a hard **minimum of 2 minutes** from now — a stale marker set sooner than that silently won't fire; don't use it to signal "rest is over," use the timer's own zero-crossing plus a real `update()`/`end()` call instead.
+
+### Pattern 3: The Live Activity is a mirror, never a source of truth
+
+**What:** Every existing write path in this codebase treats the server (`set_logs`, `session_logs`) as authoritative, with local drafts, outboxes, and reconciliation existing only to survive flaky connectivity (`comment in activeSessionStore.ts`: "erro do banco ao gravar uma série NÃO marca a série como feita"). The Live Activity/App Intent layer must slot into the *same* hierarchy: App Group queue actions are provisional, optimistic native-side projections until JS drains them through the existing `completeSet`/offline-outbox path, which is what actually persists to Supabase.
+
+**When to use:** Always, for this milestone. Concretely: `CompleteSetIntent.perform()` never talks to Supabase directly and never marks a set "done" in any durable store other than the App Group queue + the Live Activity's own visual state — persistence still flows exclusively through `activeSessionStore.completeSet()` → `enqueueAndDrain()` → `sessionOutboxDrain.ts`, unchanged.
+
+**Trade-offs:** This means a tap on the lock screen can visually show "set completed" a few seconds (or, worst case, until the user next opens the app) before it is actually durable — acceptable for a personal, single-user app; unacceptable to skip flagging, since it's the one place this milestone's design deliberately trades strict consistency for lock-screen responsiveness.
+
+## Data Flow
+
+### Interactive tap → visible feedback → durable state (two speeds, one queue)
+
+```
+[Lock screen button tap]
+    ↓ system routes to APP TARGET's LiveActivityIntent copy
+[CompleteSetIntent.perform()]  ← runs in main app PROCESS (not extension)
+    ↓ (native, synchronous, no JS needed)          ↓ (durable, cold-launch-safe)
+[Activity<T>.update(newState)]           [App Group UserDefaults queue += action]
+    ↓                                                ↓
+[Lock screen re-renders instantly]      [drained next startOrResume() / foreground,
+                                          OR instantly via NativeEventEmitter if the
+                                          JS bridge happens to already be warm]
+                                                     ↓
+                                     [activeSessionStore.completeSet() — existing path,
+                                      same offline-outbox, same Supabase write]
+```
+
+### Store → native surfaces (one-way, single writer)
+
+```
+[activeSessionStore state changes: set completed / rest starts / rest adjusted / session ends]
+    ↓ (Zustand subscribe(), NOT component effects — survives screen unmounts)
+[src/native/liveActivitySync.ts]
+    ├──► modules/live-activity: updateActivity(ContentState{ restEndsAt, exerciseName, setLabel })
+    ├──► expo-notifications: cancel previous rest-end notification, schedule a new one
+    │      (only when NOT in background-audio hands-free mode)
+    └──► expo-audio / expo-speech: no direct call here — the JS setInterval loop that
+           drives spoken cues reads restEndsAt from the SAME store field, so both native
+           surfaces and the audio loop are always derived from one number, never two
+```
+
+### Key Data Flows
+
+1. **JS-initiated updates (app foreground, normal use):** `completeSet`/rest-adjust actions flow through the store as today; `liveActivitySync.ts` observes the resulting state change and pushes it outward. No new inbound path — this is the low-risk, build-first direction.
+2. **Native-initiated updates (lock screen, app backgrounded or evicted):** `perform()` writes the App Group queue; `activeSessionStore.reconcileLiveActivityIntents()` (new, called at the top of `startOrResume`, same place `applyServerSetLogs` already reconciles server truth) drains and replays it into the SAME `completeSet`/timer actions used by the JS-initiated path — one action implementation, two entry points.
+
+## Scaling Considerations
+
+Not a multi-user/traffic concern (personal, single-device app) — the axis that matters here is **process residency and battery**, not load:
+
+| Scenario | Approach |
+|----------|----------|
+| Screen locked, no background audio (buttons only, no auto-advance) | Process is *not* guaranteed resident; rely entirely on the App Group queue + `Text(timerInterval:)` native rendering. No JS assumption allowed. |
+| Screen locked, hands-free/background-audio mode active | Process stays resident (audio background mode); JS timers, `expo-speech`, and the in-process `NativeEventEmitter` path all work reliably — this is the ONLY mode where "JS reacts instantly to a lock-screen tap" can be assumed. |
+| Phone call / audio interruption mid-session | `AVAudioSession` interruption fires; audio session (and the "keeps process alive" guarantee) can lapse. Must resume via the existing `startOrResume` reconciliation on next foreground — do not build a bespoke recovery path. |
+| Multiple days without opening the app (Personal Team profile expiry) | Out of scope for this file (build/signing concern, not runtime architecture) — but note the Live Activity itself has its own OS-enforced lifetime (auto-ends after ~8h of inactivity/staleness) independent of the 7-day signing expiry. |
+
+### Scaling Priorities
+
+1. **First bottleneck: process eviction while NOT in audio mode.** This is the default/common case (dono not always running hands-free mode) — the App Group queue is not optional infrastructure, it is the primary contract, not a fallback.
+2. **Second bottleneck: `SessionActivityAttributes.swift` drift.** Because `@bacons/apple-targets`-style setups duplicate the shared struct file between the widget target and the app-target module rather than truly sharing it (confirmed pattern in the one detailed walkthrough found), any field added to the session's ContentState later must be changed in both copies or the widget silently fails to decode. Mitigate with a `scripts/sync-activity-attrs.sh` diff-check in CI/pre-commit, not documentation alone.
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Treating remaining-seconds as the wire value for the rest timer
+
+**What people do:** Keep the existing `restRemaining`/`restTotal` + `setInterval` pattern (from `SessionPlayer.tsx`) and try to "push updates every second" to the Live Activity to keep it in sync.
+**Why it's wrong:** `Text(timerInterval:)` is specifically designed so the system renders the countdown without any app activity; pushing per-second updates burns the (limited, rate-limited) Live Activity update budget for nothing and still can't outrun the process being suspended — the moment JS stops ticking (locked screen, no audio mode), a seconds-based push falls behind or freezes while the *native* timer field would have kept counting correctly on its own.
+**Instead:** Push `restEndsAt` (an absolute `Date`) exactly once per rest period plus once per adjustment. Zero updates in between.
+
+### Anti-Pattern 2: Using Darwin notifications (`CFNotificationCenter`) to reach the App Intent
+
+**What people do:** Reach for `CFNotificationCenter`/Darwin notifications by default for "extension talks to app" because that's the classic iOS widget/extension IPC pattern (and is exactly what the general research surfaced for widget↔app communication).
+**Why it's wrong:** For `LiveActivityIntent` specifically, Apple already routes `perform()` into the app's own process — there is no cross-process boundary to cross for the *intent handling itself*. Building a Darwin-notification relay here is solving a problem that doesn't exist for this intent type, and adds a failure mode (Darwin notifications aren't delivered to a fully terminated process either, so it buys nothing over the App Group queue approach that already has to exist for the cold-launch case).
+**Instead:** Use the in-process `NotificationCenter`/`NativeEventEmitter` path for the "JS already alive" fast case, and the App Group `UserDefaults` queue for the durable/cold-launch case. No Darwin notifications needed anywhere in this feature.
+
+### Anti-Pattern 3: Letting the widget extension's App Intent copy contain real logic
+
+**What people do:** Implement `perform()` fully in the file that lives under `targets/session-widget/Intents/`, assuming "it's the intent's file, it should have the intent's logic."
+**Why it's wrong:** If the SAME intent type is also compiled into the app target (required, since that's the copy that actually executes), duplicate real logic in both copies risks the extension's copy accidentally running instead (has happened per Apple Forums reports when the intent isn't correctly included in the app bundle) with no access to the App Group write succeeding silently differently, or double-writes if both somehow fire.
+**Instead:** Widget-extension copy is an intentional stub (or shares only the `IntentPerformable`-conforming struct declaration); the app-target copy — living under `modules/live-activity/ios/` or a dedicated `App/Intents/` folder in the app target — is the one with real `perform()` logic.
 
 ## Integration Points
 
-### External Services
+### External Services / Frameworks
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Workbox CLI | Passo de build (`generateSW`) encadeado no `buildCommand` do `vercel.json`, depois do `expo export` | Não é dependência de runtime do app — só do build |
-| Web Push API (browser) | `navigator.serviceWorker.ready.pushManager.subscribe(...)` no cliente, chamado a partir de um gesto do usuário na página de instalação/onboarding | Exige HTTPS (já garantido pela Vercel) e SW registrado |
-| pywebpush (backend) | `pip install pywebpush`, chamado pelo job/scheduler existente (`job_manager.py`) | Validar tratamento de HTTP 410 (subscription expirada) em spike |
+| Service/Framework | Integration Pattern | Notes |
+|--------------------|---------------------|-------|
+| ActivityKit (`Activity<SessionActivityAttributes>`) | Native Swift, called from `modules/live-activity/ios/LiveActivityModule.swift` and from `CompleteSetIntent.perform()` | No push infra needed — this milestone is local-only (no APNs), so only `Activity.request`/`.update`/`.end` are used, never push-token subscriptions |
+| App Intents framework | `LiveActivityIntent` conformance on 3 intents (`CompleteSetIntent`, `SkipRestIntent`, `AdjustRestIntent`) | Must be included in BOTH targets per Apple's requirement; only app-target copy's `perform()` runs |
+| `@bacons/apple-targets` (config plugin) | `app.config.ts` plugins array; `targets/session-widget/expo-target.config.js` declares the target | This is the mechanism that satisfies "prebuild regenerates everything" — verify it is still actively maintained before locking in (check npm activity at plan time; this is a small ecosystem) |
+| `expo-audio` | `UIBackgroundModes: ["audio"]` in `app.config.ts` `ios.infoPlist`; continuous low-level playback (not a "silent trick" workaround since there is no App Store review for a personal sideload) holds `AVAudioSession.Category.playback` active | Confirmed via Expo's own docs: `shouldPlayInBackground`/background modes config is first-party supported |
+| `expo-speech` | Called from a JS interval inside `liveActivitySync.ts` or a sibling hands-free-mode module, reading `restEndsAt` from the store — never called from native Swift | Only works because the audio background mode keeps the JS context alive; do not build this before the audio-mode work lands |
+| `expo-notifications` | `scheduleNotificationAsync`/`cancelScheduledNotificationAsync`, driven from the same `liveActivitySync.ts` subscribe callback that drives the Activity update | Independent of ActivityKit — can be built and verified before any Live Activity work exists, as an early low-risk milestone slice |
 
 ### Internal Boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| Service Worker ↔ App shell | Cache-first via precache manifest do Workbox | Sem comunicação com o outbox — camadas independentes |
-| Outbox ↔ Supabase/PostgREST | RPC direta (fetch/`@supabase/supabase-js`), sem passar pelo SW | Nenhuma rota do SW registrada para `*.supabase.co` |
-| `alertShim` ↔ Telas existentes | Import trocado (`Alert` → `showAlert`), mesma assinatura | 12 call sites, migração mecânica |
-| Backend Flask ↔ `push_subscriptions` | Leitura via `service_role` (bypassa RLS), mesmo padrão de outras operações privilegiadas do backend | Não expor `service_role` no cliente — só no Flask |
+| `activeSessionStore.ts` ↔ `liveActivitySync.ts` | Zustand `subscribe()` (one-way, store → sync layer) | New file; must NOT be imported by any React component — it is a background side-effect module wired up once (e.g. in the app's root layout / a `useEffect(() => activateLiveActivitySync(), [])`) |
+| `liveActivitySync.ts` ↔ `modules/live-activity` | Direct function calls (`startActivity`/`updateActivity`/`endActivity`) + one `addListener('onIntentAction', ...)` | The event listener is the "fast path" only; correctness must never depend on it firing |
+| `modules/live-activity` (native) ↔ App Group queue | `UserDefaults(suiteName: "group.<bundle-id>")`, JSON-encoded array, drained (read + clear) atomically | Same suite name string must match across app target, widget extension target, AND the module's entitlements — verify by diffing the three `.entitlements` files, a documented cross-target failure mode |
+| `activeSessionStore.startOrResume` ↔ App Group queue | New `reconcileLiveActivityIntents()` step, called before/alongside existing `local`/`server` reconciliation | Mirrors `applyServerSetLogs`: replay provisional native actions the same way server-confirmed set logs are already replayed on resume |
+| `SessionPlayer.tsx` ↔ `activeSessionStore.ts` | MODIFIED: rest timer reads (`restEndsAt`) instead of owning `rest`/`restRemaining`/`restTotal`/`restTick` locally | The in-app countdown ring can still recompute remaining-time locally each animation frame from `restEndsAt`, but must not be the value pushed anywhere else |
+
+## Recommended Build Order (walking skeleton first)
+
+Ordered by hard dependency, not by feature priority — each step needs the previous step's plumbing proven on a real device (Live Activity/App Intent behavior cannot be trusted from the simulator alone for lock-screen/interactive testing):
+
+1. **Sideload build exists** *(prerequisite from a different phase, not this research — flagged because everything below is unverifiable without it)*: `expo prebuild` + free Apple ID signing producing a launchable on-device dev-client build.
+2. **Walking skeleton — non-interactive Activity:** `modules/live-activity` + `targets/session-widget` scaffolded via `@bacons/apple-targets`; JS calls `startActivity`/`updateActivity`/`endActivity` with static text (exercise name, "set 2/4"); no timer, no buttons, no App Group. Proves the prebuild + target + Swift module round-trip works at all — the highest-uncertainty plumbing (config plugin behavior, entitlements, Expo Module autolinking) isolated from any session-logic risk.
+3. **Native rest timer:** lift rest-timer state from `SessionPlayer.tsx` into `activeSessionStore` (`restEndsAt`), render `Text(timerInterval:)` in the widget. Still no interactive buttons. Proves the "absolute timestamp, push-once" pattern and validates the store refactor in isolation.
+4. **Local notification fallback (can build in parallel with step 3, no ActivityKit dependency):** `expo-notifications` scheduled/rescheduled from `liveActivitySync.ts`. Lowest-risk, most standard piece of the whole milestone — good candidate to land early for a quick win even though it's logically the "audio mode off" counterpart to later steps.
+5. **App Intents (interactive buttons):** `CompleteSetIntent`/`SkipRestIntent`/`AdjustRestIntent`, App Group UserDefaults queue, `reconcileLiveActivityIntents()` in the store. Built LAST among the Activity-specific work — highest risk (entitlement wiring under free/personal-team signing, `perform()`-in-app-process edge cases, dual-target intent duplication) and most benefits from steps 2–3 already being stable so failures are attributable.
+6. **Background audio + hands-free mode:** `expo-audio` background session + `expo-speech` cues, reading `restEndsAt` from the store via a JS interval kept alive by the audio session. Built LAST overall — depends on step 3's store refactor (a stable, store-level `restEndsAt` to read) and is the highest-uncertainty runtime behavior (process residency across phone calls, screen lock, extended idle) requiring the most on-device soak testing.
 
 ## Sources
 
-- [PWA push notifications on iOS 16.4 — pwa.io](https://pwa.io/articles/web-push-with-ios-safari-16-4-made-easy) (MEDIUM — cruzado com Pushly, PushEngage, Apple Developer Forums)
-- [Setting up Web Push on iOS/iPadOS — PushEngage](https://www.pushengage.com/documentation/setting-up-web-push-notifications-for-ios-ipad/) (MEDIUM)
-- [Safari on Mobile — Pushly](https://documentation.pushly.com/integration/web-browser-push/safari/safari-on-mobile-ios-ipados) (MEDIUM)
-- [Precaching dos and don'ts — Chrome for Developers / Workbox](https://developer.chrome.com/docs/workbox/precaching-dos-and-donts) (MEDIUM)
-- [Caching resources during runtime — Workbox](https://developer.chrome.com/docs/workbox/caching-resources-during-runtime/) (MEDIUM)
-- [Progressive web apps — Expo Documentation](https://docs.expo.dev/guides/progressive-web-apps/) (MEDIUM — confirma que Expo não tem integração nativa de PWA/SW no SDK atual)
-- [Flask-pyWebPush — GitHub](https://github.com/illright/flask-pywebpush) (LOW — poucas fontes independentes, validar em spike)
-- [Python Web Push com Flask — Gabriele Romanato](https://gabrieleromanato.name/python-how-to-implement-web-push-notifications-in-flask) (LOW)
-- [React Native Alert.alert não funciona no web — w3tutorials](https://www.w3tutorials.net/blog/react-native-alert-alert-only-works-on-ios-and-android-not-web/) (MEDIUM)
-- [React Native custom alert patterns — Medium](https://medium.com/react-native-custom-alert/react-native-custom-alert-c85514311cc4) (MEDIUM)
-- Codebase (fonte primária, HIGH): `vercel.json`, `public/manifest.json`, `public/index.html`, `src/services/sessionOutboxDrain.ts`, `src/services/sessionOutboxStorage.ts`, `src/utils/haptics.ts`, `backend/app.py`, `requirements.txt`, `.planning/PROJECT.md`
+- [expo-live-activity (Software Mansion Labs) — GitHub](https://github.com/software-mansion-labs/expo-live-activity) — MEDIUM (deprecated status noted; corroborates the "config plugin creates a target" pattern)
+- [Expo Widgets documentation](https://docs.expo.dev/versions/latest/sdk/widgets/) — LOW (alpha `expo-widgets` package; API surface described but interactive App Intents wiring not documented)
+- [Home screen widgets and Live Activities in Expo — Expo blog](https://expo.dev/blog/home-screen-widgets-and-live-activities-in-expo) — LOW (dated for SDK 55, ahead of this project's SDK 54; informative but not yet applicable)
+- [How to build a live activity with Expo, SwiftUI and React Native — christopher.engineering](https://christopher.engineering/en/blog/live-activity-with-react-native/) — LOW (single detailed source for the local-Expo-Module + `@bacons/apple-targets` pattern; file-duplication gotcha confirmed here)
+- [Interactivity with Live Activities and App Intents — Ben Frearson](https://bfrearson.github.io/blog/ios-live-activties/) — MEDIUM (cross-verified with Apple Developer Forums on the "perform() runs in app process" claim)
+- [Forcing an AppIntent to run in the main app process — Zach Waugh](https://zachwaugh.com/posts/forcing-appintent-to-run-in-main-app-process) — MEDIUM (independent corroboration of the same in-process claim)
+- [Apple Developer Forums — Widgets & Live Activities topic](https://developer.apple.com/forums/topics/app-and-system-services/app-and-system-services-widgets-and-live-activities) — MEDIUM (source of the `Text(timerInterval:)`, `staleDate` minimum-2-minutes, and Personal Team App Groups findings, cross-checked across multiple threads)
+- [Signing With a Free Personal Team — zudo-tauri-wisdom](https://takazudomodular.com/pj/zudo-tauri/docs/mobile/ios-signing-free-team/) — MEDIUM (confirms App Groups entitlement available on free personal team, 7-day profile expiry independent concern)
+- [Expo Audio (expo-audio) documentation](https://docs.expo.dev/versions/latest/sdk/audio/) — MEDIUM (official docs; `UIBackgroundModes: ["audio"]` config confirmed)
+- [Headless JS — React Native docs](https://reactnative.dev/docs/headless-js-android) — HIGH (official docs; explicitly Android-only, ruling out that mechanism for the iOS cold-launch case)
 
 ---
-*Architecture research for: PWA de primeira classe no iOS (v1.2)*
-*Researched: 2026-08-14*
+*Architecture research for: Interactive Live Activity / App Intents integration into an existing Expo SDK 54 session-engine app (ForcaApp v1.3)*
+*Researched: 2026-08-15*
