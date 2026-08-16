@@ -12,10 +12,17 @@ let appGroupSpikeSuiteName = "group.com.pmarconato.forcaapp.shared"
 let appGroupSpikeKey = "appGroupSpikeValue"
 
 func readAppGroupSpikeValueFromSharedDefaults() -> String? {
+  NSLog("[AppGroupSpike] read invoked for suiteName \(appGroupSpikeSuiteName)")
   guard let defaults = UserDefaults(suiteName: appGroupSpikeSuiteName) else {
+    NSLog("[AppGroupSpike] read FAILED — UserDefaults(suiteName:) returned nil for \(appGroupSpikeSuiteName)")
     return nil
   }
-  return defaults.string(forKey: appGroupSpikeKey)
+  guard let value = defaults.string(forKey: appGroupSpikeKey) else {
+    NSLog("[AppGroupSpike] read OK — suite accessible but key \(appGroupSpikeKey) is absent (nil value)")
+    return nil
+  }
+  NSLog("[AppGroupSpike] read OK — value=\(value)")
+  return value
 }
 
 public class AppGroupSpikeModule: Module {
