@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as quatro condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as seis condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -21,12 +21,23 @@
 # workspace. (e) prova o resultado terminal (ios/Podfile.lock), não só a
 # descoberta, para os dois módulos locais.
 #
+# A checagem (f) foi adicionada depois de outro bug real (Plano 14-04):
+# scripts/resign.sh buildava em configuração Debug, que NÃO embute
+# main.jsbundle (só roda com um Metro dev server). O app instalava e abria
+# no device, mas nenhuma linha de JS executava — provado empiricamente na
+# Plano 14-06. (f) é uma checagem estática e barata (grep em resign.sh, sem
+# build) porque provar de verdade que main.jsbundle está embutido exigiria
+# rodar um build Release inteiro (minutos) dentro deste gate, que roda a
+# cada `npm run resign` — trade-off inaceitável para uma checagem que já
+# roda 2x por chamada. A checagem estática não prova o bundle em si, mas
+# prova que a config que o gera (Release) não regrediu para Debug.
+#
 # Uso:
 #   bash scripts/verify-native-skeleton.sh
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das cinco checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das seis checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 
 set -euo pipefail
@@ -39,7 +50,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As cinco checagens (a)-(e). Chamadas duas vezes (rodada 1 e rodada 2),
+# As seis checagens (a)-(f). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -108,7 +119,26 @@ rodar_checagens() {
     fi
   done
 
-  amarelo "  Rodada ${rodada}: (a)-(e) OK."
+  # (f) scripts/resign.sh precisa continuar buildando em -configuration
+  # Release. Ver o bloco de comentário acima da função para o porquê. Não
+  # depende de ios/ nem do prebuild desta rodada — é uma checagem estática
+  # do próprio script, mas roda dentro do loop por simplicidade (é
+  # instantânea; não há custo em rodar 2x).
+  if grep -q -- "-configuration Debug" scripts/resign.sh 2>/dev/null; then
+    vermelho "ABORTADO: [rodada ${rodada}] scripts/resign.sh voltou a usar -configuration Debug."
+    echo "  Debug não embute main.jsbundle — o app instala e abre, mas nenhuma" >&2
+    echo "  linha de JS roda (precisa de Metro). Troque para -configuration" >&2
+    echo "  Release (e o find em DerivedData correspondente para" >&2
+    echo "  *Release-iphoneos*)." >&2
+    exit 1
+  fi
+  if ! grep -q -- "-configuration Release" scripts/resign.sh 2>/dev/null; then
+    vermelho "ABORTADO: [rodada ${rodada}] scripts/resign.sh não declara -configuration Release."
+    echo "  Confira a etapa 4/8 de scripts/resign.sh." >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(f) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info)..."
