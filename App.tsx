@@ -9,6 +9,7 @@ import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
+import ProvisioningBanner from './src/components/ProvisioningBanner';
 import PushInviteHost from './src/components/PushInviteHost';
 import theme from './src/theme/theme';
 
@@ -35,6 +36,7 @@ export default function App() {
       <StatusBar style="light" />
       <RootNavigator />
       <UpdateBanner />
+      <ProvisioningBanner />
       <AlertHost />
       {/* Depois de AlertHost: precisa que alertStore/AlertHost já estejam
           prontos para receber o showAlert() do convite único de opt-in
