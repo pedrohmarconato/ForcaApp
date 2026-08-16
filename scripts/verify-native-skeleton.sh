@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# scripts/verify-native-skeleton.sh — trava de regressão do esqueleto nativo
+# (target de widget + módulo Expo local).
+#
+# Por que existe: `expo prebuild --clean` regenera `ios/` do zero a cada
+# execução. Se o target `session-widget` (via @bacons/apple-targets) ou o
+# módulo `native-info` (autolinked) pararem de sobreviver a um --clean —
+# por drift de config, plugin quebrado, ou edição acidental fora do padrão
+# esperado — o sintoma só aparece na hora do build físico, potencialmente
+# no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
+# as quatro condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# sem alteração de estado para confirmar que o resultado é estável.
+#
+# Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
+# push (aps-environment) pode vazar para nenhum target antes da hora — só
+# a Plano 14-05, depois de um spike aprovado, pode introduzir isso.
+#
+# Uso:
+#   bash scripts/verify-native-skeleton.sh
+#   npm run verify:native
+#
+# Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
+# != 0 = alguma das quatro checagens falhou; a mensagem ABORTADO diz qual
+# e como corrigir.
+
+set -euo pipefail
+
+readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+vermelho() { printf '\033[1;31m%s\033[0m\n' "$*"; }
+amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
+verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
+
+# ---------------------------------------------------------------------------
+# As quatro checagens (a)-(d). Chamadas duas vezes (rodada 1 e rodada 2),
+# sem nenhuma mudança de arquivo entre elas, para provar idempotência.
+# ---------------------------------------------------------------------------
+rodar_checagens() {
+  local rodada="$1"
+
+  # (a) prebuild --clean precisa terminar sem erro.
+  if ! npx expo prebuild -p ios --clean --non-interactive >/tmp/verify-native-skeleton-prebuild.log 2>&1; then
+    vermelho "ABORTADO: [rodada ${rodada}] expo prebuild -p ios --clean falhou."
+    echo "  Veja: /tmp/verify-native-skeleton-prebuild.log" >&2
+    echo "  Corrija o erro de prebuild e rode de novo: npx expo prebuild -p ios --clean" >&2
+    exit 1
+  fi
+
+  # (b) o target session-widget precisa sobreviver ao --clean.
+  if ! grep -q session-widget ios/*.xcodeproj/project.pbxproj 2>/dev/null; then
+    vermelho "ABORTADO: [rodada ${rodada}] target session-widget não sobreviveu ao --clean."
+    echo "  Confira targets/session-widget/expo-target.config.js e o plugin" >&2
+    echo "  \"@bacons/apple-targets\" em app.json (expo.plugins)." >&2
+    exit 1
+  fi
+
+  # (c) nenhum .entitlements gerado pode conter aps-environment. Usa `find`
+  # (não glob) porque o target de widget grava seu entitlements dentro de
+  # ios/.targets/<slug>/ — um diretório oculto que ios/*/*.entitlements não
+  # alcança.
+  local arquivo_entitlements
+  while IFS= read -r arquivo_entitlements; do
+    if grep -q aps-environment "$arquivo_entitlements" 2>/dev/null; then
+      vermelho "ABORTADO: [rodada ${rodada}] aps-environment vazou para ${arquivo_entitlements}."
+      echo "  Nenhum plano antes da Plano 14-05 (spike de App Group aprovado)" >&2
+      echo "  pode declarar essa capability. Remova de app.json/expo-target.config.js." >&2
+      exit 1
+    fi
+  done < <(find ios -name '*.entitlements')
+
+  # (d) o módulo native-info precisa aparecer no autolinking do iOS.
+  if ! npx expo-modules-autolinking search --platform ios 2>/dev/null | grep -q native-info; then
+    vermelho "ABORTADO: [rodada ${rodada}] módulo native-info não foi autolinked."
+    echo "  Confira modules/native-info/expo-module.config.json e que o módulo" >&2
+    echo "  está sob o nativeModulesDir default (./modules)." >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(d) OK."
+}
+
+echo "Verificando esqueleto nativo (session-widget + native-info)..."
+
+# Cada chamada aborta com "ABORTADO: [rodada N] ..." e exit 1 assim que
+# encontrar uma falha — nenhuma das duas rodadas usa subshell, então a
+# mensagem de erro chega ao terminal (não fica presa numa captura de
+# variável) e o `set -e` propaga o exit imediatamente. Se as duas rodadas
+# terminarem sem abortar, o resultado foi idêntico (PASS/PASS) nas duas
+# execuções sem nenhuma mudança de estado entre elas.
+rodar_checagens 1
+rodar_checagens 2
+
+verde "OK: esqueleto nativo sobrevive ao --clean (2x consecutivas)."
+exit 0

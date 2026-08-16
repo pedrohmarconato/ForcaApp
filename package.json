@@ -28,7 +28,8 @@
     "postinstall": "patch-package",
     "test:integration:pg": "jest --config jest.integration.config.js",
     "generate:pwa-assets": "CHROME_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" npx pwa-asset-generator@8.1.5 assets/icon.png public/splash --splash-only --portrait-only --scrape true --type png --padding \"20%\" --background \"#0A0A0A\"",
-    "build:web": "npx expo export -p web && npx workbox generateSW workbox-config.cjs && node scripts/verify-web-bundle.mjs"
+    "build:web": "npx expo export -p web && npx workbox generateSW workbox-config.cjs && node scripts/verify-web-bundle.mjs",
+    "verify:native": "bash scripts/verify-native-skeleton.sh"
   },
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
