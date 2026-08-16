@@ -5,10 +5,15 @@ export type NativeInfoModuleEvents = {
 };
 
 declare class NativeInfoModuleType extends NativeModule<NativeInfoModuleEvents> {
-  PI: number;
-  hello(): string;
-  setValueAsync(value: string): Promise<void>;
+  getProvisioningProfileExpiry(): Promise<string | null>;
 }
 
 // This call loads the native module object from the JSI.
-export default requireNativeModule<NativeInfoModuleType>('NativeInfoModule');
+const NativeInfoModule = requireNativeModule<NativeInfoModuleType>('NativeInfoModule');
+
+// Só a data de expiração do provisioning profile embarcado (D-03) — NUNCA o
+// plist inteiro. `null` quando o arquivo não existe (esperado no Simulator;
+// D-02 já fixa instalação por cabo em device físico).
+export async function getProvisioningProfileExpiry(): Promise<string | null> {
+  return NativeInfoModule.getProvisioningProfileExpiry();
+}
