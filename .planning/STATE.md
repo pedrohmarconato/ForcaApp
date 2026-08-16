@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
 status: planning
-last_updated: "2026-08-16T00:06:45.713Z"
+last_updated: "2026-08-15T21:07:00.000Z"
 last_activity: 2026-08-15
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,24 +17,28 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-14)
+See: .planning/PROJECT.md (updated 2026-08-15)
 
-**Core value:** O PWA da Vercel vira app instalável de primeira classe no iPhone —
-sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
-**Current focus:** Phase 13 — Push notification ponta a ponta
+**Core value:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
+comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
+pago, sem distribuição a terceiros).
+**Current focus:** Phase 14 — Fundação nativa (build assinado + spike de App Groups)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-08-15 — Milestone v1.3 started
+Phase: 14 of 17 (Fundação nativa)
+Plan: — (não planejado ainda)
+Status: Ready to plan
+Last activity: 2026-08-15 — ROADMAP.md v1.3 criado (Phases 14-17), 10/10 requisitos mapeados, sem órfãos
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0 (v1.2)
+- Total plans completed: 0 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -47,9 +51,9 @@ Last activity: 2026-08-15 — Milestone v1.3 started
 
 **Recent Trend:**
 
-- v1.2 ainda não iniciou execução — sem amostra.
+- v1.3 ainda não iniciou execução — sem amostra.
 
-**Per-Plan Metrics:**
+**Per-Plan Metrics (histórico v1.2):**
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
@@ -67,6 +71,19 @@ Last activity: 2026-08-15 — Milestone v1.3 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
+- Roadmap v1.3 (2026-08-15): 4 fases derivadas das 10 requirements na ordem
+  dependency-locked da pesquisa — Phase 14 (NAT: skeleton nativo + spike de App
+  Groups), Phase 15 (LOCK: Live Activity não-interativa + refactor do timer para
+  `restEndsAt`), Phase 16 (CMD: App Intents interativos), Phase 17 (REG+PRED:
+  stepper sem teclado no app e na Live Activity + antecipação da próxima ação).
+  PRED-01 (1 requisito, "cheap") dobrado dentro da Phase 17 em vez de virar fase
+  própria — granularidade "standard" evita fase de requisito único.
+- Notificação local de fim de descanso e modo mãos-livres (áudio/voz) ficam FORA
+  do v1.3 (decisão do dono em 15/08) — não geraram fase.
+- Toda fase que toca o iPhone físico carrega critério de UAT explícito do dono —
+  Xcode 26.6 licenciado nesta máquina permite builds on-device daqui, mas só o
+  dono tem o aparelho físico para instalar/testar.
+
 - v1.2 segue o caminho PWA sem Apple Developer pago (2026-08-14) — pesquisa
   confirmou que a única alternativa (marketplace do TCC CADE) também exige conta
   paga; dono optou por não pagar.
@@ -76,78 +93,52 @@ Decisions are logged in PROJECT.md Key Decisions table.
   (manifest/splash), depois service worker, depois página de instalação, push por
   último (depende de SW registrado e do alertShim para o opt-in).
 
-- Push (PUSH-01) exige spike técnico prévio de expiração/HTTP 410 do `pywebpush`
-  antes da implementação principal — confiança MEDIUM-BAIXA nas fontes.
-
-- Service worker nunca intercepta chamadas Supabase/API — outbox offline-first do
-  v1.0 segue como única camada de retry de dados (pitfall confirmado na pesquisa).
-
 - [Phase ?]: sw.js/register-sw.js/manifest.json servidos com Cache-Control: no-cache, must-revalidate; carve-out do rewrite de SPA e do header catch-all (mesma técnica da Fase 10 para /splash/*.png)
 - [Phase ?]: workbox-config.cjs nunca ativa runtimeCaching — SW só precacheia app shell estático, outbox offline-first do v1.0 segue como única camada de retry de dados
-- [Phase ?]: UpdateBanner nao le nenhuma flag sincrona de register-sw.js (a que o plano citava nao existe no arquivo real do Plano 11-01) - risco residual registrado em WINDOWS.md em vez de modificar o arquivo travado do Wave 1
-- [Phase ?]: Testes que precisam de window.addEventListener/dispatchEvent reais usam @jest-environment jsdom por arquivo (docblock deve ser o primeiro token literal) - a config jest padrao do repo roda em ambiente Node puro sem EventTarget
-- [Phase ?]: useNavigation<any>() no CTA do Estado 4 de InstallScreen (mesmo padrao de ExercisePickerScreen.tsx) - a tela monta em 3 arvores com tipos de navigator distintos
-- [Phase ?]: Guard de regressao do Pitfall 2 (tabBarButton) implementado como teste de proximidade textual (<=200 chars) em MainNavigator.tsx, nao snapshot
 - [Phase ?]: Migration 0038 criada+testada mas aplicação em staging BLOQUEADA por credencial (SUPABASE_ACCESS_TOKEN sem acesso ao org ForçaApp) — dono precisa supabase login+relink+db push antes do UAT 13-04
-- [Phase ?]: notificationclick usa client.navigate() direto em vez de postMessage — reusa a rota recuperável por URL de linkingConfig.ts, menos código
-- [Phase ?]: push_reminder_scheduler.py reusa push_sender.delete_subscription passando SUPABASE_SERVICE_ROLE_KEY como access_token (Authorization Bearer decide o role no PostgREST, não o apikey) — evita duplicar a lógica de DELETE 410/404.
 - [Phase ?]: iniciar_scheduler() chamado no IMPORT de backend/app.py (não em if __name__ == '__main__'), porque o gunicorn de produção sobe via backend.app:app e nunca executa esse bloco — sem isto PUSH-02 nunca rodaria em produção.
-- [Phase ?]: Badging API já tipada não-opcional no lib.dom local — guard de runtime via cast pontual (navigator as unknown as Record<string, unknown>) em vez de interface NavegadorComBadge custom (TS2430)
-- [Phase ?]: useEffect da HomeScreen reusa literalmente ehHoje && todaySession?.status === 'pending' — nenhuma segunda fonte de verdade sobre pendência de treino
 - [Phase ?]: PushInviteHost: convite único de opt-in via alertShim, flag push_invite_shown gravada nos dois caminhos (aceitar/recusar), subscribeToPush() como primeira expressão síncrona do onPress do botão do Modal web.
 
 ### Pending Todos
 
-Nenhum novo desde o início do v1.2. Ver Deferred Items abaixo para dívidas herdadas
-do v1.0/v1.1.
+Nenhum novo desde o início do v1.3.
 
 ### Blockers/Concerns
 
-- Máquina de dev sem toolchain nativa (sem Xcode) — cada fase relevante deste
-  milestone termina com item de UAT explícito do dono no iPhone real (nunca
-  "passou no Lighthouse" como critério de conclusão).
-
-- Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest).
-- Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção `zanqygwsgxkyjiuhrzju`)
-  — conferir `supabase/.temp/project-ref` antes de qualquer comando linkado
-  (relevante para a migration de `push_subscriptions` na Fase 13).
-
-- Migration 0038 (push_subscriptions) não aplicada em staging — dono precisa relogar supabase CLI com a conta correta do ForçaApp e rodar supabase db push antes do Plano 13-04
+- Xcode 26.6 licenciado nesta máquina (builds on-device possíveis daqui), mas só o
+  dono tem o iPhone físico — cada fase de v1.3 que toca o aparelho carrega
+  critério de UAT explícito do dono (nunca "compilou" como critério de conclusão).
+- Duas incertezas resolvidas só por spike no aparelho (Fase 14, primeiro passo):
+  (1) disponibilidade de App Groups em time pessoal gratuito; (2) processo que
+  executa `perform()` de `LiveActivityIntent` no cold-launch. A arquitetura de
+  REG-02/CMD depende do resultado — não presumir nenhuma resposta antes do spike.
+- Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest);
+  comportamento de Live Activity/App Intents não é testável em simulador, exige
+  aparelho físico a partir da Fase 15.
+- Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção
+  `zanqygwsgxkyjiuhrzju`) — conferir `supabase/.temp/project-ref` antes de
+  qualquer comando linkado (v1.3 não deve mexer em schema, mas o hábito vale).
 
 ## Deferred Items
 
-Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14):
+Items acknowledged and carried forward from previous milestone closes:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | debug | typeerror-envio-series-treino | resolved_partial — fix commitado e verificado; falta o texto literal do erro de produção (só o dono tem) e a ressalva do errMsg sem nome de classe | v1.0 close (2026-08-13) |
-| tech-debt | Migrations sem GRANT DML para `authenticated` (projeto Supabase novo sobe quebrado) | Deferred — Future Requirements do v1.2 | v1.0 close (2026-08-13) |
-| tech-debt | Tabela `cardio_goals` órfã (sem drop/arquivamento) | Deferred — Future Requirements do v1.2 | v1.0 close (2026-08-13) |
+| tech-debt | Migrations sem GRANT DML para `authenticated` (projeto Supabase novo sobe quebrado) | Deferred | v1.0 close (2026-08-13) |
+| tech-debt | Tabela `cardio_goals` órfã (sem drop/arquivamento) | Deferred | v1.0 close (2026-08-13) |
 | tech-debt | Nyquist not-validated nas fases do v1.0 | Deferred | v1.0 close (2026-08-13) |
-| scope | `Alert.alert` no-op no react-native-web | **Endereçado nesta milestone — Phase 9 (WEB-01)** | v1.0 close (2026-08-13) |
-
-## Deferred Verification (herdado do v1.2 — fases ARQUIVADAS)
-
-O v1.2 fechou em 15/08/2026 com UAT físico deferido nas 5 fases. Os diretórios
-saíram de `.planning/phases/` para `.planning/milestones/v1.2-phases/` — os
-comandos `/gsd-verify-work N` NÃO encontram mais as fases; o UAT é manual,
-seguindo cada `NN-UAT.md` no arquivo, no PWA de produção:
-
-| Phase | Pendência | Roteiro |
-|-------|-----------|---------|
-| 9 | Wake Lock + diálogo concluir (iOS 26.x: Wake Lock deve funcionar) | milestones/v1.2-phases/09-*/09-UAT.md |
-| 10 | Splash/ícone na instalação | milestones/v1.2-phases/10-*/10-UAT.md |
-| 11 | Offline modo avião + banner de atualização | milestones/v1.2-phases/11-*/11-UAT.md |
-| 12 | /instalar com usuário leigo | milestones/v1.2-phases/12-*/12-UAT.md |
-| 13 | Push no iPhone (testes 2-5; teste 1 infra = passed 15/08) | milestones/v1.2-phases/13-*/13-UAT.md |
+| scope | UAT físico no iPhone das 5 fases do v1.2 (9-13) | Deferred — roteiros em milestones/v1.2-phases/*/NN-UAT.md | v1.2 close (2026-08-15) |
+| scope | Notificação local de fim de descanso (som/vibração) | Deferido para pós-v1.3 (v1.3.x) — decisão do dono 2026-08-15 | v1.3 roadmap (2026-08-15) |
+| scope | Modo mãos-livres (cues falados via áudio) | Deferido para pós-v1.3 (v1.3.x) — decisão do dono 2026-08-15 | v1.3 roadmap (2026-08-15) |
 
 ## Session Continuity
 
-Last session: 2026-08-15T17:16:06.354Z
-Stopped at: Milestone v1.2: 5/5 fases executadas; UAT/infra do dono pendentes (deferred)
-Identidade do app instalável, Service worker e atualização segura, Página de
-instalação guiada, Push notification ponta a ponta). Cobertura 11/11 requisitos
-mapeados, sem órfãos. Próximo passo: /gsd-plan-phase 9.
+Last session: 2026-08-15T21:07:00.000Z
+Stopped at: ROADMAP.md v1.3 criado — 4 fases (14-17), 10/10 requisitos mapeados,
+sem órfãos. STATE.md e REQUIREMENTS.md (traceability) atualizados. Aguardando
+aprovação do dono.
 Resume file: .planning/STATE.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
@@ -156,4 +147,4 @@ atualize os dois.
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Revisar/aprovar o roadmap; depois planejar a próxima fase com /gsd-plan-phase 14

@@ -4,7 +4,8 @@
 
 - ✅ **v1.0 Cardio e alongamento** — Phases 1-4 (shipped 2026-08-13) — [archive](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 Release em produção** — Phases 5-8 (shipped 2026-08-14) — [archive](milestones/v1.1-ROADMAP.md)
-- 🚧 **v1.2 App de iPhone instalável via site (PWA)** — Phases 9-13 (in progress)
+- ✅ **v1.2 App de iPhone instalável via site (PWA)** — Phases 9-13 (shipped 2026-08-15) — [archive](milestones/v1.2-ROADMAP.md)
+- 🚧 **v1.3 Treino de tela bloqueada (app nativo pessoal)** — Phases 14-17 (in progress)
 
 ## Phases
 
@@ -35,195 +36,145 @@ Nota de fechamento: override_closeout — fases 6-8 executadas sem diretórios d
 
 </details>
 
-- [ ] **Phase 9: Fechamento de gaps do runtime web** - Alert.alert deixa de ser no-op e a tela não bloqueia durante a sessão ativa (Wake Lock)
-- [ ] **Phase 10: Identidade do app instalável** - Ícones, nome e splash screen próprios ao instalar pela Tela de Início
-- [ ] **Phase 11: Service worker e atualização segura** - App abre sem rede e nunca prende o usuário numa versão velha
-- [ ] **Phase 12: Página de instalação guiada** - Rota `/instalar` com passo a passo para quem não é técnico
-- [ ] **Phase 13: Push notification ponta a ponta** - Lembrete de treino e aviso de replanejamento chegam no iPhone
+<details>
+<summary>✅ v1.2 App de iPhone instalável via site (PWA) (Phases 9-13) — SHIPPED 2026-08-15</summary>
+
+- [x] Phase 9: Fechamento de gaps do runtime web (3/4 plans) — completed 2026-08-15 (override_closeout; UAT do dono no iPhone deferido)
+- [x] Phase 10: Identidade do app instalável (0/1 plans) — completed 2026-08-15 (override_closeout; infra pronta, UAT do dono deferido)
+- [x] Phase 11: Service worker e atualização segura (2/3 plans) — completed 2026-08-15 (override_closeout; UAT do dono deferido)
+- [x] Phase 12: Página de instalação guiada (1/2 plans) — completed 2026-08-15 (override_closeout; UAT do dono deferido)
+- [x] Phase 13: Push notification ponta a ponta (4/5 plans) — completed 2026-08-15 (infra verificada em produção 15/08; UAT do dono deferido)
+
+Detalhes completos: [milestones/v1.2-ROADMAP.md](milestones/v1.2-ROADMAP.md)
+
+Nota de fechamento: override_closeout — UAT físico no iPhone DEFERIDO nas 5 fases
+(roteiros em `milestones/v1.2-phases/*/NN-UAT.md`); infra da fase 13 concluída e
+verificada em produção no mesmo dia (migrations 0038/0039 em staging+produção,
+VAPID+service_role+scheduler no VPS, chave pública na Vercel, backend e web
+deployados). Sem audit formal de milestone.
+
+</details>
+
+- [ ] **Phase 14: Fundação nativa** - Build nativo assinado no iPhone do dono + spike de App Groups que decide a arquitetura de estado
+- [ ] **Phase 15: Tela bloqueada — ver e cronometrar** - Live Activity mostra a sessão ao vivo (Lock Screen + Dynamic Island) e o timer de descanso nativo, com ciclo de vida correto
+- [ ] **Phase 16: Tela bloqueada — comandar** - Concluir série e ajustar descanso direto na tela bloqueada, via App Intents, sem abrir o app
+- [ ] **Phase 17: Tela bloqueada — registrar e antecipar** - Registro de reps/carga sem teclado (app + tela bloqueada) e antecipação da próxima ação antes do descanso zerar
 
 ## Phase Details
 
-### 🚧 v1.2 App de iPhone instalável via site (PWA) (In Progress)
+### 🚧 v1.3 Treino de tela bloqueada (app nativo pessoal) (In Progress)
 
-**Milestone Goal:** O ForcaApp vira um app instalável de primeira classe no iPhone —
-baixado do site do dono, sem App Store e sem conta Apple — elevando o PWA da Vercel
-a uma experiência indistinguível de app nativo para os ~20 usuários (família/alunos).
+**Milestone Goal:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado —
+vê, comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
+pago, sem distribuição a terceiros).
 
-#### Phase 9: Fechamento de gaps do runtime web
+#### Phase 14: Fundação nativa
 
-**Goal**: No alvo web, nenhuma tela do treino trava por diálogo mudo (Alert.alert
-no-op) nem pelo iPhone bloqueando a tela durante a sessão ativa.
-**Depends on**: Nothing (primeira fase do milestone; ortogonal à instalação/SW —
-desbloqueia UAT confiável das telas que as fases seguintes vão afetar)
-**Requirements**: WEB-01, SESS-01
+**Goal**: O dono instala e roda o ForçaApp nativo assinado no próprio iPhone, com
+a arquitetura de estado (com ou sem App Group) decidida por evidência do aparelho
+físico, e a extensão de widget + módulo Swift sobrevivendo a um
+`expo prebuild --clean`.
+**Depends on**: Nothing (primeira fase de v1.3)
+**Requirements**: NAT-01, NAT-02
 **Success Criteria** (what must be TRUE):
 
-  1. Auditoria `grep -rn "Alert\.alert" src/` não retorna nenhum call site fora do
-     componente `AlertHost`/`alertShim.ts` — os 12 call sites em 6 arquivos migraram
-     para o shim central, mesmo padrão de `haptics.ts`/`secureStorage.ts`.
+  1. O dono abre o app nativo instalado no iPhone (fora do Expo Go), assinado com
+     Apple ID pessoal, e usa o fluxo normal de sessão de treino sem diferença
+     percebida em relação ao PWA. (UAT do dono no aparelho físico)
 
-  2. No Expo web, uma ação que antes usava `Alert.alert` (ex.: "Concluir treino" com
-     séries pendentes) mostra diálogo visível com opções funcionais — não é mais um
-     clique morto.
+  2. O dono roda o comando único de reassinatura semanal documentado e o app volta
+     a abrir sem erro de confiança/certificado. (UAT do dono no aparelho físico)
 
-  3. UAT do dono no iPhone real (PWA instalado): durante uma sessão de treino ativa,
-     a tela nunca escurece/bloqueia enquanto o Wake Lock está ativo, e ao concluir ou
-     sair da sessão o bloqueio automático do iPhone volta ao normal.
-**Plans**: 3/4 plans executed
-Plans:
-**Wave 1**
+  3. Depois de `expo prebuild --clean`, o target da extensão de widget e o módulo
+     nativo Swift continuam presentes no projeto Xcode gerado — nada foi apagado
+     silenciosamente.
 
-- [x] 09-01-PLAN.md — Núcleo alertShim/alertStore/AlertHost + Wake Lock lifecycle em ActiveSessionScreen (tracer)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 09-02-PLAN.md — Migrar Alert.alert em QuestionnaireScreen (6) + SignUpScreen (1)
-- [x] 09-03-PLAN.md — Migrar confirmarPadrao (JointLobbyScreen) + remover import morto (PostQuestionnaireChat)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 09-04-PLAN.md — Guarda de regressão D-08 + UAT do dono no iPhone real
-
-#### Phase 10: Identidade do app instalável
-
-**Goal**: O ForcaApp instalado pela Tela de Início abre em modo standalone, com
-ícone, nome e splash screen próprios — sem flash de tela branca.
-**Depends on**: Nothing (só assets e meta tags; pode rodar em paralelo à Fase 9,
-sequenciada aqui para o fluxo do milestone)
-**Requirements**: INST-01
-**Success Criteria** (what must be TRUE):
-
-  1. `apple-touch-startup-image` (splash screen) é gerado por `pwa-asset-generator`
-     para as resoluções/orientações relevantes de iPhone e referenciado no
-     `index.html`.
-
-  2. UAT do dono no iPhone real: instala o ForcaApp pela Tela de Início a partir do
-     Safari e, ao abrir o app, não há flash de tela branca — a splash screen aparece
-     corretamente.
-
-  3. UAT do dono no iPhone real: o ícone na Tela de Início e o nome abaixo dele são
-     os do ForcaApp (não a URL genérica da Vercel), e o app abre sem a barra de
-     endereço do Safari (modo standalone).
-**Plans**: 1 plan
-Plans:
-**Wave 1**
-
-- [ ] 10-01-PLAN.md — Gerar splash iOS curada (pwa-asset-generator), ligar a index.html, corrigir rewrite do vercel.json e UAT do dono no iPhone real
-
+  4. O spike de App Groups no aparelho físico está registrado por escrito, com a
+     decisão de arquitetura (com ou sem App Group) documentada para orientar as
+     fases 16 e 17. (UAT do dono no aparelho físico)
+**Plans**: TBD
 **UI hint**: yes
 
-#### Phase 11: Service worker e atualização segura
+#### Phase 15: Tela bloqueada — ver e cronometrar
 
-**Goal**: O app instalado abre sem rede (app shell offline) e nunca prende o
-usuário numa versão antiga, sem duplicar a camada de retry do outbox offline-first
-já validado no v1.0.
-**Depends on**: Nothing novo (usa o pipeline de build da Vercel já existente; pode
-rodar em paralelo à Fase 10)
-**Requirements**: OFF-01, OFF-02
+**Goal**: A tela bloqueada mostra a sessão de treino ao vivo — exercício atual,
+série e timer de descanso nativo — nas 4 apresentações do Dynamic Island e no
+Lock Screen, sem abrir o app, e a Live Activity se encerra sozinha quando a
+sessão termina ou é cancelada (inclusive após force-quit).
+**Depends on**: Phase 14
+**Requirements**: LOCK-01, LOCK-02, LOCK-03
 **Success Criteria** (what must be TRUE):
 
-  1. O service worker (`sw.js`, gerado via Workbox `generateSW`) faz cache apenas do
-     app shell estático — nenhuma chamada a `*.supabase.co` ou à API Flask é
-     interceptada; confirmado inspecionando o `sw.js` gerado e testando que o
-     outbox continua sendo a única camada de retry de dados.
+  1. Durante uma sessão ativa, o dono vê no Lock Screen e no Dynamic Island
+     (compact/minimal/expanded) o exercício atual, a série X/Y e a prescrição
+     (reps × carga), sem desbloquear o iPhone. (UAT do dono no aparelho físico)
 
-  2. `sw.js` e `manifest.json` são servidos em produção com
-     `Cache-Control: no-cache, must-revalidate` (verificável via `curl -I`) — nenhum
-     dos dois fica preso em cache da CDN da Vercel.
+  2. O timer de descanso conta regressivamente na tela bloqueada mesmo com o app
+     suspenso, usando timestamp absoluto (`restEndsAt` no `activeSessionStore`) —
+     não um push manual a cada segundo.
 
-  3. Ao publicar uma nova versão, o usuário recebe um aviso não-bloqueante de
-     atualização disponível — nunca um reload forçado durante uma sessão de treino
-     ativa.
+  3. Ao finalizar ou cancelar a sessão no app, a Live Activity desaparece da tela
+     bloqueada sozinha, sem card "preso" mostrando treino velho.
 
-  4. UAT do dono no iPhone real: com o PWA instalado, ativa o modo avião, abre o app
-     pela Tela de Início e confirma que a casca do app aparece mesmo sem rede.
-**Plans**: 2/3 plans executed
-Plans:
-**Wave 1**
-
-- [x] 11-01-PLAN.md — Pipeline Workbox de ponta a ponta (workbox-config.cjs, register-sw.js, vercel.json rewrite/headers, guarda jest) — tracer
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 11-02-PLAN.md — UpdateBanner + updateStore, banner não-bloqueante de atualização montado em App.tsx
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 11-03-PLAN.md — Checkpoint: Node.js Version na Vercel, curl -I em produção e UAT do dono no iPhone real (modo avião)
-
-#### Phase 12: Página de instalação guiada
-
-**Goal**: Qualquer aluno leigo consegue instalar o ForcaApp sozinho a partir do
-site, sem instrução verbal do dono.
-**Depends on**: Phase 10 (referencia a identidade — ícone/nome — que o app já
-instala corretamente)
-**Requirements**: INST-02
-**Success Criteria** (what must be TRUE):
-
-  1. A rota `/instalar` existe dentro do próprio app (React Navigation) com passo a
-     passo de como instalar no iPhone via Safari.
-
-  2. A página detecta quando o app já está rodando em modo standalone (já
-     instalado) e adapta a mensagem, sem repetir o passo a passo de instalação.
-
-  3. UAT do dono (ou de um aluno real) no iPhone: acessa `/instalar` pelo Safari,
-     segue os passos exibidos sem ajuda adicional, e consegue instalar o app pela
-     Tela de Início.
-**Plans**: 1/2 plans executed
-Plans:
-**Wave 1**
-
-- [x] 12-01-PLAN.md — installDetection.ts + InstallScreen (4 estados) + registro de /instalar em linkingInterceptor/AuthNavigator (tracer) e linkingConfig/OnboardingNavigator/MainNavigator
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 12-02-PLAN.md — Checkpoint: UAT do dono/aluno no iPhone real (instalação guiada sem ajuda)
-
+  4. Depois de um force-quit do app durante uma sessão ativa, reabrir o app
+     reconcilia e encerra qualquer Live Activity órfã que tenha sobrado na tela
+     bloqueada. (UAT do dono no aparelho físico)
+**Plans**: TBD
 **UI hint**: yes
 
-#### Phase 13: Push notification ponta a ponta
+#### Phase 16: Tela bloqueada — comandar
 
-**Goal**: O aluno recebe notificações push relevantes (lembrete de treino,
-replanejamento pronto) e um toque leva direto à sessão, com infra própria
-(`pywebpush`) e sem SDK de terceiros.
-**Depends on**: Phase 11 (`PushManager.subscribe()` exige service worker
-registrado), Phase 9 (o convite de opt-in usa o `alertShim`)
-**Requirements**: PUSH-01, PUSH-02, PUSH-03, PUSH-04, PUSH-05
+**Goal**: O dono controla a série atual e o descanso direto da tela bloqueada —
+sem abrir o app — com cada toque seguindo o mesmo caminho de registro
+(`completeSet()` → outbox → servidor) que já existe hoje; a Live Activity nunca
+vira fonte de verdade.
+**Depends on**: Phase 15
+**Requirements**: CMD-01, CMD-02
 **Success Criteria** (what must be TRUE):
 
-  1. Spike técnico prévio documentado confirma o tratamento de expiração/HTTP 410 de
-     subscription no `pywebpush` antes da implementação seguir adiante.
+  1. O dono toca "Concluir série" na tela bloqueada e a série é registrada pelo
+     mesmo caminho `completeSet()` → outbox → servidor já existente, sem abrir o
+     app. (UAT do dono no aparelho físico)
 
-  2. O botão "Ativar notificações" dispara `PushManager.subscribe()` como primeira
-     ação síncrona do clique (sem `await` antes) e grava a subscription na tabela
-     `push_subscriptions` (RLS por usuário).
+  2. O dono toca "pular descanso" (ou ajusta o descanso) na tela bloqueada e o
+     timer nativo reflete o ajuste imediatamente, sem lag perceptível. (UAT do
+     dono no aparelho físico)
 
-  3. UAT do dono no iPhone real (PWA instalado): concede a permissão de
-     notificação, recebe o lembrete de treino no horário configurado e a
-     notificação de replanejamento pronto quando o job do Flask dispara.
+  3. Um teste deliberado de "force-quit do app e depois tocar o botão da tela
+     bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
+     reaberto para concluir — validando o modelo de processo do `perform()` no
+     cold-launch. (UAT do dono no aparelho físico)
+**Plans**: TBD
 
-  4. UAT do dono no iPhone real: toca na notificação de lembrete de treino e o app
-     abre direto na tela da sessão ativa, pronto para registrar reps/peso — um
-     toque do bloqueio ao registro.
+#### Phase 17: Tela bloqueada — registrar e antecipar
 
-  5. Com permissão de push concedida, o ícone do app exibe badge de treino
-     pendente; subscriptions que retornam HTTP 410/404 são removidas da tabela
-     automaticamente, sem ficarem órfãs.
-**Plans**: 4/5 plans executed
-Plans:
-**Wave 1**
+**Goal**: O dono registra reps e carga sem teclado — pré-preenchido do histórico,
+ajuste só por botões +/− e confirmação em 1 toque — tanto no app quanto na Live
+Activity da tela bloqueada, e a tela bloqueada já antecipa a próxima
+série/exercício antes do descanso acabar.
+**Depends on**: Phase 16
+**Requirements**: REG-01, REG-02, PRED-01
+**Success Criteria** (what must be TRUE):
 
-- [x] 13-01-PLAN.md — Fim-a-fim: migration 0038 (staging), endpoint Flask de subscribe/unsubscribe, botão no Perfil (gesto síncrono), handlers do service worker via importScripts (tracer)
+  1. Ao registrar uma série no app, reps e carga aparecem pré-preenchidos com o
+     valor da última sessão do mesmo exercício, ajustáveis só por botões +/− (passo
+     de anilha por exercício) e confirmados em 1 toque, sem precisar abrir o
+     teclado.
 
-**Wave 2** *(blocked on Wave 1 completion)*
+  2. O mesmo ajuste por +/− e confirmação funciona na Live Activity da tela
+     bloqueada, com o valor acumulado entre toques preservado corretamente,
+     conforme a arquitetura decidida no spike da Fase 14. (UAT do dono no aparelho
+     físico)
 
-- [x] 13-02-PLAN.md — Migration 0039 + scheduler de lembrete de treino (PUSH-02) + endpoint de notificação de replanejamento aplicado (PUSH-03)
-- [x] 13-03-PLAN.md — Badge do ícone gated por permissão (PUSH-04)
-- [x] 13-05-PLAN.md — Convite único de opt-in via alertShim (PUSH-01)
+  3. Um valor fora do passo do stepper (ex.: 37,5 kg com passo de 5) abre o app a
+     partir da tela bloqueada em vez de travar ou truncar o valor. (UAT do dono no
+     aparelho físico)
 
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 13-04-PLAN.md — Checkpoint: credenciais VAPID/service role de produção, migrations 0038/0039 em produção, deploy do backend no VPS e UAT do dono no iPhone real
+  4. Antes do descanso acabar, a tela bloqueada já mostra a próxima
+     série/exercício e a prescrição prevista, sem esperar o descanso chegar a
+     zero. (UAT do dono no aparelho físico)
+**Plans**: TBD
 
 ## Progress
 
@@ -237,8 +188,12 @@ Plans:
 | 6. Publicação do código | v1.1 | direto | Complete | 2026-08-14 |
 | 7. Migration 0037 em staging e produção | v1.1 | direto | Complete | 2026-08-14 |
 | 8. Deploy web e fechamento | v1.1 | direto | Complete | 2026-08-14 |
-| 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | In Progress|  |
-| 10. Identidade do app instalável | v1.2 | 0/1 | Not started | - |
-| 11. Service worker e atualização segura | v1.2 | 2/3 | In Progress|  |
-| 12. Página de instalação guiada | v1.2 | 1/2 | In Progress|  |
-| 13. Push notification ponta a ponta | v1.2 | 4/5 | In Progress|  |
+| 9. Fechamento de gaps do runtime web | v1.2 | 3/4 | Complete (override) | 2026-08-15 |
+| 10. Identidade do app instalável | v1.2 | 0/1 | Complete (override) | 2026-08-15 |
+| 11. Service worker e atualização segura | v1.2 | 2/3 | Complete (override) | 2026-08-15 |
+| 12. Página de instalação guiada | v1.2 | 1/2 | Complete (override) | 2026-08-15 |
+| 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
+| 14. Fundação nativa | v1.3 | 0/TBD | Not started | - |
+| 15. Tela bloqueada — ver e cronometrar | v1.3 | 0/TBD | Not started | - |
+| 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |

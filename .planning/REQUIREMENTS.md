@@ -94,4 +94,17 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ## Traceability
 
-(Preenchida pelo roadmap.)
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| NAT-01 | Phase 14 | Pending |
+| NAT-02 | Phase 14 | Pending |
+| LOCK-01 | Phase 15 | Pending |
+| LOCK-02 | Phase 15 | Pending |
+| LOCK-03 | Phase 15 | Pending |
+| CMD-01 | Phase 16 | Pending |
+| CMD-02 | Phase 16 | Pending |
+| REG-01 | Phase 17 | Pending |
+| REG-02 | Phase 17 | Pending |
+| PRED-01 | Phase 17 | Pending |
+
+Coverage: 10/10 v1.3 requirements mapped. No orphans.
