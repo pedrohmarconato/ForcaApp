@@ -78,13 +78,19 @@ fi
 echo "  Scheme: ${SCHEME}"
 
 # ---------------------------------------------------------------------------
-# 4/8 — Build assinado (time pessoal, assinatura automática). Debug/
-#       dev-client é a configuração do dia a dia durante o v1.3 (D-05); a
-#       troca para Release fica para o fechamento do milestone.
+# 4/8 — Build assinado (time pessoal, assinatura automática), configuração
+#       Release. Provado empiricamente na Plano 14-06 (sessão com o iPhone
+#       físico): um build Debug instala e abre nativamente, mas NÃO embute
+#       main.jsbundle — ele espera um Metro dev server, que não existe fora
+#       de uma sessão de desenvolvimento ativa. Resultado: o app abre e a
+#       tela fica em branco, nenhuma linha de JS roda (zero logs, apesar do
+#       módulo nativo estar corretamente registrado). Um build Release
+#       embute main.jsbundle e roda standalone — é o único que serve ao
+#       propósito deste comando (rodar sozinho no device, longe do Mac).
 # ---------------------------------------------------------------------------
 echo "4/8 — build assinado (xcodebuild)..."
 if ! xcodebuild -workspace "ios/${SCHEME}.xcworkspace" -scheme "$SCHEME" \
-  -configuration Debug -destination "generic/platform=iOS" \
+  -configuration Release -destination "generic/platform=iOS" \
   -allowProvisioningUpdates build; then
   vermelho "ABORTADO: build falhou"
   echo "  Confira Xcode > Settings > Accounts: Apple ID pessoal com o time selecionavel para assinatura automatica" >&2
@@ -95,7 +101,7 @@ fi
 # 5/8 — Localizar o .app gerado em DerivedData.
 # ---------------------------------------------------------------------------
 echo "5/8 — localizando .app em DerivedData..."
-APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -path "*Debug-iphoneos*" -print -quit)"
+APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -path "*Release-iphoneos*" -print -quit)"
 if [[ -z "$APP_PATH" ]]; then
   vermelho "ABORTADO: .app nao encontrado em DerivedData"
   echo "  Confira se a etapa 4 (build) terminou sem erro" >&2
