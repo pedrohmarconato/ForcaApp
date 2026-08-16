@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
+    "podspecPath": "NativeInfoModule.podspec",
     "modules": ["NativeInfoModule"]
   }
 }

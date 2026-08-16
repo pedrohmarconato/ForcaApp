@@ -1,0 +1,13 @@
+{
+  "name": "native-info",
+  "version": "1.0.0",
+  "description": "Fase 14: leitura nativa de metadados de build (D-03) — expiracao do provisioning profile embarcado",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "UNLICENSED",
+  "author": "Pedro Marconato",
+  "homepage": "https://github.com/pmarconato/forca-app",
+  "peerDependencies": {
+    "expo": "*"
+  }
+}
