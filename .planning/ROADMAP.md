@@ -96,15 +96,36 @@ físico, e a extensão de widget + módulo Swift sobrevivendo a um
 **Plans**: 9 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 14-01-PLAN.md — Decisão de bundle identifiers (D-06) + aprovação de legitimidade dos pacotes SUS
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 14-02-PLAN.md — Pipeline nativo completo (tracer) + scripts/verify-native-skeleton.sh
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 14-03-PLAN.md — ProvisioningBanner.tsx + leitura do provisioning profile (D-03)
 - [ ] 14-04-PLAN.md — scripts/resign.sh, rotina de reassinatura em 1 comando (D-01/D-02)
 - [ ] 14-05-PLAN.md — Preparação do spike de App Groups (entitlement temporária + build assinado)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 14-06-PLAN.md — Sessão 1 física: primeira instalação + Developer Mode + spike de App Groups
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 14-07-PLAN.md — Registro da decisão do spike (14-SPIKE-APP-GROUPS.md) + revert/keep
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 14-08-PLAN.md — Pre-flight automatizado antes da Sessão 2
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 14-09-PLAN.md — Sessão 2 física: UAT de reassinatura + paridade com o PWA
+
 **UI hint**: yes
 
 #### Phase 15: Tela bloqueada — ver e cronometrar
