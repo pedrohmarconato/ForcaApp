@@ -1,104 +1,97 @@
-# Requirements — Milestone v1.2 "App de iPhone instalável via site (PWA)"
+# Requirements — Milestone v1.3 "Treino de tela bloqueada (app nativo pessoal)"
 
-Escopo: elevar o PWA em produção (Vercel) a app de primeira classe no iPhone —
-instalável pelo site, sem App Store e sem conta Apple — para ~20 usuários
-(família/alunos). Decisão de contorno (pesquisa 2026-08-14): distribuição nativa
-fora da App Store no Brasil exige Apple Developer pago; dono optou por não pagar.
-Pesquisa completa em `.planning/research/` (SUMMARY.md, commit 95e5f40).
+Escopo: o dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
+comanda e registra pela tela bloqueada/Dynamic Island, como o Spotify opera
+música. App NATIVO pessoal por sideload gratuito (Apple ID, validade 7 dias,
+sem distribuição a terceiros). iPhone do dono em iOS 26.x; Xcode 26.6
+licenciado. Pesquisa completa em `.planning/research/` (SUMMARY.md, commit
+143c5d2) — dois pontos decididos por spike no aparelho: App Groups em time
+gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
-## v1.2 Requirements
+## v1.3 Requirements
 
-### Instalação e identidade (INST)
+### Fundação nativa (NAT)
 
-- [ ] **INST-01**: Aluno instala o ForcaApp pela Tela de Início e o app abre
-  standalone — splash screen iOS correta (sem flash branco), ícone e nome próprios.
+- [ ] **NAT-01**: O dono instala o ForcaApp como app nativo no próprio iPhone a
+  partir desta máquina (`expo prebuild` + assinatura com Apple ID gratuito), com
+  rotina de reassinatura semanal documentada e repetível em 1 comando.
 
-- [x] **INST-02**: Usuário leigo instala sozinho pela página `/instalar` do app:
-  passo a passo com detecção de iOS/Safari e de "já instalado".
+- [ ] **NAT-02**: O target da extensão de widget e o módulo nativo sobrevivem a
+  `expo prebuild --clean` (targets via `@bacons/apple-targets` + módulo Expo em
+  Swift local — nada criado à mão no Xcode), e o spike de App Groups no aparelho
+  registra por escrito qual arquitetura de estado vale (com ou sem App Group).
 
-### Offline e atualização (OFF)
+### Tela bloqueada — ver (LOCK)
 
-- [x] **OFF-01**: O app instalado abre sem rede (app shell via service worker);
-  o outbox offline-first do v1.0 segue como única camada de retry de dados — o SW
-  nunca intercepta chamadas Supabase/PostgREST/API.
+- [ ] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
+  atual, a série X/Y e a prescrição (reps × carga) num card de Live Activity,
+  sem desbloquear nem abrir o app — com as 4 apresentações do Dynamic Island
+  (compact/minimal/expanded + Lock Screen).
 
-- [x] **OFF-02**: Versão nova chega com aviso não-bloqueante (nunca reload forçado
-  durante sessão de treino) e os headers de cache da Vercel impedem usuário preso
-  em versão velha (`sw.js`/manifest com no-cache).
+- [ ] **LOCK-02**: O timer de descanso conta regressivamente na tela bloqueada
+  de forma nativa (`Text(timerInterval:)`, sem depender do app acordado) — o
+  estado do timer sai de `SessionPlayer.tsx` e vira timestamp absoluto
+  (`restEndsAt`) no `activeSessionStore` (fundação compartilhada).
 
-### Push (PUSH)
+- [ ] **LOCK-03**: A Live Activity encerra sozinha quando a sessão termina ou é
+  cancelada (nunca fica "presa" mostrando treino velho), inclusive no caso de
+  force-quit do app (reconciliação na reabertura).
 
-- [x] **PUSH-01**: Infra de push ponta a ponta — botão "Ativar notificações" com
-  gesto síncrono do usuário, tabela `push_subscriptions` no Supabase (RLS por
-  usuário), envio via `pywebpush` no Flask existente; spike técnico prévio de
-  expiração/HTTP 410 antes da implementação (decisão da pesquisa).
+### Tela bloqueada — comandar (CMD)
 
-- [x] **PUSH-02**: Aluno recebe lembrete de treino no dia/horário configurado.
+- [ ] **CMD-01**: O dono conclui a série atual com 1 toque no botão da tela
+  bloqueada (App Intent), sem abrir o app — o registro segue o MESMO caminho
+  `completeSet()` → outbox → servidor que já existe (a Live Activity é espelho,
+  nunca fonte de verdade).
 
-- [x] **PUSH-03**: Aluno recebe notificação quando o replanejamento semanal fica
-  pronto (gatilho no job existente do Flask).
+- [ ] **CMD-02**: O dono pula ou ajusta o descanso direto na tela bloqueada; o
+  timer nativo reflete o ajuste imediatamente.
 
-- [x] **PUSH-04**: Badge no ícone do app com pendência de treino (gated por
-  permissão de push concedida).
+### Tela bloqueada — registrar (REG)
 
-- [x] **PUSH-05**: Tocar na notificação de treino abre o app direto na tela da
-  sessão para registrar reps/peso — 1 toque do bloqueio ao registro.
+- [ ] **REG-01**: Ao registrar uma série no app, reps e carga vêm pré-preenchidos
+  do histórico do exercício (última sessão), ajustáveis só por botões +/− (passo
+  de anilha por exercício; ex.: ±1 rep, ±2,5 kg) e confirmação em 1 toque —
+  teclado deixa de ser necessário no fluxo padrão.
 
-### Sessão de treino (SESS)
+- [ ] **REG-02**: O mesmo registro sem teclado funciona na Live Activity: ajustar
+  reps/carga por +/− e confirmar a série pela tela bloqueada, com o valor
+  acumulado entre toques preservado (arquitetura conforme o spike de NAT-02).
+  Valor atípico fora do passo (ex.: 37,5 kg com passo 5) abre o app — exceção
+  aceita, `TextField` é impossível na plataforma.
 
-- [ ] **SESS-01**: Durante a sessão de treino ativa, a tela do iPhone não bloqueia
-  (Screen Wake Lock, Safari iOS 16.4+) — treino, timer e campos de reps/peso ficam
-  sempre visíveis, sem desbloquear; o lock é liberado ao fim da sessão. Origem:
-  pedido do dono ("ver o treino e registrar sem desbloquear o celular") — o
-  equivalente web do `expo-keep-awake` já usado no alvo nativo.
+### Antecipação (PRED)
 
-### Runtime web (WEB)
+- [ ] **PRED-01**: Antes do descanso acabar, a Live Activity já mostra a próxima
+  ação prevista (próxima série/exercício e prescrição) — o dado já existe no
+  `activeSessionStore`, é composição de UI.
 
-- [ ] **WEB-01**: Nenhum diálogo/botão mudo no alvo web — shim central de Alert
-  (mesmo padrão de `haptics.ts`/`secureStorage.ts`), migração dos 12 call sites em
-  6 arquivos e auditoria completa da classe (`grep Alert\.` zerado ou justificado).
+## Future Requirements (deferidos — decisão do dono em 15/08/2026)
 
-## Future Requirements
-
-- Persistent Storage API para blindar o outbox contra evicção (deferido: com PWA
-  instalado a evicção já é branda; sem relato real de perda).
-
-- Cartão de treino vivo na tela bloqueada (Live Activity) com botões de série —
-  porta que só reabre com app nativo + Apple Developer pago (US$ 99/ano); mesmo
-  nativo, digitação livre de peso no bloqueio não existe (limite da Apple).
-
-- Detecção Safari vs Chrome iOS na página `/instalar` (não selecionado pelo dono).
-- Herdados do v1.1: limpeza da tabela `cardio_goals` órfã; GRANT DML para
-  `authenticated` nas migrations; texto literal do erro de produção do debug
-  `typeerror-envio-series-treino`.
+- **Notificação local de fim de descanso** (som/vibração com app suspenso) —
+  NÃO selecionada para o v1.3. Consequência aceita: com o app suspenso, o fim
+  do descanso é apenas visual na tela bloqueada (timer chega a zero sem som).
+  Barato de adicionar depois (infra `expo-notifications` local, sem APNs).
+- **Modo mãos-livres** (cues falados via `AVSpeechSynthesizer` + sessão de áudio
+  `.duckOthers` convivendo com Spotify) — NÃO selecionado; a pesquisa já o
+  recomendava como pós-núcleo (v1.3.x) por risco empírico de fala com tela
+  bloqueada.
+- Reassinatura automática (AltStore/automação) — só se a rotina manual semanal
+  incomodar de verdade.
 
 ## Out of Scope
 
-- Registrar reps/peso NA notificação/tela bloqueada sem abrir o app — API nativa
-  (Live Activities/ações interativas), inexistente para PWA; substituído por
-  SESS-01 (tela nunca bloqueia durante o treino) + PUSH-05 (1 toque para a sessão).
-
-- Distribuição nativa (Ad Hoc/TestFlight/marketplace alternativo do TCC CADE) —
-  todas exigem Apple Developer pago; decisão do dono de não pagar (2026-08-14).
-
-- SDK de push de terceiros (OneSignal etc.) — iOS 16.4+ implementa Web Push padrão;
-  infra própria via `pywebpush` no Flask existente.
-
-- Service worker interceptando chamadas de dados (Supabase/API) — duplicaria a
-  camada de retry do outbox validado no v1.0 (pitfall confirmado na pesquisa).
+- **Widget de tela de início (WidgetKit)** — decisão do dono no escopo v3.
+- **Push nativo/APNs** — impossível no regime gratuito; notificação local cobre
+  o que for preciso no futuro. Porta reaberta só pagando US$ 99/ano.
+- **Atualização remota da Live Activity via push** — mesma razão; updates são
+  locais (`Activity.update()`).
+- **Campo de texto na Live Activity** — impossível na plataforma (ActivityKit
+  não tem `TextField`); o stepper é o caminho, não um fallback.
+- **Distribuição a terceiros** (TestFlight/App Store/alunos) — app pessoal.
+- **Ações pesadas nos botões da tela bloqueada** (ex.: replanejamento via
+  backend) — `perform()` grava intenção local; processamento pesado é do app.
 
 ## Traceability
 
-| REQ | Phase | Status |
-|-----|-------|--------|
-| INST-01 | Phase 10 | Pending |
-| INST-02 | Phase 12 | Complete |
-| OFF-01 | Phase 11 | Complete |
-| OFF-02 | Phase 11 | Complete |
-| PUSH-01 | Phase 13 | Complete |
-| PUSH-02 | Phase 13 | Complete |
-| PUSH-03 | Phase 13 | Complete |
-| PUSH-04 | Phase 13 | Complete |
-| PUSH-05 | Phase 13 | Complete |
-| SESS-01 | Phase 9 | Pending |
-| WEB-01 | Phase 9 | Pending |
+(Preenchida pelo roadmap.)
