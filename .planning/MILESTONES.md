@@ -1,5 +1,31 @@
 # Milestones
 
+## v1.2 App de iPhone instalável via site (PWA) (Shipped: 2026-08-15)
+
+**Phases completed:** 5 phases (9-13), 15 plans, 19 tasks
+**Stats:** 2026-08-14 → 2026-08-15 (2 dias); 31 subagentes na execução autônoma
+**Closeout:** override_closeout — UAT físico no iPhone DEFERIDO nas 5 fases
+(tabela em `milestones/v1.2-phases/*/NN-UAT.md`; retomada manual — os
+`/gsd-verify-work N` apontavam para `.planning/phases/`, agora arquivadas).
+Infra da fase 13 CONCLUÍDA em 15/08: migrations 0038/0039 em staging+produção,
+VAPID+service_role+scheduler no VPS, chave pública na Vercel, backend e web
+deployados e verificados (13-UAT teste 1 = passed). Sem audit formal (mesmo
+padrão do v1.1); auditoria retroativa disponível via /gsd-audit-milestone.
+
+**Key accomplishments:**
+
+- Runtime web sem gaps de PWA (fase 9): alertShim/AlertHost substituem Alert.alert (no-op no web) com guarda jest permanente; Wake Lock com readquisição em visibilitychange mantém a tela acesa na sessão ativa (iOS 18.4+).
+- Identidade instalável (fase 10): manifest + ícones + 9 splash screens apple-touch-startup-image geradas por pwa-asset-generator, servidas com carve-out próprio no rewrite SPA da Vercel e travadas por teste.
+- Service worker gerado por `workbox generateSW` precacheando o app shell inteiro sem interceptar nenhuma chamada de dado, registrado via script externo com ponte de atualização manual, e `vercel.json` servindo `sw.js`/`register-sw.js`/`manifest.json` com `Cache-Control: no-cache, must-revalidate` — tudo travado por uma suíte jest permanente de 9 testes.
+- Banner web-only "Nova versão disponível" com botões Atualizar/Depois, escutando o CustomEvent `sw-update-available` de `register-sw.js` (Plano 11-01) e nunca disparando reload diretamente — verificado por 6 testes RTL sob `@jest-environment jsdom`.
+- Rota pública `/instalar` (installDetection.ts + InstallScreen.tsx) registrada nas 3 árvores de navegação (Auth/Onboarding/Main), detectando iOS/Safari/standalone de forma síncrona e pura, com os 4 estados de copy literal do UI-SPEC e guarda web-only reutilizando o padrão de UpdateBanner.tsx.
+- Infra completa de Web Push (VAPID/pywebpush) ponta a ponta: tabela `push_subscriptions` com RLS+GRANT, endpoints Flask `POST`/`DELETE /api/push/subscribe` com allowlist anti-SSRF e upsert idempotente, botão de opt-in/opt-out no Perfil com gesto síncrono do iOS, e handlers `push`/`notificationclick` no service worker via `importScripts` — migrations 0038/0039 aplicadas em staging E produção em 15/08 (md5 igual, asserções ok) e infra completa ligada no mesmo dia (ver Closeout).
+- Scheduler de lembrete diário (thread única MVP, idempotente por coluna persistida) que lê `planned_sessions` diretamente sem reimplementar a lógica de reancoragem/aderência do cliente, e endpoint `POST /api/push/notify-replan-applied` disparado best-effort por `confirmReplan()` no evento real de replanejamento aplicado — fecha PUSH-02 e PUSH-03.
+- `updateTrainingBadge()` novo em `src/utils/pushBadge.ts` (Badging API `navigator.setAppBadge`/`clearAppBadge`, gated por suporte + `Notification.permission === 'granted'`) ligado à `HomeScreen.tsx` via `useEffect` que reusa exatamente a mesma condição `ehHoje && todaySession.status === 'pending'` já usada no card de destaque — fecha PUSH-04.
+- Convite proativo de opt-in de push (`PushInviteHost`), mostrado exatamente uma vez via o mesmo Modal web (`alertShim`/`AlertHost`) já usado em todo o app, fechando a peça de PUSH-01 que faltava: o aluno não precisa mais descobrir sozinho o botão "Ativar notificações" no Perfil.
+
+---
+
 ## v1.1 Release em produção (Shipped: 2026-08-14)
 
 **Phases completed:** 4 fases (5-8) — Fase 5 com 2 plans/4 tasks e verificação 11/11;

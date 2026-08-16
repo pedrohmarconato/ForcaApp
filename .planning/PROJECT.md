@@ -47,21 +47,22 @@ usuário fez, meta com uma única fonte de verdade e condução guiada do alonga
   errcode P0005 da 0036, mascarado pelo PostgREST; aplicada só no stack local —
   staging/produção pendem do fluxo normal de deploy de migrations).
 
-## Current State (v1.1 shipped 2026-08-14)
+## Current State (v1.2 shipped 2026-08-15)
 
-**Shipped:** v1.1 "Release em produção" — tudo que o v1.0 construiu está VIVO em
-produção com evidência: 68 commits publicados (`0193742..82fd8db`) com CI
-`session-contract` verde (run 31822228262); migration 0037 (P0005→23505) verificada
-por leitura em staging e produção (md5 `662cbd9e` idêntico); PWA em produção na
-Vercel (https://forca-app-six.vercel.app) com o gráfico de evolução de cardio
-verificado visualmente pelo dono ("passou", 2026-08-14). Fase 5 verificada 11/11;
-fases 6-8 executadas com evidência direta registrada (override_closeout — sem
-diretórios de fase próprios, sem audit formal de milestone).
+**Shipped:** v1.2 "App de iPhone instalável via site (PWA)" — o PWA da Vercel é
+app instalável de primeira classe: alertShim (Alert.alert deixou de ser no-op),
+Wake Lock na sessão ativa, identidade completa (ícones/splash), service worker
+Workbox com offline de app shell e atualização manual segura, rota pública
+`/instalar` guiada, e Web Push ponta a ponta (VAPID próprio, opt-in no Perfil,
+lembrete 8h por scheduler no VPS, aviso de replanejamento, badge). Infra toda
+verificada em produção em 15/08 (migrations 0038/0039, VAPID+service_role no
+VPS, chave pública na Vercel, backend e web deployados). UAT físico no iPhone
+DEFERIDO nas 5 fases — arquivos em `milestones/v1.2-phases/*/NN-UAT.md`.
 
-**O que existe agora:** tudo do v1.0 (cardio decimal fiel, meta por prescrição,
+**O que existe agora:** tudo do v1.0/v1.1 (cardio decimal, meta por prescrição,
 alongamento guiado, anamnese calibrada, troca de modalidade com guarda, execução
-offline-first) MAIS o gráfico de evolução de cardio (pace/km por modalidade) em
-produção, revisado por painel adversarial (7 achados, todos terminais).
+offline-first, gráfico de evolução) MAIS o app instalável com push — em produção
+(https://forca-app-six.vercel.app / https://forca-api.cadastrai.com).
 
 **Dívidas conhecidas (com dono e caminho):** teste 8(c) em build nativo (máquina sem
 toolchain); sessão de debug `resolved_partial` (falta o texto literal do erro de
@@ -69,30 +70,31 @@ produção); GRANT DML ausente para projetos Supabase novos; `Alert.alert` no-op
 react-native-web; tabela `cardio_goals` órfã; Nyquist not-validated nas fases do
 v1.0. Detalhe: STATE.md (Pending Todos/Deferred Items).
 
-## Current Milestone: v1.2 App de iPhone instalável via site (PWA)
+## Current Milestone: v1.3 Treino de tela bloqueada (app nativo pessoal)
 
-**Goal:** O ForcaApp vira um app instalável de primeira classe no iPhone — baixado
-do site do dono, sem App Store e sem conta Apple — elevando o PWA da Vercel a uma
-experiência indistinguível de app nativo para os ~20 usuários (família/alunos).
+**Goal:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
+comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
+pago, sem distribuição a terceiros).
 
 **Target features:**
-- Manifest completo + ícones e splash screens iOS — instalação pela Tela de Início
-  com identidade própria (nome, ícone, standalone, sem chrome do Safari)
-- Service worker com offline real — o app abre e funciona sem rede, casando com o
-  outbox offline-first entregue no v1.0
-- Push notification no iPhone (iOS 16.4+, exige PWA instalado) com infra de envio
-  no backend
-- Página de instalação guiada no site ("instale no seu iPhone em 3 passos")
-- Fechamento dos gaps do runtime web — inclui a dívida conhecida do `Alert.alert`
-  no-op (botão "Concluir treino" parece morto no alvo web)
+- Build nativo iOS por sideload gratuito: `expo prebuild` + assinatura com Apple
+  ID pessoal (validade 7 dias), rotina de reassinatura semanal documentada
+- Live Activity interativa da sessão: exercício atual, série X/Y e timer de
+  descanso nativo na tela bloqueada + Dynamic Island, com botões via App Intents
+  (concluir série, pular descanso) — sem abrir o app
+- Registro sem teclado com memória: reps e carga pré-preenchidos do histórico do
+  exercício, ajuste só por botões +/− e confirmação em 1 toque — na tela do app
+  e na tela bloqueada (componente RN compartilhado: o PWA web herda)
+- Fim de descanso audível: som/vibração via notificação local agendada
+- Modo mãos-livres: sessão viva em background via sessão de áudio com cues
+  falados (viável por ser sideload pessoal, sem review de loja)
 
-**Restrição de contorno (decisão do dono, pesquisa datada de 2026-08-14):**
-distribuição nativa fora da App Store no Brasil segue exigindo Apple Developer pago
-— o TCC do CADE trouxe só marketplaces alternativos (iOS 26.5, jun/2026), que também
-exigem conta paga + notarização; a conta gratuita assina para 3 aparelhos por 7 dias.
-O dono optou por não pagar; Ad Hoc/TestFlight ficam registrados como porta reaberta
-caso decida pagar os US$ 99/ano. Máquina sem toolchain nativa (sem Xcode) — tudo
-deve ser verificável via Expo web + Supabase local.
+**Contexto de contorno:** iPhone do dono em iOS 26.x (Live Activity interativa
+plena); Xcode instalado em 15/08 (licença pendente de aceite via
+`sudo xcodebuild -license`); push nativo/APNs vetado no regime gratuito —
+notificação local cobre; widget de tela de início (WidgetKit) fica fora deste
+milestone; o PWA de produção segue intacto como canal web + push web.
 
 ## Restrições
 
@@ -122,6 +124,9 @@ deve ser verificável via Expo web + Supabase local.
 | 2026-08-14 | UAT visual da Fase 5 cumprido pelo dono no PWA de produção ("passou") | Fecha a verificação 11/11; supera o alvo original (Expo web local) |
 | 2026-08-14 | v1.1 fechado como override_closeout: fases 6-8 sem diretórios de fase (evidência direta em ROADMAP/STATE), sem audit formal; debug resolved_partial segue deferida | Milestone operacional de release; trilha de evidência completa (CI, md5, 200) |
 | 2026-08-14 | v1.2 será app de iPhone via site pelo caminho PWA — SEM Apple Developer pago | Pesquisa 2026-08-14: TCC CADE trouxe só marketplaces alternativos (iOS 26.5), que exigem conta paga; dono não quer pagar; Ad Hoc/TestFlight ficam como porta reaberta se pagar US$ 99/ano |
+| 2026-08-15 | v1.2 fechado como override_closeout com UAT físico deferido nas 5 fases; infra da fase 13 concluída e verificada no mesmo dia | Decisão do dono no /gsd-new-milestone; arquivos de UAT preservados em milestones/v1.2-phases/ |
+| 2026-08-15 | v1.3 muda o canal: app NATIVO pessoal por sideload gratuito (Apple ID, 7 dias), objetivo = sessão inteira operada pela tela bloqueada (Live Activity interativa) | App é de uso próprio (sem alunos por ora); US$ 99/ano recusado de novo; push nativo vetado no regime gratuito → notificação local; iOS 26.x confirmado pelo dono |
+| 2026-08-15 | Registro de série sem teclado: reps/carga pré-preenchidos do histórico + botões +/− | Pedido do dono no ajuste de escopo; pré-requisito real do registro na tela bloqueada (Live Activity não tem teclado) |
 
 ## Evolution
 
@@ -141,4 +146,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-14 after v1.1 milestone*
+*Last updated: 2026-08-15 — v1.2 shipped; milestone v1.3 started*

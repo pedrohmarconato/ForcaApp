@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: App de iPhone instalável via site (PWA)
-current_phase: 13
-current_phase_name: Push notification ponta a ponta
-status: executing
-stopped_at: "Milestone v1.2: 5/5 fases executadas; UAT/infra do dono pendentes (deferred)"
-last_updated: "2026-08-15T17:16:06.362Z"
+milestone: v1.3
+milestone_name: Treino de tela bloqueada (app nativo pessoal)
+status: planning
+last_updated: "2026-08-16T00:06:45.713Z"
 last_activity: 2026-08-15
-last_activity_desc: Phase 13 execution started
 progress:
-  total_phases: 5
-  completed_phases: 2
-  total_plans: 15
-  completed_plans: 12
-  percent: 40
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,12 +25,10 @@ sem App Store, sem conta Apple — para os ~20 usuários (família/alunos).
 
 ## Current Position
 
-Phase: 13 (Push notification ponta a ponta) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-08-15 — Phase 13 execution started
-
-Progress: [████████░░] 80%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-15 — Milestone v1.3 started
 
 ## Performance Metrics
 
@@ -132,15 +126,20 @@ Items acknowledged and deferred from previous milestone close (v1.1, 2026-08-14)
 | tech-debt | Nyquist not-validated nas fases do v1.0 | Deferred | v1.0 close (2026-08-13) |
 | scope | `Alert.alert` no-op no react-native-web | **Endereçado nesta milestone — Phase 9 (WEB-01)** | v1.0 close (2026-08-13) |
 
-## Deferred Verification
+## Deferred Verification (herdado do v1.2 — fases ARQUIVADAS)
 
-| Phase | State | Resume |
-|-------|-------|--------|
-| 9 | verification_deferred_human | /gsd-verify-work 9 |
-| 10 | verification_deferred_human (Task 3 do plano 10-01) | /gsd-verify-work 10 |
-| 11 | verification_deferred_human (Task 3 do plano 11-03 — modo avião) | /gsd-verify-work 11 |
-| 12 | verification_deferred_human (plano 12-02 — UAT aluno leigo) | /gsd-verify-work 12 |
-| 13 | verification_deferred_human (plano 13-04 — infra do dono + UAT push) | /gsd-verify-work 13 |
+O v1.2 fechou em 15/08/2026 com UAT físico deferido nas 5 fases. Os diretórios
+saíram de `.planning/phases/` para `.planning/milestones/v1.2-phases/` — os
+comandos `/gsd-verify-work N` NÃO encontram mais as fases; o UAT é manual,
+seguindo cada `NN-UAT.md` no arquivo, no PWA de produção:
+
+| Phase | Pendência | Roteiro |
+|-------|-----------|---------|
+| 9 | Wake Lock + diálogo concluir (iOS 26.x: Wake Lock deve funcionar) | milestones/v1.2-phases/09-*/09-UAT.md |
+| 10 | Splash/ícone na instalação | milestones/v1.2-phases/10-*/10-UAT.md |
+| 11 | Offline modo avião + banner de atualização | milestones/v1.2-phases/11-*/11-UAT.md |
+| 12 | /instalar com usuário leigo | milestones/v1.2-phases/12-*/12-UAT.md |
+| 13 | Push no iPhone (testes 2-5; teste 1 infra = passed 15/08) | milestones/v1.2-phases/13-*/13-UAT.md |
 
 ## Session Continuity
 
@@ -157,4 +156,4 @@ atualize os dois.
 
 ## Operator Next Steps
 
-- Próximo comando: `/gsd-plan-phase 9`
+- Start the next milestone with /gsd-new-milestone
