@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
+current_phase: 14
+current_phase_name: Fundação nativa
 status: planning
-last_updated: "2026-08-15T21:07:00.000Z"
+stopped_at: Phase 14 context gathered
+last_updated: "2026-08-16T02:33:19.026Z"
 last_activity: 2026-08-15
+last_activity_desc: ROADMAP.md v1.3 criado (Phases 14-17), 10/10 requisitos mapeados, sem órfãos
 progress:
   total_phases: 4
   completed_phases: 0
@@ -78,8 +82,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
   stepper sem teclado no app e na Live Activity + antecipação da próxima ação).
   PRED-01 (1 requisito, "cheap") dobrado dentro da Phase 17 em vez de virar fase
   própria — granularidade "standard" evita fase de requisito único.
+
 - Notificação local de fim de descanso e modo mãos-livres (áudio/voz) ficam FORA
   do v1.3 (decisão do dono em 15/08) — não geraram fase.
+
 - Toda fase que toca o iPhone físico carrega critério de UAT explícito do dono —
   Xcode 26.6 licenciado nesta máquina permite builds on-device daqui, mas só o
   dono tem o aparelho físico para instalar/testar.
@@ -108,13 +114,16 @@ Nenhum novo desde o início do v1.3.
 - Xcode 26.6 licenciado nesta máquina (builds on-device possíveis daqui), mas só o
   dono tem o iPhone físico — cada fase de v1.3 que toca o aparelho carrega
   critério de UAT explícito do dono (nunca "compilou" como critério de conclusão).
+
 - Duas incertezas resolvidas só por spike no aparelho (Fase 14, primeiro passo):
   (1) disponibilidade de App Groups em time pessoal gratuito; (2) processo que
   executa `perform()` de `LiveActivityIntent` no cold-launch. A arquitetura de
   REG-02/CMD depende do resultado — não presumir nenhuma resposta antes do spike.
+
 - Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest);
   comportamento de Live Activity/App Intents não é testável em simulador, exige
   aparelho físico a partir da Fase 15.
+
 - Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção
   `zanqygwsgxkyjiuhrzju`) — conferir `supabase/.temp/project-ref` antes de
   qualquer comando linkado (v1.3 não deve mexer em schema, mas o hábito vale).
@@ -135,11 +144,11 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-15T21:07:00.000Z
-Stopped at: ROADMAP.md v1.3 criado — 4 fases (14-17), 10/10 requisitos mapeados,
+Last session: 2026-08-16T02:33:19.021Z
+Stopped at: Phase 14 context gathered
 sem órfãos. STATE.md e REQUIREMENTS.md (traceability) atualizados. Aguardando
 aprovação do dono.
-Resume file: .planning/STATE.md
+Resume file: .planning/phases/14-funda-o-nativa/14-CONTEXT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
