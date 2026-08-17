@@ -5,16 +5,16 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
 current_phase_name: tela-bloqueada-ver-e-cronometrar
 status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-08-17T02:54:29.099Z"
+stopped_at: Completed 15-04-PLAN.md
+last_updated: "2026-08-17T12:32:42.902Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 15 Plan 01 complete
+last_activity_desc: Phase 15 Plan 04 complete
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 10
-  percent: 67
+  completed_plans: 11
+  percent: 73
 ---
 
 # Project State
@@ -32,17 +32,17 @@ pago, sem distribuição a terceiros).
 ## Current Position
 
 Phase: 15 (tela-bloqueada-ver-e-cronometrar) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 15 Plan 01 complete
+Last activity: 2026-08-17 — Phase 15 Plan 04 complete
 
-Progress: [███████░░░] 67%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10 (v1.3)
+- Total plans completed: 11 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -56,7 +56,7 @@ Progress: [███████░░░] 67%
 
 **Recent Trend:**
 
-- v1.3 execution started; Phase 15 Plan 01 is the first completed plan in this milestone.
+- v1.3 execution started; Phase 15 Plans 01 and 04 are complete in this milestone.
 
 **Per-Plan Metrics (histórico v1.2):**
 
@@ -70,6 +70,7 @@ Progress: [███████░░░] 67%
 | Phase 13 P03 | 12min | 2 tasks | 3 files |
 | Phase 13 P05 | ~15min | 2 tasks | 3 files |
 | Phase 15 P01 | 45min | 1 tasks | 26 files |
+| Phase 15 P04 | 20min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: ContentState estruturado e numerico, com restEndsAt ISO-8601 UTC, preserva reps/carga para as Fases 16/17.
 - [Phase ?]: Text(timerInterval:) permanece no widget; o intervalo do app só força repaint cosmético e nunca avança a série.
 - [Phase ?]: LiveActivityModule declara disponibilidade iOS 16.2 para compilar ActivityContent sem elevar o podspec do molde.
+- [Phase ?]: Produção do app nativo usa exclusivamente o ref zanqygwsgxkyjiuhrzju, validado como forcaapp-prod na organização ltmhaqdcvidzsbfkxmii.
+- [Phase ?]: Mudanças de .env mantêm o arquivo gitignored e nunca expõem ou versionam a anon public key; .env.example permanece intocado.
+- [Phase ?]: O bundle Release é reconstruído por npm run resign antes do UAT físico; login real e Lock Screen UAT continuam nos planos físicos posteriores.
 
 ### Pending Todos
 
@@ -149,9 +153,10 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-17T02:54:29.093Z
-Stopped at: Completed 15-01-PLAN.md
-sem órfãos. STATE.md e REQUIREMENTS.md (traceability) atualizados. Aguardando
+Last session: 2026-08-17T12:32:42.895Z
+Stopped at: Completed 15-04-PLAN.md
+sem órfãos. STATE.md atualizado; REQUIREMENTS.md permaneceu sem alteração porque
+LOCK-01/LOCK-02 já estavam completos e LOCK-03 continua pendente. Aguardando
 aprovação do dono.
 Resume file: None
 

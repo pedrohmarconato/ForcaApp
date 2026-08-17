@@ -89,7 +89,7 @@ status: complete
 
 The runtime artifact is intentionally gitignored, so the task commit contains only this non-secret execution record; no production key was staged.
 
-1. **Task 1: apontar `.env` para produção e reconstruir o bundle nativo** — `DOC_COMMIT_PENDING` (`docs`)
+1. **Task 1: apontar `.env` para produção e reconstruir o bundle nativo** — `13959bd` (`docs`)
 
 **Plan metadata:** final GSD documentation commit will include the state/roadmap updates.
 
@@ -145,3 +145,9 @@ None — os valores foram resolvidos de forma autenticada nesta execução. Nenh
 *Phase: 15-tela-bloqueada-ver-e-cronometrar*
 *Plan: 04*
 *Completed: 2026-08-17*
+
+## Self-Check: PASSED
+
+- `15-04-SUMMARY.md` exists at the canonical phase path.
+- Task documentation commit `13959bd` exists in git history.
+- Summary scan found no anon key, service-role key, or unresolved commit placeholder.
