@@ -16,6 +16,7 @@ import {
   initLiveActivitySync,
   reconcileOrphanActivities,
 } from './src/native/liveActivitySync';
+import { registerLiveActivityIntentListener } from './src/native/liveActivityIntentBridge';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -28,7 +29,12 @@ export default function App() {
 
   useEffect(() => {
     void reconcileOrphanActivities();
-    return initLiveActivitySync();
+    const unsubscribeSync = initLiveActivitySync();
+    const unsubscribeIntents = registerLiveActivityIntentListener();
+    return () => {
+      unsubscribeSync();
+      unsubscribeIntents();
+    };
   }, []);
 
   // Se o carregamento falhar, seguimos com a fonte do sistema: um app sem a

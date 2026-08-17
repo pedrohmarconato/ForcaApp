@@ -20,6 +20,13 @@ public struct LiveActivityContentStateRecord: Record {
 
 @available(iOS 16.2, *)
 public class LiveActivityModule: Module {
+  /// Referência fraca à instância viva do módulo — permite que os
+  /// `LiveActivityIntent`s (Fase 16, processo do app) emitam `onIntentAction`
+  /// sem passar pela ponte de invocação normal do Expo Modules (que exige
+  /// vir do lado JS). `weak` evita reter o módulo além do ciclo de vida que
+  /// o próprio Expo Modules Core já gerencia.
+  static weak var shared: LiveActivityModule?
+
   private var currentActivity: Activity<SessionActivityAttributes>?
 
   private func iso8601Date(from value: String?) -> Date? {
@@ -48,6 +55,12 @@ public class LiveActivityModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("LiveActivityModule")
+
+    OnCreate {
+      LiveActivityModule.shared = self
+    }
+
+    Events("onIntentAction")
 
     AsyncFunction("startActivity") { (record: LiveActivityContentStateRecord, sessionLogId: String) -> Bool in
       guard #available(iOS 16.2, *) else { return false }

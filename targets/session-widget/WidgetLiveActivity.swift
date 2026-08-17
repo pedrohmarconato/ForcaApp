@@ -114,11 +114,27 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
         VStack(alignment: .leading, spacing: 4) {
             primaryValue(state)
             secondaryLine(state)
+            HStack {
+                Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
+                    Text("-30s")
+                }
+                Button(intent: SkipRestIntent()) {
+                    Text("Pular")
+                }
+                Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
+                    Text("+30s")
+                }
+            }
+            .tint(activityNeon)
         }
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
             primaryValue(state)
             secondaryLine(state)
+            Button(intent: CompleteSetIntent()) {
+                Text("Concluir série")
+            }
+            .tint(activityNeon)
         }
     case .readyOvertime:
         VStack(alignment: .leading, spacing: 4) {
@@ -168,6 +184,7 @@ struct WidgetLiveActivity: Widget {
                 .padding()
                 .activityBackgroundTint(activityBackground)
                 .activitySystemActionForegroundColor(Color.white)
+                .widgetURL(URL(string: "forcaapp://session/active"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {

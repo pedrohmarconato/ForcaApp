@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as seis condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as sete condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -37,7 +37,7 @@
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das seis checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das sete checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 
 set -euo pipefail
@@ -50,7 +50,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As seis checagens (a)-(f). Chamadas duas vezes (rodada 1 e rodada 2),
+# As sete checagens (a)-(g). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -140,7 +140,30 @@ rodar_checagens() {
     exit 1
   fi
 
-  amarelo "  Rodada ${rodada}: (a)-(f) OK."
+  # (g) os três LiveActivityIntents (Fase 16, CMD) precisam existir nos DOIS
+  # targets — modules/live-activity/ios/ (perform() real, roda no processo
+  # do app) e targets/session-widget/ (stub trivial, só para o
+  # Button(intent:) compilar na extensão). Os pares NÃO são bytes-idênticos
+  # por design nesta fase (ver Nota de arquitetura do 16-01-PLAN.md) — esta
+  # checagem confirma só presença + declaração do struct, não diff de
+  # conteúdo.
+  local nome_intent
+  for nome_intent in CompleteSetIntent SkipRestIntent AdjustRestIntent; do
+    if ! grep -q "struct ${nome_intent}" "modules/live-activity/ios/${nome_intent}.swift" 2>/dev/null; then
+      vermelho "ABORTADO: [rodada ${rodada}] ${nome_intent} não existe nos dois targets (app + extensão)."
+      echo "  Falta modules/live-activity/ios/${nome_intent}.swift ou não declara" >&2
+      echo "  \"struct ${nome_intent}\"." >&2
+      exit 1
+    fi
+    if ! grep -q "struct ${nome_intent}" "targets/session-widget/${nome_intent}.swift" 2>/dev/null; then
+      vermelho "ABORTADO: [rodada ${rodada}] ${nome_intent} não existe nos dois targets (app + extensão)."
+      echo "  Falta targets/session-widget/${nome_intent}.swift ou não declara" >&2
+      echo "  \"struct ${nome_intent}\"." >&2
+      exit 1
+    fi
+  done
+
+  amarelo "  Rodada ${rodada}: (a)-(g) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."

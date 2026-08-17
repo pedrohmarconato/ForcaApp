@@ -4,7 +4,14 @@ import type { LiveActivityContentState } from '../../src/engine/liveActivityCont
 
 export type { LiveActivityContentState } from '../../src/engine/liveActivityContentState';
 
-type LiveActivityModuleEvents = {};
+export type LiveActivityIntentActionEvent =
+  | { kind: 'completeSet' }
+  | { kind: 'skipRest' }
+  | { kind: 'adjustRest'; deltaSeconds: number };
+
+type LiveActivityModuleEvents = {
+  onIntentAction: (event: LiveActivityIntentActionEvent) => void;
+};
 
 declare class LiveActivityModuleType extends NativeModule<LiveActivityModuleEvents> {
   startActivity(state: LiveActivityContentState, sessionLogId: string): Promise<boolean>;
@@ -39,3 +46,10 @@ export const isLiveActivityRunning = (): Promise<boolean> =>
 export const reconcileLiveActivityOrphans = (
   stillActiveSessionLogId: string | null,
 ): Promise<boolean> => LiveActivityModule.reconcileOrphans(stillActiveSessionLogId);
+
+export const subscribeLiveActivityIntentAction = (
+  listener: (event: LiveActivityIntentActionEvent) => void,
+): (() => void) => {
+  const subscription = LiveActivityModule.addListener('onIntentAction', listener);
+  return () => subscription.remove();
+};
