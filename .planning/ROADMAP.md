@@ -197,7 +197,22 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 16-01-PLAN.md — Tracer + expansão: CompleteSetIntent/SkipRestIntent/AdjustRestIntent no caminho quente (bridge JS já viva)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 16-02-PLAN.md — Reconciliação da fila do App Group no boot (cold-launch, drainIntentQueue + CAS por sessionLogId)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 16-03-PLAN.md — Sessão física: concluir série, ajustar/pular descanso, force-quit-então-toque
+
+**UI hint**: yes
 
 #### Phase 17: Tela bloqueada — registrar e antecipar
 
@@ -247,5 +262,5 @@ série/exercício antes do descanso acabar.
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
-| 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
+| 16. Tela bloqueada — comandar | v1.3 | 0/3 | Planned | - |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
