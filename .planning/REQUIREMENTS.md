@@ -23,12 +23,12 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — ver (LOCK)
 
-- [ ] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
+- [x] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
   atual, a série X/Y e a prescrição (reps × carga) num card de Live Activity,
   sem desbloquear nem abrir o app — com as 4 apresentações do Dynamic Island
   (compact/minimal/expanded + Lock Screen).
 
-- [ ] **LOCK-02**: O timer de descanso conta regressivamente na tela bloqueada
+- [x] **LOCK-02**: O timer de descanso conta regressivamente na tela bloqueada
   de forma nativa (`Text(timerInterval:)`, sem depender do app acordado) — o
   estado do timer sai de `SessionPlayer.tsx` e vira timestamp absoluto
   (`restEndsAt`) no `activeSessionStore` (fundação compartilhada).
@@ -103,8 +103,8 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 |-------------|-------|--------|
 | NAT-01 | Phase 14 | Complete |
 | NAT-02 | Phase 14 | Complete |
-| LOCK-01 | Phase 15 | Pending |
-| LOCK-02 | Phase 15 | Pending |
+| LOCK-01 | Phase 15 | Complete |
+| LOCK-02 | Phase 15 | Complete |
 | LOCK-03 | Phase 15 | Pending |
 | CMD-01 | Phase 16 | Pending |
 | CMD-02 | Phase 16 | Pending |

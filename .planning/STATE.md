@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
-current_phase_name: Tela bloqueada — ver e cronometrar
+current_phase_name: tela-bloqueada-ver-e-cronometrar
 status: executing
-stopped_at: Phase 15 UI-SPEC approved
-last_updated: "2026-08-17T02:05:47.721Z"
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-08-17T02:54:29.099Z"
 last_activity: 2026-08-16
-last_activity_desc: Phase 14 complete, transitioned to Phase 15
+last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 9
+  completed_plans: 10
   percent: 25
 ---
 
@@ -27,16 +27,16 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
-**Current focus:** Phase 14 — funda-o-nativa
+**Current focus:** Phase 15 — tela-bloqueada-ver-e-cronometrar
 
 ## Current Position
 
-Phase: 15 — Tela bloqueada — ver e cronometrar
-Plan: Not started
+Phase: 15 (tela-bloqueada-ver-e-cronometrar) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-08-16 — Phase 14 complete, transitioned to Phase 15
+Last activity: 2026-08-16 — Phase 15 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13 P02 | 30min | 3 tasks | 21 files |
 | Phase 13 P03 | 12min | 2 tasks | 3 files |
 | Phase 13 P05 | ~15min | 2 tasks | 3 files |
+| Phase 15 P01 | 45min | 1 tasks | 26 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Migration 0038 criada+testada mas aplicação em staging BLOQUEADA por credencial (SUPABASE_ACCESS_TOKEN sem acesso ao org ForçaApp) — dono precisa supabase login+relink+db push antes do UAT 13-04
 - [Phase ?]: iniciar_scheduler() chamado no IMPORT de backend/app.py (não em if __name__ == '__main__'), porque o gunicorn de produção sobe via backend.app:app e nunca executa esse bloco — sem isto PUSH-02 nunca rodaria em produção.
 - [Phase ?]: PushInviteHost: convite único de opt-in via alertShim, flag push_invite_shown gravada nos dois caminhos (aceitar/recusar), subscribeToPush() como primeira expressão síncrona do onPress do botão do Modal web.
+- [Phase ?]: ContentState estruturado e numerico, com restEndsAt ISO-8601 UTC, preserva reps/carga para as Fases 16/17.
+- [Phase ?]: Text(timerInterval:) permanece no widget; o intervalo do app só força repaint cosmético e nunca avança a série.
+- [Phase ?]: LiveActivityModule declara disponibilidade iOS 16.2 para compilar ActivityContent sem elevar o podspec do molde.
 
 ### Pending Todos
 
@@ -145,11 +149,11 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-17T00:45:10.518Z
-Stopped at: Phase 15 UI-SPEC approved
+Last session: 2026-08-17T02:54:29.093Z
+Stopped at: Completed 15-01-PLAN.md
 sem órfãos. STATE.md e REQUIREMENTS.md (traceability) atualizados. Aguardando
 aprovação do dono.
-Resume file: .planning/phases/15-tela-bloqueada-ver-e-cronometrar/15-UI-SPEC.md
+Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
