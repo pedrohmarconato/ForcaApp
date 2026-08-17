@@ -25,7 +25,10 @@ const makeSet = (setOrder: number, status: DraftSet['status']): DraftSet => ({
   completedAt: null,
 });
 
-const makeExercise = (sets: DraftSet[]): DraftExercise => ({
+const makeExercise = (
+  sets: DraftSet[],
+  overrides: Partial<DraftExercise> = {},
+): DraftExercise => ({
   exerciseId: 'ex-1',
   name: 'Supino reto',
   order: 1,
@@ -39,9 +42,10 @@ const makeExercise = (sets: DraftSet[]): DraftExercise => ({
   targetRmPercent: 75,
   repsRaw: '8-10',
   sets,
+  ...overrides,
 });
 
-const makeDraft = (sets: DraftSet[]): SessionDraft => ({
+const makeDraft = (sets: DraftSet[], exercises?: DraftExercise[]): SessionDraft => ({
   version: 1,
   plannedSessionId: 'session-1',
   sessionLogId: 'log-1',
@@ -51,7 +55,7 @@ const makeDraft = (sets: DraftSet[]): SessionDraft => ({
   startedAt: '2026-08-16T11:00:00.000Z',
   status: 'active',
   restEndsAt: null,
-  exercises: [makeExercise(sets)],
+  exercises: exercises ?? [makeExercise(sets)],
   lastLoadByExercise: {},
 });
 
@@ -100,8 +104,81 @@ describe('buildLiveActivityContentState', () => {
     draft.restEndsAt = '2026-08-16T11:59:59.000Z';
 
     expect(buildLiveActivityContentState(draft, now)).toMatchObject({
-      phase: 'measuring',
-      restEndsAt: null,
+      phase: 'readyOvertime',
+      restEndsAt: draft.restEndsAt,
+    });
+  });
+
+  it.each([
+    ['série ativa', [makeSet(1, 'active'), makeSet(2, 'pending')], null],
+    [
+      'descanso do bloco',
+      [makeSet(1, 'done'), makeSet(2, 'pending')],
+      '2026-08-16T12:01:30.000Z',
+    ],
+  ])('deriva blockOnly para exercício medido por tempo durante %s', (_, sets, restEndsAt) => {
+    const exercise = makeExercise(sets, {
+      metric: 'tempo',
+      name: 'Alongamento',
+    });
+    const draft = makeDraft(sets, [exercise]);
+    draft.restEndsAt = restEndsAt;
+
+    expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+      phase: 'blockOnly',
+      exerciseName: 'Alongamento',
+      targetRepsMin: null,
+      targetRepsMax: null,
+      targetLoadKg: null,
+      blockLabel: 'Alongamento',
+      blockIndex: 1,
+      blockTotal: 1,
+    });
+    expect(buildLiveActivityContentState(draft, now)?.phase).not.toBe('measuring');
+  });
+
+  it('propaga readyOvertime e resting com o timestamp absoluto', () => {
+    const draft = makeDraft([makeSet(1, 'done'), makeSet(2, 'pending')]);
+    const restEndsAt = '2026-08-16T12:01:30.000Z';
+    draft.restEndsAt = restEndsAt;
+
+    expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+      phase: 'resting',
+      restEndsAt,
+    });
+
+    draft.restEndsAt = '2026-08-16T11:59:59.000Z';
+    expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+      phase: 'readyOvertime',
+      restEndsAt: draft.restEndsAt,
+    });
+  });
+
+  it('conta o progresso do bloco de tempo sem incluir musculação', () => {
+    const exercises = [
+      makeExercise([makeSet(1, 'done')], {
+        exerciseId: 'forca-1',
+        name: 'Supino reto',
+        metric: 'carga_reps',
+      }),
+      makeExercise([makeSet(1, 'done')], {
+        exerciseId: 'alongamento-1',
+        name: 'Alongamento',
+        metric: 'tempo',
+      }),
+      makeExercise([makeSet(1, 'pending')], {
+        exerciseId: 'alongamento-2',
+        name: 'Alongamento',
+        metric: 'tempo',
+      }),
+    ];
+    const draft = makeDraft([], exercises);
+
+    expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+      phase: 'blockOnly',
+      blockIndex: 2,
+      blockTotal: 2,
+      blockLabel: 'Alongamento',
     });
   });
 });

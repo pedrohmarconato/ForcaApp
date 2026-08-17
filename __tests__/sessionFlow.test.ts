@@ -12,6 +12,7 @@
 import {
   exercicioConcluido,
   exerciciosEmJogo,
+  posicaoNoBlocoDeMetrica,
   posicaoDoExercicio,
 } from '../src/engine/sessionFlow';
 import { montarResumoSessao } from '../src/engine/sessionSummary';
@@ -86,6 +87,18 @@ describe('posição no treino', () => {
 
     expect(posicaoDoExercicio(draft, 'b')).toBeNull();
     expect(posicaoDoExercicio(draft, 'inexistente')).toBeNull();
+  });
+
+  it('conta a posição apenas dentro do bloco da mesma métrica', () => {
+    const draft = rascunho([
+      exercicio('forca-1', 'Supino', ['done'], { metric: 'carga_reps' }),
+      exercicio('cardio-1', 'Bike', ['pending'], { metric: 'tempo' }),
+      exercicio('cardio-2', 'Corrida', ['pending'], { metric: 'tempo' }),
+      exercicio('mobilidade', 'Alongamento', ['pending'], { metric: 'tempo_distancia' }),
+    ]);
+
+    expect(posicaoNoBlocoDeMetrica(draft, 'cardio-2')).toEqual({ indice: 2, total: 2 });
+    expect(posicaoNoBlocoDeMetrica(draft, 'forca-1')).toBeNull();
   });
 });
 
