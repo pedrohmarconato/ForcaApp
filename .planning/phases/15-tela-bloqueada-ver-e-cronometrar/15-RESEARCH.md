@@ -402,7 +402,7 @@ AsyncFunction("reconcileOrphans") { (stillActiveSessionLogId: String?) -> Bool i
 
 **Se esta tabela estivesse vazia:** não está — A1-A4 acima precisam de decisão explícita do planner ou confirmação do dono antes de virar plano executável, principalmente A4.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **O que exatamente dispara "cancelar a sessão" (D-06) na UI hoje?**
    - What we know: `finishSession()` existe e é bem entendido; `skipWholeSession()` existe mas é "antes de começar"; `reset()` limpa o estado local sem falar com o servidor.
@@ -414,11 +414,13 @@ AsyncFunction("reconcileOrphans") { (stillActiveSessionLogId: String?) -> Bool i
    - What we know: `posicaoDoExercicio` conta a posição entre TODOS os exercícios em jogo da sessão, não só os de uma métrica.
    - What's unclear: se o "2/6" do exemplo em CONTEXT.md é a posição só entre exercícios de cardio/alongamento (`isTimeBased`), ou a posição geral reaproveitada mesmo em bloco reduzido.
    - Recommendation: nova função pura (ex. `posicaoNoBlocoDeMetrica`), testável isoladamente como as demais em `sessionFlow.ts` — não reaproveitar `posicaoDoExercicio` sem confirmar a semântica com o dono/CONTEXT, já que o exemplo textual sugere contagem separada.
+   - **RESOLVED (implementação executada da Plano 15-02):** o denominador do card reduzido é o conjunto de exercícios **em jogo com a mesma métrica** do exercício atual (`tempo` ou `tempo_distancia`), não todos os exercícios da sessão e tampouco um contador separado só para exibição. `src/engine/sessionFlow.ts:46-59` implementa `posicaoNoBlocoDeMetrica` filtrando `exerciciosEmJogo(draft)` por `isTimeBased(metricOf(ex)) && metricOf(ex) === metricOf(exercicio)`; portanto musculação, exercícios fora de jogo e a outra métrica temporal não entram no denominador. `src/engine/liveActivityContentState.ts:66-73` usa esse resultado para `blockIndex`/`blockTotal` quando o card entra em `blockOnly`. A Plano 15-02:93-124 definiu e executou essa semântica para o exemplo de D-03; não há recurso novo nem contador independente a adicionar.
 
 3. **Sincronia do `SessionActivityAttributes.swift` duplicado — script dedicado ou checagem manual?**
    - What we know: é Claude's Discretion no CONTEXT.md; o repo já tem o padrão de trava barata (`verify-native-skeleton.sh`).
    - What's unclear: se vale a pena um script `diff`/`sync-activity-attrs.sh` dedicado nesta fase ou se um comentário forte + revisão manual basta para o volume de campos desta fase (pequeno, sem botões ainda).
    - Recommendation: decisão de planner — dado que a Fase 16 vai reabrir este mesmo arquivo para adicionar App Intents, um script simples agora paga dividendo cedo; mas não é bloqueante.
+   - **RESOLVED (implementação executada da Plano 15-01):** foi adotada a restrição de revisão manual, não um script dedicado de sincronização. A Plano 15-01:169-183 exige copiar o arquivo do módulo **byte a byte** para o target e escrever/revisar ambos na mesma task, porque são targets Swift separados sem pacote compartilhado. A evidência atual confirma a aplicação: `modules/live-activity/ios/SessionActivityAttributes.swift` e `targets/session-widget/SessionActivityAttributes.swift` têm o mesmo conteúdo de 28 linhas, incluindo os campos `blockLabel`, `blockIndex` e `blockTotal`. `scripts/verify-native-skeleton.sh` continua sendo a trava do esqueleto nativo e do autolinking; ele não compara esses dois arquivos e não é apresentado como enforcement de drift. Não criar script nem ampliar esta fase: qualquer alteração futura nesses atributos deve seguir a cópia e revisão conjunta já estabelecidas pela Plano 15-01.
 
 ## Environment Availability
 
