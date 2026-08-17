@@ -166,6 +166,11 @@ None - nenhuma configuração de serviço externo necessária.
 - O caminho "app já vivo" está provado por teste automatizado (6/6 verde) e `verify:native` real (2x OK) — falta apenas o toque físico no Lock Screen, que é escopo explícito da Plano 16-03.
 - A Fase 15 segue `gaps_found` (LOCK-01/LOCK-03) por decisão anterior ao escopo desta plano — nenhum gap daquela fase toca os arquivos criados aqui; o gap 4 (import sem guarda de plataforma em `App.tsx`) já existia antes desta plano e não foi agravado.
 
+## Self-Check: PASSED
+
+All 10 created/modified files verified present on disk (9 created + SUMMARY.md);
+all 4 commits (`57c4386`, `3dabb0e`, `685b12a`, `548472e`) confirmed in `git log`.
+
 ---
 *Phase: 16-tela-bloqueada-comandar*
 *Completed: 2026-08-17*
