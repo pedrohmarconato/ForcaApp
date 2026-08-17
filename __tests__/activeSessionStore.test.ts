@@ -488,6 +488,101 @@ describe('concluir série', () => {
   });
 });
 
+describe('restEndsAt', () => {
+  const start = async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+  };
+
+  it('marca o fim do descanso em ISO UTC quando existe próxima série pendente', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+
+    const before = Date.now() + 89_000;
+    expect(await store().completeSet('ex-1', 1)).toBe(true);
+
+    const restEndsAt = store().draft?.restEndsAt;
+    expect(restEndsAt).toMatch(/Z$/);
+    expect(new Date(restEndsAt!).getTime()).toBeGreaterThan(before);
+    expect(store().draft?.exercises[0].sets[1].status).toBe('pending');
+  });
+
+  it('não cria descanso quando a série concluída não tem próxima série ou descanso', async () => {
+    await start();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        exercises: draft.exercises.map((exercise) =>
+          exercise.exerciseId === 'ex-1'
+            ? { ...exercise, restSeconds: null, sets: exercise.sets.slice(0, 1) }
+            : { ...exercise, sets: exercise.sets.map((set) => ({ ...set, status: 'done' as const })) },
+        ),
+      },
+    });
+
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    store().setLoad('ex-1', 1, 40);
+    expect(await store().completeSet('ex-1', 1)).toBe(true);
+    expect(store().draft?.restEndsAt).toBeNull();
+  });
+
+  it('zera restEndsAt ao ativar explicitamente a próxima série', async () => {
+    await start();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        restEndsAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+
+    store().activateSet('ex-1', 1);
+    expect(store().draft?.restEndsAt).toBeNull();
+  });
+
+  it('ajusta restEndsAt sem deixar o descanso no passado', async () => {
+    await start();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        restEndsAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    const before = new Date(store().draft!.restEndsAt!).getTime();
+
+    store().adjustRest(30);
+    const afterPlus = new Date(store().draft!.restEndsAt!).getTime();
+    expect(afterPlus).toBeGreaterThan(before + 20_000);
+
+    store().adjustRest(-30);
+    expect(new Date(store().draft!.restEndsAt!).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('não auto-avança quando restEndsAt já expirou', async () => {
+    await start();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        restEndsAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    });
+
+    await Promise.resolve();
+    expect(store().draft?.exercises[0].sets[0].status).toBe('pending');
+    expect(store().draft?.exercises[0].sets[1].status).toBe('pending');
+  });
+});
+
 describe('setRir', () => {
   it('F12: clampa 0–10 no núcleo do store', async () => {
     await store().startOrResume({
