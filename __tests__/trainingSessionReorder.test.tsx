@@ -27,7 +27,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn() } }));
 
 jest.mock('../src/services/trainingRepository', () => ({
-  getTodaySession: jest.fn(),
+  getResumableSessionForActivePlan: jest.fn(),
   getPlanSessions: jest.fn(),
   getSessionDetail: jest.fn(),
   fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
@@ -46,14 +46,14 @@ import TrainingSessionScreen from '../src/screens/TrainingSessionScreen';
 import {
   getPlanSessions,
   getSessionDetail,
-  getTodaySession,
+  getResumableSessionForActivePlan,
 } from '../src/services/trainingRepository';
 import {
   PlanEditError,
   reordenarSessoesDaSemana,
 } from '../src/services/planEditRepository';
 
-const getTodaySessionMock = getTodaySession as jest.Mock;
+const getResumableSessionMock = getResumableSessionForActivePlan as jest.Mock;
 const getPlanSessionsMock = getPlanSessions as jest.Mock;
 const getSessionDetailMock = getSessionDetail as jest.Mock;
 const reordenarMock = reordenarSessoesDaSemana as jest.Mock;
@@ -116,7 +116,7 @@ const detalheS1 = {
 };
 
 const renderTela = async (planSessions = planSessionsBase) => {
-  getTodaySessionMock.mockResolvedValue({ id: 's1' });
+  getResumableSessionMock.mockResolvedValue({ id: 's1' });
   getSessionDetailMock.mockResolvedValue(detalheS1);
   getPlanSessionsMock.mockResolvedValue(planSessions);
   const utils = render(<TrainingSessionScreen />);
@@ -221,7 +221,7 @@ describe('Aba Plano — edição da ordem da semana', () => {
   it('Salvar abre o sheet de escopo; "Só nesta semana" aplica e refaz o fetch', async () => {
     const utils = await renderTela();
     expect(getPlanSessionsMock).toHaveBeenCalledTimes(1);
-    expect(getTodaySessionMock).toHaveBeenCalledTimes(1);
+    expect(getResumableSessionMock).toHaveBeenCalledTimes(1);
 
     fireEvent.press(utils.getByText('Reordenar'));
     fireEvent.press(utils.getByLabelText('Mover Sessão Delta para cima'));
@@ -244,7 +244,7 @@ describe('Aba Plano — edição da ordem da semana', () => {
     );
     // Refetch: a sessão da vez pode ter mudado.
     await waitFor(() => expect(getPlanSessionsMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getTodaySessionMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getResumableSessionMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(utils.getByText('Reordenar')).toBeTruthy());
   });
 

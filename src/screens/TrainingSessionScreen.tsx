@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import theme from '../theme/theme';
 import type { TrainingStackParamList } from '../navigation/MainNavigator';
 import {
-  getTodaySession,
+  getResumableSessionForActivePlan,
   getPlanSessions,
   getSessionDetail,
   fecharSessoesDeSemanasVencidas,
@@ -150,7 +150,10 @@ const TrainingSessionScreen = () => {
       await fecharSessoesDeSemanasVencidas(user.id, localTodayISO()).catch((err) =>
         console.warn('[fechamento] falhou (não-fatal):', err)
       );
-      const proxima = await getTodaySession(user.id);
+      // Aba Plano: única tela que pode retomar uma sessão em andamento
+      // (in_progress) — decisão do dono (checkpoint 2026-08-17). A Home usa
+      // getTodaySession (pending-only) e nunca esta função.
+      const proxima = await getResumableSessionForActivePlan(user.id);
       if (!proxima) {
         setSession(null);
         return;

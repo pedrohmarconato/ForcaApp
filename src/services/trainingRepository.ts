@@ -100,17 +100,20 @@ export const getActivePlanId = async (userId: string): Promise<string | null> =>
 };
 
 /**
- * Sessão "de hoje": a primeira REALMENTE PENDENTE do plano ativo, por data e
- * ordem na semana. Sessões em andamento (in_progress), concluídas ou recusadas
- * NÃO são selecionadas automaticamente — a retomada de uma sessão abandonada é
- * explícita (via Plano ou URL tipada), nunca um redirecionamento global.
- * Retorna null quando não há plano/sessões pendentes.
+ * Sessão "de hoje" da HOME: SOMENTE a primeira REALMENTE PENDENTE, por data e
+ * ordem na semana. in_progress/completed/skipped NÃO entram nesta seleção
+ * automática — decisão do dono (checkpoint 2026-08-17, bug
+ * live-activity-sessao-sumiu): o card "Treino de hoje" nunca deve reaparecer
+ * sozinho oferecendo retomar um treino em andamento; isso é papel exclusivo
+ * da aba Plano (ver `getResumableSessionForActivePlan` abaixo).
+ *
+ * Retorna null quando não há plano ativo nem sessão pendente.
  */
 export const getTodaySession = async (userId: string): Promise<PlannedSession | null> => {
   const planId = await getActivePlanId(userId);
   if (!planId) return null;
 
-  const pendente = await supabase
+  const { data, error } = await supabase
     .from('planned_sessions')
     .select('*')
     .eq('user_id', userId)
@@ -121,8 +124,69 @@ export const getTodaySession = async (userId: string): Promise<PlannedSession | 
     .order('scheduled_date', { ascending: true })
     .order('order_in_week', { ascending: true })
     .limit(1);
-  if (pendente.error) throw pendente.error;
-  return pendente.data?.[0] ?? null;
+  if (error) throw error;
+  return data?.[0] ?? null;
+};
+
+/**
+ * Sessão "da vez" da ABA PLANO: prioriza uma sessão EM ANDAMENTO
+ * (in_progress) do plano ativo do usuário; sem isso, a primeira REALMENTE
+ * pendente, por data e ordem na semana.
+ *
+ * Só a aba Plano retoma in_progress — decisão do dono (checkpoint
+ * 2026-08-17): a Home continua estritamente pending-only
+ * (`getTodaySession`), retomar uma sessão em andamento é responsabilidade
+ * exclusiva desta função/tela. Sem ela, a sessão criada por start_session
+ * (planned_sessions.status vira 'in_progress' — migration 0011) ficava
+ * irrecuperável: sem persistência de estado de navegação nem deep link
+ * automático de volta para ActiveSessionScreen, relançar o app (ou só sair e
+ * voltar) não tinha nenhum caminho de volta (bug live-activity-sessao-sumiu,
+ * sintoma B — regressão do commit 8cfe861, "Home ignora
+ * in_progress/completed/skipped": a retomada "explícita via Plano" foi
+ * prometida no commit, mas TrainingSessionScreen.tsx nunca ganhou um caminho
+ * dedicado até esta função existir).
+ *
+ * UMA única consulta para decidir entre in_progress e pending — nunca duas
+ * sequenciais. Duas idas ao banco (primeiro checa in_progress, depois
+ * pending) abrem uma corrida de transição: entre os dois awaits a sessão
+ * pode mudar de status (outro dispositivo do mesmo usuário conclui/abandona
+ * a sessão em curso, ou o fechador de semana vencida marca a pendente como
+ * skipped), e a leitura em dois passos poderia devolver um estado que nunca
+ * existiu de fato num único instante. Uma consulta com
+ * `status IN ('in_progress', 'pending')` lê um snapshot único; a prioridade
+ * é resolvida no cliente, sobre esse mesmo snapshot.
+ *
+ * Retorna null quando não há plano ativo, nem sessão em andamento, nem
+ * pendente.
+ */
+export const getResumableSessionForActivePlan = async (
+  userId: string,
+): Promise<PlannedSession | null> => {
+  const planId = await getActivePlanId(userId);
+  if (!planId) return null;
+
+  const { data, error } = await supabase
+    .from('planned_sessions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('plan_id', planId)
+    .in('status', ['in_progress', 'pending'])
+    // Mesmo desempate da fila real: se por algum motivo houver mais de uma
+    // linha in_progress, a mais antiga na fila ganha; idem para pending.
+    .order('scheduled_date', { ascending: true })
+    .order('order_in_week', { ascending: true });
+  if (error) throw error;
+
+  const sessoes = data ?? [];
+  // in_progress ganha independentemente de idade/data (uma sessão em
+  // andamento antiga continua sendo A sessão em andamento — não há conceito
+  // de "expirar" um treino aberto neste app); pending só é usada na
+  // ausência de qualquer in_progress.
+  return (
+    sessoes.find((s: PlannedSession) => s.status === 'in_progress') ??
+    sessoes.find((s: PlannedSession) => s.status === 'pending') ??
+    null
+  );
 };
 
 /**

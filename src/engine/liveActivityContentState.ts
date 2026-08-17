@@ -78,7 +78,15 @@ export const buildLiveActivityContentState = (
     return contentStateFor(phase, current.exercise, current.set, validRestEndsAt);
   }
 
-  return active
-    ? contentStateFor('measuring', active.exercise, active.set, null)
-    : null;
+  // `active` é estado de UI puramente local (só setado por activateSet()) e
+  // NUNCA é restaurado ao reconstruir o rascunho a partir do servidor
+  // (retomada após relançamento do app): a série em andamento volta a
+  // 'pending' até o aluno tocar de novo para revelar os campos. Se este
+  // fallback exigisse `active` em vez de `current` (= active ?? next), o
+  // card nunca apareceria numa sessão nova (série 1 nasce 'pending') nem
+  // numa retomada — e como toda atualização SEGUINTE passa por
+  // publishUpdate/updateActivity (que não cria Activity nova quando nenhuma
+  // existe), o card ficaria ausente pelo resto da sessão. `current` sempre
+  // existe aqui (já filtrado por `if (!current) return null` acima).
+  return contentStateFor('measuring', current.exercise, current.set, null);
 };

@@ -62,8 +62,23 @@ const makeDraft = (sets: DraftSet[], exercises?: DraftExercise[]): SessionDraft 
 describe('buildLiveActivityContentState', () => {
   const now = new Date('2026-08-16T12:00:00.000Z');
 
-  it('retorna null quando não há série ativa nem descanso', () => {
-    expect(buildLiveActivityContentState(makeDraft([makeSet(1, 'pending')]), now)).toBeNull();
+  it('deriva measuring para a próxima série pendente quando não há série ativa nem descanso (sessão nova/retomada)', () => {
+    // Regressão: bug live-activity-sessao-sumiu. `active` é estado de UI local
+    // (só setado por activateSet()) e nunca é restaurado ao reconstruir o
+    // rascunho a partir do servidor — uma sessão nova (série 1 'pending') ou
+    // uma retomada (série em andamento volta a 'pending') não podem cair em
+    // null aqui, senão o card nunca aparece (nem no início, nem na retomada).
+    expect(buildLiveActivityContentState(makeDraft([makeSet(1, 'pending')]), now)).toMatchObject({
+      phase: 'measuring',
+      exerciseName: 'Supino reto',
+      setIndex: 1,
+      setTotal: 1,
+      restEndsAt: null,
+    });
+  });
+
+  it('retorna null quando não há mais nenhuma série (ativa, pendente ou em descanso)', () => {
+    expect(buildLiveActivityContentState(makeDraft([makeSet(1, 'done')]), now)).toBeNull();
   });
 
   it('propaga o exercício, a série seguinte e restEndsAt durante o descanso', () => {

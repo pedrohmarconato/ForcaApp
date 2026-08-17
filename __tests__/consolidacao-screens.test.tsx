@@ -76,6 +76,7 @@ const mockFluent = () => {
   const builder = {
     select: () => builder,
     eq: () => builder,
+    in: () => builder,
     order: () => builder,
     limit: () => builder,
     single: () => Promise.resolve({ data: mockSessaoDetalhe, error: null }),

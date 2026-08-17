@@ -4,9 +4,11 @@
 // - TODA leitura de sessões é escopada pelo plano ATIVO (dois planos no banco
 //   não podem misturar sessões na Home)
 // - sem plano ativo → null/[] sem sequer consultar sessões
-// - "treino de hoje" escolhe a PRIMEIRA sessão realmente pendente (por data e
-//   ordem na semana); in_progress/completed/skipped NÃO entram na seleção
-//   automática — a retomada de sessão abandonada é explícita (Plano/URL)
+// - "treino de hoje" (Home) escolhe a PRIMEIRA sessão realmente pendente, por
+//   data e ordem na semana; in_progress/completed/skipped NÃO entram nesta
+//   seleção — decisão do dono (checkpoint 2026-08-17, bug
+//   live-activity-sessao-sumiu): só a aba Plano
+//   (getResumableSessionForActivePlan) pode retomar in_progress
 // - erro do banco propaga (nunca vira sucesso silencioso)
 // - exercícios e séries chegam ORDENADOS mesmo se o banco devolver fora de ordem
 // - prescrição não numérica (AMRAP) é exibida como veio, sem faixa inventada
@@ -19,6 +21,7 @@ import { supabase } from '../src/config/supabaseClient';
 import {
   getActivePlanId,
   getTodaySession,
+  getResumableSessionForActivePlan,
   getUpcomingSessions,
   getSessionDetail,
   getTrainingPlanMetadata,
@@ -32,6 +35,7 @@ const builderComResultado = (resultado: { data: unknown; error: unknown }) => {
   const builder: any = {
     select: () => builder,
     eq: jest.fn(() => builder),
+    in: jest.fn(() => builder),
     order: () => builder,
     limit: () => builder,
     single: () => Promise.resolve(resultado),
@@ -75,7 +79,7 @@ describe('getTrainingPlanMetadata', () => {
   });
 });
 
-describe('getTodaySession (escopada pelo plano ativo — achado #3)', () => {
+describe('getTodaySession (Home — pending-only, escopada pelo plano ativo — achado #3)', () => {
   it('sem plano ativo devolve null SEM consultar sessões', async () => {
     fromMock.mockReturnValueOnce(builderComResultado({ data: [], error: null }));
 
@@ -84,18 +88,20 @@ describe('getTodaySession (escopada pelo plano ativo — achado #3)', () => {
     expect(fromMock).toHaveBeenCalledWith('training_plans');
   });
 
-  it('consulta apenas sessões PENDENTES, escopadas pelo plan_id do plano ativo', async () => {
-    const builderRastreado = (resultado: { data: unknown; error: unknown }) => {
-      const builder: any = {
-        select: () => builder,
-        eq: jest.fn(() => builder),
-        order: jest.fn(() => builder),
-        limit: () => builder,
-        single: () => Promise.resolve(resultado),
-        then: (resolve: any, reject: any) => Promise.resolve(resultado).then(resolve, reject),
-      };
-      return builder;
+  const builderRastreado = (resultado: { data: unknown; error: unknown }) => {
+    const builder: any = {
+      select: () => builder,
+      eq: jest.fn(() => builder),
+      in: jest.fn(() => builder),
+      order: jest.fn(() => builder),
+      limit: () => builder,
+      single: () => Promise.resolve(resultado),
+      then: (resolve: any, reject: any) => Promise.resolve(resultado).then(resolve, reject),
     };
+    return builder;
+  };
+
+  it('consulta SOMENTE status=pending, escopada pelo plan_id do plano ativo', async () => {
     const pendente = { id: 's-2', status: 'pending', title: 'Pull A' };
     const builderSessoes = builderRastreado({ data: [pendente], error: null });
     fromMock
@@ -106,8 +112,24 @@ describe('getTodaySession (escopada pelo plano ativo — achado #3)', () => {
 
     expect(resultado).toEqual(pendente);
     expect(builderSessoes.eq).toHaveBeenCalledWith('plan_id', 'plan-ativo');
-    // in_progress/completed/skipped ficam FORA da seleção automática da Home.
     expect(builderSessoes.eq).toHaveBeenCalledWith('status', 'pending');
+    // Só duas idas ao banco (plano ativo + pending): a Home nunca consulta
+    // in_progress — decisão do dono (checkpoint 2026-08-17): só a aba Plano
+    // (getResumableSessionForActivePlan) pode retomar um treino em andamento.
+    expect(fromMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('Plan-only visibility: uma sessão in_progress existente NUNCA é devolvida à Home, mesmo sem pendente', async () => {
+    // O builder ignora os filtros (mock simples): o ponto testado é que
+    // getTodaySession nunca sequer PEDE 'in_progress' ao banco — só 'pending'.
+    const builderSessoes = builderRastreado({ data: [], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(builderSessoes);
+
+    expect(await getTodaySession('user-1')).toBeNull();
+    expect(builderSessoes.eq).not.toHaveBeenCalledWith('status', 'in_progress');
+    expect(builderSessoes.in).not.toHaveBeenCalled();
   });
 
   it('sem sessão pendente, cai para null (não inventa treino)', async () => {
@@ -118,11 +140,131 @@ describe('getTodaySession (escopada pelo plano ativo — achado #3)', () => {
     expect(await getTodaySession('user-1')).toBeNull();
   });
 
-  it('erro do banco propaga', async () => {
+  it('erro do banco (plano ativo) propaga', async () => {
     fromMock.mockReturnValueOnce(
       builderComResultado({ data: null, error: new Error('RLS negou') })
     );
     await expect(getTodaySession('user-1')).rejects.toThrow('RLS negou');
+  });
+
+  it('erro na consulta de sessões pendentes propaga (nunca vira sucesso silencioso)', async () => {
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(
+        builderComResultado({ data: null, error: new Error('RLS negou pending') }),
+      );
+    await expect(getTodaySession('user-1')).rejects.toThrow('RLS negou pending');
+  });
+});
+
+describe('getResumableSessionForActivePlan (aba Plano — resolve in_progress OU pending em UMA consulta)', () => {
+  const builderRastreado = (resultado: { data: unknown; error: unknown }) => {
+    const builder: any = {
+      select: () => builder,
+      eq: jest.fn(() => builder),
+      in: jest.fn(() => builder),
+      order: jest.fn(() => builder),
+      limit: () => builder,
+      single: () => Promise.resolve(resultado),
+      then: (resolve: any, reject: any) => Promise.resolve(resultado).then(resolve, reject),
+    };
+    return builder;
+  };
+
+  it('sem plano ativo devolve null SEM consultar sessões', async () => {
+    fromMock.mockReturnValueOnce(builderComResultado({ data: [], error: null }));
+
+    expect(await getResumableSessionForActivePlan('user-1')).toBeNull();
+    expect(fromMock).toHaveBeenCalledTimes(1);
+    expect(fromMock).toHaveBeenCalledWith('training_plans');
+  });
+
+  it('prioriza a sessão EM ANDAMENTO sobre a pendente, numa ÚNICA ida ao banco de sessões', async () => {
+    const pendente = { id: 's-2', status: 'pending', title: 'Pull A' };
+    const emAndamento = { id: 's-1', status: 'in_progress', title: 'Push A' };
+    // As duas linhas vêm do MESMO round-trip (status IN ('in_progress','pending')):
+    // não há dois awaits sequenciais que pudessem abrir uma corrida de transição.
+    const builderSessoes = builderRastreado({ data: [pendente, emAndamento], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(builderSessoes);
+
+    const resultado = await getResumableSessionForActivePlan('user-1');
+
+    expect(resultado).toEqual(emAndamento);
+    expect(builderSessoes.eq).toHaveBeenCalledWith('plan_id', 'plan-ativo');
+    expect(builderSessoes.in).toHaveBeenCalledWith('status', ['in_progress', 'pending']);
+    expect(builderSessoes.eq).not.toHaveBeenCalledWith('status', expect.anything());
+    // Só duas idas ao banco no total (plano ativo + a consulta combinada):
+    // prova que não há uma segunda consulta separada para 'pending'.
+    expect(fromMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('sessão EM ANDAMENTO antiga/stale (scheduled_date bem anterior à pendente) ainda vence — não expira', async () => {
+    const emAndamentoAntiga = {
+      id: 's-old',
+      status: 'in_progress',
+      title: 'Push A (antiga)',
+      scheduled_date: '2026-01-05',
+    };
+    const pendenteRecente = {
+      id: 's-new',
+      status: 'pending',
+      title: 'Pull B (recente)',
+      scheduled_date: '2026-08-10',
+    };
+    // A ordenação por scheduled_date coloca a antiga primeiro; o teste garante
+    // que a prioridade é por STATUS (in_progress sempre ganha), não por ordem.
+    const builderSessoes = builderRastreado({
+      data: [emAndamentoAntiga, pendenteRecente],
+      error: null,
+    });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(builderSessoes);
+
+    const resultado = await getResumableSessionForActivePlan('user-1');
+
+    expect(resultado).toEqual(emAndamentoAntiga);
+  });
+
+  it('sem sessão em andamento, cai para a PRIMEIRA pendente (mesma consulta)', async () => {
+    const pendente = { id: 's-2', status: 'pending', title: 'Pull A' };
+    const builderSessoes = builderRastreado({ data: [pendente], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(builderSessoes);
+
+    const resultado = await getResumableSessionForActivePlan('user-1');
+
+    expect(resultado).toEqual(pendente);
+    expect(fromMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('sem sessão em andamento nem pendente, cai para null (não inventa treino)', async () => {
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(builderComResultado({ data: [], error: null }));
+
+    expect(await getResumableSessionForActivePlan('user-1')).toBeNull();
+  });
+
+  it('erro do banco (plano ativo) propaga', async () => {
+    fromMock.mockReturnValueOnce(
+      builderComResultado({ data: null, error: new Error('RLS negou') })
+    );
+    await expect(getResumableSessionForActivePlan('user-1')).rejects.toThrow('RLS negou');
+  });
+
+  it('erro na consulta combinada propaga (não cai silenciosamente para null)', async () => {
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(
+        builderComResultado({ data: null, error: new Error('RLS negou in_progress/pending') }),
+      );
+    await expect(getResumableSessionForActivePlan('user-1')).rejects.toThrow(
+      'RLS negou in_progress/pending',
+    );
   });
 });
 
@@ -214,6 +356,7 @@ describe('fila real — desempate por order_in_week', () => {
     const builder: any = {
       select: () => builder,
       eq: jest.fn(() => builder),
+      in: jest.fn(() => builder),
       order: jest.fn(() => builder),
       limit: () => builder,
       single: () => Promise.resolve(resultado),
@@ -222,7 +365,7 @@ describe('fila real — desempate por order_in_week', () => {
     return builder;
   };
 
-  it('getTodaySession ordena a pendente por scheduled_date E order_in_week', async () => {
+  it('getTodaySession (Home) ordena a pendente por scheduled_date E order_in_week', async () => {
     const pendente = builderRastreado({ data: [{ id: 's1' }], error: null });
     fromMock
       .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
@@ -232,6 +375,18 @@ describe('fila real — desempate por order_in_week', () => {
 
     expect(pendente.order).toHaveBeenCalledWith('scheduled_date', { ascending: true });
     expect(pendente.order).toHaveBeenCalledWith('order_in_week', { ascending: true });
+  });
+
+  it('getResumableSessionForActivePlan (Plano) ordena in_progress+pending por scheduled_date E order_in_week', async () => {
+    const sessoes = builderRastreado({ data: [{ id: 's1', status: 'pending' }], error: null });
+    fromMock
+      .mockReturnValueOnce(builderComResultado(PLANO_ATIVO))
+      .mockReturnValueOnce(sessoes);
+
+    await getResumableSessionForActivePlan('user-1');
+
+    expect(sessoes.order).toHaveBeenCalledWith('scheduled_date', { ascending: true });
+    expect(sessoes.order).toHaveBeenCalledWith('order_in_week', { ascending: true });
   });
 
   it('getUpcomingSessions ordena por scheduled_date E order_in_week', async () => {

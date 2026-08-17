@@ -36,7 +36,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 jest.mock('../src/services/trainingRepository', () => ({
-  getTodaySession: jest.fn(async () => {
+  getResumableSessionForActivePlan: jest.fn(async () => {
     throw new Error('relation planned_sessions does not exist');
   }),
   getPlanSessions: jest.fn(async () => {

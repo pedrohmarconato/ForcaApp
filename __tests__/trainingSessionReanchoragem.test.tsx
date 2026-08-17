@@ -22,7 +22,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 jest.mock('../src/config/supabaseClient', () => ({ supabase: { rpc: jest.fn() } }));
 
 jest.mock('../src/services/trainingRepository', () => ({
-  getTodaySession: jest.fn(),
+  getResumableSessionForActivePlan: jest.fn(),
   getPlanSessions: jest.fn(),
   getSessionDetail: jest.fn(),
   fecharSessoesDeSemanasVencidas: jest.fn(async () => ({ fechadas: 0 })),
@@ -53,7 +53,7 @@ import TrainingSessionScreen from '../src/screens/TrainingSessionScreen';
 import {
   getPlanSessions,
   getSessionDetail,
-  getTodaySession,
+  getResumableSessionForActivePlan,
   fecharSessoesDeSemanasVencidas,
 } from '../src/services/trainingRepository';
 import {
@@ -64,7 +64,7 @@ import {
   reagendarSessoesDaSemana,
 } from '../src/services/planEditRepository';
 
-const getTodaySessionMock = getTodaySession as jest.Mock;
+const getResumableSessionMock = getResumableSessionForActivePlan as jest.Mock;
 const getPlanSessionsMock = getPlanSessions as jest.Mock;
 const getSessionDetailMock = getSessionDetail as jest.Mock;
 const getAgendaMock = getAgendaDoAluno as jest.Mock;
@@ -154,7 +154,7 @@ const renderTela = async (
       },
     ],
   };
-  getTodaySessionMock.mockResolvedValue({ id: todaySessionId });
+  getResumableSessionMock.mockResolvedValue({ id: todaySessionId });
   getSessionDetailMock.mockResolvedValue(sessionDetail);
   getPlanSessionsMock.mockResolvedValue(planSessions);
   getAgendaMock.mockResolvedValue({ agenda, origem: 'plano' });
@@ -247,14 +247,14 @@ describe('TrainingSessionScreen - Reencaixe (atraso)', () => {
   it('refetch após confirmar', async () => {
     const utils = await renderTela(semanaComAtraso);
     expect(getPlanSessionsMock).toHaveBeenCalledTimes(1);
-    expect(getTodaySessionMock).toHaveBeenCalledTimes(1);
+    expect(getResumableSessionMock).toHaveBeenCalledTimes(1);
 
     fireEvent.press(utils.getByText('Reencaixar'));
     await waitFor(() => expect(utils.getByText('Confirmar')).toBeTruthy());
     fireEvent.press(utils.getByText('Confirmar'));
 
     await waitFor(() => expect(getPlanSessionsMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getTodaySessionMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getResumableSessionMock).toHaveBeenCalledTimes(2));
   });
 
   it('agenda vazia mostra aviso visível', async () => {
@@ -287,7 +287,7 @@ describe('TrainingSessionScreen - Reencaixe (atraso)', () => {
     );
     const utils = await renderTela(semanaSemAtraso);
     expect(utils.getByTestId('visao-ciclo')).toBeTruthy();
-    expect(getTodaySessionMock).toHaveBeenCalled();
+    expect(getResumableSessionMock).toHaveBeenCalled();
   });
 });
 

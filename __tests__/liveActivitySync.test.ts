@@ -138,6 +138,28 @@ describe('initLiveActivitySync', () => {
     stop();
   });
 
+  it('inicia a Activity mesmo quando nenhuma série está active (sessão nova ou retomada reconstruída do servidor)', () => {
+    // Regressão: bug live-activity-sessao-sumiu. startOrResume reconstrói o
+    // rascunho a partir do servidor (applyServerSetLogs) e o status 'active'
+    // local nunca é restaurado para a série em andamento — ela volta a
+    // 'pending' até o aluno tocar de novo. O card precisa aparecer do mesmo
+    // jeito, senão fica ausente pelo resto da sessão (updateActivity não cria
+    // Activity nova quando currentActivity é nil no nativo).
+    const stop = initLiveActivitySync();
+    const draftReconstruido = draft();
+    draftReconstruido.exercises[0]!.sets[0]!.status = 'pending';
+
+    useActiveSessionStore.setState({ status: 'active', draft: draftReconstruido });
+
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'measuring', exerciseName: 'Supino reto', setIndex: 1 }),
+      'log-1',
+    );
+
+    stop();
+  });
+
   it('atualiza a Activity quando o draft muda e o status já está active', () => {
     const stop = initLiveActivitySync();
     const current = draft();
