@@ -152,7 +152,27 @@ sessão termina ou é cancelada (inclusive após force-quit).
   4. Depois de um force-quit do app durante uma sessão ativa, reabrir o app
      reconcilia e encerra qualquer Live Activity órfã que tenha sobrado na tela
      bloqueada. (UAT do dono no aparelho físico)
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 15-01-PLAN.md — Tracer: módulo nativo `modules/live-activity/` + `restEndsAt` no store + refactor do timer (D-09/D-10)
+- [ ] 15-04-PLAN.md — Aponta `.env` para o Supabase de produção (todo dobrado `backend-supabase-producao-no-aparelho`)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 15-02-PLAN.md — Card completo: blockOnly/readyOvertime + 4 apresentações do Dynamic Island (LOCK-01)
+- [ ] 15-03-PLAN.md — Ciclo de vida: terminar/cancelar/reconciliar/timeout/banner (LOCK-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 15-05-PLAN.md — Sessão 1 física: card + 4 apresentações + timer nativo (D-13)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 15-06-PLAN.md — Sessão 2 física: UAT completo cobrindo os 4 critérios do ROADMAP (D-13)
+
 **UI hint**: yes
 
 #### Phase 16: Tela bloqueada — comandar
@@ -226,6 +246,6 @@ série/exercício antes do descanso acabar.
 | 12. Página de instalação guiada | v1.2 | 1/2 | Complete (override) | 2026-08-15 |
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
-| 15. Tela bloqueada — ver e cronometrar | v1.3 | 0/TBD | Not started | - |
+| 15. Tela bloqueada — ver e cronometrar | v1.3 | 0/6 | Planned | - |
 | 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
