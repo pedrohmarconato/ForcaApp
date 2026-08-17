@@ -21,6 +21,7 @@ import {
   applyExerciseSkipToDraft,
   removeExerciseSkipFromDraft,
   applyCardioSwapToDraft,
+  findNextPendingSet,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
@@ -79,6 +80,7 @@ import {
 } from '../services/sessionDraftStorage';
 import apiClient, { ENDPOINTS } from '../services/api/apiClient';
 import { logger } from '../utils/logger';
+import { ajustarRestEndsAt } from '../engine/sessionSummary';
 
 type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
@@ -162,6 +164,7 @@ interface ActiveSessionState {
   clearStorageWarning: () => void;
   clearReplanWarning: () => void;
   activateSet: (exerciseId: string, setOrder: number) => void;
+  adjustRest: (deltaSeconds: number) => void;
   setReps: (exerciseId: string, setOrder: number, reps: number | null) => void;
   setLoad: (exerciseId: string, setOrder: number, load: number | null) => void;
   stepLoad: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
@@ -432,6 +435,7 @@ const applyServerSetLogs = (
   // servidor): na reconstrução a partir do servidor, eles vêm do rascunho local.
   return {
     ...comTrocas,
+    restEndsAt: local?.restEndsAt ?? draft.restEndsAt ?? null,
     declinedReplanFingerprints:
       local?.declinedReplanFingerprints ?? draft.declinedReplanFingerprints ?? [],
   };
@@ -1084,12 +1088,24 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // Só revela os inputs. NÃO pré-preenche a carga: a sugestão vira valor informado
     // apenas quando o aluno digita ou toca "usar sugestão" (F10: sugestão ≠ medição).
     const agora = new Date().toISOString();
-    const novo = withSet(draft, exerciseId, setOrder, (s) =>
-      s.status !== 'pending'
-        ? s
-        : { ...s, status: 'active', activatedAt: s.activatedAt ?? agora },
-    );
-    set({ draft: novo });
+    let ativou = false;
+    const novo = withSet(draft, exerciseId, setOrder, (s) => {
+      if (s.status !== 'pending') return s;
+      ativou = true;
+      return { ...s, status: 'active', activatedAt: s.activatedAt ?? agora };
+    });
+    if (ativou) set({ draft: { ...novo, restEndsAt: null } });
+  },
+
+  adjustRest: (deltaSeconds) => {
+    const draft = get().draft;
+    if (!draft?.restEndsAt || !Number.isFinite(deltaSeconds)) return;
+    set({
+      draft: {
+        ...draft,
+        restEndsAt: ajustarRestEndsAt(draft.restEndsAt, deltaSeconds),
+      },
+    });
   },
 
   setReps: (exerciseId, setOrder, reps) => {
@@ -1322,7 +1338,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         })),
         lastLoadByExercise: lastLoad,
       };
-      let finalDraft = novo;
+      const proxima = findNextPendingSet(novo);
+      const restEndsAt =
+        proxima && exercise.restSeconds != null && exercise.restSeconds > 0
+          ? new Date(Date.now() + exercise.restSeconds * 1000).toISOString()
+          : null;
+      const draftDepoisDoDescanso: SessionDraft = { ...novo, restEndsAt };
+      let finalDraft = draftDepoisDoDescanso;
       let pending: PendingAdaptation | null = null;
       // A adaptação roda DEPOIS do commit otimista e é inteiramente local — quebrar
       // aqui custa a SUGESTÃO, nunca o REGISTRO (a série já concluiu acima).
@@ -1412,7 +1434,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         // Descarta o resultado PARCIAL da adaptação e conclui a série com o estado
         // já commitado localmente. Sem aviso na tela: o registro está correto, e o
         // aluno não tem o que fazer com uma falha do motor de recomendação.
-        finalDraft = novo;
+        finalDraft = draftDepoisDoDescanso;
         pending = null;
         console.warn('[activeSession] adaptação intra-sessão falhou (não-fatal, série registrada):', e);
       }

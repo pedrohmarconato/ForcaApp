@@ -70,3 +70,18 @@ export const ajustarDescanso = (
   const novoRestante = Math.max(1, remaining + deltaSeconds);
   return { remaining: novoRestante, total: Math.max(total, novoRestante) };
 };
+
+/**
+ * Ajusta o fim absoluto do descanso sem permitir que um atalho negativo deixe
+ * o timestamp no passado. O retorno continua em ISO-8601 UTC para que o app e
+ * o widget compartilhem exatamente o mesmo relógio.
+ */
+export const ajustarRestEndsAt = (
+  restEndsAt: string,
+  deltaSeconds: number,
+  now: Date = new Date(),
+): string => {
+  const restanteMs = new Date(restEndsAt).getTime() - now.getTime();
+  const novoRestanteMs = Math.max(1000, restanteMs + deltaSeconds * 1000);
+  return new Date(now.getTime() + novoRestanteMs).toISOString();
+};

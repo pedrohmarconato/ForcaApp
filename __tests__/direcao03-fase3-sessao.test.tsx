@@ -71,6 +71,7 @@ const draftBase = (exercises: DraftExercise[], startedAt: string | null): Sessio
   weekNumber: 3,
   startedAt,
   status: 'active',
+  restEndsAt: null,
   exercises,
   lastLoadByExercise: {},
 });

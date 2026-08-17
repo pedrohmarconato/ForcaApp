@@ -1,0 +1,7 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "podspecPath": "LiveActivityModule.podspec",
+    "modules": ["LiveActivityModule"]
+  }
+}

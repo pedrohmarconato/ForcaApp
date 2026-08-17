@@ -1,0 +1,13 @@
+{
+  "name": "live-activity",
+  "version": "1.0.0",
+  "description": "Fase 15: Live Activity somente leitura (LOCK-01/02/03)",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "UNLICENSED",
+  "author": "Pedro Marconato",
+  "homepage": "https://github.com/pmarconato/forca-app",
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

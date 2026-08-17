@@ -127,6 +127,8 @@ export type DraftExercise = {
   sets: DraftSet[];
 };
 
+export type SetRef = { exercise: DraftExercise; set: DraftSet };
+
 export type SessionDraft = {
   version: 1;
   plannedSessionId: string;
@@ -136,6 +138,8 @@ export type SessionDraft = {
   weekNumber: number;
   startedAt: string | null;
   status: 'active' | 'finished';
+  /** Fim absoluto do descanso atual, sempre ISO-8601 UTC; null fora do descanso. */
+  restEndsAt: string | null;
   exercises: DraftExercise[];
   // Última carga conhecida por exercício (identidade → kg). Semeada do histórico
   // no início e atualizada a cada série concluída na sessão. A identidade é a
@@ -281,6 +285,26 @@ export const isTimeBased = (metric: ExerciseMetric | null | undefined): boolean 
 export const metricOf = (
   ex: Pick<DraftExercise, 'metric'> | { metric?: ExerciseMetric | null },
 ): ExerciseMetric => ex.metric ?? 'carga_reps';
+
+/** Série ativa (se houver), ignorando exercícios cortados pelo replanejamento. */
+export const findActiveSet = (draft: SessionDraft): SetRef | null => {
+  for (const ex of draft.exercises) {
+    if (ex.cutByReplan) continue;
+    const set = ex.sets.find((s) => s.status === 'active');
+    if (set) return { exercise: ex, set };
+  }
+  return null;
+};
+
+/** Próxima série pendente na ordem do treino, ignorando exercícios cortados. */
+export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
+  for (const ex of draft.exercises) {
+    if (ex.cutByReplan) continue;
+    const set = ex.sets.find((s) => s.status === 'pending');
+    if (set) return { exercise: ex, set };
+  }
+  return null;
+};
 
 /**
  * Pace em segundos por quilômetro. Derivado — nunca digitado. Devolve null sem
@@ -452,6 +476,7 @@ export const buildDraftFromDetail = (
     weekNumber: detail.week_number,
     startedAt: null,
     status: 'active',
+    restEndsAt: null,
     exercises,
     lastLoadByExercise: { ...lastLoadSeed },
     declinedReplanFingerprints: [],
@@ -468,6 +493,10 @@ export const buildDraftFromDetail = (
  */
 export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
   ...draft,
+  restEndsAt:
+    typeof draft.restEndsAt === 'string' && Number.isFinite(Date.parse(draft.restEndsAt))
+      ? new Date(draft.restEndsAt).toISOString()
+      : null,
   weekNumber: toNum(draft.weekNumber) ?? 0,
   declinedReplanFingerprints: Array.isArray(draft.declinedReplanFingerprints)
     ? draft.declinedReplanFingerprints.filter((f) => typeof f === 'string')

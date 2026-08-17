@@ -1,6 +1,6 @@
 // Na RAIZ do projeto: ForcaApp/App.tsx
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -11,6 +11,7 @@ import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
 import ProvisioningBanner from './src/components/ProvisioningBanner';
 import PushInviteHost from './src/components/PushInviteHost';
+import { initLiveActivitySync } from './src/native/liveActivitySync';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -20,6 +21,8 @@ export default function App() {
     'BarlowSemiCondensed-ExtraBold': require('./assets/fonts/BarlowSemiCondensed-ExtraBold.ttf'),
     Inter: require('./assets/fonts/Inter-Variable.ttf'),
   });
+
+  useEffect(() => initLiveActivitySync(), []);
 
   // Se o carregamento falhar, seguimos com a fonte do sistema: um app sem a
   // tipografia de marca ainda é melhor do que uma tela travada.

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # scripts/verify-native-skeleton.sh — trava de regressão do esqueleto nativo
-# (target de widget + módulo Expo local).
+# (target de widget + módulos Expo locais).
 #
 # Por que existe: `expo prebuild --clean` regenera `ios/` do zero a cada
-# execução. Se o target `session-widget` (via @bacons/apple-targets) ou o
-# módulo `native-info` (autolinked) pararem de sobreviver a um --clean —
+# execução. Se o target `session-widget` (via @bacons/apple-targets) ou os
+# módulos `native-info`/`live-activity` (autolinked) pararem de sobreviver a um --clean —
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
@@ -86,11 +86,13 @@ rodar_checagens() {
     fi
   done < <(find ios -name '*.entitlements')
 
-  # (d) o módulo native-info precisa aparecer no autolinking do iOS.
-  if ! npx expo-modules-autolinking search --platform ios 2>/dev/null | grep -q native-info; then
-    vermelho "ABORTADO: [rodada ${rodada}] módulo native-info não foi autolinked."
-    echo "  Confira modules/native-info/expo-module.config.json e que o módulo" >&2
-    echo "  está sob o nativeModulesDir default (./modules)." >&2
+  # (d) os módulos locais precisam aparecer no autolinking do iOS.
+  local autolinking
+  autolinking="$(npx expo-modules-autolinking search --platform ios 2>/dev/null)"
+  if ! grep -q native-info <<<"$autolinking" || ! grep -q live-activity <<<"$autolinking"; then
+    vermelho "ABORTADO: [rodada ${rodada}] native-info e/ou live-activity não foram autolinked."
+    echo "  Confira os expo-module.config.json e que os módulos" >&2
+    echo "  estão sob o nativeModulesDir default (./modules)." >&2
     exit 1
   fi
 
@@ -108,7 +110,7 @@ rodar_checagens() {
   # não há mais um módulo com esse nome para o autolinking encontrar, então
   # mantê-lo aqui faria a checagem falhar sempre, não protegeria nada.
   local modulo_local
-  for modulo_local in NativeInfoModule; do
+  for modulo_local in NativeInfoModule LiveActivityModule; do
     if ! grep -q "^  ${modulo_local}:" ios/Podfile.lock 2>/dev/null; then
       vermelho "ABORTADO: [rodada ${rodada}] ${modulo_local} não está linkado em ios/Podfile.lock."
       echo "  Módulo presente em disco (checagem d) mas nunca compilado no" >&2
@@ -141,7 +143,7 @@ rodar_checagens() {
   amarelo "  Rodada ${rodada}: (a)-(f) OK."
 }
 
-echo "Verificando esqueleto nativo (session-widget + native-info)..."
+echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."
 
 # Cada chamada aborta com "ABORTADO: [rodada N] ..." e exit 1 assim que
 # encontrar uma falha — nenhuma das duas rodadas usa subshell, então a

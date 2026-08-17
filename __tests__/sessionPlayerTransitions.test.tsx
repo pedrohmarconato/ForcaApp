@@ -128,6 +128,7 @@ const draftCom = (exercises: DraftExercise[]): SessionDraft => ({
   weekNumber: 1,
   startedAt: '2026-07-20T10:00:00Z',
   status: 'active',
+  restEndsAt: null,
   exercises,
   lastLoadByExercise: { 'k:supino': 40 },
   declinedReplanFingerprints: [],
@@ -213,7 +214,7 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
     expect(opacidades.some((o) => o === 0)).toBe(false);
   });
 
-  it('descanso ZERA (timer) → próximo card montado automaticamente', async () => {
+  it('descanso ZERA (timer) → permanece em Pronto até ação explícita', async () => {
     const draft = draftCom([
       exercicio('ex-1', 'Supino', [serieAtiva('st-1', 1), serie('st-2', 2)]),
     ]);
@@ -226,7 +227,13 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
       jest.advanceTimersByTime(91000);
     });
 
-    // Próxima série do MESMO exercício aparece na medição.
+    // D-09/D-10: o tempo expirado não ativa a próxima série sozinho.
+    await waitFor(() => expect(screen.getByText('DESCANSO')).toBeTruthy());
+    expect(screen.getByLabelText(/Descanso: \+/)).toBeTruthy();
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[1].status).toBe('pending');
+
+    // Só a ação explícita do dono avança para a medição.
+    fireEvent.press(screen.getByLabelText('Pular descanso'));
     await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
     expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(false);
   });

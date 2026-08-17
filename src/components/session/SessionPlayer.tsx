@@ -28,15 +28,17 @@ import {
   formatDistance,
   formatDuration,
   formatPace,
+  findActiveSet,
+  findNextPendingSet,
   isTimeBased,
   metricOf,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
   type PerceivedEffort,
+  type SetRef,
   paceSecondsPerKm,
 } from '../../engine/sessionModel';
-import { ajustarDescanso } from '../../engine/sessionSummary';
 import {
   exercicioConcluido,
   posicaoDoExercicio,
@@ -70,8 +72,9 @@ const parseFloatOrNull = (t: string): number | null => {
 };
 
 const formatarTempo = (s: number): string => {
-  const m = Math.floor(s / 60);
-  const seg = s % 60;
+  const absoluto = Math.max(0, Math.round(Math.abs(s)));
+  const m = Math.floor(absoluto / 60);
+  const seg = absoluto % 60;
   return `${m}:${String(seg).padStart(2, '0')}`;
 };
 
@@ -98,32 +101,9 @@ const ESFORCO_CHOICES: { valor: PerceivedEffort; rotulo: string }[] = [
   { valor: 'forte', rotulo: 'Forte' },
 ];
 
-type SetRef = { exercise: DraftExercise; set: DraftSet };
-
-/** Série ativa (se houver). */
-export const findActiveSet = (draft: SessionDraft): SetRef | null => {
-  for (const ex of draft.exercises) {
-    if (ex.cutByReplan) continue;
-    const set = ex.sets.find((s) => s.status === 'active');
-    if (set) return { exercise: ex, set };
-  }
-  return null;
-};
-
-/** Próxima série pendente na ordem do treino (exercícios cortados fora). */
-export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
-  for (const ex of draft.exercises) {
-    if (ex.cutByReplan) continue;
-    const set = ex.sets.find((s) => s.status === 'pending');
-    if (set) return { exercise: ex, set };
-  }
-  return null;
-};
-
 const RIR_CHOICES = [0, 1, 2, 3, 4] as const;
 
 type RestState = {
-  seconds: number;
   next: SetRef | null;
   /** O exercício que acabou de ser registrado fechou por completo? */
   fechouExercicio: boolean;
@@ -146,6 +126,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const setDistance = useActiveSessionStore((s) => s.setDistance);
   const setEffort = useActiveSessionStore((s) => s.setEffort);
   const completeSet = useActiveSessionStore((s) => s.completeSet);
+  const adjustRestInStore = useActiveSessionStore((s) => s.adjustRest);
   const lastAutoDecision = useActiveSessionStore((s) => s.lastAutoDecision);
   const autoNote =
     lastAutoDecision && lastAutoDecision.sessionLogId === draft.sessionLogId
@@ -159,28 +140,67 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   const [textoCarga, setTextoCarga] = useState<string | null>(null);
   const [textoDistancia, setTextoDistancia] = useState<string | null>(null);
   const [rest, setRest] = useState<RestState>(null);
-  const [restRemaining, setRestRemaining] = useState(0);
   // Total corrente do descanso (cresce com +30s) — denominador do anel.
   const [restTotal, setRestTotal] = useState(0);
-  const restTick = useRef<ReturnType<typeof setInterval> | null>(null);
-
+  const restTotalSecondsRef = useRef(0);
+  const [, setRestTick] = useState(0);
   // Anel: drena continuamente — a cada segundo anima até a fração seguinte.
   const ringAnim = useRef(new Animated.Value(1)).current;
+
+  const active = findActiveSet(draft);
+  const next = findNextPendingSet(draft);
+  const restEndsAtMs = draft.restEndsAt ? new Date(draft.restEndsAt).getTime() : Number.NaN;
+  const restRemainingDisplay = Number.isFinite(restEndsAtMs)
+    ? Math.round((restEndsAtMs - Date.now()) / 1000)
+    : 0;
+  const emDescanso = Number.isFinite(restEndsAtMs) && !active;
+  const proximaDoDescanso = rest?.next ?? next;
+  const descanso = rest ?? {
+    next: proximaDoDescanso,
+    fechouExercicio: false,
+    nomeConcluido: null,
+  };
+
+  // O timestamp do store é a fonte de verdade; este intervalo só força a
+  // repintura cosmética do anel e do relógio no app em foreground.
   useEffect(() => {
-    if (!rest || restTotal <= 0) return undefined;
+    if (!draft.restEndsAt) return undefined;
+    const tick = setInterval(() => setRestTick((value) => value + 1), 1000);
+    return () => clearInterval(tick);
+  }, [draft.restEndsAt]);
+
+  // O denominador do anel é cosmético. O valor inicial vem do exercício que
+  // aguarda e não participa da decisão de avançar a série.
+  useEffect(() => {
+    if (!draft.restEndsAt) {
+      restTotalSecondsRef.current = 0;
+      setRestTotal(0);
+      return undefined;
+    }
+    if (restTotalSecondsRef.current <= 0) {
+      const total = Math.max(1, proximaDoDescanso?.exercise.restSeconds ?? 1);
+      restTotalSecondsRef.current = total;
+      setRestTotal(total);
+      ringAnim.setValue(1);
+    }
+    return undefined;
+  }, [draft.restEndsAt, proximaDoDescanso?.exercise.exerciseId, ringAnim]);
+
+  useEffect(() => {
+    if (!draft.restEndsAt || restTotal <= 0) return undefined;
     const anim = Animated.timing(ringAnim, {
-      toValue: Math.max(0, restRemaining - 1) / restTotal,
+      toValue: Math.max(0, restRemainingDisplay) / restTotal,
       duration: 1000,
       easing: (t) => t,
       useNativeDriver: false,
     });
     anim.start();
     return () => anim.stop();
-  }, [rest, restRemaining, restTotal, ringAnim]);
+  }, [draft.restEndsAt, restRemainingDisplay, restTotal, ringAnim]);
 
   // Pulso discreto do relógio nos 5 segundos finais.
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const emReta = !!rest && restRemaining <= 5 && restRemaining > 0;
+  const emReta = emDescanso && restRemainingDisplay <= 5 && restRemainingDisplay > 0;
   useEffect(() => {
     if (!emReta) {
       pulseAnim.setValue(1);
@@ -196,14 +216,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     return () => loop.stop();
   }, [emReta, pulseAnim]);
 
-  const active = findActiveSet(draft);
-  const next = findNextPendingSet(draft);
-
   // Cleanup no unmount: cancela timers e animações iniciados para que nenhuma
   // atualização de estado dispare após o componente sair da árvore.
   useEffect(() => {
     return () => {
-      if (restTick.current) clearInterval(restTick.current);
       entrada.stopAnimation();
       ringAnim.stopAnimation();
       pulseAnim.stopAnimation();
@@ -220,7 +236,6 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   // fechar um exercício o rascunho já aponta para o próximo, mas quem está na
   // tela é o card de descanso (não animado): usar o rascunho fazia a animação
   // correr e terminar durante o descanso, e o card novo entrava sem nada.
-  const emDescanso = !!rest && !active;
   const exercicioAtivoId = idDoExercicioNoCard({
     ativo: active?.exercise.exerciseId ?? null,
     proximo: next?.exercise.exerciseId ?? null,
@@ -264,46 +279,31 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
     setTextoDistancia(null);
   }, [serieAtivaId]);
 
-  // Cronômetro do descanso. Zerar = auto-avança para a próxima série.
-  useEffect(() => {
-    if (!rest) return undefined;
-    setRestRemaining(rest.seconds);
-    setRestTotal(rest.seconds);
-    ringAnim.setValue(1);
-    restTick.current = setInterval(() => {
-      setRestRemaining((r) => (r <= 1 ? 0 : r - 1));
-    }, 1000);
-    return () => {
-      if (restTick.current) clearInterval(restTick.current);
-    };
-  }, [rest, ringAnim]);
-
-  // ±30s: o restante muda na hora; o total acompanha para o anel não estourar.
+  // ±30s: o store ajusta o timestamp; o total local só evita que o anel
+  // ultrapasse 100% quando o dono acrescenta tempo.
   const ajustarRest = (delta: number) => {
-    const { remaining, total } = ajustarDescanso(restRemaining, restTotal, delta);
-    setRestRemaining(remaining);
-    setRestTotal(total);
+    const remainingAfterAdjustment = Math.max(1, restRemainingDisplay + delta);
+    restTotalSecondsRef.current = Math.max(
+      restTotalSecondsRef.current,
+      remainingAfterAdjustment,
+    );
+    setRestTotal(restTotalSecondsRef.current);
+    adjustRestInStore(delta);
   };
 
   const endRest = (autoStart: boolean) => {
-    if (restTick.current) clearInterval(restTick.current);
-    const alvo = rest?.next ?? null;
+    const alvo = proximaDoDescanso;
     setRest(null);
     if (autoStart && alvo && alvo.set.status !== 'done') {
       activateSet(alvo.exercise.exerciseId, alvo.set.setOrder);
     }
   };
 
-  useEffect(() => {
-    if (rest && restRemaining === 0) endRest(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restRemaining]);
-
   // Série ativada por fora (fila) durante o descanso: o descanso perde a vez.
   useEffect(() => {
     if (active && rest) endRest(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.set.plannedSetId]);
+  }, [active?.set.plannedSetId, rest]);
 
   const onConcluir = async () => {
     if (!active) return;
@@ -320,9 +320,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
           (e) => e.exerciseId === exercise.exerciseId,
         );
         const fechouExercicio = depois ? exercicioConcluido(depois) : false;
-        if (proxima && exercise.restSeconds) {
+        if (proxima && exercise.restSeconds != null && exercise.restSeconds > 0) {
           setRest({
-            seconds: exercise.restSeconds,
             next: proxima,
             fechouExercicio,
             nomeConcluido: fechouExercicio ? exercise.name : null,
@@ -335,26 +334,26 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   };
 
   // ---------------- resting ----------------
-  if (rest && !active) {
-    const proxima = rest.next;
+  if (emDescanso) {
+    const proxima = proximaDoDescanso;
     return (
       <View style={[styles.card, styles.cardRest]} accessibilityRole="timer">
         {/* Fechar o exercício é um marco — merece nome próprio, não "série
             registrada" outra vez. */}
-        <View style={[styles.restDone, rest.fechouExercicio && styles.restDoneMarco]}>
+        <View style={[styles.restDone, descanso.fechouExercicio && styles.restDoneMarco]}>
           <Feather
-            name={rest.fechouExercicio ? 'check-circle' : 'check'}
-            size={rest.fechouExercicio ? 15 : 13}
+            name={descanso.fechouExercicio ? 'check-circle' : 'check'}
+            size={descanso.fechouExercicio ? 15 : 13}
             color={theme.colors.accent.main}
           />
           <Text
             style={[
               styles.restDoneText,
-              rest.fechouExercicio && styles.restDoneTextMarco,
+              descanso.fechouExercicio && styles.restDoneTextMarco,
             ]}
           >
-            {rest.fechouExercicio && rest.nomeConcluido
-              ? `${rest.nomeConcluido} concluído`
+            {descanso.fechouExercicio && descanso.nomeConcluido
+              ? `${descanso.nomeConcluido} concluído`
               : 'Série registrada'}
           </Text>
         </View>
@@ -388,9 +387,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
           </Svg>
           <Animated.Text
             style={[styles.restClock, { transform: [{ scale: pulseAnim }] }]}
-            accessibilityLabel={`Descanso: ${formatarTempo(restRemaining)}`}
+            accessibilityLabel={`Descanso: ${restRemainingDisplay < 0 ? '+' : ''}${formatarTempo(restRemainingDisplay)}`}
           >
-            {formatarTempo(restRemaining)}
+            {restRemainingDisplay < 0 ? '+' : ''}{formatarTempo(restRemainingDisplay)}
           </Animated.Text>
         </View>
 
@@ -414,7 +413,7 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
         </View>
 
         {proxima ? (
-          rest.fechouExercicio ? (
+          descanso.fechouExercicio ? (
             // Troca de exercício: o "a seguir" vira anúncio, com o nome no
             // tamanho do título e a posição no treino. O aluno chega no card
             // novo já sabendo que mudou.

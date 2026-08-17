@@ -10,6 +10,13 @@ jest.mock(
   { virtual: true },
 );
 
+jest.mock('../src/store/activeSessionStore', () => {
+  const { create } = require('zustand');
+  return {
+    useActiveSessionStore: create(() => ({ draft: null, status: 'idle' })),
+  };
+});
+
 import {
   startLiveActivity,
   updateLiveActivity,
@@ -60,6 +67,23 @@ const draft = (): SessionDraft => ({
           activatedAt: null,
           completedAt: null,
         },
+        {
+          plannedSetId: 'set-2',
+          setOrder: 2,
+          targetRepsMin: 8,
+          targetRepsMax: 10,
+          targetLoadKg: 40,
+          targetRir: 2,
+          actualReps: null,
+          actualLoadKg: null,
+          actualRir: null,
+          status: 'pending',
+          outcome: null,
+          setLogId: null,
+          adaptation: null,
+          activatedAt: null,
+          completedAt: null,
+        },
       ],
     },
   ],
@@ -95,16 +119,17 @@ describe('initLiveActivitySync', () => {
     const stop = initLiveActivitySync();
     const current = draft();
     useActiveSessionStore.setState({ status: 'active', draft: current });
+    const restEndsAt = new Date(Date.now() + 90_000).toISOString();
 
     useActiveSessionStore.setState({
       status: 'active',
-      draft: { ...current, restEndsAt: '2026-08-16T12:01:30.000Z' },
+      draft: { ...current, restEndsAt },
     });
 
     expect(mockStart).toHaveBeenCalledTimes(1);
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: 'resting', restEndsAt: '2026-08-16T12:01:30.000Z' }),
+      expect.objectContaining({ phase: 'resting', restEndsAt }),
     );
 
     stop();

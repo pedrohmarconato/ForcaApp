@@ -25,6 +25,9 @@
         "com.apple.security.application-groups": [
           "group.com.pmarconato.forcaapp.shared"
         ]
+      },
+      "infoPlist": {
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {

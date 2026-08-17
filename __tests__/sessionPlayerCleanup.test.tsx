@@ -127,6 +127,7 @@ const draftCom = (): SessionDraft => ({
   weekNumber: 1,
   startedAt: '2026-07-20T10:00:00Z',
   status: 'active',
+  restEndsAt: null,
   exercises: [
     exercicio('ex-1', 'Supino', [
       serie('st-1', 1, { status: 'active', actualReps: 8, actualLoadKg: 40 }),

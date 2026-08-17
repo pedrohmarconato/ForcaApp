@@ -244,6 +244,7 @@ const makeDraft = (): SessionDraft => ({
   weekNumber: 1,
   startedAt: null,
   status: 'active',
+  restEndsAt: null,
   exercises: [
     {
       exerciseId: 'ex-1',

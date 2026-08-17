@@ -298,6 +298,7 @@ const makeDraft = (
   weekNumber: 1,
   startedAt: null,
   status: 'active',
+  restEndsAt: null,
   lastLoadByExercise: {},
   exercises: [
     {
