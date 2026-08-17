@@ -135,23 +135,103 @@ All copy is pt-BR, matching the rest of the product.
 
 ## UI Considerations
 
-> Populated by the ui-phase UI-consideration probe. This card is a native constrained-canvas
-> surface (Lock Screen banner + 4 Dynamic Island presentations), so "state coverage" here means
-> content-fit and lifecycle coverage rather than classic web list/empty-state coverage.
+> Populated by the ui-phase UI-consideration probe (`ui-consideration-probe.cjs`, 2026-08-16) and
+> then resolved item-by-item against this contract with the dono. This card is a native
+> constrained-canvas surface (Lock Screen banner + 4 Dynamic Island presentations), so "state
+> coverage" here means content-fit and lifecycle coverage rather than classic web list/empty-state
+> coverage. Empty- and error-state **copy** lives in `## Copywriting Contract` — the rows below
+> reference it rather than restating it.
 
-Applicable state considerations resolved: 6 covered, 2 backstop, 1 unresolved.
+Elements probed: **12**. Applicable considerations: **66** — 50 covered, 11 backstop, 4 dismissed, 1 unresolved.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| long-text (overflow) | Exercise name, secondary line (Lock Screen + expanded regions) | ✅ covered | `.lineLimit(1)` + `.truncationMode(.tail)` on the exercise-name `Text` in every presentation that shows it (Lock Screen secondary line, expanded `.leading`/`.trailing` regions). A truncated Portuguese exercise name ending in `…` is acceptable; the full name is always visible in-app |
-| long-text (overflow) | Block label (D-03, "Alongamento 2/6") | ✅ covered | Same `.lineLimit(1)` truncation rule as exercise name — block/modality names are short, controlled vocabulary (`src/constants/cardioModalidades.ts`), so real-world truncation risk is low, but the rule is declared for defense-in-depth |
-| overflow | `compactLeading`/`compactTrailing` (Dynamic Island compact) | ✅ covered | Fixed to numeric-only content (`mm:ss` or `N/N`) by D-02 itself — no exercise name, no free text ever enters the ~44pt-wide compact regions, so overflow is structurally prevented rather than truncated. **Folded into D-13/Sessão 1:** these digits render `.bold` at `.caption` size (Typography above merges the Compact role into the 2-weight cap by reusing `.bold` instead of a dedicated `.semibold`) — confirm on the physical device during Sessão 1 that `.bold`/`.caption`/`.monospacedDigit()` is legible in the compact pill; this has not been verified on-device |
-| overflow | `minimal` presentation | ⚠ unresolved | See Open Decisions below — literal `mm:ss` does not fit the ~28×28pt minimal glyph slot; D-02's text says "essas apresentações" (plural, compact+minimal) but the platform constraint makes a literal reading infeasible for `minimal`. Flagged for the planner/dono, not silently resolved |
-| zero-one-many | Set count (`Série X/Y`) | ✅ covered | `X`/`Y` are always ≥1 by construction (a set object always belongs to a series with at least itself); no "0 of 0" case exists in `activeSessionStore` |
-| loading | Card's first paint after `Activity.request()` | 🧪 backstop | No loading state is designed — `Activity.request()` is called with the full initial `ContentState` already computed (no server round-trip), so the very first frame already has real content, not a placeholder. Backstop: if a plan surfaces a code path where the card can render before `ContentState` is populated (e.g. a race on session boot), that path needs its own resolution — not assumed away here |
-| loading | Lock Screen/Dynamic Island region transition when phase changes (`resting`→`measuring`) | 🧪 backstop | SwiftUI's default implicit animation on `Activity.update()` content swap is assumed sufficient (no custom transition specified) — if the swap reads as jarring or causes a visible flash on-device during Sessão 1 (D-13), that is a UAT finding to resolve then, not a gap this spec pre-solves without device evidence |
-| populated (steady state) | Card body across all 4 states (D-01/D-03/D-04) | ✅ covered | Each of the four `phase` values (`measuring`/`resting`/`readyOvertime`/`blockOnly`) has a fully specified large-element/secondary-line/color mapping above — no phase is left with an undefined visual |
-| partial | Bodyweight exercises (no `cargaKg`) inside `measuring` | ✅ covered | Reuses the app's existing "Peso corporal" tag copy (`SessionPlayer.tsx:672`) instead of rendering "× — kg" or omitting the load silently |
+Two elements (E5 prescription line, E8 Dynamic Island expanded) classified to zero cues on the
+heuristic pass and were re-run with an authored kind override confirmed by the dono. That override
+raised **12 considerations the prose classifier had silently missed** — recall was fixed at
+kind-confirmation, before resolution ran.
+
+| Element | Category | Status | Resolution / Reason |
+|---|---|---|---|
+| E1 Lock Screen card body | empty | ⛔ dismissed | Unreachable by construction: the activity is requested only for an active session, and `activeSessionStore` never yields a session with zero exercises |
+| E1 Lock Screen card body | loading | 🧪 backstop | `Activity.request()` is called with the full initial `ContentState` (no server round-trip), so the first frame carries real content. Backstop: cover any path where the card can render before `ContentState` is populated (race on session boot) |
+| E1 Lock Screen card body | error | ✅ covered | No error rendering by contract — a failed `Activity.request()` produces no card at all; the signal is `LiveActivityUnavailableBanner` (see Copywriting Contract → Error state) |
+| E1 Lock Screen card body | populated | ✅ covered | All four phases (`measuring`/`resting`/`readyOvertime`/`blockOnly`) carry a fully specified large-element, secondary-line and color mapping (D-01/D-03/D-04) |
+| E1 Lock Screen card body | partial | ✅ covered | Bodyweight exercises render the existing "Peso corporal" tag rather than an empty or dash load |
+| E1 Lock Screen card body | overflow | ✅ covered | `.lineLimit(1)` + `.truncationMode(.tail)` on every free-text `Text`; card height is system-controlled and grows with content |
+| E1 Lock Screen card body | zero-one-many | ✅ covered | `Série X/Y` is always ≥1/≥1 by construction — a set always belongs to a series containing at least itself; no "0 de 0" state exists |
+| E1 Lock Screen card body | long-text | ✅ covered | Same single-line tail-truncation rule — no free text on the card may wrap or push the layout |
+| E2 Rest countdown | overflow | ✅ covered | Numeric-only `mm:ss` via `Text(timerInterval:)` with `.monospacedDigit()`, bounded by the prescribed rest duration; fixed-width digits prevent per-second reflow |
+| E2 Rest countdown | long-text | ✅ covered | No free text enters this element — a system-computed timer interval only |
+| E3 Overtime tag | overflow | ✅ covered | **Clamped at `+59:59`**: past one hour the tag stops growing rather than widening into `h:mm:ss`, so the Micro tag's width stays bounded and the card cannot reflow. *Decided by the dono, 2026-08-16* |
+| E3 Overtime tag | long-text | ✅ covered | Numeric-only with a fixed `+` prefix; no free text |
+| E4 Exercise name line | empty | 🧪 backstop | A blank exercise name is not known to be reachable. Backstop: assert what the secondary line renders when the name is empty, and confirm against `activeSessionStore`'s real shape whether that state exists at all. *Decided by the dono, 2026-08-16* |
+| E4 Exercise name line | loading | 🧪 backstop | Name ships inside the initial `ContentState`; no placeholder designed. Backstop: same session-boot race path as E1 |
+| E4 Exercise name line | error | ✅ covered | No error rendering — failure surfaces through the RN banner (Copywriting Contract → Error state) |
+| E4 Exercise name line | partial | ✅ covered | A truncated name ending in `…` is an accepted partial rendering; the full name is always visible in-app |
+| E4 Exercise name line | overflow | ✅ covered | `.lineLimit(1)` + `.truncationMode(.tail)` in every presentation that shows the name (Lock Screen secondary line, expanded `.leading`/`.trailing`) |
+| E4 Exercise name line | long-text | ✅ covered | Same rule — unbounded name length can never wrap or grow the card |
+| E5 Prescription line | empty | 🧪 backstop | A time/duration-prescribed exercise has no "reps × carga" for the Display slot. Backstop: cover it, and confirm whether phase 15's scope reaches such an exercise before assuming it away. *Decided by the dono, 2026-08-16* |
+| E5 Prescription line | loading | 🧪 backstop | Prescription ships inside the initial `ContentState`. Backstop: same session-boot race path as E1 |
+| E5 Prescription line | error | ✅ covered | No error rendering — never a broken prescription line; failure surfaces through the RN banner |
+| E5 Prescription line | partial | ✅ covered | Bodyweight carries no `cargaKg` and reuses the "Peso corporal" tag rather than `× — kg` or a silently dropped load |
+| E5 Prescription line | overflow | ✅ covered | **`.lineLimit(1)` + `.minimumScaleFactor(0.8)`** on the Display element — the number shrinks to 80% before any clipping and is never truncated with an ellipsis, because a cut prescription digit conveys nothing. *Decided by the dono, 2026-08-16* |
+| E5 Prescription line | long-text | ✅ covered | Same `.minimumScaleFactor(0.8)` rule: a three-digit decimal load scales down rather than clipping or wrapping |
+| E6 Set counter line | empty | ✅ covered | `setIndex` and `setTotal` are always ≥1 by construction; no empty counter state exists |
+| E6 Set counter line | loading | 🧪 backstop | Counter ships inside the initial `ContentState`. Backstop: same session-boot race path as E1 |
+| E6 Set counter line | error | ✅ covered | No error rendering; failure surfaces through the RN banner |
+| E6 Set counter line | populated | ✅ covered | `Série X/Y` is the specified secondary Label line in both `measuring` and `readyOvertime` (D-01, D-04) |
+| E6 Set counter line | partial | ✅ covered | Both numerator and denominator are always known when a series is active — no half-known counter state |
+| E6 Set counter line | overflow | ✅ covered | `Série 12/15` at the Label role is short fixed-shape content; the card-wide `.lineLimit(1)` applies and is never reached in practice |
+| E6 Set counter line | zero-one-many | ✅ covered | No "0 de 0" case; the counter reads identically at one set and at many, so no singular/plural branch is needed |
+| E6 Set counter line | long-text | ✅ covered | One controlled word plus two integers — length is structurally bounded |
+| E7 Block label | empty | ✅ covered | Rendered only in the `blockOnly` phase, which by definition has a block — no empty-label state |
+| E7 Block label | loading | 🧪 backstop | Label ships inside the initial `ContentState`. Backstop: same session-boot race path as E1 |
+| E7 Block label | error | ✅ covered | No error rendering; failure surfaces through the RN banner |
+| E7 Block label | populated | ✅ covered | `blockOnly` is one of the four fully specified phases; the reduced card shows block name and position at the Micro role (D-03) |
+| E7 Block label | partial | ⚠ **unresolved** | **Planner must treat as assumption.** The denominator semantics of "Alongamento 2/6" (position within the same-metric block vs. within the whole session) is an open planner-level decision — RESEARCH.md Open Question 2. This contract fixes the *display format* only |
+| E7 Block label | overflow | ✅ covered | `.lineLimit(1)`, and block/modality names come from the controlled vocabulary in `src/constants/cardioModalidades.ts`, so real-world truncation risk is low — the rule is declared for defense-in-depth |
+| E7 Block label | zero-one-many | ✅ covered | Position and total are always ≥1; the label reads identically at one block and at many |
+| E7 Block label | long-text | ✅ covered | Same `.lineLimit(1)` over a controlled vocabulary — length is bounded by the modality constant list |
+| E8 DI expanded | empty | ⛔ dismissed | Unreachable by construction: the expanded presentation exists only while an activity is live, and the activity is requested only for an active session with at least one exercise |
+| E8 DI expanded | loading | 🧪 backstop | SwiftUI's default implicit animation on `Activity.update()` content swap is assumed sufficient for the `resting`→`measuring` transition; no custom transition specified. Backstop: if the swap reads as jarring or flashes on-device during Sessão 1 (D-13), that is a UAT finding to resolve then |
+| E8 DI expanded | error | ✅ covered | No error rendering — a failed `Activity.request()` produces no activity and therefore no expanded presentation at all |
+| E8 DI expanded | populated | ✅ covered | Region assignment fixed: large value (Display) in `.trailing`, secondary line in `.leading`, micro tag / block-only content in `.bottom` (Open Decision 3's default — cosmetic-only) |
+| E8 DI expanded | partial | 🧪 backstop | `.bottom` is empty when there is neither a micro tag nor block content. SwiftUI is expected to collapse the empty region rather than reserve a gap, but this is unconfirmed on device. Backstop: verify during Sessão 1 (D-13) that no empty band appears under the pill |
+| E8 DI expanded | overflow | ✅ covered | Per-region `.lineLimit(1)` with tail truncation; each region carries a modest fixed budget the system allocates around the pill |
+| E8 DI expanded | zero-one-many | ✅ covered | Exactly three regions, always the same three — no variable-count region list whose layout could shift with item count |
+| E8 DI expanded | long-text | ✅ covered | Same per-region single-line tail-truncation rule; no region may wrap |
+| E9 DI compact | overflow | ✅ covered | Structurally prevented rather than truncated: D-02 fixes the compact regions to numeric-only content (`mm:ss` or `N/N`), so no free text ever enters the ~44pt slots |
+| E9 DI compact | long-text | ✅ covered | No free text can enter these regions by contract — enforced at the content level, not by truncation |
+| E10 DI minimal | empty | ⛔ dismissed | The minimal presentation exists only while an activity is live and another app also holds one; there is no empty state for the slot to render |
+| E10 DI minimal | loading | 🧪 backstop | Glyph derives from `ContentState`, fully populated at request time. Backstop: same session-boot race path as E1 |
+| E10 DI minimal | error | ✅ covered | No error rendering — a failed `Activity.request()` produces no activity and therefore no minimal presentation |
+| E10 DI minimal | populated | ✅ covered | **SF Symbol, not literal digits**: `"timer"` tinted `palette.neon` while resting, a state-appropriate icon tinted `text.secondary` otherwise; `compact` keeps the literal `mm:ss`. *Confirmed by the dono, 2026-08-16 — resolves Open Decision 1, satisfying D-02's intent without violating the ~28×28pt platform constraint* |
+| E10 DI minimal | overflow | ✅ covered | A single SF Symbol glyph in a ~28×28pt slot cannot overflow — the literal-digits risk is removed at the source by the glyph decision above |
+| E10 DI minimal | long-text | ✅ covered | No text of any length enters this slot |
+| E11 Unavailable banner (RN) | empty | ✅ covered | Mounted only when `ActivityAuthorizationInfo` reports Live Activities disabled; otherwise it does not render at all, so there is no empty variant |
+| E11 Unavailable banner (RN) | loading | 🧪 backstop | Authorization state is read from `ActivityAuthorizationInfo`; whether a frame renders before that state is known is unconfirmed. Backstop: assert the banner does not flash on mount for a user who has Live Activities enabled |
+| E11 Unavailable banner (RN) | error | ✅ covered | This banner **is** the phase's error surface — what the user sees when the Live Activity cannot be created, since the card itself has no error rendering |
+| E11 Unavailable banner (RN) | populated | ✅ covered | Exact copy fixed at the Copywriting Contract D-12 row — single line, no title, no CTA button, matching `ProvisioningBanner`'s shape |
+| E11 Unavailable banner (RN) | partial | ✅ covered | A single fixed string with no interpolated data — no partial state can exist |
+| E11 Unavailable banner (RN) | overflow | ✅ covered | **No `numberOfLines` cap** — the message wraps freely to two lines on a narrow iPhone, identical to `ProvisioningBanner`. The instruction arrives whole and vertical space is available in-app. *Decided by the dono, 2026-08-16* |
+| E11 Unavailable banner (RN) | zero-one-many | ⛔ dismissed | Not a collection: one fixed message, no repeated items, so there is no zero/one/many layout axis |
+| E11 Unavailable banner (RN) | long-text | ✅ covered | Same free-wrap rule — a fixed 66-character string, wrapping rather than truncating is the declared behavior |
+| E12 "Pronto" label | overflow | ✅ covered | A fixed six-character word at the Display role — structurally cannot overflow the large slot |
+| E12 "Pronto" label | long-text | ✅ covered | Fixed literal string, not user or catalog data — no length variance exists |
+
+### Backstops (11) — each becomes a UI-state test
+
+`E1·loading`, `E4·empty`, `E4·loading`, `E5·empty`, `E5·loading`, `E6·loading`, `E7·loading`,
+`E8·loading`, `E8·partial`, `E10·loading`, `E11·loading`.
+
+At verify time, a backstop with no wired evidence routes to `insufficient_spec → human_needed` —
+never a silent pass. The six `loading` backstops share one root cause (the session-boot race where a
+card could render before `ContentState` is populated) and can be discharged by a single test that
+covers that path; the remaining five are independent.
+
+### Unresolved (1)
+
+⚠ `E7 · partial` — **the planner must treat this as an assumption, not a settled contract.**
+The denominator semantics of the block label is RESEARCH.md Open Question 2 and is not resolved here.
 
 ---
 
@@ -196,19 +276,37 @@ The current `targets/session-widget/WidgetLiveActivity.swift` scaffold has three
 
 ## Open Decisions
 
-> Per the task constraint: these are genuinely unresolved by CONTEXT.md/RESEARCH.md/VALIDATION.md
-> or the codebase. Recorded with a recommended default so the orchestrator can surface them to the
-> dono rather than silently locking a choice.
+> Recorded during authoring as genuinely unresolved by CONTEXT.md/RESEARCH.md/VALIDATION.md or the
+> codebase, each with a recommended default rather than a silently locked choice.
+>
+> **Status after the ui-phase probe (2026-08-16): decisions 1 and 2 were surfaced to the dono and
+> confirmed; decision 3 stands on its recommended default (cosmetic-only, no confirmation required).
+> No open decision remains for the planner to settle.**
 
-1. **`minimal` Dynamic Island presentation cannot literally show `mm:ss` (D-02).**
+1. ✅ **RESOLVED (dono, 2026-08-16) — `minimal` renders an SF Symbol, not literal `mm:ss`.**
+   The dono confirmed the recommended default below verbatim: `minimal` shows `"timer"` tinted
+   `palette.neon` while resting and a state-appropriate icon tinted `text.secondary` otherwise;
+   `compact` keeps the literal `mm:ss`. The planner may lock the `minimal` closure on this. See
+   `## UI Considerations` → `E10 · populated`. Original analysis retained below for the record.
+
+   **`minimal` Dynamic Island presentation cannot literally show `mm:ss` (D-02).**
    D-02 says compact *and* minimal prioritize "o tempo: mm:ss do descanso correndo." The `minimal` slot is a single ~28×28pt glyph region (one view, no leading/trailing split) — Apple's own system apps (Music, Timers) never render multi-character countdown text there; they show an icon or a single glyph with tint conveying state.
    **Recommended default:** `minimal` shows an SF Symbol (`"timer"` while resting, tinted `palette.neon`; a static icon appropriate to `measuring`/`blockOnly`/`readyOvertime` otherwise, tinted `text.secondary`) instead of literal digits. `compact` keeps the literal `mm:ss` text as originally specified — it has the room. This reading satisfies D-02's *intent* ("time is the priority signal during rest") without violating the platform's minimal-slot constraint. Needs dono confirmation before the plan locks the `minimal` closure's content, since it is a literal-reading deviation from D-02's text.
 
-2. **Custom app fonts (`Inter`, `BarlowSemiCondensed-ExtraBold`) are not bundled into the widget target.**
+2. ✅ **RESOLVED (dono, 2026-08-16) — ship the system font for v1.3.**
+   The dono confirmed the recommended default below: SF Pro via Dynamic Type on the Live Activity,
+   with branding fidelity in the widget deferred to a v1.3.x polish item to be reconsidered only if
+   the visual gap bothers them on-device in Sessão 1 (D-13). Original analysis retained below.
+
+   **Custom app fonts (`Inter`, `BarlowSemiCondensed-ExtraBold`) are not bundled into the widget target.**
    Embedding them would require adding the `.ttf` files to `targets/session-widget/` and declaring `UIAppFonts` in that target's `Info.plist` — nontrivial, unexplored by RESEARCH.md, and every hour spent here is an hour not spent on the `restEndsAt`/reconciliation work RESEARCH.md flags as the real risk in this phase.
    **Recommended default:** ship with system font (SF Pro via Dynamic Type, per Typography above) for v1.3. This is also the platform-idiomatic choice — Live Activities are widely built with system fonts precisely because Dynamic Type compliance is expected on Lock Screen. Revisit branding fidelity (custom font in the widget) as a v1.3.x polish item if the dono minds the visual gap between the RN app (`BarlowSemiCondensed`) and the Lock Screen card (system font) once seen on-device in Sessão 1 (D-13).
 
-3. **Dynamic Island expanded region assignment (`.leading` vs `.trailing` for large value vs secondary line).**
+3. ✅ **STANDS ON ITS DEFAULT — cosmetic-only, no dono confirmation required.**
+   Locked as recommended: Display in `.trailing`, secondary line in `.leading`, micro/block content
+   in `.bottom`. See `## UI Considerations` → `E8 · populated`. Original analysis below.
+
+   **Dynamic Island expanded region assignment (`.leading` vs `.trailing` for large value vs secondary line).**
    D-01 fixes *which element is large*, not which side of the expanded pill it sits on. No existing pattern in the repo settles left/right placement (this is the first Dynamic Island UI in the codebase).
    **Recommended default:** large value (Display role) in `.trailing` (right side reads as "the number," consistent with how a stopwatch/timer app conventionally places the running value on the right, and consistent with `SessionPlayer.tsx`'s own layout — the neon ring/clock sits as the dominant right-of-center focal element), secondary line in `.leading`, micro/block content in `.bottom`. Low-risk, cosmetic-only — does not need dono confirmation, but recorded here since RESEARCH.md's own pseudo-code left both regions as unfilled comments.
 
@@ -225,11 +323,17 @@ The current `targets/session-widget/WidgetLiveActivity.swift` scaffold has three
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS — after revision 1/2 (widget target consolidated to 2 weights)
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED by `gsd-ui-checker`, 2026-08-16 — 6/6 dimensions, no blocking issues.
+One revision iteration was required (Dimension 4: the widget target declared 3 font weights against
+a cap of 2; the Compact role now reuses `.bold` instead of `.semibold`).
+
+**UI-consideration probe:** 12 elements, 66 applicable considerations — 50 covered, 11 backstop,
+4 dismissed, 1 unresolved (`E7 · partial`, which the planner must treat as an assumption). See
+`## UI Considerations`.
