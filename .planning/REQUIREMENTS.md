@@ -1,7 +1,7 @@
 # Requirements — Milestone v1.3 "Treino de tela bloqueada (app nativo pessoal)"
 
 Escopo: o dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
-comanda e registra pela tela bloqueada/Dynamic Island, como o Spotify opera
+comanda e registra pela tela bloqueada, como o Spotify opera
 música. App NATIVO pessoal por sideload gratuito (Apple ID, validade 7 dias,
 sem distribuição a terceiros). iPhone do dono em iOS 26.x; Xcode 26.6
 licenciado. Pesquisa completa em `.planning/research/` (SUMMARY.md, commit
@@ -25,8 +25,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 - [x] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
   atual, a série X/Y e a prescrição (reps × carga) num card de Live Activity,
-  sem desbloquear nem abrir o app — com as 4 apresentações do Dynamic Island
-  (compact/minimal/expanded + Lock Screen).
+  sem desbloquear nem abrir o app.
 
 - [x] **LOCK-02**: O timer de descanso conta regressivamente na tela bloqueada
   de forma nativa (`Text(timerInterval:)`, sem depender do app acordado) — o
@@ -67,6 +66,12 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
   `activeSessionStore`, é composição de UI.
 
 ## Future Requirements (deferidos — decisão do dono em 15/08/2026)
+
+- **Dynamic Island (compact/minimal/expanded)** — implementação preservada no
+  widget, mas validação física e aceitação do produto foram deferidas em
+  17/08/2026 porque o aparelho do dono é um iPhone 13, sem Dynamic Island, e não
+  há aparelho compatível disponível. Não bloqueia o v1.3; volta como feature
+  futura quando houver hardware para UAT.
 
 - **Notificação local de fim de descanso** (som/vibração com app suspenso) —
   NÃO selecionada para o v1.3. Consequência aceita: com o app suspenso, o fim

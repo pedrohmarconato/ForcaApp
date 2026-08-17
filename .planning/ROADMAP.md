@@ -56,7 +56,7 @@ deployados). Sem audit formal de milestone.
 </details>
 
 - [ ] **Phase 14: Fundação nativa** - Build nativo assinado no iPhone do dono + spike de App Groups que decide a arquitetura de estado
-- [ ] **Phase 15: Tela bloqueada — ver e cronometrar** - Live Activity mostra a sessão ao vivo (Lock Screen + Dynamic Island) e o timer de descanso nativo, com ciclo de vida correto
+- [ ] **Phase 15: Tela bloqueada — ver e cronometrar** - Live Activity mostra a sessão ao vivo no Lock Screen e o timer de descanso nativo, com ciclo de vida correto
 - [ ] **Phase 16: Tela bloqueada — comandar** - Concluir série e ajustar descanso direto na tela bloqueada, via App Intents, sem abrir o app
 - [ ] **Phase 17: Tela bloqueada — registrar e antecipar** - Registro de reps/carga sem teclado (app + tela bloqueada) e antecipação da próxima ação antes do descanso zerar
 
@@ -65,7 +65,7 @@ deployados). Sem audit formal de milestone.
 ### 🚧 v1.3 Treino de tela bloqueada (app nativo pessoal) (In Progress)
 
 **Milestone Goal:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado —
-vê, comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+vê, comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
 
@@ -131,16 +131,21 @@ Plans:
 #### Phase 15: Tela bloqueada — ver e cronometrar
 
 **Goal**: A tela bloqueada mostra a sessão de treino ao vivo — exercício atual,
-série e timer de descanso nativo — nas 4 apresentações do Dynamic Island e no
-Lock Screen, sem abrir o app, e a Live Activity se encerra sozinha quando a
+série e timer de descanso nativo — no Lock Screen, sem abrir o app, e a Live Activity se encerra sozinha quando a
 sessão termina ou é cancelada (inclusive após force-quit).
 **Depends on**: Phase 14
 **Requirements**: LOCK-01, LOCK-02, LOCK-03
+
+**Scope override (dono, 17/08/2026):** compact/minimal/expanded da Dynamic
+Island saem do acceptance gate do v1.3 e viram feature futura. O código existente
+permanece, mas não é considerado fisicamente validado; o aparelho disponível é um
+iPhone 13, sem Dynamic Island.
+
 **Success Criteria** (what must be TRUE):
 
-  1. Durante uma sessão ativa, o dono vê no Lock Screen e no Dynamic Island
-     (compact/minimal/expanded) o exercício atual, a série X/Y e a prescrição
-     (reps × carga), sem desbloquear o iPhone. (UAT do dono no aparelho físico)
+  1. Durante uma sessão ativa, o dono vê no Lock Screen o exercício atual, a
+     série X/Y e a prescrição (reps × carga), sem desbloquear o iPhone. (UAT do
+     dono no aparelho físico)
 
   2. O timer de descanso conta regressivamente na tela bloqueada mesmo com o app
      suspenso, usando timestamp absoluto (`restEndsAt` no `activeSessionStore`) —
@@ -152,7 +157,7 @@ sessão termina ou é cancelada (inclusive após force-quit).
   4. Depois de um force-quit do app durante uma sessão ativa, reabrir o app
      reconcilia e encerra qualquer Live Activity órfã que tenha sobrado na tela
      bloqueada. (UAT do dono no aparelho físico)
-**Plans**: 4/6 plans executed
+**Plans**: 6/6 plans executed; verification gaps must be closed before completion
 
 Plans:
 **Wave 1**
@@ -167,11 +172,14 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 15-05-PLAN.md — Sessão 1 física: card + 4 apresentações + timer nativo (D-13)
+- [x] 15-05-PLAN.md — Sessão 1 física: Lock Screen + timer PASS; Dynamic Island deferida por decisão do dono (D-13)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 15-06-PLAN.md — Sessão 2 física: UAT completo cobrindo os 4 critérios do ROADMAP (D-13)
+- [x] 15-06-PLAN.md — Sessão 2 física: UAT completa passou no iPhone 13 (D-13)
+
+**Verification status:** `gaps_found` — 3/8 must-haves verificados; corrigir os
+cinco gaps registrados em `15-VERIFICATION.md` antes de concluir a fase.
 
 **UI hint**: yes
 

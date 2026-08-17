@@ -17,6 +17,11 @@ sobe ao iniciar a sessão, se encerra sozinho ao terminar/cancelar, e qualquer c
 
 Requisitos: LOCK-01, LOCK-02, LOCK-03.
 
+**Owner scope override (17/08/2026):** a aceitação física de Dynamic Island
+(compact/minimal/expanded) foi retirada desta fase e deferida para feature futura.
+O aparelho disponível é um iPhone 13, sem Dynamic Island. A implementação já
+existente permanece no widget, mas não bloqueia o v1.3 nem é declarada validada.
+
 **Fora desta fase:** botões na tela bloqueada / App Intents (Fase 16), registro de
 reps/carga sem teclado (Fase 17), antecipação da próxima ação (PRED-01, Fase 17),
 som/vibração no fim do descanso (deferido para pós-v1.3 — o fim do descanso é
@@ -253,6 +258,10 @@ apenas visual).
 
 <deferred>
 ## Deferred Ideas
+
+- **Dynamic Island compact/minimal/expanded** — implementação preservada, mas
+  UAT física e ajustes de produto deferidos até haver iPhone compatível. Decisão
+  explícita do dono em 17/08/2026 após a Sessão 1 no iPhone 13.
 
 - **Prescrição do cardio na tela bloqueada** (tempo/distância prescritos durante
   blocos de cardio) — excluída pela D-03. Se incomodar no uso real, cabe numa fase

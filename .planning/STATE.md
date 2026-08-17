@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
 current_phase_name: tela-bloqueada-ver-e-cronometrar
-status: executing
-stopped_at: Completed 15-03-PLAN.md
-last_updated: "2026-08-17T13:08:47.600Z"
+status: blocked
+stopped_at: Phase 15 verification found five implementation gaps
+last_updated: "2026-08-17T22:04:07.005Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 15 Plan 03 complete
+last_activity_desc: Phase 15 verification returned gaps_found (3/8 must-haves)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 15
-  completed_plans: 13
-  percent: 87
+  total_plans: 21
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -24,25 +24,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
-comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
-**Current focus:** Phase 15 — tela-bloqueada-ver-e-cronometrar
+**Current focus:** Phase 15 — fechar gaps de verificação
 
 ## Current Position
 
-Phase: 15 (tela-bloqueada-ver-e-cronometrar) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute
-Last activity: 2026-08-17 — Phase 15 Plan 03 complete
+Phase: 15 (tela-bloqueada-ver-e-cronometrar) — BLOCKED
+Plan: 6 of 6
+Status: UAT aprovada, mas verificação encontrou cinco gaps de implementação
+Last activity: 2026-08-17 — Phase 15 verification returned gaps_found (3/8 must-haves)
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 13 (v1.3)
+- Total plans completed: 14 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -56,7 +56,7 @@ Progress: [█████████░] 87%
 
 **Recent Trend:**
 
-- v1.3 execution started; Phase 15 Plans 01, 02, 03, and 04 are complete in this milestone.
+- v1.3 execution started; Phase 15 Plans 01–05 are complete in this milestone.
 
 **Per-Plan Metrics (histórico v1.2):**
 
@@ -121,10 +121,16 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: O caminho existente skipWholeSession permanece o sinal de cancelamento: draft null e status finished na mesma atualização produzem dismissal immediate, sem nova API.
 - [Phase ?]: O timeout de inatividade usa 3 horas e a conclusão usa dismissal afterDate em 180 segundos; o timeout remove apenas a Activity e preserva o draft.
 - [Phase ?]: A falha de start fica observável por getLastStartFailed e subscription; o banner usa guard de uma ocorrência por processo e sobrevive a remount.
+- [Phase 15]: Dynamic Island compact/minimal/expanded foi deferida para feature futura; implementação permanece, mas não bloqueia v1.3 porque o aparelho do dono é um iPhone 13 sem esse hardware.
+- [Phase 15]: A UAT física completa do Plano 15-06 passou no iPhone 13, mas a verificação independente encontrou cinco gaps de implementação; LOCK-03 permanece pendente até o fechamento desses gaps.
 
 ### Pending Todos
 
-Nenhum novo desde o início do v1.3.
+- `dynamic-island-future-device`: validar e ajustar compact/minimal/expanded em
+  aparelho compatível quando houver hardware disponível.
+
+- `phase-15-verification-gaps`: corrigir os cinco gaps do `15-VERIFICATION.md`
+  antes de concluir a Fase 15 e iniciar a Fase 16.
 
 ### Blockers/Concerns
 
@@ -140,6 +146,12 @@ Nenhum novo desde o início do v1.3.
 - Repo sem CI de testes local — verificação sempre local (tsc + jest + pytest);
   comportamento de Live Activity/App Intents não é testável em simulador, exige
   aparelho físico a partir da Fase 15.
+
+- O iPhone 13 disponível valida o Lock Screen, mas não possui Dynamic Island;
+  compact/minimal/expanded foram retirados do acceptance gate e deferidos.
+
+- A UAT física do Plano 15-06 passou, mas `15-VERIFICATION.md` confirmou cinco
+  gaps de implementação; a Fase 15 não pode ser concluída até a correção.
 
 - Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção
   `zanqygwsgxkyjiuhrzju`) — conferir `supabase/.temp/project-ref` antes de
@@ -158,14 +170,16 @@ Items acknowledged and carried forward from previous milestone closes:
 | scope | UAT físico no iPhone das 5 fases do v1.2 (9-13) | Deferred — roteiros em milestones/v1.2-phases/*/NN-UAT.md | v1.2 close (2026-08-15) |
 | scope | Notificação local de fim de descanso (som/vibração) | Deferido para pós-v1.3 (v1.3.x) — decisão do dono 2026-08-15 | v1.3 roadmap (2026-08-15) |
 | scope | Modo mãos-livres (cues falados via áudio) | Deferido para pós-v1.3 (v1.3.x) — decisão do dono 2026-08-15 | v1.3 roadmap (2026-08-15) |
+| scope | Dynamic Island compact/minimal/expanded — implementação sem UAT física | Deferido para feature futura; exige iPhone compatível, indisponível ao dono | Phase 15 Plan 05 (2026-08-17) |
 
 ## Session Continuity
 
-Last session: 2026-08-17T13:08:47.594Z
-Stopped at: Completed 15-03-PLAN.md
-sem órfãos. STATE.md e ROADMAP.md atualizados; REQUIREMENTS.md permaneceu sem
-alteração porque LOCK-03 é compartilhado com os planos físicos irmãos e continua
-pendente até todos terminarem. A UAT física segue para os Planos 15-05/15-06.
+Last session: 2026-08-17T20:47:56Z
+Stopped at: Phase 15 verification found five implementation gaps
+Lock Screen, timer e blockOnly passaram no iPhone 13; Dynamic Island permanece
+deferida por ausência de hardware compatível. A UAT física do Plano 15-06 também
+passou, mas `15-VERIFICATION.md` confirmou cinco gaps no código. LOCK-03 continua
+pendente até a correção e a verificação final.
 Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
@@ -174,4 +188,4 @@ atualize os dois.
 
 ## Operator Next Steps
 
-- Executar o próximo plano incompleto da fase com /gsd-execute-phase 15 (Plan 05).
+- Criar planos de correção com `/gsd-plan-phase 15 --gaps`.

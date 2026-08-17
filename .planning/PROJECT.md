@@ -73,7 +73,7 @@ v1.0. Detalhe: STATE.md (Pending Todos/Deferred Items).
 ## Current Milestone: v1.3 Treino de tela bloqueada (app nativo pessoal)
 
 **Goal:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
-comanda e registra o treino pela tela bloqueada/Dynamic Island, como o Spotify
+comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
 
@@ -81,7 +81,7 @@ pago, sem distribuição a terceiros).
 - Build nativo iOS por sideload gratuito: `expo prebuild` + assinatura com Apple
   ID pessoal (validade 7 dias), rotina de reassinatura semanal documentada
 - Live Activity interativa da sessão: exercício atual, série X/Y e timer de
-  descanso nativo na tela bloqueada + Dynamic Island, com botões via App Intents
+  descanso nativo na tela bloqueada, com botões via App Intents
   (concluir série, pular descanso) — sem abrir o app
 - Registro sem teclado com memória: reps e carga pré-preenchidos do histórico do
   exercício, ajuste só por botões +/− e confirmação em 1 toque — na tela do app
@@ -90,8 +90,9 @@ pago, sem distribuição a terceiros).
 - Modo mãos-livres: sessão viva em background via sessão de áudio com cues
   falados (viável por ser sideload pessoal, sem review de loja)
 
-**Contexto de contorno:** iPhone do dono em iOS 26.x (Live Activity interativa
-plena); Xcode instalado em 15/08 (licença pendente de aceite via
+**Contexto de contorno:** iPhone 13 do dono em iOS 26.x (Live Activity interativa
+no Lock Screen; Dynamic Island deferida por ausência de hardware compatível);
+Xcode instalado em 15/08 (licença pendente de aceite via
 `sudo xcodebuild -license`); push nativo/APNs vetado no regime gratuito —
 notificação local cobre; widget de tela de início (WidgetKit) fica fora deste
 milestone; o PWA de produção segue intacto como canal web + push web.
@@ -127,6 +128,7 @@ milestone; o PWA de produção segue intacto como canal web + push web.
 | 2026-08-15 | v1.2 fechado como override_closeout com UAT físico deferido nas 5 fases; infra da fase 13 concluída e verificada no mesmo dia | Decisão do dono no /gsd-new-milestone; arquivos de UAT preservados em milestones/v1.2-phases/ |
 | 2026-08-15 | v1.3 muda o canal: app NATIVO pessoal por sideload gratuito (Apple ID, 7 dias), objetivo = sessão inteira operada pela tela bloqueada (Live Activity interativa) | App é de uso próprio (sem alunos por ora); US$ 99/ano recusado de novo; push nativo vetado no regime gratuito → notificação local; iOS 26.x confirmado pelo dono |
 | 2026-08-15 | Registro de série sem teclado: reps/carga pré-preenchidos do histórico + botões +/− | Pedido do dono no ajuste de escopo; pré-requisito real do registro na tela bloqueada (Live Activity não tem teclado) |
+| 2026-08-17 | Dynamic Island (compact/minimal/expanded) sai do acceptance gate do v1.3 e vira feature futura; implementação atual permanece sem UAT física | O aparelho disponível é um iPhone 13, sem Dynamic Island, e o dono não tem aparelho mais novo para teste; decisão explícita de não bloquear a evolução |
 
 ## Evolution
 
