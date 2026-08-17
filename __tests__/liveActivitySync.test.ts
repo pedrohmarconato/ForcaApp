@@ -18,6 +18,7 @@ jest.mock('../src/store/activeSessionStore', () => {
 });
 
 import {
+  endLiveActivity,
   startLiveActivity,
   updateLiveActivity,
 } from '../modules/live-activity';
@@ -92,12 +93,19 @@ const draft = (): SessionDraft => ({
 
 const mockStart = startLiveActivity as jest.Mock;
 const mockUpdate = updateLiveActivity as jest.Mock;
+const mockEnd = endLiveActivity as jest.Mock;
+
+const flushPromises = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
   useActiveSessionStore.setState({ draft: null, status: 'idle' });
   mockStart.mockResolvedValue(true);
   mockUpdate.mockResolvedValue(true);
+  mockEnd.mockResolvedValue(true);
 });
 
 describe('initLiveActivitySync', () => {
@@ -132,6 +140,59 @@ describe('initLiveActivitySync', () => {
       expect.objectContaining({ phase: 'resting', restEndsAt }),
     );
 
+    stop();
+  });
+
+  it('termina com resumo e dismissalPolicy afterDate quando o draft sobrevive', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+
+    useActiveSessionStore.setState({
+      status: 'finished',
+      draft: { ...current, status: 'finished' },
+    });
+    await flushPromises();
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ restEndsAt: null }),
+    );
+    expect(mockEnd).toHaveBeenCalledWith(
+      'afterDate',
+      expect.any(Number),
+    );
+    expect(mockEnd.mock.calls[0][1]).toBeGreaterThanOrEqual(120);
+    expect(mockEnd.mock.calls[0][1]).toBeLessThanOrEqual(300);
+
+    stop();
+  });
+
+  it('termina imediatamente quando skipWholeSession limpa o draft no mesmo frame', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+
+    useActiveSessionStore.setState({ status: 'finished', draft: null });
+    await flushPromises();
+
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    stop();
+  });
+
+  it('não propaga rejeição do encerramento ao cancelar ou terminar', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    mockEnd.mockRejectedValueOnce(new Error('Activity já não existe'));
+
+    expect(() =>
+      useActiveSessionStore.setState({ status: 'finished', draft: null }),
+    ).not.toThrow();
+    await flushPromises();
+
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
     stop();
   });
 });
