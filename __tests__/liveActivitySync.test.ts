@@ -19,10 +19,14 @@ jest.mock('../src/store/activeSessionStore', () => {
 
 import {
   endLiveActivity,
+  reconcileLiveActivityOrphans,
   startLiveActivity,
   updateLiveActivity,
 } from '../modules/live-activity';
-import { initLiveActivitySync } from '../src/native/liveActivitySync';
+import {
+  initLiveActivitySync,
+  reconcileOrphanActivities,
+} from '../src/native/liveActivitySync';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDraft } from '../src/engine/sessionModel';
 
@@ -94,6 +98,7 @@ const draft = (): SessionDraft => ({
 const mockStart = startLiveActivity as jest.Mock;
 const mockUpdate = updateLiveActivity as jest.Mock;
 const mockEnd = endLiveActivity as jest.Mock;
+const mockReconcile = reconcileLiveActivityOrphans as jest.Mock;
 
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
@@ -106,6 +111,7 @@ beforeEach(() => {
   mockStart.mockResolvedValue(true);
   mockUpdate.mockResolvedValue(true);
   mockEnd.mockResolvedValue(true);
+  mockReconcile.mockResolvedValue(false);
 });
 
 describe('initLiveActivitySync', () => {
@@ -194,5 +200,50 @@ describe('initLiveActivitySync', () => {
 
     expect(mockEnd).toHaveBeenCalledWith('immediate');
     stop();
+  });
+
+  it('não sobe uma Activity quando a reconciliação não encontra sessão ativa', async () => {
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    mockReconcile.mockResolvedValue(false);
+
+    await reconcileOrphanActivities();
+
+    expect(mockReconcile).toHaveBeenCalledWith('log-1');
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('sobe o card corrente depois de encerrar órfãos quando a sessão continua ativa', async () => {
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    mockReconcile.mockResolvedValue(true);
+
+    await reconcileOrphanActivities();
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'measuring', exerciseName: 'Supino reto' }),
+      'log-1',
+    );
+  });
+
+  it('não publica a sessão antiga se o sessionLogId mudar durante a reconciliação', async () => {
+    let resolveReconcile: ((value: boolean) => void) | undefined;
+    mockReconcile.mockImplementation(
+      () => new Promise<boolean>((resolve) => {
+        resolveReconcile = resolve;
+      }),
+    );
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+
+    const reconciliation = reconcileOrphanActivities();
+    useActiveSessionStore.setState({
+      status: 'active',
+      draft: { ...current, sessionLogId: 'log-2' },
+    });
+    resolveReconcile?.(true);
+    await reconciliation;
+
+    expect(mockStart).not.toHaveBeenCalled();
   });
 });
