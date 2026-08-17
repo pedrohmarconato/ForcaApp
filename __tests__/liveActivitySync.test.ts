@@ -24,8 +24,11 @@ import {
   updateLiveActivity,
 } from '../modules/live-activity';
 import {
+  getLastStartFailed,
+  INACTIVITY_TIMEOUT_MS,
   initLiveActivitySync,
   reconcileOrphanActivities,
+  subscribeLiveActivityStartFailure,
 } from '../src/native/liveActivitySync';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDraft } from '../src/engine/sessionModel';
@@ -106,12 +109,18 @@ const flushPromises = async (): Promise<void> => {
 };
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
   useActiveSessionStore.setState({ draft: null, status: 'idle' });
   mockStart.mockResolvedValue(true);
   mockUpdate.mockResolvedValue(true);
   mockEnd.mockResolvedValue(true);
   mockReconcile.mockResolvedValue(false);
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
 });
 
 describe('initLiveActivitySync', () => {
@@ -245,5 +254,64 @@ describe('initLiveActivitySync', () => {
     await reconciliation;
 
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('encerra a Activity após 3h sem update e preserva a sessão no store', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS);
+    await flushPromises();
+
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+    expect(useActiveSessionStore.getState()).toMatchObject({
+      status: 'active',
+      draft: current,
+    });
+
+    stop();
+  });
+
+  it('reinicia o timeout quando uma atualização da Activity conclui', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS - 1);
+    const updated = {
+      ...current,
+      restEndsAt: new Date(Date.now() + 90_000).toISOString(),
+    };
+    useActiveSessionStore.setState({ status: 'active', draft: updated });
+    await flushPromises();
+
+    jest.advanceTimersByTime(1);
+    await flushPromises();
+    expect(mockEnd).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS);
+    await flushPromises();
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+
+    stop();
+  });
+
+  it('registra uma falha de start e notifica o observador do aviso', async () => {
+    const onFailure = jest.fn();
+    const unsubscribe = subscribeLiveActivityStartFailure(onFailure);
+    mockStart.mockResolvedValue(false);
+    const stop = initLiveActivitySync();
+
+    useActiveSessionStore.setState({ status: 'active', draft: draft() });
+    await flushPromises();
+
+    expect(getLastStartFailed()).toBe(true);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    stop();
   });
 });
