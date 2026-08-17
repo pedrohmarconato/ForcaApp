@@ -10,6 +10,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
 import ProvisioningBanner from './src/components/ProvisioningBanner';
+import LiveActivityUnavailableBanner from './src/components/LiveActivityUnavailableBanner';
 import PushInviteHost from './src/components/PushInviteHost';
 import {
   initLiveActivitySync,
@@ -46,6 +47,7 @@ export default function App() {
       <RootNavigator />
       <UpdateBanner />
       <ProvisioningBanner />
+      <LiveActivityUnavailableBanner />
       <AlertHost />
       {/* Depois de AlertHost: precisa que alertStore/AlertHost já estejam
           prontos para receber o showAlert() do convite único de opt-in

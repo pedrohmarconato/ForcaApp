@@ -299,6 +299,25 @@ describe('initLiveActivitySync', () => {
     stop();
   });
 
+  it('limpa o timeout quando a sessão sai de active por outro caminho', async () => {
+    const stop = initLiveActivitySync();
+    try {
+      const current = draft();
+      useActiveSessionStore.setState({ status: 'active', draft: current });
+      await flushPromises();
+
+      jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS - 1);
+      useActiveSessionStore.setState({ status: 'idle', draft: null });
+      jest.advanceTimersByTime(1);
+      jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS);
+      await flushPromises();
+
+      expect(mockEnd).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
   it('registra uma falha de start e notifica o observador do aviso', async () => {
     const onFailure = jest.fn();
     const unsubscribe = subscribeLiveActivityStartFailure(onFailure);
