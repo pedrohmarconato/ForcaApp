@@ -24,6 +24,16 @@ private func seriesText(_ state: SessionActivityAttributes.ContentState) -> Stri
     "Série \(state.setIndex)/\(state.setTotal)"
 }
 
+private func overtimeText(_ state: SessionActivityAttributes.ContentState) -> String {
+    guard let restEndsAt = state.restEndsAt else {
+        return "+0:00"
+    }
+
+    let elapsedSeconds = Int(Date.now.timeIntervalSince(restEndsAt))
+    let clampedSeconds = min(59 * 60 + 59, max(0, elapsedSeconds))
+    return String(format: "+%d:%02d", clampedSeconds / 60, clampedSeconds % 60)
+}
+
 @ViewBuilder
 private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> some View {
     switch state.phase {
@@ -89,24 +99,12 @@ private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> so
 
 @ViewBuilder
 private func overtimeValue(_ state: SessionActivityAttributes.ContentState) -> some View {
-    if let restEndsAt = state.restEndsAt {
-        HStack(spacing: 0) {
-            Text("+")
-            Text(timerInterval: restEndsAt...Date.distantFuture, countsDown: false)
-        }
+    Text(overtimeText(state))
         .font(.caption2)
         .fontWeight(.regular)
         .monospacedDigit()
         .foregroundColor(activitySecondary)
         .lineLimit(1)
-    } else {
-        Text("+0:00")
-            .font(.caption2)
-            .fontWeight(.regular)
-            .monospacedDigit()
-            .foregroundColor(activitySecondary)
-            .lineLimit(1)
-    }
 }
 
 @ViewBuilder
