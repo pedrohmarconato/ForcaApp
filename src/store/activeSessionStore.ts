@@ -21,6 +21,7 @@ import {
   applyExerciseSkipToDraft,
   removeExerciseSkipFromDraft,
   applyCardioSwapToDraft,
+  findActiveSet,
   findNextPendingSet,
   type SessionDraft,
   type DraftExercise,
@@ -81,6 +82,10 @@ import {
 import apiClient, { ENDPOINTS } from '../services/api/apiClient';
 import { logger } from '../utils/logger';
 import { ajustarRestEndsAt } from '../engine/sessionSummary';
+import {
+  drainQueuedLiveActivityIntents,
+  type QueuedLiveActivityIntent,
+} from '../../modules/live-activity';
 
 type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
@@ -187,6 +192,16 @@ interface ActiveSessionState {
    * sessão ativa (guarda de CAS, mesma cautela do resto do arquivo).
    */
   reconcileRemoteSessionClosed: (sessionLogId: string) => void;
+  /**
+   * Fase 16 (CMD, Plano 16-02): drena a fila durável de intents da tela
+   * bloqueada (App Group, gravada mesmo com o app force-quit — Plano
+   * 16-01) e aplica cada entrada pendente contra a MESMA
+   * completeSet()/activateSet()/adjustRest() já existentes, com guarda de
+   * CAS por sessionLogId — nunca aplica contra uma sessão que não é mais
+   * a ativa. Chamado no boot do app (App.tsx), antes de
+   * reconcileOrphanActivities().
+   */
+  reconcileLiveActivityIntents: () => Promise<void>;
   /** Fase 4 (REQ-07): atualiza o resumo observável da fila (selo de pendência, D-05). */
   setOutboxSummary: (pendingCount: number, quarantineCount: number) => void;
   /**
@@ -1536,6 +1551,53 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       saveError: null,
     });
     void retireLocalDraft(atual);
+  },
+
+  // Fase 16 (CMD, Plano 16-02): drena a fila durável do App Group e aplica
+  // cada entrada contra o MESMO completeSet()/activateSet()/adjustRest() já
+  // existentes — nenhum caminho de gravação paralelo. Guarda de CAS: relê
+  // get().draft A CADA iteração (não uma cópia capturada antes do loop),
+  // porque completeSet() dentro do loop pode ele mesmo mudar o draft antes
+  // da próxima iteração processar. Entradas com sessionLogId ausente ou
+  // divergente do draft ATUAL são sempre descartadas silenciosamente.
+  reconcileLiveActivityIntents: async () => {
+    let entries: QueuedLiveActivityIntent[] = [];
+    try {
+      entries = await drainQueuedLiveActivityIntents();
+    } catch (error) {
+      console.warn(
+        '[liveActivity] não foi possível drenar a fila de intents:',
+        error,
+      );
+      return;
+    }
+    for (const entry of entries) {
+      const draft = get().draft;
+      if (
+        !draft ||
+        draft.status !== 'active' ||
+        !entry.sessionLogId ||
+        draft.sessionLogId !== entry.sessionLogId
+      ) {
+        continue;
+      }
+      switch (entry.kind) {
+        case 'completeSet': {
+          const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
+          if (alvo) await get().completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
+          break;
+        }
+        case 'skipRest': {
+          const proxima = findNextPendingSet(draft);
+          if (proxima) get().activateSet(proxima.exercise.exerciseId, proxima.set.setOrder);
+          break;
+        }
+        case 'adjustRest': {
+          if (entry.deltaSeconds != null) get().adjustRest(entry.deltaSeconds);
+          break;
+        }
+      }
+    }
   },
 
   setOutboxSummary: (pendingCount, quarantineCount) => {

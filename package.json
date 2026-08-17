@@ -122,6 +122,9 @@
       "/node_modules/",
       "<rootDir>/__tests__/integration/"
     ],
+    "moduleNameMapper": {
+      "modules/live-activity$": "<rootDir>/__mocks__/modules-live-activity.ts"
+    },
     "moduleFileExtensions": [
       "ts",
       "tsx",
