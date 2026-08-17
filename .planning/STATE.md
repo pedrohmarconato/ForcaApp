@@ -5,16 +5,16 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
 current_phase_name: tela-bloqueada-ver-e-cronometrar
 status: executing
-stopped_at: Completed 15-04-PLAN.md
-last_updated: "2026-08-17T12:32:42.902Z"
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-08-17T12:50:20.406Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 15 Plan 04 complete
+last_activity_desc: Phase 15 Plan 02 complete
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 11
-  percent: 73
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -32,17 +32,17 @@ pago, sem distribuição a terceiros).
 ## Current Position
 
 Phase: 15 (tela-bloqueada-ver-e-cronometrar) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 15 Plan 04 complete
+Last activity: 2026-08-17 — Phase 15 Plan 02 complete
 
-Progress: [███████░░░] 73%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 11 (v1.3)
+- Total plans completed: 12 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -56,7 +56,7 @@ Progress: [███████░░░] 73%
 
 **Recent Trend:**
 
-- v1.3 execution started; Phase 15 Plans 01 and 04 are complete in this milestone.
+- v1.3 execution started; Phase 15 Plans 01, 02, and 04 are complete in this milestone.
 
 **Per-Plan Metrics (histórico v1.2):**
 
@@ -71,6 +71,7 @@ Progress: [███████░░░] 73%
 | Phase 13 P05 | ~15min | 2 tasks | 3 files |
 | Phase 15 P01 | 45min | 1 tasks | 26 files |
 | Phase 15 P04 | 20min | 1 tasks | 1 files |
+| Phase 15 P02 | 10min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Produção do app nativo usa exclusivamente o ref zanqygwsgxkyjiuhrzju, validado como forcaapp-prod na organização ltmhaqdcvidzsbfkxmii.
 - [Phase ?]: Mudanças de .env mantêm o arquivo gitignored e nunca expõem ou versionam a anon public key; .env.example permanece intocado.
 - [Phase ?]: O bundle Release é reconstruído por npm run resign antes do UAT físico; login real e Lock Screen UAT continuam nos planos físicos posteriores.
+- [Phase ?]: Alongamento/Cardio usa posição dentro do conjunto de exercícios em jogo com a mesma métrica efetiva; carga_reps fica fora do denominador.
+- [Phase ?]: Overtime da Live Activity é texto manual +m:ss clampado em +59:59 para preservar a largura da região Micro.
+- [Phase ?]: Exercícios medidos por tempo roteiam diretamente para blockOnly antes da seleção de descanso/medição.
 
 ### Pending Todos
 
@@ -153,10 +157,11 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-17T12:32:42.895Z
-Stopped at: Completed 15-04-PLAN.md
+Last session: 2026-08-17T12:50:20.400Z
+Stopped at: Completed 15-02-PLAN.md
 sem órfãos. STATE.md atualizado; REQUIREMENTS.md permaneceu sem alteração porque
-LOCK-01/LOCK-02 já estavam completos e LOCK-03 continua pendente. Aguardando
+LOCK-01 é compartilhado com planos irmãos e continua pendente até todos terminarem;
+LOCK-02 já estava completo e LOCK-03 continua pendente. Aguardando
 aprovação do dono.
 Resume file: None
 
@@ -166,4 +171,4 @@ atualize os dois.
 
 ## Operator Next Steps
 
-- Executar o próximo plano da fase com /gsd-execute-phase 15 (Plan 02).
+- Executar o próximo plano incompleto da fase com /gsd-execute-phase 15 (Plan 03).
