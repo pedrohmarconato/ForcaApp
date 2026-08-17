@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
-current_phase: 15
-current_phase_name: tela-bloqueada-ver-e-cronometrar
-status: blocked
+current_phase: 16
+current_phase_name: tela-bloqueada-comandar
+status: executing
 stopped_at: Phase 15 verification found five implementation gaps
-last_updated: "2026-08-17T22:04:07.005Z"
+last_updated: "2026-08-17T22:55:34.136Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 15 verification returned gaps_found (3/8 must-haves)
+last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 21
   completed_plans: 15
-  percent: 100
+  percent: 25
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
-**Current focus:** Phase 15 — fechar gaps de verificação
+**Current focus:** Phase 16 — tela-bloqueada-comandar
 
 ## Current Position
 
-Phase: 15 (tela-bloqueada-ver-e-cronometrar) — BLOCKED
-Plan: 6 of 6
-Status: UAT aprovada, mas verificação encontrou cinco gaps de implementação
-Last activity: 2026-08-17 — Phase 15 verification returned gaps_found (3/8 must-haves)
+Phase: 16 (tela-bloqueada-comandar) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 16
+Last activity: 2026-08-17 — Phase 16 execution started
 
 Progress: [█████████░] 93%
 
