@@ -18,6 +18,19 @@ public struct LiveActivityContentStateRecord: Record {
   public init() {}
 }
 
+/// Espelho serializável (para a ponte Expo) de `QueuedIntentAction`
+/// (`IntentActionQueue.swift`, Fase 16 Plano 16-01). Conversão pura, sem
+/// lógica de negócio nova — a Plano 16-02 só expõe a LEITURA da fila já
+/// existente para o lado JS.
+public struct QueuedIntentActionRecord: Record {
+  @Field var kind: String = ""
+  @Field var deltaSeconds: Int? = nil
+  @Field var sessionLogId: String? = nil
+  @Field var queuedAt: String = ""
+
+  public init() {}
+}
+
 @available(iOS 16.2, *)
 public class LiveActivityModule: Module {
   /// Referência fraca à instância viva do módulo — permite que os
@@ -110,6 +123,21 @@ public class LiveActivityModule: Module {
       }
       currentActivity = nil
       return stillActiveSessionLogId != nil
+    }
+
+    // Fase 16 Plano 16-02: expõe a fila durável do App Group (gravada pelos
+    // LiveActivityIntents mesmo com o app force-quit) para o lado JS drenar
+    // no boot. Conversão pura QueuedIntentAction -> QueuedIntentActionRecord,
+    // sem lógica de negócio nova aqui.
+    AsyncFunction("drainIntentQueue") { () -> [QueuedIntentActionRecord] in
+      IntentActionQueue.drainAll().map { action in
+        var record = QueuedIntentActionRecord()
+        record.kind = action.kind.rawValue
+        record.deltaSeconds = action.deltaSeconds
+        record.sessionLogId = action.sessionLogId
+        record.queuedAt = action.queuedAt
+        return record
+      }
     }
   }
 }
