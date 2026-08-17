@@ -9,6 +9,19 @@ export type LiveActivityIntentActionEvent =
   | { kind: 'skipRest' }
   | { kind: 'adjustRest'; deltaSeconds: number };
 
+/**
+ * Entrada drenada da fila durável do App Group (Fase 16 Plano 16-02) —
+ * espelho JS de `QueuedIntentActionRecord` (Swift). `kind` é união de
+ * string literal (nunca `any`); `deltaSeconds`/`sessionLogId` só têm valor
+ * quando o Intent original os gravou.
+ */
+export type QueuedLiveActivityIntent = {
+  kind: 'completeSet' | 'skipRest' | 'adjustRest';
+  deltaSeconds: number | null;
+  sessionLogId: string | null;
+  queuedAt: string;
+};
+
 type LiveActivityModuleEvents = {
   onIntentAction: (event: LiveActivityIntentActionEvent) => void;
 };
@@ -22,6 +35,7 @@ declare class LiveActivityModuleType extends NativeModule<LiveActivityModuleEven
   ): Promise<boolean>;
   isActivityRunning(): Promise<boolean>;
   reconcileOrphans(stillActiveSessionLogId: string | null): Promise<boolean>;
+  drainIntentQueue(): Promise<QueuedLiveActivityIntent[]>;
 }
 
 const LiveActivityModule = requireNativeModule<LiveActivityModuleType>('LiveActivityModule');
@@ -46,6 +60,9 @@ export const isLiveActivityRunning = (): Promise<boolean> =>
 export const reconcileLiveActivityOrphans = (
   stillActiveSessionLogId: string | null,
 ): Promise<boolean> => LiveActivityModule.reconcileOrphans(stillActiveSessionLogId);
+
+export const drainQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityIntent[]> =>
+  LiveActivityModule.drainIntentQueue();
 
 export const subscribeLiveActivityIntentAction = (
   listener: (event: LiveActivityIntentActionEvent) => void,

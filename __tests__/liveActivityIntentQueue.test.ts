@@ -1,0 +1,269 @@
+// __tests__/liveActivityIntentQueue.test.ts
+// Fase 16 Plano 16-02 — reconcileLiveActivityIntents(): drena a fila durável
+// do App Group (fila gravada mesmo com o app force-quit, Plano 16-01) e
+// aplica cada entrada pendente contra completeSet()/activateSet()/adjustRest()
+// já existentes na store, com guarda de CAS por sessionLogId. Mesmo padrão de
+// mocks de módulo de __tests__/activeSessionStore.test.ts — o store real é
+// importado (não mockado inteiro), só os serviços de I/O externo são.
+
+jest.mock('../src/services/sessionExecutionRepository', () => {
+  class SessionExecutionRequestError extends Error {
+    kind: 'transport' | 'server';
+    code: string | null;
+    constructor(
+      error: any,
+      options: { kind?: 'transport' | 'server'; status?: number } = {},
+    ) {
+      super(error?.message ?? String(error));
+      this.kind =
+        options.kind ?? (options.status === 0 ? 'transport' : 'server');
+      this.code = typeof error?.code === 'string' ? error.code : null;
+    }
+  }
+  return {
+    startSessionLog: jest.fn(),
+    saveSetLog: jest.fn(),
+    finishSessionLog: jest.fn(),
+    getOpenSessionLog: jest.fn(),
+    getLastLoadByExercise: jest.fn(),
+    SessionExecutionRequestError,
+    isTransportSessionExecutionError: (error: unknown) =>
+      error instanceof SessionExecutionRequestError &&
+      error.kind === 'transport',
+  };
+});
+jest.mock('../src/services/weeklyReplanRepository', () => ({
+  getWeekReplanContext: jest.fn(),
+  applyConfirmedReplan: jest.fn(),
+}));
+jest.mock('../src/services/sessionDraftStorage', () => ({
+  saveDraft: jest.fn(),
+  loadDraft: jest.fn(),
+  clearDraft: jest.fn(),
+}));
+jest.mock('../src/services/agendaRepository', () => ({
+  getAgendaDoAluno: jest.fn(),
+}));
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+jest.mock('../src/services/planEditRepository', () => ({
+  reagendarSessoesDaSemana: jest.fn(),
+}));
+jest.mock('../src/services/api/apiClient', () => ({
+  __esModule: true,
+  default: { post: jest.fn(() => Promise.resolve()) },
+  ENDPOINTS: {
+    PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
+  },
+}));
+
+const mockDrainQueuedLiveActivityIntents = jest.fn();
+jest.mock(
+  '../modules/live-activity',
+  () => ({
+    drainQueuedLiveActivityIntents: (...args: unknown[]) =>
+      mockDrainQueuedLiveActivityIntents(...args),
+  }),
+  { virtual: true },
+);
+
+import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import type { SessionDraft } from '../src/engine/sessionModel';
+
+const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
+  version: 1,
+  plannedSessionId: 'session-1',
+  sessionLogId: 'log-1',
+  userId: 'user-1',
+  title: 'Treino A',
+  weekNumber: 1,
+  startedAt: '2026-08-17T11:00:00.000Z',
+  status: 'active',
+  restEndsAt: null,
+  exercises: [
+    {
+      exerciseId: 'ex-1',
+      name: 'Supino reto',
+      order: 1,
+      metric: 'carga_reps',
+      equipment: 'Barra',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 2.5,
+      restSeconds: 90,
+      priority: 'primary',
+      targetRmPercent: 75,
+      repsRaw: '8-10',
+      sets: [
+        {
+          plannedSetId: 'set-1',
+          setOrder: 1,
+          targetRepsMin: 8,
+          targetRepsMax: 10,
+          targetLoadKg: 40,
+          targetRir: 2,
+          actualReps: null,
+          actualLoadKg: null,
+          actualRir: null,
+          status: 'active',
+          outcome: null,
+          setLogId: null,
+          adaptation: null,
+          activatedAt: null,
+          completedAt: null,
+        },
+      ],
+    },
+    {
+      exerciseId: 'ex-2',
+      name: 'Agachamento',
+      order: 2,
+      metric: 'carga_reps',
+      equipment: 'Barra',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 2.5,
+      restSeconds: 90,
+      priority: 'primary',
+      targetRmPercent: 75,
+      repsRaw: '8-10',
+      sets: [
+        {
+          plannedSetId: 'set-2',
+          setOrder: 1,
+          targetRepsMin: 8,
+          targetRepsMax: 10,
+          targetLoadKg: 60,
+          targetRir: 2,
+          actualReps: null,
+          actualLoadKg: null,
+          actualRir: null,
+          status: 'pending',
+          outcome: null,
+          setLogId: null,
+          adaptation: null,
+          activatedAt: null,
+          completedAt: null,
+        },
+      ],
+    },
+  ],
+  lastLoadByExercise: {},
+  ...overrides,
+});
+
+let completeSet: jest.Mock;
+let activateSet: jest.Mock;
+let adjustRest: jest.Mock;
+
+/** Substitui só as três ações de gravação — reconcileLiveActivityIntents
+ *  (não substituída) as lê de get() no momento da chamada. */
+const withMockedActions = (draftValue: SessionDraft | null): void => {
+  completeSet = jest.fn().mockResolvedValue(true);
+  activateSet = jest.fn();
+  adjustRest = jest.fn();
+  useActiveSessionStore.setState({
+    draft: draftValue,
+    completeSet,
+    activateSet,
+    adjustRest,
+  });
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe('reconcileLiveActivityIntents', () => {
+  it('completeSet com sessionLogId igual ao draft atual aplica completeSet sobre a série resolvida', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    // draft() tem a série ativa em ex-1/1 — completeSet deve resolver essa.
+    expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(adjustRest).not.toHaveBeenCalled();
+  });
+
+  it('entrada com sessionLogId diferente do draft atual não aplica nenhuma ação (CAS)', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-DIFERENTE', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(adjustRest).not.toHaveBeenCalled();
+  });
+
+  it('entrada com sessionLogId null não aplica nenhuma ação (descartada por ambiguidade)', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(adjustRest).not.toHaveBeenCalled();
+  });
+
+  it('fila vazia não chama nenhuma ação e não lança', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([]);
+
+    await expect(
+      useActiveSessionStore.getState().reconcileLiveActivityIntents(),
+    ).resolves.toBeUndefined();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(adjustRest).not.toHaveBeenCalled();
+  });
+
+  it('drainQueuedLiveActivityIntents rejeitando resolve sem lançar', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockRejectedValue(new Error('bridge indisponível'));
+
+    await expect(
+      useActiveSessionStore.getState().reconcileLiveActivityIntents(),
+    ).resolves.toBeUndefined();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(adjustRest).not.toHaveBeenCalled();
+  });
+
+  it('adjustRest com deltaSeconds: 45 chama adjustRest(45) com o valor exato', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'adjustRest', deltaSeconds: 45, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(adjustRest).toHaveBeenCalledWith(45);
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(activateSet).not.toHaveBeenCalled();
+  });
+
+  it('skipRest aplica activateSet sobre a próxima série pendente', async () => {
+    withMockedActions(draft());
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'skipRest', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(activateSet).toHaveBeenCalledWith('ex-2', 1);
+    expect(completeSet).not.toHaveBeenCalled();
+  });
+});

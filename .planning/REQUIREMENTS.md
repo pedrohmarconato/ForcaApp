@@ -38,12 +38,12 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — comandar (CMD)
 
-- [ ] **CMD-01**: O dono conclui a série atual com 1 toque no botão da tela
+- [x] **CMD-01**: O dono conclui a série atual com 1 toque no botão da tela
   bloqueada (App Intent), sem abrir o app — o registro segue o MESMO caminho
   `completeSet()` → outbox → servidor que já existe (a Live Activity é espelho,
   nunca fonte de verdade).
 
-- [ ] **CMD-02**: O dono pula ou ajusta o descanso direto na tela bloqueada; o
+- [x] **CMD-02**: O dono pula ou ajusta o descanso direto na tela bloqueada; o
   timer nativo reflete o ajuste imediatamente.
 
 ### Tela bloqueada — registrar (REG)
@@ -111,8 +111,8 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | LOCK-01 | Phase 15 | Complete |
 | LOCK-02 | Phase 15 | Complete |
 | LOCK-03 | Phase 15 | Pending |
-| CMD-01 | Phase 16 | Pending |
-| CMD-02 | Phase 16 | Pending |
+| CMD-01 | Phase 16 | Complete |
+| CMD-02 | Phase 16 | Complete |
 | REG-01 | Phase 17 | Pending |
 | REG-02 | Phase 17 | Pending |
 | PRED-01 | Phase 17 | Pending |
