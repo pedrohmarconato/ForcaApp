@@ -5,16 +5,16 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 15
 current_phase_name: tela-bloqueada-ver-e-cronometrar
 status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-08-17T12:50:20.406Z"
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-08-17T13:08:47.600Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 15 Plan 02 complete
+last_activity_desc: Phase 15 Plan 03 complete
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 87
 ---
 
 # Project State
@@ -32,17 +32,17 @@ pago, sem distribuição a terceiros).
 ## Current Position
 
 Phase: 15 (tela-bloqueada-ver-e-cronometrar) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 15 Plan 02 complete
+Last activity: 2026-08-17 — Phase 15 Plan 03 complete
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 12 (v1.3)
+- Total plans completed: 13 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -56,7 +56,7 @@ Progress: [████████░░] 80%
 
 **Recent Trend:**
 
-- v1.3 execution started; Phase 15 Plans 01, 02, and 04 are complete in this milestone.
+- v1.3 execution started; Phase 15 Plans 01, 02, 03, and 04 are complete in this milestone.
 
 **Per-Plan Metrics (histórico v1.2):**
 
@@ -72,6 +72,7 @@ Progress: [████████░░] 80%
 | Phase 15 P01 | 45min | 1 tasks | 26 files |
 | Phase 15 P04 | 20min | 1 tasks | 1 files |
 | Phase 15 P02 | 10min | 2 tasks | 5 files |
+| Phase 15 P03 | 12 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: Alongamento/Cardio usa posição dentro do conjunto de exercícios em jogo com a mesma métrica efetiva; carga_reps fica fora do denominador.
 - [Phase ?]: Overtime da Live Activity é texto manual +m:ss clampado em +59:59 para preservar a largura da região Micro.
 - [Phase ?]: Exercícios medidos por tempo roteiam diretamente para blockOnly antes da seleção de descanso/medição.
+- [Phase ?]: O caminho existente skipWholeSession permanece o sinal de cancelamento: draft null e status finished na mesma atualização produzem dismissal immediate, sem nova API.
+- [Phase ?]: O timeout de inatividade usa 3 horas e a conclusão usa dismissal afterDate em 180 segundos; o timeout remove apenas a Activity e preserva o draft.
+- [Phase ?]: A falha de start fica observável por getLastStartFailed e subscription; o banner usa guard de uma ocorrência por processo e sobrevive a remount.
 
 ### Pending Todos
 
@@ -157,12 +161,11 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-17T12:50:20.400Z
-Stopped at: Completed 15-02-PLAN.md
-sem órfãos. STATE.md atualizado; REQUIREMENTS.md permaneceu sem alteração porque
-LOCK-01 é compartilhado com planos irmãos e continua pendente até todos terminarem;
-LOCK-02 já estava completo e LOCK-03 continua pendente. Aguardando
-aprovação do dono.
+Last session: 2026-08-17T13:08:47.594Z
+Stopped at: Completed 15-03-PLAN.md
+sem órfãos. STATE.md e ROADMAP.md atualizados; REQUIREMENTS.md permaneceu sem
+alteração porque LOCK-03 é compartilhado com os planos físicos irmãos e continua
+pendente até todos terminarem. A UAT física segue para os Planos 15-05/15-06.
 Resume file: None
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
@@ -171,4 +174,4 @@ atualize os dois.
 
 ## Operator Next Steps
 
-- Executar o próximo plano incompleto da fase com /gsd-execute-phase 15 (Plan 03).
+- Executar o próximo plano incompleto da fase com /gsd-execute-phase 15 (Plan 05).

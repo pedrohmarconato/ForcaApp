@@ -152,7 +152,7 @@ sessão termina ou é cancelada (inclusive após force-quit).
   4. Depois de um force-quit do app durante uma sessão ativa, reabrir o app
      reconcilia e encerra qualquer Live Activity órfã que tenha sobrado na tela
      bloqueada. (UAT do dono no aparelho físico)
-**Plans**: 3/6 plans executed
+**Plans**: 4/6 plans executed
 
 Plans:
 **Wave 1**
@@ -163,7 +163,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 15-02-PLAN.md — Card completo: blockOnly/readyOvertime + 4 apresentações do Dynamic Island (LOCK-01)
-- [ ] 15-03-PLAN.md — Ciclo de vida: terminar/cancelar/reconciliar/timeout/banner (LOCK-03)
+- [x] 15-03-PLAN.md — Ciclo de vida: terminar/cancelar/reconciliar/timeout/banner (LOCK-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -246,6 +246,6 @@ série/exercício antes do descanso acabar.
 | 12. Página de instalação guiada | v1.2 | 1/2 | Complete (override) | 2026-08-15 |
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
-| 15. Tela bloqueada — ver e cronometrar | v1.3 | 3/6 | In Progress|  |
+| 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 0/TBD | Not started | - |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
