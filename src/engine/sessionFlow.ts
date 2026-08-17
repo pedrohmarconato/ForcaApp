@@ -7,7 +7,13 @@
 // aluno só percebia lendo o nome. Estas funções são puras para que a UI possa
 // dizer "exercício 3 de 7" e "supino concluído" sem inventar estado.
 
-import { exercicioForaDeJogo, type SessionDraft, type DraftExercise } from './sessionModel';
+import {
+  exercicioForaDeJogo,
+  isTimeBased,
+  metricOf,
+  type SessionDraft,
+  type DraftExercise,
+} from './sessionModel';
 
 /**
  * Exercícios que ainda contam no treino. Saem os cortados pela escada de tempo
@@ -29,6 +35,27 @@ export const posicaoDoExercicio = (
   const i = emJogo.findIndex((ex) => ex.exerciseId === exerciseId);
   if (i < 0) return null;
   return { indice: i + 1, total: emJogo.length };
+};
+
+/**
+ * Posição do exercício dentro do bloco da mesma métrica, 1-based.
+ * Blocos de tempo não devem expor a musculação no denominador do card reduzido
+ * (`Alongamento 2/6`). Para exercícios de carga × repetição, a função não se
+ * aplica e devolve `null`.
+ */
+export const posicaoNoBlocoDeMetrica = (
+  draft: SessionDraft,
+  exerciseId: string,
+): { indice: number; total: number } | null => {
+  const exercicio = draft.exercises.find((ex) => ex.exerciseId === exerciseId);
+  if (!exercicio || !isTimeBased(metricOf(exercicio))) return null;
+
+  const bloco = exerciciosEmJogo(draft).filter(
+    (ex) => isTimeBased(metricOf(ex)) && metricOf(ex) === metricOf(exercicio),
+  );
+  const indice = bloco.findIndex((ex) => ex.exerciseId === exerciseId);
+  if (indice < 0) return null;
+  return { indice: indice + 1, total: bloco.length };
 };
 
 /**

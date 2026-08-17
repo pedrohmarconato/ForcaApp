@@ -101,7 +101,7 @@ describe('buildLiveActivityContentState', () => {
 
   it('não trata um descanso expirado como timer nativo de contagem regressiva', () => {
     const draft = makeDraft([makeSet(1, 'active'), makeSet(2, 'pending')]);
-    draft.restEndsAt = '2026-08-16T11:59:59.000Z';
+    draft.restEndsAt = now.toISOString();
 
     expect(buildLiveActivityContentState(draft, now)).toMatchObject({
       phase: 'readyOvertime',
@@ -135,6 +135,22 @@ describe('buildLiveActivityContentState', () => {
       blockTotal: 1,
     });
     expect(buildLiveActivityContentState(draft, now)?.phase).not.toBe('measuring');
+  });
+
+  it('deriva blockOnly para exercício medido por tempo e distância', () => {
+    const sets = [makeSet(1, 'active')];
+    const exercise = makeExercise(sets, {
+      metric: 'tempo_distancia',
+      name: 'Corrida',
+    });
+
+    expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+      phase: 'blockOnly',
+      blockLabel: 'Corrida',
+      targetRepsMin: null,
+      targetRepsMax: null,
+      targetLoadKg: null,
+    });
   });
 
   it('propaga readyOvertime e resting com o timestamp absoluto', () => {
