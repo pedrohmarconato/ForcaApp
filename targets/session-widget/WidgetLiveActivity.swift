@@ -114,6 +114,18 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
         VStack(alignment: .leading, spacing: 4) {
             primaryValue(state)
             secondaryLine(state)
+            HStack {
+                Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
+                    Text("-30s")
+                }
+                Button(intent: SkipRestIntent()) {
+                    Text("Pular")
+                }
+                Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
+                    Text("+30s")
+                }
+            }
+            .tint(activityNeon)
         }
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
