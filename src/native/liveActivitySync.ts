@@ -1,5 +1,6 @@
 import {
   endLiveActivity,
+  reconcileLiveActivityOrphans,
   startLiveActivity,
   updateLiveActivity,
 } from '../../modules/live-activity';
@@ -77,6 +78,35 @@ const publishFinished = async (draft: ActiveDraft | null): Promise<void> => {
   } catch (error) {
     console.warn('[liveActivity] não foi possível encerrar após cancelar:', error);
   }
+};
+
+/** Encerra Activities órfãs no boot e repõe somente o card da sessão ainda vigente. */
+export const reconcileOrphanActivities = async (): Promise<void> => {
+  const initialState = useActiveSessionStore.getState();
+  const initialDraft = initialState.draft;
+  const stillActiveSessionLogId =
+    initialState.status === 'active' && initialDraft ? initialDraft.sessionLogId : null;
+
+  let shouldRestart = false;
+  try {
+    shouldRestart = await reconcileLiveActivityOrphans(stillActiveSessionLogId);
+  } catch (error) {
+    console.warn('[liveActivity] não foi possível reconciliar Activities órfãs:', error);
+    return;
+  }
+
+  if (!shouldRestart || !stillActiveSessionLogId) return;
+
+  const currentState = useActiveSessionStore.getState();
+  if (
+    currentState.status !== 'active' ||
+    !currentState.draft ||
+    currentState.draft.sessionLogId !== stillActiveSessionLogId
+  ) {
+    return;
+  }
+
+  publishStart(currentState.draft);
 };
 
 /** Único escritor JS→ActivityKit; reage somente a mudanças reais do store. */

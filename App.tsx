@@ -11,7 +11,10 @@ import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
 import ProvisioningBanner from './src/components/ProvisioningBanner';
 import PushInviteHost from './src/components/PushInviteHost';
-import { initLiveActivitySync } from './src/native/liveActivitySync';
+import {
+  initLiveActivitySync,
+  reconcileOrphanActivities,
+} from './src/native/liveActivitySync';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -22,7 +25,10 @@ export default function App() {
     Inter: require('./assets/fonts/Inter-Variable.ttf'),
   });
 
-  useEffect(() => initLiveActivitySync(), []);
+  useEffect(() => {
+    void reconcileOrphanActivities();
+    return initLiveActivitySync();
+  }, []);
 
   // Se o carregamento falhar, seguimos com a fonte do sistema: um app sem a
   // tipografia de marca ainda é melhor do que uma tela travada.
