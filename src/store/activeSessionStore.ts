@@ -625,6 +625,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             e,
           );
           set({ draft: local, status: 'active' });
+          // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): a
+          // reconciliação da fila de intents da tela bloqueada só pode
+          // rodar DEPOIS que draft está hidratado; este é o ramo "retomada
+          // offline sem rede".
+          if (isCurrent()) await get().reconcileLiveActivityIntents();
           return;
         }
         if (!isCurrent()) return;
@@ -662,6 +667,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           );
           set({ storageWarning: STORAGE_WARNING_MSG });
         }
+        // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): ramo
+        // "reconciliado com o servidor" — draft já está hidratado acima.
+        if (isCurrent()) await get().reconcileLiveActivityIntents();
         return;
       }
 
@@ -695,6 +703,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
         set({ storageWarning: STORAGE_WARNING_MSG });
       }
+      // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): ramo
+      // "sem rascunho local, log aberto encontrado" — draft já hidratado acima.
+      if (isCurrent()) await get().reconcileLiveActivityIntents();
     } catch (e) {
       if (isCurrent()) set({ status: 'error', saveError: errMsg(e) });
     }
@@ -1561,6 +1572,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   // da próxima iteração processar. Entradas com sessionLogId ausente ou
   // divergente do draft ATUAL são sempre descartadas silenciosamente.
   reconcileLiveActivityIntents: async () => {
+    // Guarda de hidratação (16-VERIFICATION.md gap 1 / 16-REVIEW.md CR-01):
+    // sem draft ativo candidato, a fila do App Group nunca é sequer lida —
+    // drainQueuedLiveActivityIntents() é destrutivo (lê e remove na mesma
+    // chamada), então drená-la antes de haver um draft para aplicar a
+    // entrada a perderia para sempre, sem segunda chance.
+    const draftAtual = get().draft;
+    if (!draftAtual || draftAtual.status !== 'active') return;
     let entries: QueuedLiveActivityIntent[] = [];
     try {
       entries = await drainQueuedLiveActivityIntents();

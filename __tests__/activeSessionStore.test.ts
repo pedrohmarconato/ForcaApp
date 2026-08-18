@@ -101,6 +101,11 @@ import type { SessionDetail } from '../src/services/trainingRepository';
 // resultado da RPC, já que completeSet nunca mais aguarda a rede (D-05).
 import { drainAll, enqueueItem } from '../src/services/sessionOutboxDrain';
 import { loadOutbox } from '../src/services/sessionOutboxStorage';
+// Fase 16 Plano 16-04: prova que startOrResume() de fato chama
+// reconcileLiveActivityIntents() ao resolver para um draft ativo — não
+// mockado explicitamente neste arquivo, resolve para o mock global inerte
+// via moduleNameMapper (package.json), o mesmo usado por outras 13 suítes.
+import { drainQueuedLiveActivityIntents } from '../modules/live-activity';
 
 
 // Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
@@ -876,6 +881,28 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
     await confirmarCheckInSePedido();
 
     expect(store().draft?.lastLoadByExercise['supino reto']).toBe(55);
+  });
+
+  it('startOrResume() chama reconcileLiveActivityIntents() ao resolver para um draft ativo (16-VERIFICATION.md gap 1 / 16-REVIEW.md CR-01)', async () => {
+    const draftLocal = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftLocal.sessionLogId = 'sl-existente';
+    mock(loadDraft).mockResolvedValue(draftLocal);
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-existente',
+      startedAt: 'T0',
+      setLogs: [],
+    });
+    mock(drainQueuedLiveActivityIntents).mockResolvedValue([]);
+
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+
+    expect(store().status).toBe('active');
+    expect(drainQueuedLiveActivityIntents).toHaveBeenCalled();
   });
 });
 

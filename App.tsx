@@ -17,7 +17,6 @@ import {
   reconcileOrphanActivities,
 } from './src/native/liveActivitySync';
 import { registerLiveActivityIntentListener } from './src/native/liveActivityIntentBridge';
-import { useActiveSessionStore } from './src/store/activeSessionStore';
 import theme from './src/theme/theme';
 
 export default function App() {
@@ -29,17 +28,16 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Fase 16 (CMD, Plano 16-02): drena e aplica a fila de intents da tela
-    // bloqueada ANTES de reconciliar as Live Activities órfãs — aplica as
-    // ações pendentes na store primeiro, depois sincroniza o card nativo
-    // com o estado já atualizado. .finally() encadeado (não Promise.all):
-    // a ordem importa.
-    void useActiveSessionStore
-      .getState()
-      .reconcileLiveActivityIntents()
-      .finally(() => {
-        void reconcileOrphanActivities();
-      });
+    // Fase 16 (CMD, Plano 16-04): a reconciliação da fila de intents da
+    // tela bloqueada SAIU do boot cru — chamá-la aqui rodava antes de
+    // qualquer hidratação de `draft` (startOrResume(), só disparado depois,
+    // quando o dono navega para a sessão ativa), e como a fila do App Group
+    // é drenada de forma destrutiva, a entrada do toque no Lock Screen era
+    // lida e perdida para sempre (16-VERIFICATION.md gap 1 / 16-REVIEW.md
+    // CR-01). Essa reconciliação agora vive dentro de startOrResume()
+    // (activeSessionStore.ts), em cada ramo que hidrata um draft ativo — a
+    // fila só é lida quando já existe um draft candidato a recebê-la.
+    void reconcileOrphanActivities();
     const unsubscribeSync = initLiveActivitySync();
     const unsubscribeIntents = registerLiveActivityIntentListener();
     return () => {
