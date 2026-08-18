@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 9/11 plans executed (2 novos criados nesta rodada de gap closure)
+**Plans**: 10/11 plans executed
 
 Plans:
 **Wave 1**
@@ -253,7 +253,7 @@ de `canCompleteSet()` para cardio/isometria) sem persistência — reabre CMD-01
 
 **Gap closure round 3 — Wave 1**
 
-- [ ] 16-10-PLAN.md — CR-01/D2 remanescente: stepLoad/setDuration/setDistance/setRir/setEffort persistem via saveDraft (as cinco ações restantes)
+- [x] 16-10-PLAN.md — CR-01/D2 remanescente: stepLoad/setDuration/setDistance/setRir/setEffort persistem via saveDraft (as cinco ações restantes)
 
 **Gap closure round 3 — Wave 2** *(blocked on Wave 1 completion)*
 
@@ -309,5 +309,5 @@ série/exercício antes do descanso acabar.
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
-| 16. Tela bloqueada — comandar | v1.3 | 9/9 | In Progress|  |
+| 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
