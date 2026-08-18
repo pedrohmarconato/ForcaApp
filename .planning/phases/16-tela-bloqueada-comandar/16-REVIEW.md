@@ -1,158 +1,163 @@
 ---
 phase: 16-tela-bloqueada-comandar
-reviewed: 2026-08-17T00:00:00Z
+reviewed: 2026-08-18T00:00:00Z
 depth: standard
-files_reviewed: 17
+files_reviewed: 7
 files_reviewed_list:
-  - __mocks__/modules-live-activity.ts
-  - __tests__/liveActivityIntentBridge.test.ts
-  - __tests__/liveActivityIntentQueue.test.ts
-  - App.tsx
-  - modules/live-activity/index.ts
-  - modules/live-activity/ios/AdjustRestIntent.swift
-  - modules/live-activity/ios/CompleteSetIntent.swift
   - modules/live-activity/ios/IntentActionQueue.swift
   - modules/live-activity/ios/LiveActivityModule.swift
-  - modules/live-activity/ios/SkipRestIntent.swift
-  - package.json
-  - scripts/verify-native-skeleton.sh
-  - src/native/liveActivityIntentBridge.ts
+  - modules/live-activity/index.ts
+  - __mocks__/modules-live-activity.ts
   - src/store/activeSessionStore.ts
-  - targets/session-widget/AdjustRestIntent.swift
-  - targets/session-widget/CompleteSetIntent.swift
-  - targets/session-widget/SkipRestIntent.swift
-  - targets/session-widget/WidgetLiveActivity.swift
+  - __tests__/liveActivityIntentQueue.test.ts
+  - __tests__/activeSessionStore.test.ts
 findings:
-  critical: 2
+  critical: 1
   warning: 3
   info: 1
-  total: 6
+  total: 5
 status: issues_found
 ---
 
-# Phase 16: Code Review Report
+# Phase 16: Code Review Report (rodada de gap-closure — planos 16-07/16-08)
 
-**Reviewed:** 2026-08-17
+**Reviewed:** 2026-08-18
 **Depth:** standard
-**Files Reviewed:** 17
+**Files Reviewed:** 7
 **Status:** issues_found
 
 ## Summary
 
-Fase 16 (16-01 + 16-02) adiciona três `LiveActivityIntent`s no processo do app, uma fila durável no App Group (`IntentActionQueue`, cap 20) e a drenagem no boot (`reconcileLiveActivityIntents`) que aplica as entradas pendentes contra `completeSet`/`activateSet`/`adjustRest` já existentes na store, com guarda de CAS por `sessionLogId`.
+Esta rodada (16-07 + 16-08) fecha os três defeitos confirmados por UAT físico real em `16-06-SUMMARY.md`: leitura destrutiva da fila (D1), perda de reps/carga digitados antes de um force-quit (D2/D2b) e mais de uma série `active` simultânea (D3). O mecanismo de D1 é sólido — `peekAll()`/`ackIntentAction` substituem `drainAll()` por completo (nenhum caminho morto ficou alcançável), o `ack` é condicionado ao resultado real de `completeSet()`, e os dois novos testes com `withRealActions` exercitam `canCompleteSet()` de verdade, fechando exatamente o WR-01 da rodada anterior. D3 também está corretamente centralizado: `deactivateOtherActiveSets` só é chamado de dentro de `activateSet()`, sem segundo caminho de ativação.
 
-O relato de UAT físico (PASS-B em vez de PASS-A no force-quit) tem causa raiz identificável no código, não é falha de dispositivo: `reconcileLiveActivityIntents()` é chamado no `useEffect` de montagem de `App.tsx`, ANTES de qualquer `startOrResume()` hidratar `draft` — no cold-launch, `draft` é `null` no momento exato em que a fila é drenada. Como `drainAll()` é destrutivo (lê e `removeObject` na mesma chamada, sem reposição em falha), a entrada enfileirada pelo toque na tela bloqueada é lida, descartada pela guarda `!draft`, e perdida para sempre — exatamente o comportamento observado (PASS-B). Um segundo bug relacionado, mais amplo que o cenário de force-quit, foi encontrado por rastreamento de código: nenhuma entrada da fila é removida quando o `sendEvent` in-process já a entregou com sucesso (app vivo, backgrounded mas não terminado) — a entrada IGUAL fica na fila e é reaplicada na próxima drenagem de boot, contra um `draft` que pode já ter avançado, duplicando a ação.
+O achado crítico desta rodada é em D2: a persistência via `saveDraft` fire-and-forget só foi conectada a `setReps`/`setLoad` — o stepper de carga por botões `+/-` (`stepLoad`, que é a interação PRIMÁRIA de carga descrita no `PROJECT.md` do milestone: "ajuste só por botões +/− e confirmação em 1 toque") e os campos de cardio (`setDuration`, que é o ÚNICO critério de `canCompleteSet()` para exercícios de tempo/distância) continuam gravando só em memória. Um force-quit logo depois de usar o `+/-` de carga ou de informar o tempo de um cardio reproduz exatamente a mesma classe de bug que esta rodada afirma ter fechado (`force_quit_toque=FAIL`), só que por um caminho de UI diferente do testado.
 
-Os dois achados críticos compartilham a mesma causa estrutural: a fila é drenada uma única vez por ciclo de vida do processo, sem reconciliação tardia nem confirmação de entrega. A suíte de testes de `reconcileLiveActivityIntents` nunca exercita `draft === null` no momento da chamada (sempre popula o draft ANTES de invocar `reconcile`), então o bug real do UAT não tinha como ser pego pelos testes existentes.
+Dois warnings novos: o `ack` da fila (`void ackQueuedLiveActivityIntent(...)`) nunca trata rejeição — para `skipRest`/`adjustRest` (ao contrário de `completeSet`, que é idempotente por natureza) isso pode causar reaplicação real se o `ack` falhar; e a invariante de D3 (no máximo uma série `active`) não é reforçada na reconstrução de retomada (`applyServerSetLogs`) nem no ramo offline — só em `activateSet()` — então um rascunho já corrompido em disco (por exemplo, o mesmo que causou o `regressao_geral=FAIL` do UAT anterior) não se autocorrige ao reabrir o app.
+
+Os três achados WARNING/INFO da rodada anterior que não foram tocados neste round (WR-02, WR-03, IN-01) seguem válidos e são carregados adiante.
 
 ## Critical Issues
 
-### CR-01: `reconcileLiveActivityIntents()` corre com a hidratação do `draft` no boot — fila destrutiva perde a ação para sempre (causa raiz do PASS-B do UAT)
+### CR-01: D2 só persiste `setReps`/`setLoad` — o stepper `+/-` de carga (interação primária) e os campos de cardio não sobrevivem a um force-quit
 
-**File:** `App.tsx:37-42`, `src/store/activeSessionStore.ts:1574-1583`, `modules/live-activity/ios/IntentActionQueue.swift:67-71`
+**File:** `src/store/activeSessionStore.ts:1203-1233` (setReps/setLoad, ÚNICOS com `saveDraft`), `src/store/activeSessionStore.ts:1235-1298` (`stepLoad`/`setRir`/`setDuration`/`setDistance`/`setEffort`, SEM `saveDraft`), `src/components/session/SessionPlayer.tsx:681,708` (botões `+/-` chamam `stepLoad`, não `setLoad`)
 
 **Issue:**
-`App.tsx` dispara `reconcileLiveActivityIntents()` no `useEffect` de montagem da raiz — o primeiro efeito a rodar no boot, antes de `RootNavigator` resolver auth/navegação e muito antes de `ActiveSessionScreen` chamar `startOrResume()` (único ponto que hidrata `draft`, em `src/screens/ActiveSessionScreen.tsx:278`). No force-quit + relançamento, a store do Zustand não tem `persist`/rehydration síncrona — `draft` começa como `null` (estado inicial declarado em `activeSessionStore.ts:564`) e só é populado depois de I/O assíncrono de `startOrResume`.
+`setReps` (linha 1203) e `setLoad` (linha 1221) agora chamam `saveDraft(novo).catch(...)` fire-and-forget a cada toque — mas são as ÚNICAS duas ações de escrita de série que persistem. As outras quatro ações que também mutam `draft.exercises[].sets[]` continuam fazendo só `set({ draft: withSet(...) })`, sem qualquer `saveDraft`:
 
-`reconcileLiveActivityIntents` (activeSessionStore.ts:1563-1601) chama `drainQueuedLiveActivityIntents()` primeiro, e SÓ DEPOIS lê `get().draft` a cada iteração (linha 1575). No cold-launch, essa primeira leitura sempre encontra `draft === null`, o que cai na guarda `if (!draft || ...) continue;` (linha 1576-1583) — a entrada é descartada em silêncio.
+- `stepLoad` (linha 1235-1252) — os botões `-`/`+` de carga em `SessionPlayer.tsx:681` e `:708`. Este é o mecanismo de ajuste de carga **primário** do milestone v1.3: `PROJECT.md` descreve o registro sem teclado como "ajuste só por botões +/− e confirmação em 1 toque" como pré-requisito da tela bloqueada (não há teclado na Live Activity). `setLoad` só é acionado pelo campo de texto (linha 698) e pelo botão "usar sugestão" (linha 726) — caminhos secundários.
+- `setDuration` (linha 1269-1283) — o único campo que alimenta `canCompleteSet()` para exercícios `isTimeBased` (cardio/isometria): `canCompleteSet` (`sessionModel.ts:272-274`) retorna `set.actualDurationSeconds != null && set.actualDurationSeconds > 0` para esse metric, ignorando reps/carga por completo.
+- `setDistance`, `setEffort`, `setRir` (linhas 1285-1309, 1254-1267) — mesma lacuna, campos de menor criticidade para `canCompleteSet()` mas ainda auxiliares do registro.
 
-O problema é que `IntentActionQueue.drainAll()` (IntentActionQueue.swift:67-71) é **destrutivo e de tiro único**: lê todo o conteúdo do `UserDefaults` do App Group e imediatamente `removeObject(forKey:)`, sem qualquer mecanismo de "devolver à fila se ninguém consumiu". Uma vez lida e descartada pela guarda do lado JS, a ação do toque na tela bloqueada NUNCA é reaplicada — não há segunda chance, porque nada mais chama `drainIntentQueue()` durante o ciclo de vida do processo (confirmado: único call site é `activeSessionStore.ts:1566`, chamado uma única vez em `App.tsx:37-39`).
+Cenário de falha concreto: o dono ajusta a carga pelo botão `+` na tela do app (ou eventualmente na Live Activity, quando esse controle existir lá), sem tocar no campo de texto; ou está fazendo um cardio e informa o tempo pelo seletor. Em qualquer um dos dois casos, um force-quit imediatamente depois — o MESMO gatilho documentado em `16-06-SUMMARY.md` como `force_quit_toque=FAIL` — descarta o valor só-em-memória. Na reabertura, `canCompleteSet()` reprova de novo (para cardio, sempre reprova, porque `actualDurationSeconds` nunca chega a ser gravado por nenhum outro caminho) e uma eventual entrada da fila de intents da tela bloqueada (`completeSet`) fica presa na fila (não é um bug de D1 — D1 está correto: a entrada sobrevive por design até a validação passar — mas para cardio ela NUNCA vai passar, porque o dado que faltava nunca é persistido por caminho nenhum).
 
-Isso é exatamente o cenário do UAT: force-quit, toque no botão da tela bloqueada, reabrir o app → esperado PASS-A (aplicação automática), observado PASS-B (não aplicou sozinho) porque a fila já tinha sido drenada e descartada antes do rascunho existir.
+Os testes de D2 (`__tests__/activeSessionStore.test.ts:607-642`) só verificam `setReps`/`setLoad` diretamente — nenhum teste da rodada exercita `stepLoad` nem `setDuration` após um "force-quit" simulado (recarregar o draft do `saveDraft` mais recente), então esta lacuna de cobertura é consistente com a lacuna de código: o teste passaria de novo mesmo que o fix inteiro de D2 fosse revertido, DESDE que a interação usada no teste continue sendo só `setReps`/`setLoad`.
 
 **Fix:**
-Não drenar a fila antes que haja um `draft` candidato. Duas alternativas concretas:
+Estender o mesmo padrão fire-and-forget para as quatro ações restantes que também deveriam sobreviver a um force-quit — pelo menos `stepLoad` e `setDuration`, que são as duas com maior probabilidade de reproduzir o UAT `force_quit_toque=FAIL`:
 
-1. **Adiar a drenagem para depois da hidratação** — mover a chamada de `reconcileLiveActivityIntents()` para dentro (ou imediatamente depois) de `startOrResume()`, quando `draft` já está populado, em vez de no mount da raiz do app:
 ```ts
-// src/store/activeSessionStore.ts — dentro de startOrResume, após `set({ draft: ..., status: 'active', ... })`
-await get().reconcileLiveActivityIntents();
+stepLoad: (exerciseId, setOrder, direction) => {
+  const draft = get().draft;
+  if (!draft) return;
+  const novo = withSet(draft, exerciseId, setOrder, (s, ex) => { /* ...cálculo atual... */ });
+  set({ draft: novo });
+  saveDraft(novo).catch((e) => {
+    console.warn('[activeSession] carga (stepper) não persistida (não-fatal):', e);
+  });
+},
+
+setDuration: (exerciseId, setOrder, seconds) => {
+  const draft = get().draft;
+  if (!draft) return;
+  const limpo = /* ...cálculo atual... */;
+  const novo = withSet(draft, exerciseId, setOrder, (s) => ({ ...s, actualDurationSeconds: limpo }));
+  set({ draft: novo });
+  saveDraft(novo).catch((e) => {
+    console.warn('[activeSession] duração não persistida (não-fatal):', e);
+  });
+},
 ```
-2. **Ou tornar a leitura não-destrutiva até confirmar aplicação** — trocar `drainAll()` por um `peekAll()` que só remove as entradas efetivamente aplicadas (ou nenhuma, se `draft` ainda for `null`), e repetir a tentativa em cada `startOrResume`/retomada até a fila esvaziar:
-```swift
-// IntentActionQueue.swift
-public static func drainMatching(sessionLogId: String) -> [QueuedIntentAction] {
-  let all = readAll()
-  let (aplicaveis, resto) = all.reduce(into: ([QueuedIntentAction](), [QueuedIntentAction]())) { acc, a in
-    if a.sessionLogId == sessionLogId { acc.0.append(a) } else { acc.1.append(a) }
-  }
-  writeAll(resto)
-  return aplicaveis
-}
-```
-Qualquer uma das duas fecha a lacuna — a essencial é: nunca destruir uma entrada da fila antes de confirmar que existe um `draft` ativo com o `sessionLogId` correspondente para aplicá-la.
 
----
-
-### CR-02: Entrada da fila entregue com sucesso via `sendEvent` in-process nunca é removida do App Group — replay duplicado na próxima drenagem de boot
-
-**File:** `modules/live-activity/ios/CompleteSetIntent.swift:16-26`, `modules/live-activity/ios/SkipRestIntent.swift:13-20`, `modules/live-activity/ios/AdjustRestIntent.swift:23-32`, `modules/live-activity/ios/IntentActionQueue.swift` (ausência de remoção seletiva)
-
-**Issue:**
-Os três `LiveActivityIntent`s sempre fazem `IntentActionQueue.enqueue(...)` incondicionalmente, e SÓ ENTÃO tentam `LiveActivityModule.shared?.sendEvent(...)`. Quando o app está vivo (backgrounded, não terminado) e a bridge JS ainda está registrada, o `sendEvent` chega a `handleIntentAction` (`src/native/liveActivityIntentBridge.ts:17-45`) e a ação é aplicada IMEDIATAMENTE contra o `draft` corrente.
-
-Porém a entrada gravada em `IntentActionQueue` (App Group `UserDefaults`) **não é removida** quando essa entrega in-process tem sucesso — não existe nenhum "ack" ou remoção seletiva por entrada; a única forma de esvaziar a fila é `drainAll()`, chamado uma única vez por processo (boot, ver CR-01). Isso significa que toda ação tocada com o app ainda vivo continua acumulando no App Group (até o cap de 20, `IntentActionQueue.swift:39`) mesmo tendo sido aplicada corretamente na hora.
-
-Se, mais tarde (minutos ou horas depois, mesma sessão ou não), o usuário força o encerramento do app e o relança, `reconcileLiveActivityIntents()` drena TODAS as entradas acumuladas — incluindo as que já foram aplicadas ao vivo — e as reaplica contra o `draft` então corrente. Como a guarda de CAS só verifica `sessionLogId` (não identidade da entrada nem se ela já foi processada), qualquer entrada cujo `sessionLogId` ainda bater com a sessão ativa é reaplicada: um `completeSet` já contabilizado é aplicado de novo sobre a série seguinte (avançando o treino sozinho), um `adjustRest` já usado desloca o cronômetro de novo, um `skipRest` já usado pula mais uma série.
-
-**Fix:**
-A entrega in-process bem-sucedida precisa remover a entrada correspondente da fila durável — ela só deve sobreviver para o boot quando NINGUÉM a consumiu. Duas formas de fechar isso sem reescrever o desenho:
-
-1. **Identificador estável por entrada + remoção no ACK do lado JS**: adicionar um `id: String` (UUID) a `QueuedIntentAction`/`QueuedIntentActionRecord`, incluí-lo no payload de `sendEvent`, e o listener JS confirmar explicitamente a remoção via uma nova função nativa (`AsyncFunction("ackIntentAction") { id in IntentActionQueue.remove(id) }`) depois de aplicar a ação com sucesso.
-2. **Ou, mais simples dado o desenho atual**: só enfileirar de forma durável quando o `sendEvent` falhar/não tiver ouvinte — mas isso exige que `perform()` saiba se a entrega chegou (o `LiveActivityIntent` roda no processo do app, então pode checar `LiveActivityModule.shared != nil` antes de decidir enfileirar):
-```swift
-// CompleteSetIntent.swift
-func perform() async throws -> some IntentResult {
-  let sessionLogId = Activity<SessionActivityAttributes>.activities.first?.attributes.sessionLogId
-  let delivered = LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "completeSet"]) != nil
-  if !delivered {
-    IntentActionQueue.enqueue(QueuedIntentAction(kind: .completeSet, deltaSeconds: nil, sessionLogId: sessionLogId, queuedAt: ISO8601DateFormatter().string(from: Date())))
-  }
-  return .result()
-}
-```
-   (Nota: `sendEvent` não retorna se há ouvinte JS de fato inscrito, só se o módulo existe — a opção 1 é mais correta porque cobre o caso "módulo vivo mas sem listener/handler ainda montado"; a opção 2 é um paliativo mais simples, ainda assim melhor que o estado atual.)
-
-Qualquer fix de CR-01 que passe a drenar a fila a cada `startOrResume` (não só no boot) também mitiga parte do estrago de CR-02 (a fila para de crescer sem limite entre relançamentos), mas não resolve a duplicação em si — a raiz é a ausência de remoção na entrega bem-sucedida.
+Considerar o mesmo tratamento para `setDistance`/`setEffort`/`setRir` por consistência (são baratos — `withKeyQueue` já serializa as escritas da mesma chave). Se a decisão for deliberadamente restringir o escopo a `setReps`/`setLoad` só (por exemplo, por custo de I/O), isso precisa ser uma decisão explícita registrada — hoje o `16-08-SUMMARY.md` não menciona a exclusão de `stepLoad`/`setDuration`, o que sugere lacuna não-intencional, não escopo deliberado.
 
 ## Warnings
 
-### WR-01: Suíte de `reconcileLiveActivityIntents` nunca testa o cenário real do bug (draft ainda não hidratado no momento da drenagem)
+### WR-01: `ack` da fila de intents nunca trata rejeição — para `skipRest`/`adjustRest` isso pode causar reaplicação real (não é só idempotência de log)
 
-**File:** `__tests__/liveActivityIntentQueue.test.ts:162-172`
+**File:** `src/store/activeSessionStore.ts:1682,1696,1702,1707`, `modules/live-activity/index.ts:85-86`
 
-**Issue:** `withMockedActions(draftValue)` sempre faz `useActiveSessionStore.setState({ draft: draftValue, ... })` SINCRONAMENTE antes de qualquer teste chamar `reconcileLiveActivityIntents()`. Nenhum caso de teste chama `reconcileLiveActivityIntents()` com `draft: null` já presente desde o `beforeEach` (estado inicial real da store no boot) para depois hidratar o draft — o que é exatamente a ordem de eventos do App.tsx real (`reconcile` roda antes do primeiro `startOrResume`). A suíte cobre bem a guarda de CAS por `sessionLogId` (linhas 193-217), mas não cobre a corrida de inicialização que efetivamente causou o PASS-B do UAT — por isso os testes passam 100% e o bug só apareceu no dispositivo físico.
+**Issue:** Os quatro call sites de `ackQueuedLiveActivityIntent` dentro de `reconcileLiveActivityIntents()` são todos `void ackQueuedLiveActivityIntent(entry.id);` — sem `.catch()`. `ackQueuedLiveActivityIntent` (`modules/live-activity/index.ts:85-86`) devolve a Promise crua de `LiveActivityModule.ackIntentAction(id)` sem nenhum tratamento interno; se essa chamada nativa rejeitar (falha de IPC do bridge, por exemplo durante um force-quit em andamento — justamente o cenário que esta fase inteira trata), o resultado é uma promise rejeitada sem handler.
 
-**Fix:** Adicionar um caso que reproduz a ordem real: chamar `reconcileLiveActivityIntents()` com a store no estado inicial (`draft: null`, sem `setState` prévio) e afirmar que, hoje, nenhuma ação é aplicada — isso documenta o comportamento atual (perda silenciosa) e vira o teste de regressão natural quando CR-01 for corrigido (nesse caso a expectativa muda para "aplica depois que `startOrResume` roda").
+Para o caso `completeSet`, isso é inofensivo: a entrada permanece na fila e será reprocessada na próxima reconciliação, mas `completeSet()` é idempotente (`serie.status === 'done'` retorna `true` sem regravar — `activeSessionStore.ts:1322`), então o retry converge sem duplicar nada.
 
-### WR-02: `IntentActionQueue.enqueue`/`writeAll` não é atômico entre processos concorrentes (extensão de widget vs. processo do app)
+Para `skipRest` (linha 1699-1704) e `adjustRest` (linha 1705-1709) isso NÃO é idempotente: se o `ack` falhar depois que a ação já foi aplicada com sucesso, a MESMA entrada é reaplicada na reconciliação seguinte —
+- `skipRest`: `findNextPendingSet(draft)` já não vai mais encontrar a série que acabou de ser ativada (ela virou `'active'`, não é mais `'pending'`), então `activateSet` é chamado sobre a PRÓXIMA série depois dela — pulando uma série a mais do que o toque original pedia.
+- `adjustRest`: `adjustRest(entry.deltaSeconds)` desloca `restEndsAt` de novo pelo mesmo delta — um "+30s" vira "+60s" sem um segundo toque do usuário.
 
-**File:** `modules/live-activity/ios/IntentActionQueue.swift:56-63`
+**Fix:**
+```ts
+void ackQueuedLiveActivityIntent(entry.id).catch((e) => {
+  console.warn('[liveActivity] ack de intent falhou (entrada pode ser reaplicada):', e);
+});
+```
+Isso pelo menos evita a rejeição não tratada e deixa rastro no Console. Se o `ack` puder falhar de forma reproduzível na prática (vale investigar em UAT), considerar adicionar um `id` já processado a um Set em memória de curta duração para não reaplicar `skipRest`/`adjustRest` mesmo que o `ack` não confirme — mas isso é mitigação adicional, não obrigatória para fechar o achado mínimo (tratar a rejeição).
 
-**Issue:** `enqueue` faz `readAll()` → `append` em memória → `writeAll()`, um read-modify-write clássico sem lock nem CAS a nível de `UserDefaults`. Os três `LiveActivityIntent`s rodam no processo do app (não na extensão), mas o AppIntents framework pode, em teoria, despachar dois `perform()` concorrentes (ex.: dois toques quase simultâneos em botões diferentes da Live Activity antes do primeiro `perform()` retornar) — o segundo `writeAll` pode sobrescrever o primeiro se as duas leituras ocorrerem antes de qualquer escrita, perdendo uma entrada sem erro nem log.
+### WR-02: Invariante de D3 (no máximo uma série `active`) não é reforçada na retomada — um rascunho já corrompido em disco (inclusive pela FALHA que esta rodada corrige) não se autocorrige
 
-**Fix:** Baixo risco prático (toques sequenciais raramente colidem em uma janela tão estreita), mas se quiser fechar de vez, usar `NSFileCoordinator`/lock por semáforo ao redor de `readAll`+`writeAll`, ou mover para um formato append-only (uma entrada por chave, não um array serializado inteiro) para eliminar a janela de corrida.
+**File:** `src/store/activeSessionStore.ts:374-520` (`applyServerSetLogs`, ramo D2b), `src/store/activeSessionStore.ts:690` (ramo offline, `set({ draft: local, ... })`)
 
-### WR-03: Falha ao gravar na fila (App Group ausente ou encode falhando) é engolida em silêncio, sem log nem sinal de diagnóstico
+**Issue:** `deactivateOtherActiveSets` (linhas 303-318) só é invocada de dentro de `activateSet()` (linha 1188). Isso fecha o caminho de ATIVAÇÃO daqui para frente, mas não normaliza um `draft` que chega de disco JÁ com mais de uma série `'active'` — cenário plausível justamente porque essa é a exata corrupção que o `regressao_geral=FAIL` do UAT anterior (`16-06-SUMMARY.md`) documentou, e que pode estar gravada no rascunho local do dono AGORA (sessão que ficou travada antes deste fix).
 
-**File:** `modules/live-activity/ios/IntentActionQueue.swift:41-53`
+Dois caminhos de retomada carregam o `draft` sem passar por `deactivateOtherActiveSets`:
+1. **Ramo offline** (linha 690): `set({ draft: local, status: 'active' })` — adota o rascunho local CRU, sem qualquer normalização.
+2. **Ramo reconciliado com o servidor** (`applyServerSetLogs`, overlay D2b, linhas 414-431): para cada série sem confirmação do servidor (`!sl`), copia `status: emAndamentoLocal.status === 'active' ? 'active' : s.status` — se DUAS séries diferentes do `local` já estiverem `'active'` (dado corrompido pré-fix), a reconstrução preserva as DUAS como `'active'` na sessão retomada. `findActiveSet()` (`sessionModel.ts:290-297`) devolve a primeira por ordem de array, então a série "ativa" que a tela mostra pode não ser a que o usuário estava de fato preenchendo.
 
-**Issue:** `defaults()` retorna `UserDefaults?` e todo call site usa `?.` — se o suite name do App Group estiver mal configurado em produção (regressão de entitlements não pega pelo `verify-native-skeleton.sh`, que só corre em dev/CI), `enqueue`/`writeAll` falham 100% das vezes sem nenhum rastro: nenhum toque na tela bloqueada nunca chegaria ao app, e não haveria nenhuma mensagem no Console/Crashlytics para diagnosticar por quê.
+Nenhum teste da rodada (`__tests__/activeSessionStore.test.ts:751-807`, describe "D3") cobre este caminho — todos os três testes de D3 chamam `activateSet()` diretamente; nenhum constrói um `local` com duas séries `'active'` e verifica que a retomada (`startOrResume`) normaliza para uma só.
 
-**Fix:** Ao menos um `os_log`/`print` no ramo de falha (`guard let data = defaults()?.data(...) else { os_log(...); return [] }`), para que uma regressão de entitlements deixe rastro no Console do dispositivo em vez de falha 100% silenciosa.
+**Fix:** Aplicar `deactivateOtherActiveSets` (ou uma normalização equivalente que escolha determinística e documentadamente qual das ativas "vence") no ponto único de reconstrução do draft antes de ele ser exposto pelo `set()`, cobrindo os dois ramos:
+```ts
+// applyServerSetLogs, no retorno final (ou logo após), e no ramo offline antes do set({ draft: local, ... }):
+const semDuplicidadeDeAtiva = normalizeSingleActiveSet(reaplicado);
+```
+onde `normalizeSingleActiveSet` reaproveita a mesma lógica de `deactivateOtherActiveSets`, generalizada para não exigir um par exerciseId/setOrder de exceção (por exemplo: mantém a primeira `'active'` encontrada e desativa as demais).
+
+### WR-03 (carregado da rodada anterior, ainda aberto): `IntentActionQueue.enqueue`/`writeAll` não é atômico entre processos concorrentes
+
+**File:** `modules/live-activity/ios/IntentActionQueue.swift:59-77`
+
+**Issue:** Inalterado nesta rodada. `enqueue` continua fazendo `readAll()` → `append` em memória → `writeAll()`, sem lock nem CAS a nível de `UserDefaults`. Risco baixo (toques quase simultâneos raramente colidem nessa janela), mas segue sem mitigação.
+
+**Fix:** Ver `16-REVIEW.md` anterior (WR-02 original) — `NSFileCoordinator`/semáforo ao redor de `readAll`+`writeAll`, ou formato append-only por entrada.
+
+### WR-04 (carregado da rodada anterior como WR-03, ainda aberto): Falha ao gravar na fila do App Group é engolida em silêncio, sem log
+
+**File:** `modules/live-activity/ios/IntentActionQueue.swift:59-67`
+
+**Issue:** Inalterado nesta rodada. `readAll`/`writeAll` seguem usando `?.` sobre `defaults()`, sem `os_log` no ramo de falha — uma regressão de entitlements no App Group continua sem deixar rastro no Console.
+
+**Fix:** Ver `16-REVIEW.md` anterior (WR-03 original) — `os_log` no `guard`/`else` de `readAll`/`writeAll`.
 
 ## Info
 
-### IN-01: `moduleNameMapper` do Jest não está ancorado no início — casa qualquer path terminado em "modules/live-activity", não só o import relativo do projeto
+### IN-01 (carregado da rodada anterior, ainda aberto): `moduleNameMapper` do Jest não está ancorado no início
 
 **File:** `package.json:125-126`
 
-**Issue:** A chave `"modules/live-activity$"` é regex sem `^`; qualquer caminho de import que termine literalmente em `modules/live-activity` (por exemplo, um pacote hipotético `@algumaLib/modules/live-activity`) seria remapeado para o mock deste projeto. Não há colisão real hoje, é só uma superfície maior que a necessária.
+**Issue:** Inalterado nesta rodada — não tocado pelo diff de 16-07/16-08. `"modules/live-activity$"` continua sem `^`, casando qualquer path terminado nesse sufixo.
 
-**Fix:** `"(^|/)modules/live-activity$"` ou `"^\\.\\./.*modules/live-activity$"` restringe ao padrão de import relativo realmente usado no projeto (`../../modules/live-activity`, `../modules/live-activity`, etc.).
+**Fix:** Ver `16-REVIEW.md` anterior (IN-01 original) — `"(^|/)modules/live-activity$"`.
 
 ---
 
-_Reviewed: 2026-08-17_
+## Achados da rodada anterior FECHADOS por 16-07/16-08 (confirmado contra o código vivo)
+
+- **CR-01 anterior** (reconciliação corria com a hidratação do draft, fila destrutiva perdia a ação) — RESOLVIDO. `reconcileLiveActivityIntents()` só é chamada de dentro de `startOrResume()` (3 ramos, todos atrás de `isCurrent()`), nunca mais no mount de `App.tsx` (confirmado: `git diff` não toca `App.tsx` nesta rodada porque o call site já havia sido movido antes de `1689e08`). A leitura agora é `peekAll()`, não-destrutiva — `drainAll()` foi removido do código Swift/TS/mock por completo (grep confirmado: zero ocorrências de `drainAll|drainIntentQueue|drainQueuedLiveActivityIntents`).
+- **CR-02 anterior** (entrega in-process bem-sucedida nunca removia a entrada, replay duplicado no boot) — RESOLVIDO antes desta rodada (mecanismo `id`/`ackIntentAction`/`remove(ids:)` já existia em `IntentActionQueue.swift`/`LiveActivityModule.swift` antes de `1689e08`); esta rodada generaliza o `ack` condicionado também para o caminho de reconciliação de boot (antes só usado no caminho quente).
+- **WR-01 anterior** (suíte nunca testava `draft === null` no momento da reconciliação) — RESOLVIDO. `__tests__/liveActivityIntentQueue.test.ts:227-262` reproduz exatamente a ordem real (reconcile com `draft: null`, sem `setState` prévio, depois hidrata e reconcilia de novo).
+
+---
+
+_Reviewed: 2026-08-18_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
