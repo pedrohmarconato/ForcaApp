@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -218,7 +218,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 16-03-PLAN.md — Sessão física: concluir série, ajustar/pular descanso, force-quit-então-toque
+- [x] 16-03-PLAN.md — Sessão física: concluir série, ajustar/pular descanso, force-quit-então-toque
 
 **UI hint**: yes
 
@@ -270,5 +270,5 @@ série/exercício antes do descanso acabar.
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
-| 16. Tela bloqueada — comandar | v1.3 | 2/3 | In Progress|  |
+| 16. Tela bloqueada — comandar | v1.3 | 3/3 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
