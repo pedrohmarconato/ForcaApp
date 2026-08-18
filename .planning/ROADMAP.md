@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 9/9 plans executed
+**Plans**: 9/11 plans executed (2 novos criados nesta rodada de gap closure)
 
 Plans:
 **Wave 1**
@@ -245,6 +245,19 @@ pré-existentes (D1/D2/D3, causa raiz em `16-VERIFICATION.md` e
 **Gap closure round 2 — Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 16-09-PLAN.md — Sessão física de re-execução: force_quit_toque (PASS-A esperado), sem_duplicacao (regressão), regressao_geral (Pular após rejeição)
+
+**Verification status (rodada 3):** `gaps_found` — 3/5 must-haves verificados;
+CR-01 (`16-REVIEW.md`) confirmou que D2 só fechou `setReps`/`setLoad`, deixando
+`stepLoad` (stepper de carga, interação primária) e `setDuration` (único campo
+de `canCompleteSet()` para cardio/isometria) sem persistência — reabre CMD-01.
+
+**Gap closure round 3 — Wave 1**
+
+- [ ] 16-10-PLAN.md — CR-01/D2 remanescente: stepLoad/setDuration/setDistance/setRir/setEffort persistem via saveDraft (as cinco ações restantes)
+
+**Gap closure round 3 — Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 16-11-PLAN.md — Sessão física de re-execução: force-quit via stepper de carga e via duração de cardio/isometria, com caminho de UI confirmado por item
 
 **UI hint**: yes
 
