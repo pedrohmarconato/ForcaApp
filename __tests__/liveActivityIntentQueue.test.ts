@@ -86,6 +86,7 @@ jest.mock(
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDraft } from '../src/engine/sessionModel';
 import { saveSetLog } from '../src/services/sessionExecutionRepository';
+import { saveDraft } from '../src/services/sessionDraftStorage';
 
 const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
   version: 1,
@@ -169,6 +170,57 @@ const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
   ...overrides,
 });
 
+/** Draft de exercício medido por tempo (metric 'tempo_distancia').
+ *  Plano 16-11: canCompleteSet() exige, para métrica de tempo,
+ *  actualDurationSeconds != null && > 0 (sessionModel.ts:272-273) — reps e
+ *  carga não são exigidos e nem existem nesse caminho. É por isso que o
+ *  Teste 2 do runbook físico é um caminho DISTINTO do Teste 1, e não uma
+ *  repetição dele com outro exercício. */
+const draftCardio = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
+  ...draft(),
+  exercises: [
+    {
+      exerciseId: 'ex-cardio',
+      name: 'Caminhada inclinada',
+      order: 1,
+      metric: 'tempo_distancia',
+      equipment: 'Esteira',
+      isBodyweight: false,
+      hasInjury: false,
+      loadIncrementKg: 0,
+      restSeconds: 60,
+      priority: 'primary',
+      targetRmPercent: null,
+      repsRaw: null,
+      sets: [
+        {
+          plannedSetId: 'set-cardio-1',
+          setOrder: 1,
+          targetRepsMin: null,
+          targetRepsMax: null,
+          targetLoadKg: null,
+          targetRir: null,
+          targetDurationSeconds: 1500,
+          targetDistanceM: 3000,
+          actualReps: null,
+          actualLoadKg: null,
+          actualRir: null,
+          actualDurationSeconds: null,
+          actualDistanceM: null,
+          perceivedEffort: null,
+          status: 'active',
+          outcome: null,
+          setLogId: null,
+          adaptation: null,
+          activatedAt: null,
+          completedAt: null,
+        },
+      ],
+    },
+  ],
+  ...overrides,
+});
+
 let completeSet: jest.Mock;
 let activateSet: jest.Mock;
 let adjustRest: jest.Mock;
@@ -197,6 +249,10 @@ const realActivateSet = useActiveSessionStore.getState().activateSet;
 const realAdjustRest = useActiveSessionStore.getState().adjustRest;
 const realSetReps = useActiveSessionStore.getState().setReps;
 const realSetLoad = useActiveSessionStore.getState().setLoad;
+// Plano 16-11: setDuration é o único caminho que fecha canCompleteSet() de
+// exercício de métrica tempo/tempo_distancia (sessionModel.ts:272-273) — sem
+// restaurá-lo aqui, os testes de cardio abaixo herdariam um mock e provariam nada.
+const realSetDuration = useActiveSessionStore.getState().setDuration;
 
 /** Restaura explicitamente as ações reais da store — nunca herda um
  *  override deixado por um withMockedActions(...) anterior no mesmo módulo
@@ -208,6 +264,7 @@ const withRealActions = (draftValue: SessionDraft | null): void => {
     adjustRest: realAdjustRest,
     setReps: realSetReps,
     setLoad: realSetLoad,
+    setDuration: realSetDuration,
     draft: draftValue,
   });
 };
@@ -386,5 +443,80 @@ describe('reconcileLiveActivityIntents', () => {
 
     expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('done');
     expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-real-2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plano 16-11 — caminho de DURAÇÃO (Teste 2 do runbook físico).
+//
+// PROVENIÊNCIA DESTA EVIDÊNCIA (ler antes de tratar como equivalente ao UAT):
+// estes testes exercitam a MESMA lógica de store que a sessão física
+// exercitaria, mas NÃO substituem o teste no aparelho. Eles não passam pelo
+// force-quit real, pela Lock Screen, pelo App Group nem pelo cold start do
+// iOS — só pelo trecho JS entre setDuration() e completeSet() via
+// reconcileLiveActivityIntents(). O dono declinou executar o Teste 2 no
+// aparelho ("não temos esse tipo de treinamento"), então esta é evidência de
+// TIPO DIFERENTE, registrada como tal, nunca como o teste físico cumprido.
+// ---------------------------------------------------------------------------
+describe('16-11: reconciliação de série medida por tempo (caminho setDuration)', () => {
+  it('sem duração informada, completeSet real reprova e o ack NÃO é confirmado — a entrada sobrevive', async () => {
+    withRealActions(draftCardio());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-dur-1', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('active');
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
+  });
+
+  it('com duração informada via setDuration, completeSet real conclui a série e confirma o ack', async () => {
+    withRealActions(draftCardio());
+    useActiveSessionStore.getState().setDuration('ex-cardio', 1, 1500);
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-dur-2', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('done');
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualDurationSeconds).toBe(1500);
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-dur-2');
+  });
+
+  it('setDuration persiste em disco via saveDraft — o elo que o force-quit exige (fix da Plano 16-10)', () => {
+    withRealActions(draftCardio());
+    mock(saveDraft).mockClear();
+
+    useActiveSessionStore.getState().setDuration('ex-cardio', 1, 1500);
+
+    // Sem esta chamada, a duração viveria só em memória e morreria no
+    // force-quit — exatamente o modo de falha que a Plano 16-10 corrigiu.
+    expect(mock(saveDraft)).toHaveBeenCalled();
+    const persistido = mock(saveDraft).mock.calls.at(-1)![0] as SessionDraft;
+    expect(persistido.exercises[0].sets[0].actualDurationSeconds).toBe(1500);
+  });
+
+  it('a duração sobrevive a um ciclo de force-quit simulado (draft relido do disco) e conclui na reconciliação', async () => {
+    withRealActions(draftCardio());
+    mock(saveDraft).mockClear();
+    useActiveSessionStore.getState().setDuration('ex-cardio', 1, 1500);
+
+    // Simula o force-quit: descarta o estado em memória e reidrata APENAS a
+    // partir do que saveDraft gravou. Se setDuration não tivesse persistido,
+    // este draft voltaria com actualDurationSeconds null e o teste falharia.
+    const persistido = mock(saveDraft).mock.calls.at(-1)![0] as SessionDraft;
+    useActiveSessionStore.setState({ draft: null });
+    withRealActions(JSON.parse(JSON.stringify(persistido)) as SessionDraft);
+
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-dur-3', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('done');
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-dur-3');
   });
 });
