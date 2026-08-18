@@ -47,7 +47,9 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
   applyConfirmedReplan: jest.fn(),
 }));
 jest.mock('../src/services/sessionDraftStorage', () => ({
-  saveDraft: jest.fn(),
+  // D2 (16-08-PLAN.md): setReps/setLoad agora chamam saveDraft(novo) fire-and-forget
+  // (.catch(...) no retorno) — precisa resolver a uma Promise, não undefined.
+  saveDraft: jest.fn().mockResolvedValue(undefined),
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));

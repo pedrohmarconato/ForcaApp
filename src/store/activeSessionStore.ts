@@ -288,6 +288,35 @@ const findSet = (
   return { exercise, set };
 };
 
+/**
+ * D3 (16-08-PLAN.md/16-VERIFICATION.md gap 1): garante no máximo uma série
+ * 'active' por vez em todo o draft. Qualquer série 'active' remanescente (ex.:
+ * travada por um completeSet() reprovado) volta a 'pending' com
+ * activatedAt: null — mesmo padrão de applyExerciseSkipToDraft
+ * (sessionModel.ts:595-615): "a série que estava ATIVA volta a pendente...
+ * mas nada que o aluno digitou é apagado" (reps/carga preservados via spread).
+ * Sem esta invariante, findActiveSet() (sessionModel.ts:290-297) devolve a
+ * PRIMEIRA série 'active' por ordem de array — potencialmente a travada, não
+ * a que acabou de ser ativada (regressão física observada em 16-06-SUMMARY.md,
+ * regressao_geral=FAIL).
+ */
+const deactivateOtherActiveSets = (
+  draft: SessionDraft,
+  exceptExerciseId: string,
+  exceptSetOrder: number,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) => ({
+    ...ex,
+    sets: ex.sets.map((s) =>
+      s.status === 'active' &&
+      !(ex.exerciseId === exceptExerciseId && s.setOrder === exceptSetOrder)
+        ? { ...s, status: 'pending' as const, activatedAt: null }
+        : s,
+    ),
+  })),
+});
+
 /** Carga sugerida para uma série, dado o estado atual do rascunho. */
 export const suggestionFor = (
   draft: SessionDraft,
@@ -358,6 +387,20 @@ const applyServerSetLogs = (
       if (s.adaptation) localAdapt.set(s.plannedSetId, s.adaptation);
     }
   }
+  // D2b (16-08-PLAN.md/16-VERIFICATION.md gap 1): sem este overlay, a persistência
+  // de reps/carga da Parte A (setReps/setLoad -> saveDraft) não sobrevive ao ramo
+  // MAIS COMUM de retomada (rede disponível) — este trecho reconstrói o draft do
+  // ZERO via buildDraftFromDetail e só usa `local` para adaptação/restEndsAt/
+  // fingerprints, nunca para reps/carga de uma série sem confirmação do servidor.
+  // Só sets locais AINDA NÃO confirmados (status 'active'/'pending') entram no
+  // overlay — um set 'done' localmente mas ainda sem `sl` do servidor mantém o
+  // comportamento ATUAL (fora do escopo de D2/D2b).
+  const localSetByPlannedSet = new Map<string, DraftSet>();
+  for (const ex of local?.exercises ?? []) {
+    for (const s of ex.sets) {
+      if (s.status !== 'done') localSetByPlannedSet.set(s.plannedSetId, s);
+    }
+  }
   const lastLoad = { ...draft.lastLoadByExercise };
   const latestFromOpenLog = new Map<
     string,
@@ -367,7 +410,26 @@ const applyServerSetLogs = (
     ...ex,
     sets: ex.sets.map((s) => {
       const sl = porPlannedSet.get(s.plannedSetId);
-      if (!sl) return s;
+      if (!sl) {
+        // D2b: overlay do rascunho LOCAL sobre a série FRESCA reconstruída do
+        // servidor — só campos digitados pelo aluno e status/activatedAt são
+        // sobrepostos; plannedSetId/setOrder/alvos continuam vindo de `s` (spread
+        // `...s` primeiro). Nunca sobrepõe uma série que o servidor já confirmou
+        // (esse ramo é o `if (sl...)` abaixo, mutuamente exclusivo deste).
+        const emAndamentoLocal = localSetByPlannedSet.get(s.plannedSetId);
+        if (!emAndamentoLocal) return s;
+        return {
+          ...s,
+          status: emAndamentoLocal.status === 'active' ? ('active' as const) : s.status,
+          actualReps: emAndamentoLocal.actualReps,
+          actualLoadKg: emAndamentoLocal.actualLoadKg,
+          actualRir: emAndamentoLocal.actualRir,
+          actualDurationSeconds: emAndamentoLocal.actualDurationSeconds,
+          actualDistanceM: emAndamentoLocal.actualDistanceM,
+          perceivedEffort: emAndamentoLocal.perceivedEffort,
+          activatedAt: emAndamentoLocal.activatedAt ?? s.activatedAt,
+        };
+      }
       if (sl.actual_load_kg != null && !ex.isBodyweight) {
         const key = exerciseIdentity(ex);
         const previous = latestFromOpenLog.get(key);
@@ -1121,7 +1183,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       ativou = true;
       return { ...s, status: 'active', activatedAt: s.activatedAt ?? agora };
     });
-    if (ativou) set({ draft: { ...novo, restEndsAt: null } });
+    if (!ativou) return;
+    // D3: garante a invariante de série ativa única ANTES do commit final.
+    const semOutrasAtivas = deactivateOtherActiveSets(novo, exerciseId, setOrder);
+    set({ draft: { ...semOutrasAtivas, restEndsAt: null } });
   },
 
   adjustRest: (deltaSeconds) => {
@@ -1138,22 +1203,32 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   setReps: (exerciseId, setOrder, reps) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualReps: reps,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualReps: reps,
+    }));
+    set({ draft: novo });
+    // D2 (16-08-PLAN.md/16-VERIFICATION.md gap 1): persiste fire-and-forget a
+    // cada toque do stepper — sessionDraftStorage.ts já serializa escritas da
+    // mesma chave via withKeyQueue, então chamadas rápidas em sequência não
+    // corrompem nem sobrescrevem fora de ordem. Sem isto, um force-quit
+    // descarta reps/carga só em memória e canCompleteSet() reprova na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] reps não persistidos (não-fatal):', e);
     });
   },
 
   setLoad: (exerciseId, setOrder, load) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualLoadKg: load,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualLoadKg: load,
+    }));
+    set({ draft: novo });
+    // D2 (16-08-PLAN.md/16-VERIFICATION.md gap 1): mesmo mecanismo de setReps acima.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] carga não persistida (não-fatal):', e);
     });
   },
 
