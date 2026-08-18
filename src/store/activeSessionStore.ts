@@ -1281,11 +1281,17 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       seconds == null || !Number.isFinite(seconds) || seconds <= 0
         ? null
         : Math.round(seconds);
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualDurationSeconds: limpo,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualDurationSeconds: limpo,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): actualDurationSeconds é o ÚNICO campo que
+    // canCompleteSet() exige para exercícios isTimeBased (cardio/isometria,
+    // sessionModel.ts:272-274) — sem persistir aqui, um force-quit derruba a
+    // conclusão de séries de cardio mesmo sem depender de reps/carga.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] duração não persistida (não-fatal):', e);
     });
   },
 
