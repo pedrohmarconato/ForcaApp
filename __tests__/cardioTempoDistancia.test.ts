@@ -42,7 +42,7 @@ jest.mock('../src/services/weeklyReplanRepository', () => ({
   applyConfirmedReplan: jest.fn(),
 }));
 jest.mock('../src/services/sessionDraftStorage', () => ({
-  saveDraft: jest.fn(),
+  saveDraft: jest.fn().mockResolvedValue(undefined),
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));
