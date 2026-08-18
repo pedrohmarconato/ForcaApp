@@ -639,6 +639,22 @@ describe('D2: setReps/setLoad persistem via saveDraft (16-08-PLAN.md/16-VERIFICA
     const ultimoDraft = chamadas[chamadas.length - 1][0];
     expect(ultimoDraft.exercises[0].sets[0].actualLoadKg).toBe(40);
   });
+
+  it('stepLoad chama saveDraft com o draft cujo actualLoadKg foi incrementado (CR-01/16-10-PLAN.md)', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    // ex-1 tem load_increment_kg: 2.5; sem actualLoadKg/lastLoad prévios, o
+    // fallback de suggestLoad é null, então base = 0 e o incremento é
+    // exatamente 1 * 2.5.
+    store().stepLoad('ex-1', 1, 1);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+  });
 });
 
 describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit', () => {
@@ -745,6 +761,38 @@ describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit'
 
     // Comportamento inalterado: status volta a 'pending' (fresco), fora do escopo de D2/D2b.
     expect(store().draft!.exercises[0].sets[0].status).toBe('pending');
+  });
+
+  it('CR-01/16-10-PLAN.md: force-quit logo depois de usar SÓ o stepper de carga (nunca setLoad) não impede completeSet()', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    // NUNCA chama setLoad neste teste — só o stepper, para provar
+    // especificamente que o caminho do stepper persiste sozinho.
+    store().stepLoad('ex-1', 1, 1);
+
+    const draftPersistido = capturaDraftPersistido();
+    expect(draftPersistido.exercises[0].sets[0].actualReps).toBe(8);
+    expect(draftPersistido.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+
+    // Reabertura: loadDraft devolve o rascunho persistido; a reconciliação com o
+    // servidor falha por transporte -> adota o local por inteiro (ramo offline).
+    mock(loadDraft).mockResolvedValue(draftPersistido);
+    mock(getOpenSessionLog).mockRejectedValue(
+      new SessionExecutionRequestError(new Error('sem rede'), { kind: 'transport' }),
+    );
+
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+
+    expect(store().draft!.exercises[0].sets[0].actualReps).toBe(8);
+    expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+    const ok = await store().completeSet('ex-1', 1);
+    expect(ok).toBe(true);
   });
 });
 

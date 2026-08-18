@@ -1249,6 +1249,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return { ...s, actualLoadKg: next };
     });
     set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): stepper de carga (+/-) é a interação PRIMÁRIA
+    // de ajuste de carga (SessionPlayer.tsx:681,708) — mesmo mecanismo de
+    // setReps/setLoad acima, sem o qual um force-quit logo após usar só o
+    // stepper descarta a carga e reprova canCompleteSet() na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] carga (stepper) não persistida (não-fatal):', e);
+    });
   },
 
   setRir: (exerciseId, setOrder, rir) => {
