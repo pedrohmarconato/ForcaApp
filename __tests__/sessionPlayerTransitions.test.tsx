@@ -49,7 +49,7 @@ jest.mock('../src/services/planEditRepository', () => {
   };
 });
 jest.mock('../src/services/sessionDraftStorage', () => ({
-  saveDraft: jest.fn(),
+  saveDraft: jest.fn().mockResolvedValue(undefined),
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));

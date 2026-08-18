@@ -210,6 +210,58 @@ const makeDetail = (): SessionDetail => ({
   ],
 });
 
+// CR-01/16-10-PLAN.md (Task 2): fixture local com um exercício isTimeBased
+// (metric: 'tempo'), molde byte-a-byte do ex-prancha de
+// cardioTempoDistancia.test.ts:130-160 — exerciseId/exercise_key próprios
+// deste arquivo para não colidir com ex-1/ex-2 de makeDetail().
+const makeDetailComExercicioDeTempo = (): SessionDetail => ({
+  id: 'sess-tempo',
+  plan_id: 'plan-1',
+  user_id: 'user-1',
+  week_number: 1,
+  day_of_week: null,
+  order_in_week: 1,
+  title: 'Core',
+  session_type: 'Cardio',
+  scheduled_date: '2026-07-24',
+  estimated_minutes: 20,
+  status: 'pending',
+  muscle_groups: ['Abdômen'],
+  planned_exercises: [
+    {
+      id: 'ex-tempo',
+      session_id: 'sess-tempo',
+      exercise_order: 1,
+      name: 'Prancha',
+      exercise_key: 'prancha',
+      metric: 'tempo',
+      muscle_group: 'Abdômen',
+      priority: 'primary',
+      equipment: 'Peso corporal',
+      load_increment_kg: 2.5,
+      rest_seconds: 60,
+      target_rm_percent: null,
+      sets_planned: 1,
+      reps_raw: '45s',
+      method: null,
+      notes: null,
+      planned_sets: [
+        {
+          id: 'st-tempo-1',
+          exercise_id: 'ex-tempo',
+          set_order: 1,
+          target_reps_min: null,
+          target_reps_max: null,
+          target_load_kg: null,
+          target_rir: null,
+          target_duration_seconds: 45,
+          target_distance_m: null,
+        },
+      ],
+    },
+  ],
+});
+
 const store = () => useActiveSessionStore.getState();
 
 beforeEach(() => {
@@ -639,6 +691,94 @@ describe('D2: setReps/setLoad persistem via saveDraft (16-08-PLAN.md/16-VERIFICA
     const ultimoDraft = chamadas[chamadas.length - 1][0];
     expect(ultimoDraft.exercises[0].sets[0].actualLoadKg).toBe(40);
   });
+
+  it('stepLoad chama saveDraft com o draft cujo actualLoadKg foi incrementado (CR-01/16-10-PLAN.md)', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    // ex-1 tem load_increment_kg: 2.5; sem actualLoadKg/lastLoad prévios, o
+    // fallback de suggestLoad é null, então base = 0 e o incremento é
+    // exatamente 1 * 2.5.
+    store().stepLoad('ex-1', 1, 1);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+  });
+
+  it('setDuration chama saveDraft com o draft cujo actualDurationSeconds foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-tempo',
+      userId: 'user-1',
+      detail: makeDetailComExercicioDeTempo(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-tempo', 1);
+    mock(saveDraft).mockClear();
+
+    store().setDuration('ex-tempo', 1, 45);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualDurationSeconds).toBe(45);
+  });
+
+  it('setDistance chama saveDraft com o draft cujo actualDistanceM foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-tempo',
+      userId: 'user-1',
+      detail: makeDetailComExercicioDeTempo(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-tempo', 1);
+    mock(saveDraft).mockClear();
+
+    store().setDistance('ex-tempo', 1, 3000);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualDistanceM).toBe(3000);
+  });
+
+  it('setRir chama saveDraft com o draft cujo actualRir foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    store().setRir('ex-1', 1, 3);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualRir).toBe(3);
+  });
+
+  it('setEffort chama saveDraft com o draft cujo perceivedEffort foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    store().setEffort('ex-1', 1, 'moderado');
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].perceivedEffort).toBe('moderado');
+  });
 });
 
 describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit', () => {
@@ -745,6 +885,72 @@ describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit'
 
     // Comportamento inalterado: status volta a 'pending' (fresco), fora do escopo de D2/D2b.
     expect(store().draft!.exercises[0].sets[0].status).toBe('pending');
+  });
+
+  it('CR-01/16-10-PLAN.md: force-quit logo depois de usar SÓ o stepper de carga (nunca setLoad) não impede completeSet()', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8);
+    // NUNCA chama setLoad neste teste — só o stepper, para provar
+    // especificamente que o caminho do stepper persiste sozinho.
+    store().stepLoad('ex-1', 1, 1);
+
+    const draftPersistido = capturaDraftPersistido();
+    expect(draftPersistido.exercises[0].sets[0].actualReps).toBe(8);
+    expect(draftPersistido.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+
+    // Reabertura: loadDraft devolve o rascunho persistido; a reconciliação com o
+    // servidor falha por transporte -> adota o local por inteiro (ramo offline).
+    mock(loadDraft).mockResolvedValue(draftPersistido);
+    mock(getOpenSessionLog).mockRejectedValue(
+      new SessionExecutionRequestError(new Error('sem rede'), { kind: 'transport' }),
+    );
+
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+
+    expect(store().draft!.exercises[0].sets[0].actualReps).toBe(8);
+    expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(2.5);
+    const ok = await store().completeSet('ex-1', 1);
+    expect(ok).toBe(true);
+  });
+
+  it('CR-01/16-10-PLAN.md: force-quit logo depois de informar a duração de um exercício isTimeBased não impede completeSet(), mesmo sem reps/carga', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-tempo',
+      userId: 'user-1',
+      detail: makeDetailComExercicioDeTempo(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-tempo', 1);
+    // NUNCA chama setReps/setLoad neste teste — canCompleteSet() para
+    // isTimeBased ignora reps/carga por completo (sessionModel.ts:272-274).
+    store().setDuration('ex-tempo', 1, 45);
+
+    const draftPersistido = capturaDraftPersistido();
+    expect(draftPersistido.exercises[0].sets[0].actualDurationSeconds).toBe(45);
+
+    // Reabertura: loadDraft devolve o rascunho persistido; a reconciliação com o
+    // servidor falha por transporte -> adota o local por inteiro (ramo offline).
+    mock(loadDraft).mockResolvedValue(draftPersistido);
+    mock(getOpenSessionLog).mockRejectedValue(
+      new SessionExecutionRequestError(new Error('sem rede'), { kind: 'transport' }),
+    );
+
+    await store().startOrResume({
+      sessionId: 'sess-tempo',
+      userId: 'user-1',
+      detail: makeDetailComExercicioDeTempo(),
+    });
+    await confirmarCheckInSePedido();
+
+    expect(store().draft!.exercises[0].sets[0].actualDurationSeconds).toBe(45);
+    const ok = await store().completeSet('ex-tempo', 1);
+    expect(ok).toBe(true);
   });
 });
 

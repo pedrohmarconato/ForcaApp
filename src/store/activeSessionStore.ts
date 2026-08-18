@@ -1249,6 +1249,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return { ...s, actualLoadKg: next };
     });
     set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): stepper de carga (+/-) é a interação PRIMÁRIA
+    // de ajuste de carga (SessionPlayer.tsx:681,708) — mesmo mecanismo de
+    // setReps/setLoad acima, sem o qual um force-quit logo após usar só o
+    // stepper descarta a carga e reprova canCompleteSet() na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] carga (stepper) não persistida (não-fatal):', e);
+    });
   },
 
   setRir: (exerciseId, setOrder, rir) => {
@@ -1258,11 +1265,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // o núcleo garante (F12).
     const clamped =
       rir == null ? null : Math.min(10, Math.max(0, Math.trunc(rir)));
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualRir: clamped,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualRir: clamped,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita —
+    // nenhuma das sete ações que mutam draft.exercises[].sets[] permanece só
+    // em memória.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] RIR não persistido (não-fatal):', e);
     });
   },
 
@@ -1274,11 +1286,17 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       seconds == null || !Number.isFinite(seconds) || seconds <= 0
         ? null
         : Math.round(seconds);
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualDurationSeconds: limpo,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualDurationSeconds: limpo,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): actualDurationSeconds é o ÚNICO campo que
+    // canCompleteSet() exige para exercícios isTimeBased (cardio/isometria,
+    // sessionModel.ts:272-274) — sem persistir aqui, um force-quit derruba a
+    // conclusão de séries de cardio mesmo sem depender de reps/carga.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] duração não persistida (não-fatal):', e);
     });
   },
 
@@ -1289,22 +1307,32 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       meters == null || !Number.isFinite(meters) || meters <= 0
         ? null
         : Math.round(meters);
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualDistanceM: limpo,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualDistanceM: limpo,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] distância não persistida (não-fatal):', e);
     });
   },
 
   setEffort: (exerciseId, setOrder, effort) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        perceivedEffort: effort,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      perceivedEffort: effort,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita —
+    // fecha a última das sete ações de escrita de série sem persistência.
+    saveDraft(novo).catch((e) => {
+      console.warn(
+        '[activeSession] esforço percebido não persistido (não-fatal):',
+        e,
+      );
     });
   },
 
