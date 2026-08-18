@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 3/6 plans executed; verification gaps must be closed before completion
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -226,8 +226,8 @@ CR-01/CR-02) antes de concluir a fase.
 
 **Gap closure — Wave 1** *(paralelo, sem arquivos em comum)*
 
-- [ ] 16-04-PLAN.md — Gap 1: reconcileLiveActivityIntents() adiada para dentro de startOrResume() (guarda de hidratação + call sites)
-- [ ] 16-05-PLAN.md — Gap 2: id estável + ackIntentAction, dedup do caminho quente contra replay em cold-launch
+- [x] 16-04-PLAN.md — Gap 1: reconcileLiveActivityIntents() adiada para dentro de startOrResume() (guarda de hidratação + call sites)
+- [x] 16-05-PLAN.md — Gap 2: id estável + ackIntentAction, dedup do caminho quente contra replay em cold-launch
 
 **Gap closure — Wave 2** *(blocked on Wave 1 completion)*
 
@@ -283,5 +283,5 @@ série/exercício antes do descanso acabar.
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
-| 16. Tela bloqueada — comandar | v1.3 | 3/3 | In Progress|  |
+| 16. Tela bloqueada — comandar | v1.3 | 5/6 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
