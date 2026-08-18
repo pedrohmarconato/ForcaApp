@@ -3,6 +3,7 @@ import AppIntents
 
 /// Roda no processo do APP (RESEARCH.md Pattern 1) — mesma estrutura de
 /// `CompleteSetIntent`: enfileira ANTES de emitir o evento in-process.
+@available(iOS 16.2, *)
 struct SkipRestIntent: LiveActivityIntent {
   static var title: LocalizedStringResource { "Pular descanso" }
 

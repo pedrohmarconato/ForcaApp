@@ -4,6 +4,7 @@ import AppIntents
 /// Roda no processo do APP (RESEARCH.md Pattern 1) porque este arquivo
 /// também está presente no target do app — nunca no target da extensão de
 /// widget. `LiveActivityIntent`, nunca `AppIntent` genérico (Pitfall 5).
+@available(iOS 16.2, *)
 struct CompleteSetIntent: LiveActivityIntent {
   static var title: LocalizedStringResource { "Concluir série" }
 

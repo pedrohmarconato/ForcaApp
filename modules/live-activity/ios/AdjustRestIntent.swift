@@ -4,6 +4,7 @@ import AppIntents
 /// Roda no processo do APP (RESEARCH.md Pattern 1) — mesma estrutura de
 /// `CompleteSetIntent`/`SkipRestIntent`. `deltaSeconds` é o parâmetro exato
 /// do botão tocado (-30/+30) — nenhum valor inventado.
+@available(iOS 16.2, *)
 struct AdjustRestIntent: LiveActivityIntent {
   static var title: LocalizedStringResource { "Ajustar descanso" }
 
