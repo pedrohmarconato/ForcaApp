@@ -57,7 +57,7 @@ deployados). Sem audit formal de milestone.
 
 - [ ] **Phase 14: Fundação nativa** - Build nativo assinado no iPhone do dono + spike de App Groups que decide a arquitetura de estado
 - [ ] **Phase 15: Tela bloqueada — ver e cronometrar** - Live Activity mostra a sessão ao vivo no Lock Screen e o timer de descanso nativo, com ciclo de vida correto
-- [ ] **Phase 16: Tela bloqueada — comandar** - Concluir série e ajustar descanso direto na tela bloqueada, via App Intents, sem abrir o app
+- [x] **Phase 16: Tela bloqueada — comandar** - Concluir série e ajustar descanso direto na tela bloqueada, via App Intents, sem abrir o app
 - [ ] **Phase 17: Tela bloqueada — registrar e antecipar** - Registro de reps/carga sem teclado (app + tela bloqueada) e antecipação da próxima ação antes do descanso zerar
 
 ## Phase Details
@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 10/11 plans executed
+**Plans**: 11/11 plans executed
 
 Plans:
 **Wave 1**

@@ -38,12 +38,12 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — comandar (CMD)
 
-- [ ] **CMD-01**: O dono conclui a série atual com 1 toque no botão da tela
+- [x] **CMD-01**: O dono conclui a série atual com 1 toque no botão da tela
   bloqueada (App Intent), sem abrir o app — o registro segue o MESMO caminho
   `completeSet()` → outbox → servidor que já existe (a Live Activity é espelho,
   nunca fonte de verdade).
 
-- [ ] **CMD-02**: O dono pula ou ajusta o descanso direto na tela bloqueada; o
+- [x] **CMD-02**: O dono pula ou ajusta o descanso direto na tela bloqueada; o
   timer nativo reflete o ajuste imediatamente.
 
 ### Tela bloqueada — registrar (REG)
@@ -111,10 +111,24 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | LOCK-01 | Phase 15 | Complete |
 | LOCK-02 | Phase 15 | Complete |
 | LOCK-03 | Phase 15 | Pending |
-| CMD-01 | Phase 16 | Gaps Found |
-| CMD-02 | Phase 16 | Gaps Found |
+| CMD-01 | Phase 16 | Complete |
+| CMD-02 | Phase 16 | Complete |
 | REG-01 | Phase 17 | Pending |
 | REG-02 | Phase 17 | Pending |
 | PRED-01 | Phase 17 | Pending |
 
 Coverage: 10/10 v1.3 requirements mapped. No orphans.
+
+**Nota sobre CMD-01/CMD-02 (Fase 16, marcados Complete em 2026-08-18):** os três
+Success Criteria da Fase 16 no `ROADMAP.md` têm UAT físico do dono — ver
+`.planning/phases/16-tela-bloqueada-comandar/16-UAT.md`. O critério 3 (force-quit
++ toque na tela bloqueada) reprovou na primeira rodada, teve a causa diagnosticada
+(descarte silencioso de intent órfã) e passou na segunda, após o fix `54de3ef`,
+com o caminho de UI confirmado individualmente (só o stepper de carga).
+
+Gap residual conhecido e deliberadamente aceito: o caminho de exercício de
+métrica `tempo`/`tempo_distancia` NÃO tem UAT físico — o dono declinou por não
+ter esse tipo de exercício no programa. Cobertura só automatizada (`91ec4b4`),
+cujo limite está declarado no `16-UAT.md`. Não é Success Criteria do ROADMAP.
+Outros resíduos abertos (causa raiz do `nil` em `CompleteSetIntent.swift:12`,
+`reconcileOrphans`, WR-01..WR-04) estão listados no `16-UAT.md`.
