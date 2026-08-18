@@ -358,6 +358,20 @@ const applyServerSetLogs = (
       if (s.adaptation) localAdapt.set(s.plannedSetId, s.adaptation);
     }
   }
+  // D2b (16-08-PLAN.md/16-VERIFICATION.md gap 1): sem este overlay, a persistência
+  // de reps/carga da Parte A (setReps/setLoad -> saveDraft) não sobrevive ao ramo
+  // MAIS COMUM de retomada (rede disponível) — este trecho reconstrói o draft do
+  // ZERO via buildDraftFromDetail e só usa `local` para adaptação/restEndsAt/
+  // fingerprints, nunca para reps/carga de uma série sem confirmação do servidor.
+  // Só sets locais AINDA NÃO confirmados (status 'active'/'pending') entram no
+  // overlay — um set 'done' localmente mas ainda sem `sl` do servidor mantém o
+  // comportamento ATUAL (fora do escopo de D2/D2b).
+  const localSetByPlannedSet = new Map<string, DraftSet>();
+  for (const ex of local?.exercises ?? []) {
+    for (const s of ex.sets) {
+      if (s.status !== 'done') localSetByPlannedSet.set(s.plannedSetId, s);
+    }
+  }
   const lastLoad = { ...draft.lastLoadByExercise };
   const latestFromOpenLog = new Map<
     string,
@@ -367,7 +381,26 @@ const applyServerSetLogs = (
     ...ex,
     sets: ex.sets.map((s) => {
       const sl = porPlannedSet.get(s.plannedSetId);
-      if (!sl) return s;
+      if (!sl) {
+        // D2b: overlay do rascunho LOCAL sobre a série FRESCA reconstruída do
+        // servidor — só campos digitados pelo aluno e status/activatedAt são
+        // sobrepostos; plannedSetId/setOrder/alvos continuam vindo de `s` (spread
+        // `...s` primeiro). Nunca sobrepõe uma série que o servidor já confirmou
+        // (esse ramo é o `if (sl...)` abaixo, mutuamente exclusivo deste).
+        const emAndamentoLocal = localSetByPlannedSet.get(s.plannedSetId);
+        if (!emAndamentoLocal) return s;
+        return {
+          ...s,
+          status: emAndamentoLocal.status === 'active' ? ('active' as const) : s.status,
+          actualReps: emAndamentoLocal.actualReps,
+          actualLoadKg: emAndamentoLocal.actualLoadKg,
+          actualRir: emAndamentoLocal.actualRir,
+          actualDurationSeconds: emAndamentoLocal.actualDurationSeconds,
+          actualDistanceM: emAndamentoLocal.actualDistanceM,
+          perceivedEffort: emAndamentoLocal.perceivedEffort,
+          activatedAt: emAndamentoLocal.activatedAt ?? s.activatedAt,
+        };
+      }
       if (sl.actual_load_kg != null && !ex.isBodyweight) {
         const key = exerciseIdentity(ex);
         const previous = latestFromOpenLog.get(key);
@@ -1138,22 +1171,32 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   setReps: (exerciseId, setOrder, reps) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualReps: reps,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualReps: reps,
+    }));
+    set({ draft: novo });
+    // D2 (16-08-PLAN.md/16-VERIFICATION.md gap 1): persiste fire-and-forget a
+    // cada toque do stepper — sessionDraftStorage.ts já serializa escritas da
+    // mesma chave via withKeyQueue, então chamadas rápidas em sequência não
+    // corrompem nem sobrescrevem fora de ordem. Sem isto, um force-quit
+    // descarta reps/carga só em memória e canCompleteSet() reprova na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] reps não persistidos (não-fatal):', e);
     });
   },
 
   setLoad: (exerciseId, setOrder, load) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualLoadKg: load,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualLoadKg: load,
+    }));
+    set({ draft: novo });
+    // D2 (16-08-PLAN.md/16-VERIFICATION.md gap 1): mesmo mecanismo de setReps acima.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] carga não persistida (não-fatal):', e);
     });
   },
 
