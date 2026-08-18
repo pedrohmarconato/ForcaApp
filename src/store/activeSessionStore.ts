@@ -625,6 +625,11 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             e,
           );
           set({ draft: local, status: 'active' });
+          // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): a
+          // reconciliação da fila de intents da tela bloqueada só pode
+          // rodar DEPOIS que draft está hidratado; este é o ramo "retomada
+          // offline sem rede".
+          if (isCurrent()) await get().reconcileLiveActivityIntents();
           return;
         }
         if (!isCurrent()) return;
@@ -662,6 +667,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           );
           set({ storageWarning: STORAGE_WARNING_MSG });
         }
+        // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): ramo
+        // "reconciliado com o servidor" — draft já está hidratado acima.
+        if (isCurrent()) await get().reconcileLiveActivityIntents();
         return;
       }
 
@@ -695,6 +703,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         console.warn('[activeSession] rascunho não persistido (não-fatal):', e);
         set({ storageWarning: STORAGE_WARNING_MSG });
       }
+      // Fase 16 (CMD, gap 1 — 16-VERIFICATION.md/16-REVIEW.md CR-01): ramo
+      // "sem rascunho local, log aberto encontrado" — draft já hidratado acima.
+      if (isCurrent()) await get().reconcileLiveActivityIntents();
     } catch (e) {
       if (isCurrent()) set({ status: 'error', saveError: errMsg(e) });
     }
