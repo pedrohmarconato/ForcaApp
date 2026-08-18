@@ -1561,6 +1561,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   // da próxima iteração processar. Entradas com sessionLogId ausente ou
   // divergente do draft ATUAL são sempre descartadas silenciosamente.
   reconcileLiveActivityIntents: async () => {
+    // Guarda de hidratação (16-VERIFICATION.md gap 1 / 16-REVIEW.md CR-01):
+    // sem draft ativo candidato, a fila do App Group nunca é sequer lida —
+    // drainQueuedLiveActivityIntents() é destrutivo (lê e remove na mesma
+    // chamada), então drená-la antes de haver um draft para aplicar a
+    // entrada a perderia para sempre, sem segunda chance.
+    const draftAtual = get().draft;
+    if (!draftAtual || draftAtual.status !== 'active') return;
     let entries: QueuedLiveActivityIntent[] = [];
     try {
       entries = await drainQueuedLiveActivityIntents();
