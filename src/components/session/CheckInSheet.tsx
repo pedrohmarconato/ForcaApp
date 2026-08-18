@@ -16,7 +16,8 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import type { SessionMood } from '../../engine/moodAdjustment';
 import Button from '../ui/Button';
 
@@ -35,6 +36,8 @@ const MOOD_OPTIONS: { value: SessionMood; label: string }[] = [
 const TIME_CHIPS = [30, 45, 60, 90];
 
 const CheckInSheet = ({ visible, sessionTitle, onConfirm }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const [mood, setMood] = useState<SessionMood | null>(null);
   // 'full' = tempo cheio; número = chip; 'custom' = campo livre.
   const [timeChoice, setTimeChoice] = useState<number | 'full' | 'custom' | null>(null);
@@ -143,7 +146,7 @@ const CheckInSheet = ({ visible, sessionTitle, onConfirm }: Props) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   tela: {
     flex: 1,
     alignSelf: 'stretch',
@@ -193,16 +196,16 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.sm,
   },
   segItemSelected: {
-    backgroundColor: theme.colors.surface.elevated,
+    backgroundColor: theme.colors.accent.soft,
     borderWidth: 1,
-    borderColor: theme.colors.border.strong,
+    borderColor: theme.colors.accent.border,
   },
   segText: {
     color: theme.colors.text.secondary,
     fontSize: theme.typography.fontSizes.base,
     fontWeight: theme.typography.fontWeights.semiBold,
   },
-  segTextSelected: { color: theme.colors.text.primary },
+  segTextSelected: { color: theme.colors.text.accent },
 
   row: {
     flexDirection: 'row',
@@ -227,7 +230,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSizes.base,
   },
   chipTextSelected: {
-    color: theme.colors.text.primary,
+    color: theme.colors.text.accent,
     fontWeight: theme.typography.fontWeights.semiBold,
   },
   input: {
@@ -243,6 +246,8 @@ const styles = StyleSheet.create({
   },
   inputSelected: {
     borderColor: theme.colors.accent.border,
+    backgroundColor: theme.colors.accent.soft,
+    color: theme.colors.text.accent,
   },
 
   rodape: { marginTop: 'auto', paddingTop: theme.spacing.xl },

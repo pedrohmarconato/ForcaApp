@@ -3,9 +3,28 @@
 // aluno; escondido quando não há recomendação pendente.
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render as renderNative, fireEvent } from '@testing-library/react-native';
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { id: 'user-1', neon_color: 'yellow' },
+  }),
+}));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
 import AdaptationSheet from '../src/components/session/AdaptationSheet';
 import type { Recommendation } from '../src/engine/intraSessionAdaptation';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
+
+const render = (element: React.ReactElement) => {
+  const utils = renderNative(<ThemeProvider>{element}</ThemeProvider>);
+  return {
+    ...utils,
+    rerender: (nextElement: React.ReactElement) =>
+      utils.rerender(<ThemeProvider>{nextElement}</ThemeProvider>),
+  };
+};
 
 const REC: Recommendation = {
   outcome: 'under',

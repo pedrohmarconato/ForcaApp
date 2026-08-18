@@ -16,7 +16,8 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import FModules from '../ui/FModules';
 import type {
   Recommendation,
@@ -43,6 +44,9 @@ const AdaptationSheet = ({
   onChoose,
   onDismiss,
 }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+
   return (
     <Modal
       visible={recommendation != null}
@@ -70,7 +74,11 @@ const AdaptationSheet = ({
               <Text style={styles.kicker}>{exerciseName}</Text>
               <View style={styles.coachRow}>
                 <FModules lit={1} size={16} />
-                <Text style={styles.coachKicker}>Proposta do treinador</Text>
+                <Text
+                  style={[styles.coachKicker, { color: theme.colors.text.accent }]}
+                >
+                  Proposta do treinador
+                </Text>
               </View>
               <Text style={styles.title} accessibilityRole="header">
                 {titleFor(recommendation)}
@@ -117,7 +125,7 @@ const AdaptationSheet = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   coachRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -125,7 +133,6 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   coachKicker: {
-    color: theme.colors.text.accent,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.micro,
     fontWeight: theme.typography.fontWeights.bold,
@@ -201,6 +208,7 @@ const styles = StyleSheet.create({
     fontWeight: theme.typography.fontWeights.medium,
   },
   optionLabelRecommended: {
+    color: theme.colors.text.accent,
     fontWeight: theme.typography.fontWeights.semiBold,
   },
   badge: {

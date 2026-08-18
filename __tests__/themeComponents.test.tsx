@@ -115,12 +115,21 @@ jest.mock('@expo/vector-icons', () => {
 import SessionPlayer from '../src/components/session/SessionPlayer';
 import SessionQueue from '../src/components/session/SessionQueue';
 import SessionSummary from '../src/components/session/SessionSummary';
+import AdaptationSheet from '../src/components/session/AdaptationSheet';
+import CheckInSheet from '../src/components/session/CheckInSheet';
+import ReplanBanner from '../src/components/session/ReplanBanner';
+import type { Recommendation } from '../src/engine/intraSessionAdaptation';
 import type {
   DraftExercise,
   DraftSet,
   SessionDraft,
 } from '../src/engine/sessionModel';
+import type {
+  ReplanSession,
+  WeeklyReplanProposal,
+} from '../src/engine/weeklyReplanner';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import Button from '../src/components/ui/Button';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { createTheme } from '../src/theme/theme';
 
@@ -570,5 +579,464 @@ describe('player-fila-resumo', () => {
     expect(styleValue(screen.getByText('Concluir série'), 'color')).toBe(
       createTheme('blue').colors.accent.on,
     );
+  });
+});
+
+describe('sheets-replan', () => {
+  const recommendation: Recommendation = {
+    outcome: 'under',
+    deviationReps: 3,
+    tier: 'grande',
+    recommended: {
+      kind: 'load',
+      direction: 'decrease',
+      fromKg: 50,
+      toKg: 45,
+      deltaKg: -5,
+      pct: 0.12,
+      label: 'Reduzir para 45 kg',
+      reason: 'Você ficou abaixo da faixa-alvo.',
+    },
+    options: [
+      {
+        kind: 'load',
+        direction: 'decrease',
+        fromKg: 50,
+        toKg: 45,
+        deltaKg: -5,
+        pct: 0.12,
+        label: 'Reduzir para 45 kg',
+        reason: 'Você ficou abaixo da faixa-alvo.',
+      },
+      { kind: 'keep', label: 'Manter a carga', reason: 'Recusar o ajuste.' },
+    ],
+  };
+
+  const replanSession = (
+    id: string,
+    title: string,
+    scheduledDate: string | null,
+    exerciseCount: number,
+    setsPerExercise: number,
+  ): ReplanSession => ({
+    id,
+    weekNumber: 1,
+    title,
+    sessionType: null,
+    scheduledDate,
+    status: 'pending',
+    estimatedMinutes: 60,
+    exercises: Array.from({ length: exerciseCount }, (_, exerciseIndex) => ({
+      id: `${id}-ex-${exerciseIndex}`,
+      name: `Exercício ${exerciseIndex}`,
+      muscleGroup: 'Peito',
+      priority: exerciseIndex === exerciseCount - 1 ? 'accessory' : 'primary',
+      exerciseOrder: exerciseIndex,
+      sets: Array.from({ length: setsPerExercise }, (_, setIndex) => ({
+        id: `${id}-set-${exerciseIndex}-${setIndex}`,
+        setOrder: setIndex + 1,
+      })),
+    })),
+  });
+
+  const sessions: ReplanSession[] = [
+    replanSession('hoje', 'Treino B', '2026-07-15', 4, 3),
+  ];
+
+  const proposal: WeeklyReplanProposal = {
+    adherence: {
+      sessionsDue: 2,
+      sessionsCompleted: 1,
+      sessionRate: 0.5,
+      setsDue: 8,
+      setsCompleted: 4,
+      volumeRate: 0.5,
+    },
+    timeCut: {
+      kind: 'time_cut',
+      sessionId: 'hoje',
+      availableMinutes: 40,
+      estimatedMinutes: 60,
+      ratio: 40 / 60,
+      keptPriorities: ['primary', 'secondary'],
+      cutExercises: [
+        {
+          exerciseId: 'hoje-ex-3',
+          name: 'Tríceps Corda',
+          priority: 'accessory',
+          muscleGroup: 'Tríceps',
+          setsCut: 3,
+        },
+      ],
+    },
+    hasChanges: true,
+  };
+
+  const callbacks = () => ({
+    onChoose: jest.fn(),
+    onDismiss: jest.fn(),
+    onConfirm: jest.fn(),
+    onConfirmReagendamento: jest.fn(),
+    onDecline: jest.fn(),
+    onDeclineReagendamento: jest.fn(),
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setThemeColor('yellow');
+  });
+
+  it('troca selected soft, border e text da AdaptationSheet sem tocar nos callbacks', async () => {
+    const { onChoose, onDismiss } = callbacks();
+    const screen = renderThemed(
+      <AdaptationSheet
+        recommendation={recommendation}
+        exerciseName="Supino"
+        onChoose={onChoose}
+        onDismiss={onDismiss}
+      />,
+      'yellow',
+    );
+    const selectedOption = screen.getByTestId('adaptation-option-0');
+    const selectedLabel = screen.getByText('Reduzir para 45 kg');
+    const yellowTheme = createTheme('yellow');
+    const blueTheme = createTheme('blue');
+
+    expect(styleValue(selectedOption, 'backgroundColor')).toBe(
+      yellowTheme.colors.accent.soft,
+    );
+    expect(styleValue(selectedOption, 'borderColor')).toBe(
+      yellowTheme.colors.accent.border,
+    );
+    expect(styleValue(selectedLabel, 'color')).toBe(yellowTheme.colors.text.accent);
+
+    screen.rerenderWithTheme(
+      <AdaptationSheet
+        recommendation={recommendation}
+        exerciseName="Supino"
+        onChoose={onChoose}
+        onDismiss={onDismiss}
+      />,
+      'blue',
+    );
+    await waitFor(() =>
+      expect(styleValue(screen.getByTestId('adaptation-option-0'), 'backgroundColor')).toBe(
+        blueTheme.colors.accent.soft,
+      ),
+    );
+
+    expect(screen.getByTestId('adaptation-option-0')).toBe(selectedOption);
+    expect(styleValue(screen.getByTestId('adaptation-option-0'), 'borderColor')).toBe(
+      blueTheme.colors.accent.border,
+    );
+    expect(styleValue(screen.getByText('Reduzir para 45 kg'), 'color')).toBe(
+      blueTheme.colors.text.accent,
+    );
+
+    screen.rerenderWithTheme(
+      <AdaptationSheet
+        recommendation={null}
+        exerciseName="Supino"
+        onChoose={onChoose}
+        onDismiss={onDismiss}
+      />,
+      'blue',
+    );
+    expect(screen.queryByText('Reduzir para 45 kg')).toBeNull();
+
+    screen.rerenderWithTheme(
+      <AdaptationSheet
+        recommendation={recommendation}
+        exerciseName="Supino"
+        onChoose={onChoose}
+        onDismiss={onDismiss}
+      />,
+      'blue',
+    );
+    expect(screen.getByTestId('adaptation-option-0')).toBeTruthy();
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('troca selected soft, border e text da CheckInSheet sem perder selecao ao esconder e reabrir', async () => {
+    const { onConfirm } = callbacks();
+    const screen = renderThemed(
+      <CheckInSheet visible sessionTitle="Push A" onConfirm={onConfirm} />,
+      'yellow',
+    );
+    const mood = screen.getByLabelText('Normal');
+    const time = screen.getByLabelText('45 minutos');
+    const yellowTheme = createTheme('yellow');
+    const greenTheme = createTheme('green');
+
+    fireEvent.press(mood);
+    fireEvent.press(time);
+
+    expect(styleValue(mood, 'backgroundColor')).toBe(yellowTheme.colors.accent.soft);
+    expect(styleValue(mood, 'borderColor')).toBe(yellowTheme.colors.accent.border);
+    expect(styleValue(screen.getByText('Normal'), 'color')).toBe(
+      yellowTheme.colors.text.accent,
+    );
+    expect(styleValue(time, 'backgroundColor')).toBe(yellowTheme.colors.accent.soft);
+    expect(styleValue(time, 'borderColor')).toBe(yellowTheme.colors.accent.border);
+    expect(styleValue(screen.getByText('45 min'), 'color')).toBe(
+      yellowTheme.colors.text.accent,
+    );
+
+    screen.rerenderWithTheme(
+      <CheckInSheet visible sessionTitle="Push A" onConfirm={onConfirm} />,
+      'green',
+    );
+    await waitFor(() =>
+      expect(styleValue(screen.getByLabelText('Normal'), 'backgroundColor')).toBe(
+        greenTheme.colors.accent.soft,
+      ),
+    );
+
+    expect(screen.getByLabelText('Normal').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByLabelText('45 minutos').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(styleValue(screen.getByText('Normal'), 'color')).toBe(
+      greenTheme.colors.text.accent,
+    );
+    expect(styleValue(screen.getByText('45 min'), 'color')).toBe(
+      greenTheme.colors.text.accent,
+    );
+
+    screen.rerenderWithTheme(
+      <CheckInSheet visible={false} sessionTitle="Push A" onConfirm={onConfirm} />,
+      'green',
+    );
+    expect(screen.toJSON()).toBeNull();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    screen.rerenderWithTheme(
+      <CheckInSheet visible sessionTitle="Push A" onConfirm={onConfirm} />,
+      'green',
+    );
+    expect(screen.getByLabelText('Normal').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByLabelText('45 minutos').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('troca icone, chip e CTA do ReplanBanner sem disparar callbacks nem perder busy', async () => {
+    const { onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento } =
+      callbacks();
+    const screen = renderThemed(
+      <ReplanBanner
+        proposal={proposal}
+        reagendamento={null}
+        sessions={sessions}
+        busy={false}
+        onConfirm={onConfirm}
+        onConfirmReagendamento={onConfirmReagendamento}
+        onDecline={onDecline}
+        onDeclineReagendamento={onDeclineReagendamento}
+      />,
+      'yellow',
+    );
+    const yellowTheme = createTheme('yellow');
+    const redTheme = createTheme('red');
+
+    expect(styleValue(screen.getByTestId('icon-clock'), 'color')).toBe(
+      yellowTheme.colors.accent.main,
+    );
+    expect(styleValue(screen.getByText('−3'), 'backgroundColor')).toBe(
+      yellowTheme.colors.accent.soft,
+    );
+    expect(styleValue(screen.getByText('−3'), 'color')).toBe(
+      yellowTheme.colors.text.accent,
+    );
+    expect(styleValue(screen.getByTestId('replan-confirm'), 'backgroundColor')).toBe(
+      yellowTheme.colors.accent.main,
+    );
+    expect(styleValue(screen.getByText('Aplicar mudanças'), 'color')).toBe(
+      yellowTheme.colors.accent.on,
+    );
+
+    screen.rerenderWithTheme(
+      <ReplanBanner
+        proposal={proposal}
+        reagendamento={null}
+        sessions={sessions}
+        busy
+        onConfirm={onConfirm}
+        onConfirmReagendamento={onConfirmReagendamento}
+        onDecline={onDecline}
+        onDeclineReagendamento={onDeclineReagendamento}
+      />,
+      'red',
+    );
+    await waitFor(() =>
+      expect(styleValue(screen.getByTestId('icon-clock'), 'color')).toBe(
+        redTheme.colors.accent.main,
+      ),
+    );
+
+    expect(styleValue(screen.getByText('−3'), 'backgroundColor')).toBe(
+      redTheme.colors.accent.soft,
+    );
+    expect(styleValue(screen.getByText('−3'), 'color')).toBe(
+      redTheme.colors.text.accent,
+    );
+    expect(screen.getByText('Aplicando...')).toBeTruthy();
+    expect(screen.getByTestId('replan-confirm').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirmReagendamento).not.toHaveBeenCalled();
+    expect(onDecline).not.toHaveBeenCalled();
+    expect(onDeclineReagendamento).not.toHaveBeenCalled();
+  });
+
+  it('troca o ramo de reagendamento sem alterar warning nem callbacks', async () => {
+    const { onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento } =
+      callbacks();
+    const reagendamento = {
+      movidas: [{ id: 'hoje', de: '2026-07-15', para: '2026-07-17' }],
+      semEncaixe: ['seg'],
+    };
+    const screen = renderThemed(
+      <ReplanBanner
+        proposal={proposal}
+        reagendamento={reagendamento}
+        sessions={sessions}
+        busy={false}
+        onConfirm={onConfirm}
+        onConfirmReagendamento={onConfirmReagendamento}
+        onDecline={onDecline}
+        onDeclineReagendamento={onDeclineReagendamento}
+      />,
+      'yellow',
+    );
+    const yellowTheme = createTheme('yellow');
+    const redTheme = createTheme('red');
+
+    expect(screen.getByText('Treino B')).toBeTruthy();
+    expect(styleValue(screen.getByTestId('icon-calendar'), 'color')).toBe(
+      yellowTheme.colors.accent.main,
+    );
+    expect(styleValue(screen.getByTestId('replan-confirm-reagendamento'), 'backgroundColor')).toBe(
+      yellowTheme.colors.accent.main,
+    );
+    expect(styleValue(screen.getByTestId('icon-alert-triangle'), 'color')).toBe(
+      yellowTheme.colors.status.warning,
+    );
+
+    screen.rerenderWithTheme(
+      <ReplanBanner
+        proposal={proposal}
+        reagendamento={reagendamento}
+        sessions={sessions}
+        busy
+        onConfirm={onConfirm}
+        onConfirmReagendamento={onConfirmReagendamento}
+        onDecline={onDecline}
+        onDeclineReagendamento={onDeclineReagendamento}
+      />,
+      'red',
+    );
+    await waitFor(() =>
+      expect(styleValue(screen.getByTestId('icon-calendar'), 'color')).toBe(
+        redTheme.colors.accent.main,
+      ),
+    );
+
+    expect(screen.getByText('Reencaixando...')).toBeTruthy();
+    expect(screen.getByTestId('replan-confirm-reagendamento').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(styleValue(screen.getByTestId('icon-alert-triangle'), 'color')).toBe(
+      redTheme.colors.status.warning,
+    );
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirmReagendamento).not.toHaveBeenCalled();
+    expect(onDecline).not.toHaveBeenCalled();
+    expect(onDeclineReagendamento).not.toHaveBeenCalled();
+  });
+
+  it('mantem warning e danger funcionais byte a byte iguais quando o neon vira red', async () => {
+    const { onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento } =
+      callbacks();
+    const noChanges = { ...proposal, timeCut: null, hasChanges: false };
+    const screen = renderThemed(
+      <>
+        <ReplanBanner
+          proposal={noChanges}
+          reagendamento={{ movidas: [], semEncaixe: ['hoje'] }}
+          sessions={sessions}
+          busy={false}
+          onConfirm={onConfirm}
+          onConfirmReagendamento={onConfirmReagendamento}
+          onDecline={onDecline}
+          onDeclineReagendamento={onDeclineReagendamento}
+        />
+        <Button
+          label="Excluir treino"
+          variant="danger"
+          onPress={jest.fn()}
+          testID="danger-button"
+        />
+      </>,
+      'yellow',
+    );
+    const yellowTheme = createTheme('yellow');
+    const redTheme = createTheme('red');
+    const yellowWarning = styleValue(
+      screen.getByTestId('icon-alert-triangle'),
+      'color',
+    );
+
+    expect(yellowWarning).toBe(yellowTheme.colors.status.warning);
+    const yellowDanger = styleValue(screen.getByText('Excluir treino'), 'color');
+    expect(yellowDanger).toBe(yellowTheme.colors.status.danger);
+
+    screen.rerenderWithTheme(
+      <>
+        <ReplanBanner
+          proposal={noChanges}
+          reagendamento={{ movidas: [], semEncaixe: ['hoje'] }}
+          sessions={sessions}
+          busy={false}
+          onConfirm={onConfirm}
+          onConfirmReagendamento={onConfirmReagendamento}
+          onDecline={onDecline}
+          onDeclineReagendamento={onDeclineReagendamento}
+        />
+        <Button
+          label="Excluir treino"
+          variant="danger"
+          onPress={jest.fn()}
+          testID="danger-button"
+        />
+      </>,
+      'red',
+    );
+    await waitFor(() =>
+      expect(styleValue(screen.getByTestId('icon-alert-triangle'), 'color')).toBe(
+        redTheme.colors.status.warning,
+      ),
+    );
+
+    expect(styleValue(screen.getByTestId('icon-alert-triangle'), 'color')).toBe(
+      yellowWarning,
+    );
+    expect(styleValue(screen.getByText('Excluir treino'), 'color')).toBe(
+      redTheme.colors.status.danger,
+    );
+    expect(styleValue(screen.getByText('Excluir treino'), 'color')).toBe(
+      yellowDanger,
+    );
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirmReagendamento).not.toHaveBeenCalled();
+    expect(onDecline).not.toHaveBeenCalled();
+    expect(onDeclineReagendamento).not.toHaveBeenCalled();
   });
 });
