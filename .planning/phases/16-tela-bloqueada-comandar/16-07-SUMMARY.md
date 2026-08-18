@@ -151,3 +151,8 @@ None - no external service configuration required.
 ---
 *Phase: 16-tela-bloqueada-comandar*
 *Completed: 2026-08-18*
+
+## Self-Check: PASSED
+
+All 8 files created/modified confirmed present on disk; both commits
+(`4e0a163`, `2fbc253`) confirmed present in `git log`.
