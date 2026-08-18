@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 6/6 plans executed
+**Plans**: 6/9 plans executed
 
 Plans:
 **Wave 1**
@@ -220,9 +220,10 @@ Plans:
 
 - [x] 16-03-PLAN.md — Sessão física: concluir série, ajustar/pular descanso, force-quit-então-toque
 
-**Verification status:** `gaps_found` — 6/8 must-haves verificados; corrigir os
-dois gaps registrados em `16-VERIFICATION.md` (causa raiz em `16-REVIEW.md`
-CR-01/CR-02) antes de concluir a fase.
+**Verification status:** `gaps_found` — 7/9 must-haves verificados (2ª rodada);
+gap 2 fechado (sem_duplicacao=PASS), gap 1 permanece aberto por três defeitos
+pré-existentes (D1/D2/D3, causa raiz em `16-VERIFICATION.md` e
+`16-06-SUMMARY.md`) antes de concluir a fase.
 
 **Gap closure — Wave 1** *(paralelo, sem arquivos em comum)*
 
@@ -231,7 +232,19 @@ CR-01/CR-02) antes de concluir a fase.
 
 **Gap closure — Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 16-06-PLAN.md — Sessão física de re-execução: force-quit-então-toque (PASS-A esperado) + sequência quente sem duplicação
+- [x] 16-06-PLAN.md — Sessão física de re-execução: force-quit-então-toque (PASS-A esperado) + sequência quente sem duplicação — gap 2 fechado (PASS), gap 1 reprovado (FAIL), 3 defeitos pré-existentes descobertos (D1/D2/D3)
+
+**Gap closure round 2 — Wave 3**
+
+- [ ] 16-07-PLAN.md — D1: peek não-destrutivo da fila do App Group + ack condicionado ao resultado real de completeSet() (drainAll()/drainIntentQueue() removidos)
+
+**Gap closure round 2 — Wave 4** *(blocked on Wave 3 completion — mesmo arquivo activeSessionStore.ts)*
+
+- [ ] 16-08-PLAN.md — D2: setReps/setLoad persistem via saveDraft (+ applyServerSetLogs preserva reps/carga em andamento); D3: activateSet garante série ativa única
+
+**Gap closure round 2 — Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 16-09-PLAN.md — Sessão física de re-execução: force_quit_toque (PASS-A esperado), sem_duplicacao (regressão), regressao_geral (Pular após rejeição)
 
 **UI hint**: yes
 
