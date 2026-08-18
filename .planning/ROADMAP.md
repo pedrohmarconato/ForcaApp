@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 3/3 plans executed
+**Plans**: 3/6 plans executed; verification gaps must be closed before completion
 
 Plans:
 **Wave 1**
@@ -219,6 +219,19 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 16-03-PLAN.md — Sessão física: concluir série, ajustar/pular descanso, force-quit-então-toque
+
+**Verification status:** `gaps_found` — 6/8 must-haves verificados; corrigir os
+dois gaps registrados em `16-VERIFICATION.md` (causa raiz em `16-REVIEW.md`
+CR-01/CR-02) antes de concluir a fase.
+
+**Gap closure — Wave 1** *(paralelo, sem arquivos em comum)*
+
+- [ ] 16-04-PLAN.md — Gap 1: reconcileLiveActivityIntents() adiada para dentro de startOrResume() (guarda de hidratação + call sites)
+- [ ] 16-05-PLAN.md — Gap 2: id estável + ackIntentAction, dedup do caminho quente contra replay em cold-launch
+
+**Gap closure — Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 16-06-PLAN.md — Sessão física de re-execução: force-quit-então-toque (PASS-A esperado) + sequência quente sem duplicação
 
 **UI hint**: yes
 
