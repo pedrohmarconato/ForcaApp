@@ -188,3 +188,67 @@ testes de persistência falham e os outros 13 seguem verdes.
 - [x] Evidência automatizada registrada como tipo diferente, não como UAT físico
 - [ ] Teste 2 executado no aparelho — **NÃO**, declinado pelo dono
 - [ ] Teste 1 aprovado — **NÃO**, FAIL com diagnóstico
+
+---
+
+# ADENDO — Re-teste físico após o fix 54de3ef (2026-08-18, mesma data)
+
+Este adendo é posterior ao corpo acima. O corpo registra a sessão física que
+**falhou**; este adendo registra a re-execução **após** a correção do descarte
+silencioso, com build novo instalado.
+
+## Proveniência do build re-testado
+
+`npm run resign` (executado pelo dono no próprio shell) saiu 0, 8/8 etapas,
+`** BUILD SUCCEEDED **`, instalado, gate `verify-native-skeleton.sh` OK.
+
+- HEAD `dbb2e7e`, árvore **limpa**; `git merge-base --is-ancestor 54de3ef HEAD` → verdadeiro
+- **Prova direta no bundle** (não inferência por commit): `nasceuNestaSessao`,
+  a função introduzida pelo fix, presente 1× em `main.jsbundle` (ASCII).
+  `pertenceAoDraft` ausente por ser `const` local minificado — esperado.
+  Bundle reconstruído às 15:53 (o da sessão que falhou era 15:06)
+- Strings da 16-10 seguem presentes (UTF-16LE, 1× cada)
+
+## Resposta do dono
+
+> "agora deu certo"
+
+Sob pergunta dirigida sobre o caminho de UI ("como você ajustou a CARGA?"):
+
+> **"Só pelos botões -/+ do stepper"**
+
+## Interpretação
+
+- `teste_1_stepper=PASS` — caminho de UI confirmado individualmente: **apenas o
+  stepper de carga**, o mesmo caminho que reprovou antes do fix. A série foi
+  concluída após force-quit + toque na Lock Screen + reabertura.
+- `teste_2_duracao` — segue **NÃO EXECUTADO** (declinado; o programa do dono não
+  tem exercício de métrica tempo/tempo_distancia). Coberto apenas por evidência
+  automatizada (`91ec4b4`), que não substitui UAT físico.
+
+## O que este PASS prova, e o que não prova
+
+**Prova:** o descarte silencioso de intent órfã era a causa real do sintoma. O
+mesmo roteiro, no mesmo aparelho, com o mesmo caminho de UI, falhou antes do fix
+e passou depois — variável isolada, já que o build só diferiu por `54de3ef`.
+Como `completeSet()` só conclui se `canCompleteSet()` aprovar
+(`actualLoadKg > 0`), o PASS também prova que a carga ajustada **pelo stepper**
+sobreviveu ao force-quit.
+
+**Não prova:** que o `sessionLogId` chegava `nil` (segue NÃO DETERMINÁVEL sem
+log de device — a adoção temporal também cobre outros casos de nulo); nem nada
+sobre o caminho de duração no aparelho; nem que a origem do `nil` no Swift
+(`CompleteSetIntent.swift:12`) esteja corrigida — não está, o fix é defesa no
+consumidor.
+
+## Correção do registro histórico
+
+As Planos 16-08, 16-09 e 16-10 atacaram persistência de carga/duração como causa
+do `force_quit_toque=FAIL`. Este adendo é a evidência de que a causa era outra e
+estava numa camada acima (reconciliação da fila). O trabalho daquelas planos não
+foi inútil — `setReps`/`setLoad`/`stepLoad`/`setDuration` de fato precisam
+persistir, e persistem — mas **não era o que bloqueava CMD-01**.
+
+`CMD-01`/`CMD-02` seguem `Gaps Found` neste artefato: a marcação é escopo
+exclusivo de `/gsd-verify-work`, conforme a prohibition do frontmatter desta
+plano (mesmo erro revertido em `82c23c8`).
