@@ -1265,11 +1265,16 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     // o núcleo garante (F12).
     const clamped =
       rir == null ? null : Math.min(10, Math.max(0, Math.trunc(rir)));
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualRir: clamped,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualRir: clamped,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita —
+    // nenhuma das sete ações que mutam draft.exercises[].sets[] permanece só
+    // em memória.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] RIR não persistido (não-fatal):', e);
     });
   },
 
@@ -1302,22 +1307,32 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       meters == null || !Number.isFinite(meters) || meters <= 0
         ? null
         : Math.round(meters);
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        actualDistanceM: limpo,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      actualDistanceM: limpo,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] distância não persistida (não-fatal):', e);
     });
   },
 
   setEffort: (exerciseId, setOrder, effort) => {
     const draft = get().draft;
     if (!draft) return;
-    set({
-      draft: withSet(draft, exerciseId, setOrder, (s) => ({
-        ...s,
-        perceivedEffort: effort,
-      })),
+    const novo = withSet(draft, exerciseId, setOrder, (s) => ({
+      ...s,
+      perceivedEffort: effort,
+    }));
+    set({ draft: novo });
+    // CR-01/D2 (16-10-PLAN.md): consistência com as demais ações de escrita —
+    // fecha a última das sete ações de escrita de série sem persistência.
+    saveDraft(novo).catch((e) => {
+      console.warn(
+        '[activeSession] esforço percebido não persistido (não-fatal):',
+        e,
+      );
     });
   },
 

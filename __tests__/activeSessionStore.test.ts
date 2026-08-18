@@ -725,6 +725,60 @@ describe('D2: setReps/setLoad persistem via saveDraft (16-08-PLAN.md/16-VERIFICA
     const ultimoDraft = chamadas[chamadas.length - 1][0];
     expect(ultimoDraft.exercises[0].sets[0].actualDurationSeconds).toBe(45);
   });
+
+  it('setDistance chama saveDraft com o draft cujo actualDistanceM foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-tempo',
+      userId: 'user-1',
+      detail: makeDetailComExercicioDeTempo(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-tempo', 1);
+    mock(saveDraft).mockClear();
+
+    store().setDistance('ex-tempo', 1, 3000);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualDistanceM).toBe(3000);
+  });
+
+  it('setRir chama saveDraft com o draft cujo actualRir foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    store().setRir('ex-1', 1, 3);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualRir).toBe(3);
+  });
+
+  it('setEffort chama saveDraft com o draft cujo perceivedEffort foi atualizado (CR-01/16-10-PLAN.md)', async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    store().setEffort('ex-1', 1, 'moderado');
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].perceivedEffort).toBe('moderado');
+  });
 });
 
 describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit', () => {
