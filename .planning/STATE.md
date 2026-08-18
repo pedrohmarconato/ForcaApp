@@ -6,14 +6,14 @@ current_phase: 16
 current_phase_name: tela-bloqueada-comandar
 status: executing
 stopped_at: Completed 16-09-PLAN.md — D1/D2/D3 fechados no aparelho físico (PASS-A/PASS/PASS), CMD-01/CMD-02 permanecem Gaps Found até /gsd-verify-work
-last_updated: "2026-08-18T15:14:19.437Z"
+last_updated: "2026-08-18T18:03:07.747Z"
 last_activity: 2026-08-18
-last_activity_desc: Phase 16 execution started
+last_activity_desc: Phase 16 execution resumed (wave continue)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 29
-  completed_plans: 24
+  completed_plans: 25
   percent: 25
 ---
 
@@ -34,7 +34,7 @@ pago, sem distribuição a terceiros).
 Phase: 16 (tela-bloqueada-comandar) — EXECUTING
 Plan: 1 of 11
 Status: Executing Phase 16
-Last activity: 2026-08-18 — Phase 16 execution started
+Last activity: 2026-08-18 — Phase 16 execution resumed (wave continue)
 
 Progress: [█████████░] 89%
 
