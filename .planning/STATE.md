@@ -5,10 +5,10 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 16
 current_phase_name: tela-bloqueada-comandar
 status: complete
-stopped_at: Fase 16 COMPLETA — UAT físico fechou os 3 Success Criteria; CMD-01/CMD-02 marcados Complete. Gap residual (caminho de duração sem UAT físico) anotado em 16-UAT.md
-last_updated: "2026-08-18T18:03:07.747Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-08-18T22:52:52.492Z"
 last_activity: 2026-08-18
-last_activity_desc: Fase 16 completa — verify-work fechou CMD-01/CMD-02
+last_activity_desc: Phase 16 execution resumed (wave continue)
 progress:
   total_phases: 4
   completed_phases: 2
@@ -176,13 +176,13 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-18T14:33:51.824Z
-Stopped at: Completed 16-09-PLAN.md — D1/D2/D3 fechados no aparelho físico (PASS-A/PASS/PASS), CMD-01/CMD-02 permanecem Gaps Found até /gsd-verify-work
+Last session: 2026-08-18T22:52:52.477Z
+Stopped at: Phase 17 context gathered
 Lock Screen, timer e blockOnly passaram no iPhone 13; Dynamic Island permanece
 deferida por ausência de hardware compatível. A UAT física do Plano 15-06 também
 passou, mas `15-VERIFICATION.md` confirmou cinco gaps no código. LOCK-03 continua
 pendente até a correção e a verificação final.
-Resume file: None
+Resume file: .planning/phases/17-tela-bloqueada-registrar-e-antecipar/17-CONTEXT.md
 
 Nota sobre este arquivo: `gsd-tools state json` lê os pares `Chave: valor` DESTE
 CORPO, não o frontmatter — verificado em 10/08/2026. Ao atualizar o estado,
