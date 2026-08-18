@@ -145,6 +145,14 @@ None - nenhuma configuração de serviço externo necessária.
 - Prohibitions T-16-05-01/T-16-05-02 do threat register desta plano permanecem `status: flagged-unverified` até a UAT física da Plano 16-06 confirmar o comportamento observável no dispositivo.
 - Esta plano é independente da Plano 16-04 (mesma wave, nenhum arquivo em comum) — nenhum conflito de merge esperado.
 
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/16-tela-bloqueada-comandar/16-05-SUMMARY.md`
+- FOUND: `7c3d69b` (test — RED)
+- FOUND: `f64c33e` (feat — GREEN, Task 1)
+- FOUND: `a648eee` (feat, Task 2)
+- FOUND: `80796c4` (docs — plan metadata)
+
 ---
 *Phase: 16-tela-bloqueada-comandar*
 *Completed: 2026-08-18*
