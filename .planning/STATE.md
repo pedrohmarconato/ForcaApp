@@ -5,16 +5,16 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 16
 current_phase_name: tela-bloqueada-comandar
 status: executing
-stopped_at: Phase 15 verification found five implementation gaps
-last_updated: "2026-08-18T13:37:33.294Z"
+stopped_at: Completed 16-09-PLAN.md — D1/D2/D3 fechados no aparelho físico (PASS-A/PASS/PASS), CMD-01/CMD-02 permanecem Gaps Found até /gsd-verify-work
+last_updated: "2026-08-18T14:33:51.834Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 27
-  completed_plans: 21
-  percent: 25
+  completed_plans: 24
+  percent: 50
 ---
 
 # Project State
@@ -32,11 +32,11 @@ pago, sem distribuição a terceiros).
 ## Current Position
 
 Phase: 16 (tela-bloqueada-comandar) — EXECUTING
-Plan: 1 of 9
-Status: Executing Phase 16
+Plan: 2 of 9
+Status: Ready to execute
 Last activity: 2026-08-18 — Phase 16 execution started
 
-Progress: [█████████░] 93%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [█████████░] 93%
 | Phase 15 P04 | 20min | 1 tasks | 1 files |
 | Phase 15 P02 | 10min | 2 tasks | 5 files |
 | Phase 15 P03 | 12 min | 3 tasks | 5 files |
+| Phase 16 P09 | ~20min | 2 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: A falha de start fica observável por getLastStartFailed e subscription; o banner usa guard de uma ocorrência por processo e sobrevive a remount.
 - [Phase 15]: Dynamic Island compact/minimal/expanded foi deferida para feature futura; implementação permanece, mas não bloqueia v1.3 porque o aparelho do dono é um iPhone 13 sem esse hardware.
 - [Phase 15]: A UAT física completa do Plano 15-06 passou no iPhone 13, mas a verificação independente encontrou cinco gaps de implementação; LOCK-03 permanece pendente até o fechamento desses gaps.
+- [Phase ?]: 16-09: resposta agregada do dono ('todas foram pass agora') interpretada, com ressalva explícita, como sem_duplicacao=PASS, force_quit_toque=PASS-A, regressao_geral=PASS — os dois FAILs de 16-06 revertem; CMD-01/CMD-02 permanecem Gaps Found até a próxima /gsd-verify-work
 
 ### Pending Todos
 
@@ -174,8 +176,8 @@ Items acknowledged and carried forward from previous milestone closes:
 
 ## Session Continuity
 
-Last session: 2026-08-17T20:47:56Z
-Stopped at: Phase 15 verification found five implementation gaps
+Last session: 2026-08-18T14:33:51.824Z
+Stopped at: Completed 16-09-PLAN.md — D1/D2/D3 fechados no aparelho físico (PASS-A/PASS/PASS), CMD-01/CMD-02 permanecem Gaps Found até /gsd-verify-work
 Lock Screen, timer e blockOnly passaram no iPhone 13; Dynamic Island permanece
 deferida por ausência de hardware compatível. A UAT física do Plano 15-06 também
 passou, mas `15-VERIFICATION.md` confirmou cinco gaps no código. LOCK-03 continua
