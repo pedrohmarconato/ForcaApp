@@ -176,6 +176,41 @@ beforeEach(() => {
 });
 
 describe('reconcileLiveActivityIntents', () => {
+  it('chamado com draft ainda null (ordem real do boot, sem setState prévio) não drena a fila nem perde a entrada', async () => {
+    // Reproduz o estado inicial real da store no boot (`draft: null`,
+    // declarado como valor inicial em activeSessionStore.ts) SEM
+    // withMockedActions() — a fila jamais deve ser lida antes de haver um
+    // draft ativo candidato a receber a intenção (16-VERIFICATION.md gap 1 /
+    // 16-REVIEW.md CR-01).
+    useActiveSessionStore.setState({ draft: null });
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(mockDrainQueuedLiveActivityIntents).not.toHaveBeenCalled();
+  });
+
+  it('depois que o draft é hidratado, uma nova chamada aplica a entrada que a chamada anterior (draft null) preservou', async () => {
+    useActiveSessionStore.setState({ draft: null });
+    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
+      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+    expect(mockDrainQueuedLiveActivityIntents).not.toHaveBeenCalled();
+
+    // Só agora o draft é hidratado (equivalente a startOrResume() resolvendo
+    // para um draft ativo) — a MESMA entrada, ainda intacta na fila
+    // simulada, deve ser aplicada nesta segunda chamada.
+    withMockedActions(draft());
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(mockDrainQueuedLiveActivityIntents).toHaveBeenCalledTimes(1);
+    expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+  });
+
   it('completeSet com sessionLogId igual ao draft atual aplica completeSet sobre a série resolvida', async () => {
     withMockedActions(draft());
     mockDrainQueuedLiveActivityIntents.mockResolvedValue([
