@@ -65,13 +65,27 @@ jest.mock('../src/services/api/apiClient', () => ({
     PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
   },
 }));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { id: 'user-1', neon_color: 'yellow' },
+  }),
+}));
 
 import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
 import React from 'react';
 import { saveSetLog } from '../src/services/sessionExecutionRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import SessionPlayer from '../src/components/session/SessionPlayer';
-import type { SessionDraft, DraftExercise, DraftSet } from '../src/engine/sessionModel';
+import type {
+  SessionDraft,
+  DraftExercise,
+  DraftSet,
+} from '../src/engine/sessionModel';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 
@@ -135,7 +149,9 @@ const draftCom = (exercises: DraftExercise[]): SessionDraft => ({
 });
 
 /** Coleta todos os valores de opacity declarados nos estilos da árvore. */
-const opacidadesDaArvore = (tree: any): (number | string | null | undefined)[] => {
+const opacidadesDaArvore = (
+  tree: any,
+): (number | string | null | undefined)[] => {
   const out: (number | string | null | undefined)[] = [];
   const walk = (node: any) => {
     if (!node || typeof node !== 'object') return;
@@ -183,7 +199,11 @@ afterEach(() => {
 const PlayerComStore = () => {
   const draft = useActiveSessionStore((s) => s.draft);
   if (!draft) return null;
-  return <SessionPlayer draft={draft} suggestedLoadFor={() => 40} />;
+  return (
+    <ThemeProvider>
+      <SessionPlayer draft={draft} suggestedLoadFor={() => 40} />
+    </ThemeProvider>
+  );
 };
 
 const renderComDraft = (draft: SessionDraft) => {
@@ -230,12 +250,16 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
     // D-09/D-10: o tempo expirado não ativa a próxima série sozinho.
     await waitFor(() => expect(screen.getByText('DESCANSO')).toBeTruthy());
     expect(screen.getByLabelText(/Descanso: \+/)).toBeTruthy();
-    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[1].status).toBe('pending');
+    expect(
+      useActiveSessionStore.getState().draft?.exercises[0].sets[1].status,
+    ).toBe('pending');
 
     // Só a ação explícita do dono avança para a medição.
     fireEvent.press(screen.getByLabelText('Pular descanso'));
     await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
-    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(false);
+    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(
+      false,
+    );
   });
 
   it('Pular descanso → próximo card IMEDIATAMENTE (sem esperar timer)', async () => {
@@ -249,7 +273,9 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
 
     fireEvent.press(screen.getByLabelText('Pular descanso'));
     await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
-    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(false);
+    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(
+      false,
+    );
   });
 
   it('fronteira entre EXERCÍCIOS: última série de A → descanso anuncia B → B aparece', async () => {
@@ -264,14 +290,18 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
 
     fireEvent.press(screen.getByText('Concluir série'));
     // Última série do Supino: descanso anuncia a troca de exercício.
-    await waitFor(() => expect(screen.getByText('Supino concluído')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText('Supino concluído')).toBeTruthy(),
+    );
     expect(screen.getByText(/A SEGUIR/)).toBeTruthy();
     expect(screen.getByText('Flexão')).toBeTruthy();
 
     fireEvent.press(screen.getByLabelText('Pular descanso'));
     // Card do exercício B na medição (bodyweight não tem campo de carga).
     await waitFor(() => expect(screen.getByText('Peso corporal')).toBeTruthy());
-    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(false);
+    expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(
+      false,
+    );
   });
 });
 
@@ -294,7 +324,8 @@ describe('cardio: distância digitada com vírgula (REQ-01)', () => {
     );
 
     expect(
-      useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualDistanceM,
+      useActiveSessionStore.getState().draft?.exercises[0].sets[0]
+        .actualDistanceM,
     ).toBe(2400);
   });
 });

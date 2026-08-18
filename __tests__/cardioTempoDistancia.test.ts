@@ -46,6 +46,15 @@ jest.mock('../src/services/sessionDraftStorage', () => ({
   loadDraft: jest.fn(),
   clearDraft: jest.fn(),
 }));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { id: 'user-1', neon_color: 'yellow' },
+  }),
+}));
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
@@ -75,12 +84,16 @@ import {
 } from '../src/engine/sessionModel';
 import { alvoDaSerie } from '../src/components/session/SessionPlayer';
 import SessionQueue, { doneLine } from '../src/components/session/SessionQueue';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
 import {
   formatExerciseTarget,
   type SessionDetail,
 } from '../src/services/trainingRepository';
 
 const mock = <T>(fn: T) => fn as unknown as jest.Mock;
+
+const renderQueue = (element: React.ReactElement) =>
+  render(React.createElement(ThemeProvider, null, element));
 
 const detalheComCardio = (): SessionDetail => ({
   id: 'sess-c',
@@ -281,7 +294,11 @@ describe('alvo exibido na tela', () => {
       ...draft.exercises[0],
       metric: 'carga_reps' as const,
     };
-    const serie = { ...draft.exercises[0].sets[0], targetRepsMin: 8, targetRepsMax: 12 };
+    const serie = {
+      ...draft.exercises[0].sets[0],
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+    };
     expect(alvoDaSerie(falsoMusculacao, serie)).toBe('8–12 REPS');
   });
 });
@@ -291,7 +308,11 @@ describe('store: registrar um cardio de verdade', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+    useActiveSessionStore.setState({
+      draft: null,
+      status: 'idle',
+      saveError: null,
+    });
     mock(getLastLoadByExercise).mockResolvedValue({});
     mock(getOpenSessionLog).mockResolvedValue(null);
     mock(startSessionLog).mockResolvedValue({
@@ -403,9 +424,13 @@ describe('store: registrar um cardio de verdade', () => {
   it('valor inválido de duração vira null, não zero (CHECK do banco)', () => {
     store().activateSet('ex-cardio', 1);
     store().setDuration('ex-cardio', 1, 0);
-    expect(store().draft!.exercises[0].sets[0].actualDurationSeconds).toBeNull();
+    expect(
+      store().draft!.exercises[0].sets[0].actualDurationSeconds,
+    ).toBeNull();
     store().setDuration('ex-cardio', 1, -30);
-    expect(store().draft!.exercises[0].sets[0].actualDurationSeconds).toBeNull();
+    expect(
+      store().draft!.exercises[0].sets[0].actualDurationSeconds,
+    ).toBeNull();
   });
 });
 
@@ -414,7 +439,11 @@ describe('store: trocar modalidade de cardio', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+    useActiveSessionStore.setState({
+      draft: null,
+      status: 'idle',
+      saveError: null,
+    });
     mock(getLastLoadByExercise).mockResolvedValue({});
     mock(getOpenSessionLog).mockResolvedValue(null);
     mock(startSessionLog).mockResolvedValue({
@@ -499,7 +528,7 @@ describe('fila de séries (SessionQueue)', () => {
 
   it('cardio (tempo_distancia) oferece "Trocar modalidade"; musculação não', () => {
     const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
-    const screen = render(
+    const screen = renderQueue(
       React.createElement(SessionQueue, {
         draft,
         metaFor: () => null,
@@ -514,7 +543,7 @@ describe('fila de séries (SessionQueue)', () => {
         i === 0 ? { ...ex, metric: 'carga_reps' as const } : ex,
       ),
     };
-    const screenMusculacao = render(
+    const screenMusculacao = renderQueue(
       React.createElement(SessionQueue, {
         draft: draftMusculacao,
         metaFor: () => null,
@@ -526,9 +555,16 @@ describe('fila de séries (SessionQueue)', () => {
 
   it('após applyCardioSwapToDraft a linha mostra "Trocado de X"', () => {
     const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
-    const trocado = applyCardioSwapToDraft(draft, 'ex-cardio', 'Remo Ergômetro');
-    const screen = render(
-      React.createElement(SessionQueue, { draft: trocado, metaFor: () => null }),
+    const trocado = applyCardioSwapToDraft(
+      draft,
+      'ex-cardio',
+      'Remo Ergômetro',
+    );
+    const screen = renderQueue(
+      React.createElement(SessionQueue, {
+        draft: trocado,
+        metaFor: () => null,
+      }),
     );
     expect(screen.getByText(/Trocado de Caminhada/)).toBeTruthy();
   });
@@ -591,7 +627,11 @@ describe('linha da série concluída', () => {
 
   it('musculação continua resumindo reps × carga', () => {
     const draft = buildDraftFromDetail(detalheComCardio(), 'user-1');
-    const musculacao = { ...draft.exercises[0], metric: 'carga_reps' as const, isBodyweight: false };
+    const musculacao = {
+      ...draft.exercises[0],
+      metric: 'carga_reps' as const,
+      isBodyweight: false,
+    };
     const serie = {
       ...draft.exercises[0].sets[0],
       status: 'done' as const,
@@ -608,7 +648,11 @@ describe('retomada de sessão com cardio', () => {
 
   it('reconstruir do servidor NÃO apaga tempo, distância e esforço', async () => {
     jest.clearAllMocks();
-    useActiveSessionStore.setState({ draft: null, status: 'idle', saveError: null });
+    useActiveSessionStore.setState({
+      draft: null,
+      status: 'idle',
+      saveError: null,
+    });
     mock(getLastLoadByExercise).mockResolvedValue({});
     // Servidor tem a série de cardio já gravada; o rascunho local se perdeu.
     mock(getOpenSessionLog).mockResolvedValue({
