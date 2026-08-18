@@ -347,7 +347,11 @@ describe('reconcileLiveActivityIntents', () => {
     expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-4');
   });
 
-  it('entrada com sessionLogId null não aplica nenhuma ação (descartada por ambiguidade), mas confirma o ack (descarte definitivo)', async () => {
+  // Plano 16-12: este caso descarta porque `queuedAt: 'T1'` é ilegível para
+  // Date.parse — NÃO porque sessionLogId nulo descarte sempre. Desde a 16-12
+  // uma órfã com queuedAt VÁLIDO e posterior ao startedAt É adotada (ver o
+  // describe '16-12' ao final). Não generalize este teste para "nulo = descarte".
+  it('entrada com sessionLogId null e queuedAt ilegível não aplica nenhuma ação, mas confirma o ack (descarte definitivo)', async () => {
     withMockedActions(draft());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
       { id: 'evt-5', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: 'T1' },
@@ -518,5 +522,97 @@ describe('16-11: reconciliação de série medida por tempo (caminho setDuration
 
     expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('done');
     expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-dur-3');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plano 16-12 — descarte silencioso de intent órfã (sessionLogId nulo).
+//
+// SINTOMA DE ORIGEM (sessão física real do dono, 2026-08-18): tocou "Concluir
+// série" na Lock Screen com o app force-quit, reabriu, e a série "ficou como
+// estava" — sem erro, sem toast, sem nada. Diagnóstico: CompleteSetIntent.swift:12
+// captura o sessionLogId via `Activity<...>.activities.first?.attributes...`
+// (encadeamento opcional → pode ser nil no cold-launch). A entrada entra na fila
+// com sessionLogId null e a guarda de CAS a confirmava (ack = REMOÇÃO DEFINITIVA)
+// sem nunca chamar completeSet().
+//
+// A distinção que o fix introduz: sessionLogId DIVERGENTE prova que a entrada é
+// de outra sessão — descartar está certo. sessionLogId NULO prova apenas que a
+// origem é desconhecida. A entrada órfã é adotada pelo draft ativo SÓ quando dá
+// para provar temporalmente que nasceu dentro desta sessão (queuedAt >=
+// startedAt). Sem essa prova, o descarte continua — perder uma série é ruim,
+// aplicar numa sessão errada é pior (corrompe histórico em silêncio).
+// ---------------------------------------------------------------------------
+describe('16-12: intent órfã (sessionLogId nulo) não pode ser destruída em silêncio', () => {
+  it('órfã enfileirada DENTRO da sessão ativa (queuedAt >= startedAt) é adotada e aplicada', async () => {
+    withMockedActions(draft()); // startedAt: 2026-08-17T11:00:00.000Z
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-1', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: '2026-08-17T12:00:00Z' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-1');
+  });
+
+  it('órfã ANTERIOR ao início da sessão atual é descartada — é de sessão antiga', async () => {
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-2', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: '2026-08-17T10:00:00Z' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-2');
+  });
+
+  it('órfã com startedAt nulo no draft é descartada — sem prova temporal, não adota', async () => {
+    withMockedActions(draft({ startedAt: null }));
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-3', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: '2026-08-17T12:00:00Z' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-3');
+  });
+
+  it('órfã com queuedAt malformado é descartada — Date.parse NaN nunca vira adoção', async () => {
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-4', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: 'nao-e-uma-data' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-4');
+  });
+
+  it('órfã adotada cujo completeSet REAL reprova NÃO confirma o ack — sobrevive para a próxima tentativa', async () => {
+    withRealActions(draft()); // reps/carga ausentes → canCompleteSet() reprova
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-5', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: '2026-08-17T12:00:00Z' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('active');
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
+  });
+
+  it('sessionLogId DIVERGENTE segue descartado — a distinção nulo-vs-divergente não abre brecha de CAS', async () => {
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-orfa-6', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-OUTRA', queuedAt: '2026-08-17T12:00:00Z' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-6');
   });
 });

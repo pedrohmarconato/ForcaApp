@@ -259,6 +259,29 @@ let operationEpoch = 0;
 // src/services/sessionOutboxDrain.ts — a fila é agora o único ponto que chama
 // RPC de escrita de execução sob timeout (D-15).
 
+/**
+ * Plano 16-12: uma intent órfã (`sessionLogId` nulo) só é adotada pelo draft
+ * ativo quando dá para PROVAR que foi enfileirada depois do início desta
+ * sessão. A origem do nulo é `CompleteSetIntent.swift:12`, que lê o id via
+ * `Activity<...>.activities.first?.attributes.sessionLogId` — encadeamento
+ * opcional que pode resolver `nil` num cold-launch disparado pelo próprio
+ * Intent (app morto no momento do toque na Lock Screen).
+ *
+ * Sem prova (draft sem `startedAt`, ou data ilegível) NÃO adota: perder uma
+ * conclusão de série é ruim, mas aplicá-la na sessão errada corromperia o
+ * histórico de treino em silêncio — que é pior e irreversível.
+ */
+const nasceuNestaSessao = (
+  queuedAt: string,
+  startedAt: string | null,
+): boolean => {
+  if (!startedAt) return false;
+  const enfileiradoEm = Date.parse(queuedAt);
+  const iniciadaEm = Date.parse(startedAt);
+  if (Number.isNaN(enfileiradoEm) || Number.isNaN(iniciadaEm)) return false;
+  return enfileiradoEm >= iniciadaEm;
+};
+
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
 const withSet = (
   draft: SessionDraft,
@@ -1698,15 +1721,26 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     }
     for (const entry of entries) {
       const draft = get().draft;
-      if (
-        !draft ||
-        draft.status !== 'active' ||
-        !entry.sessionLogId ||
-        draft.sessionLogId !== entry.sessionLogId
-      ) {
+      if (!draft || draft.status !== 'active') {
+        // Descarte definitivo: não há sessão ativa para receber a entrada.
+        void ackQueuedLiveActivityIntent(entry.id);
+        continue;
+      }
+      // Plano 16-12: `sessionLogId` DIVERGENTE e `sessionLogId` NULO não são a
+      // mesma coisa e não podem compartilhar destino. Divergente PROVA que a
+      // entrada pertence a outra sessão — descartar está correto (guarda de
+      // CAS original). Nulo prova apenas que a origem é desconhecida; tratá-lo
+      // como divergente destruía, sem erro visível, um toque legítimo na Lock
+      // Screen (sintoma reportado na sessão física de 2026-08-18: a série
+      // "ficou como estava", sem qualquer mensagem).
+      const pertenceAoDraft = entry.sessionLogId
+        ? entry.sessionLogId === draft.sessionLogId
+        : nasceuNestaSessao(entry.queuedAt, draft.startedAt);
+      if (!pertenceAoDraft) {
         // Descarte definitivo por CAS: esta entrada nunca vai se tornar
-        // aplicável tentando de novo (draft trocou/encerrou ou sessionLogId
-        // diverge) — confirma para não acumular indefinidamente na fila.
+        // aplicável tentando de novo (sessionLogId diverge, ou é órfã sem
+        // prova de ter nascido nesta sessão) — confirma para não acumular
+        // indefinidamente na fila.
         void ackQueuedLiveActivityIntent(entry.id);
         continue;
       }
