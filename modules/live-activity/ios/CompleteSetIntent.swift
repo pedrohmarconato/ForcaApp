@@ -10,6 +10,7 @@ struct CompleteSetIntent: LiveActivityIntent {
 
   func perform() async throws -> some IntentResult {
     let sessionLogId = Activity<SessionActivityAttributes>.activities.first?.attributes.sessionLogId
+    let actionId = UUID().uuidString
 
     // Durável PRIMEIRO — sobrevive mesmo se o processo do app não estiver
     // vivo para receber o sendEvent abaixo (caminho de cold-launch, Plano 16-02).
@@ -18,12 +19,16 @@ struct CompleteSetIntent: LiveActivityIntent {
         kind: .completeSet,
         deltaSeconds: nil,
         sessionLogId: sessionLogId,
-        queuedAt: ISO8601DateFormatter().string(from: Date())
+        queuedAt: ISO8601DateFormatter().string(from: Date()),
+        id: actionId
       )
     )
 
-    // Round-trip in-process — só chega ao JS se a bridge já estiver viva.
-    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "completeSet"])
+    // Round-trip in-process — só chega ao JS se a bridge já estiver viva. O
+    // mesmo `id` viaja aqui para o lado JS confirmar (ackIntentAction) a
+    // remoção desta entrada da fila durável depois de aplicá-la — fecha
+    // 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02.
+    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "completeSet", "id": actionId])
 
     return .result()
   }

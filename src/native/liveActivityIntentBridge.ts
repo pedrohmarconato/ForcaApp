@@ -1,4 +1,5 @@
 import {
+  ackQueuedLiveActivityIntent,
   subscribeLiveActivityIntentAction,
   type LiveActivityIntentActionEvent,
 } from '../../modules/live-activity';
@@ -25,6 +26,7 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
         void useActiveSessionStore
           .getState()
           .completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
+        void ackQueuedLiveActivityIntent(event.id);
       }
       return;
     }
@@ -34,11 +36,13 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
         useActiveSessionStore
           .getState()
           .activateSet(proxima.exercise.exerciseId, proxima.set.setOrder);
+        void ackQueuedLiveActivityIntent(event.id);
       }
       return;
     }
     case 'adjustRest': {
       useActiveSessionStore.getState().adjustRest(event.deltaSeconds);
+      void ackQueuedLiveActivityIntent(event.id);
       return;
     }
   }

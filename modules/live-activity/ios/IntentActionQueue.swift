@@ -17,12 +17,25 @@ public struct QueuedIntentAction: Codable {
   public let deltaSeconds: Int?
   public let sessionLogId: String?
   public let queuedAt: String
+  /// Identificador estável (UUID) por entrada — gerado uma vez em `perform()`
+  /// e usado TANTO aqui QUANTO no payload do `sendEvent` in-process. Permite
+  /// que o lado JS confirme (`ackIntentAction`) a remoção seletiva desta
+  /// entrada assim que a entrega "quente" é aplicada com sucesso, fechando
+  /// 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02.
+  public let id: String
 
-  public init(kind: QueuedIntentActionKind, deltaSeconds: Int?, sessionLogId: String?, queuedAt: String) {
+  public init(
+    kind: QueuedIntentActionKind,
+    deltaSeconds: Int?,
+    sessionLogId: String?,
+    queuedAt: String,
+    id: String = UUID().uuidString
+  ) {
     self.kind = kind
     self.deltaSeconds = deltaSeconds
     self.sessionLogId = sessionLogId
     self.queuedAt = queuedAt
+    self.id = id
   }
 }
 
@@ -68,5 +81,17 @@ public enum IntentActionQueue {
     let actions = readAll()
     defaults()?.removeObject(forKey: key)
     return actions
+  }
+
+  /// Remove seletivamente as entradas cujo `id` está em `ids`, preservando
+  /// as demais. Usada por `ackIntentAction` (LiveActivityModule.swift) assim
+  /// que o lado JS confirma que aplicou uma entrega in-process com sucesso —
+  /// fecha 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02: uma ação já
+  /// aplicada pelo caminho quente não deve sobreviver na fila para ser
+  /// redescoberta e reaplicada num cold-launch futuro.
+  public static func remove(ids: Set<String>) {
+    let actions = readAll()
+    let remaining = actions.filter { !ids.contains($0.id) }
+    writeAll(remaining)
   }
 }

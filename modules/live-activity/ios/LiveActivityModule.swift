@@ -27,6 +27,7 @@ public struct QueuedIntentActionRecord: Record {
   @Field var deltaSeconds: Int? = nil
   @Field var sessionLogId: String? = nil
   @Field var queuedAt: String = ""
+  @Field var id: String = ""
 
   public init() {}
 }
@@ -136,8 +137,19 @@ public class LiveActivityModule: Module {
         record.deltaSeconds = action.deltaSeconds
         record.sessionLogId = action.sessionLogId
         record.queuedAt = action.queuedAt
+        record.id = action.id
         return record
       }
+    }
+
+    // Fase 16 Plano 16-05: remove SELETIVAMENTE a entrada cuja entrega
+    // in-process (app vivo, bridge JS registrada) já teve sucesso — chamado
+    // pelo lado JS logo após aplicar a ação contra um alvo resolvido. Fecha
+    // 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02: sem isto, uma ação já
+    // aplicada pelo caminho quente sobreviveria na fila durável para ser
+    // reaplicada por uma reconciliação de cold-launch posterior.
+    AsyncFunction("ackIntentAction") { (id: String) in
+      IntentActionQueue.remove(ids: [id])
     }
   }
 }

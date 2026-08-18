@@ -5,21 +5,24 @@ import type { LiveActivityContentState } from '../../src/engine/liveActivityCont
 export type { LiveActivityContentState } from '../../src/engine/liveActivityContentState';
 
 export type LiveActivityIntentActionEvent =
-  | { kind: 'completeSet' }
-  | { kind: 'skipRest' }
-  | { kind: 'adjustRest'; deltaSeconds: number };
+  | { id: string; kind: 'completeSet' }
+  | { id: string; kind: 'skipRest' }
+  | { id: string; kind: 'adjustRest'; deltaSeconds: number };
 
 /**
  * Entrada drenada da fila durável do App Group (Fase 16 Plano 16-02) —
  * espelho JS de `QueuedIntentActionRecord` (Swift). `kind` é união de
  * string literal (nunca `any`); `deltaSeconds`/`sessionLogId` só têm valor
- * quando o Intent original os gravou.
+ * quando o Intent original os gravou. `id` (Fase 16 Plano 16-05) é o mesmo
+ * identificador usado no evento `onIntentAction` in-process — permite
+ * remoção seletiva via `ackIntentAction`.
  */
 export type QueuedLiveActivityIntent = {
   kind: 'completeSet' | 'skipRest' | 'adjustRest';
   deltaSeconds: number | null;
   sessionLogId: string | null;
   queuedAt: string;
+  id: string;
 };
 
 type LiveActivityModuleEvents = {
@@ -36,6 +39,7 @@ declare class LiveActivityModuleType extends NativeModule<LiveActivityModuleEven
   isActivityRunning(): Promise<boolean>;
   reconcileOrphans(stillActiveSessionLogId: string | null): Promise<boolean>;
   drainIntentQueue(): Promise<QueuedLiveActivityIntent[]>;
+  ackIntentAction(id: string): Promise<void>;
 }
 
 const LiveActivityModule = requireNativeModule<LiveActivityModuleType>('LiveActivityModule');
@@ -63,6 +67,15 @@ export const reconcileLiveActivityOrphans = (
 
 export const drainQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityIntent[]> =>
   LiveActivityModule.drainIntentQueue();
+
+/**
+ * Confirma que uma entrega in-process foi aplicada com sucesso, removendo
+ * SELETIVAMENTE essa entrada da fila durável do App Group (Fase 16 Plano
+ * 16-05) — nunca a fila inteira. Chamado por `liveActivityIntentBridge.ts`
+ * logo após despachar a ação contra um alvo resolvido.
+ */
+export const ackQueuedLiveActivityIntent = (id: string): Promise<void> =>
+  LiveActivityModule.ackIntentAction(id);
 
 export const subscribeLiveActivityIntentAction = (
   listener: (event: LiveActivityIntentActionEvent) => void,

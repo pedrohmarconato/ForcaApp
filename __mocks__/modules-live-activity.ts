@@ -17,4 +17,5 @@ export const endLiveActivity = jest.fn().mockResolvedValue(false);
 export const isLiveActivityRunning = jest.fn().mockResolvedValue(false);
 export const reconcileLiveActivityOrphans = jest.fn().mockResolvedValue(false);
 export const drainQueuedLiveActivityIntents = jest.fn().mockResolvedValue([]);
+export const ackQueuedLiveActivityIntent = jest.fn().mockResolvedValue(undefined);
 export const subscribeLiveActivityIntentAction = jest.fn(() => () => {});
