@@ -205,7 +205,7 @@ vira fonte de verdade.
      bloqueada" mostra o comportamento esperado — ação aplicada de fato ou app
      reaberto para concluir — validando o modelo de processo do `perform()` no
      cold-launch. (UAT do dono no aparelho físico)
-**Plans**: 7/9 plans executed
+**Plans**: 8/9 plans executed
 
 Plans:
 **Wave 1**
@@ -240,7 +240,7 @@ pré-existentes (D1/D2/D3, causa raiz em `16-VERIFICATION.md` e
 
 **Gap closure round 2 — Wave 4** *(blocked on Wave 3 completion — mesmo arquivo activeSessionStore.ts)*
 
-- [ ] 16-08-PLAN.md — D2: setReps/setLoad persistem via saveDraft (+ applyServerSetLogs preserva reps/carga em andamento); D3: activateSet garante série ativa única
+- [x] 16-08-PLAN.md — D2: setReps/setLoad persistem via saveDraft (+ applyServerSetLogs preserva reps/carga em andamento); D3: activateSet garante série ativa única
 
 **Gap closure round 2 — Wave 5** *(blocked on Wave 4 completion)*
 
@@ -296,5 +296,5 @@ série/exercício antes do descanso acabar.
 | 13. Push notification ponta a ponta | v1.2 | 4/5 | Complete (override) | 2026-08-15 |
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
-| 16. Tela bloqueada — comandar | v1.3 | 7/9 | In Progress|  |
+| 16. Tela bloqueada — comandar | v1.3 | 8/9 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
