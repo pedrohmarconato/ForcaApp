@@ -288,6 +288,35 @@ const findSet = (
   return { exercise, set };
 };
 
+/**
+ * D3 (16-08-PLAN.md/16-VERIFICATION.md gap 1): garante no máximo uma série
+ * 'active' por vez em todo o draft. Qualquer série 'active' remanescente (ex.:
+ * travada por um completeSet() reprovado) volta a 'pending' com
+ * activatedAt: null — mesmo padrão de applyExerciseSkipToDraft
+ * (sessionModel.ts:595-615): "a série que estava ATIVA volta a pendente...
+ * mas nada que o aluno digitou é apagado" (reps/carga preservados via spread).
+ * Sem esta invariante, findActiveSet() (sessionModel.ts:290-297) devolve a
+ * PRIMEIRA série 'active' por ordem de array — potencialmente a travada, não
+ * a que acabou de ser ativada (regressão física observada em 16-06-SUMMARY.md,
+ * regressao_geral=FAIL).
+ */
+const deactivateOtherActiveSets = (
+  draft: SessionDraft,
+  exceptExerciseId: string,
+  exceptSetOrder: number,
+): SessionDraft => ({
+  ...draft,
+  exercises: draft.exercises.map((ex) => ({
+    ...ex,
+    sets: ex.sets.map((s) =>
+      s.status === 'active' &&
+      !(ex.exerciseId === exceptExerciseId && s.setOrder === exceptSetOrder)
+        ? { ...s, status: 'pending' as const, activatedAt: null }
+        : s,
+    ),
+  })),
+});
+
 /** Carga sugerida para uma série, dado o estado atual do rascunho. */
 export const suggestionFor = (
   draft: SessionDraft,
@@ -1154,7 +1183,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       ativou = true;
       return { ...s, status: 'active', activatedAt: s.activatedAt ?? agora };
     });
-    if (ativou) set({ draft: { ...novo, restEndsAt: null } });
+    if (!ativou) return;
+    // D3: garante a invariante de série ativa única ANTES do commit final.
+    const semOutrasAtivas = deactivateOtherActiveSets(novo, exerciseId, setOrder);
+    set({ draft: { ...semOutrasAtivas, restEndsAt: null } });
   },
 
   adjustRest: (deltaSeconds) => {

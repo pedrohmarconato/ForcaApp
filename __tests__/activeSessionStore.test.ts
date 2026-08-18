@@ -748,6 +748,64 @@ describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit'
   });
 });
 
+describe('D3: activateSet garante no máximo uma série "active" por vez (16-08-PLAN.md/16-VERIFICATION.md gap 1)', () => {
+  const start = async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+  };
+
+  it('ativar uma série quando NENHUMA outra está active: comportamento idêntico ao atual (sem regressão)', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    expect(store().draft!.exercises[0].sets[0].status).toBe('active');
+    const ativas = store().draft!.exercises
+      .flatMap((e) => e.sets)
+      .filter((s) => s.status === 'active');
+    expect(ativas).toHaveLength(1);
+  });
+
+  it('D3: completeSet reprovado deixa uma série "active"; activateSet no próximo exercício desativa a travada', async () => {
+    await start();
+    // (a) ativa ex-1/1, chama completeSet SEM setReps/setLoad (reprova de propósito)
+    store().activateSet('ex-1', 1);
+    const reprovado = await store().completeSet('ex-1', 1);
+    expect(reprovado).toBe(false);
+    expect(store().draft!.exercises[0].sets[0].status).toBe('active');
+
+    // (b) ativa a série do PRÓXIMO exercício (simula "Pular" avançando)
+    store().activateSet('ex-2', 1);
+
+    // (c) a travada volta a pending; a nova fica active
+    expect(store().draft!.exercises[0].sets[0].status).toBe('pending');
+    expect(store().draft!.exercises[0].sets[0].activatedAt).toBeNull();
+    expect(store().draft!.exercises[1].sets[0].status).toBe('active');
+
+    // (d) exatamente UMA série active em todo o draft, nunca duas
+    const ativas = store()
+      .draft!.exercises.flatMap((e) => e.sets)
+      .filter((s) => s.status === 'active');
+    expect(ativas).toHaveLength(1);
+  });
+
+  it('desativar a série travada preserva reps/carga já digitados (mesmo contrato de applyExerciseSkipToDraft)', async () => {
+    await start();
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 5); // reps informadas, mas SEM carga → completeSet reprova
+    await store().completeSet('ex-1', 1);
+    expect(store().draft!.exercises[0].sets[0].status).toBe('active');
+
+    store().activateSet('ex-2', 1);
+
+    const desativada = store().draft!.exercises[0].sets[0];
+    expect(desativada.status).toBe('pending');
+    expect(desativada.actualReps).toBe(5);
+  });
+});
+
 describe('retomar sessão (fechar no meio e reabrir)', () => {
   it('rascunho local + servidor CONFIRMA a série → retomada como feita, sem novo session_log', async () => {
     // Rascunho local com a 1ª série concluída…
