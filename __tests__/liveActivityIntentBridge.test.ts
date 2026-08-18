@@ -13,10 +13,12 @@ import type { SessionDraft } from '../src/engine/sessionModel';
 // handler é acessado através do listener registrado — mockamos
 // `subscribeLiveActivityIntentAction` para capturar a função passada.
 const mockSubscribe = jest.fn();
+const mockAck = jest.fn();
 jest.mock(
   '../modules/live-activity',
   () => ({
     subscribeLiveActivityIntentAction: (...args: unknown[]) => mockSubscribe(...args),
+    ackQueuedLiveActivityIntent: (...args: unknown[]) => mockAck(...args),
   }),
   { virtual: true },
 );
@@ -131,55 +133,85 @@ const getHandler = (): ((event: unknown) => void) => {
 };
 
 describe('liveActivityIntentBridge', () => {
-  it('completeSet com série ativa presente chama completeSet com a série ativa', () => {
+  it('completeSet com série ativa presente chama completeSet com a série ativa e confirma o ack', () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'completeSet' });
+    handler({ kind: 'completeSet', id: 'evt-1' });
 
     expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
     expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAck).toHaveBeenCalledWith('evt-1');
   });
 
-  it('completeSet sem série ativa mas com série pendente chama completeSet sobre a próxima pendente', () => {
+  it('completeSet sem série ativa mas com série pendente chama completeSet sobre a próxima pendente e confirma o ack', () => {
     const semAtiva = draft();
     semAtiva.exercises[0]!.sets[0]!.status = 'done';
     setDraft(semAtiva);
     const handler = getHandler();
 
-    handler({ kind: 'completeSet' });
+    handler({ kind: 'completeSet', id: 'evt-2' });
 
     expect(completeSet).toHaveBeenCalledWith('ex-2', 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-2');
   });
 
-  it('skipRest chama activateSet sobre a série pendente, nunca completeSet', () => {
+  it('completeSet sem série ativa nem pendente (todas concluídas) não chama completeSet nem ackQueuedLiveActivityIntent', () => {
+    const semAlvo = draft();
+    semAlvo.exercises[0]!.sets[0]!.status = 'done';
+    semAlvo.exercises[1]!.sets[0]!.status = 'done';
+    setDraft(semAlvo);
+    const handler = getHandler();
+
+    handler({ kind: 'completeSet', id: 'evt-x' });
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('skipRest chama activateSet sobre a série pendente, nunca completeSet, e confirma o ack', () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'skipRest' });
+    handler({ kind: 'skipRest', id: 'evt-3' });
 
     expect(activateSet).toHaveBeenCalledWith('ex-2', 1);
     expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAck).toHaveBeenCalledWith('evt-3');
   });
 
-  it('adjustRest chama adjustRest com o deltaSeconds exato', () => {
+  it('skipRest sem série pendente não chama activateSet nem ack', () => {
+    const semPendente = draft();
+    semPendente.exercises[1]!.sets[0]!.status = 'done';
+    setDraft(semPendente);
+    const handler = getHandler();
+
+    handler({ kind: 'skipRest', id: 'evt-y' });
+
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('adjustRest chama adjustRest com o deltaSeconds exato e confirma o ack', () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'adjustRest', deltaSeconds: -30 });
+    handler({ kind: 'adjustRest', deltaSeconds: -30, id: 'evt-4' });
 
     expect(adjustRest).toHaveBeenCalledWith(-30);
+    expect(mockAck).toHaveBeenCalledWith('evt-4');
   });
 
-  it('draft null não chama nenhuma ação da store', () => {
+  it('draft null não chama nenhuma ação da store nem ack', () => {
     setDraft(null);
     const handler = getHandler();
 
-    handler({ kind: 'completeSet' });
-    handler({ kind: 'skipRest' });
+    handler({ kind: 'completeSet', id: 'evt-5' });
+    handler({ kind: 'skipRest', id: 'evt-6' });
 
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
   });
 
   it('registerLiveActivityIntentListener chama subscribeLiveActivityIntentAction exatamente uma vez', () => {
