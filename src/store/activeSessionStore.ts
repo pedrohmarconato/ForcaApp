@@ -83,7 +83,8 @@ import apiClient, { ENDPOINTS } from '../services/api/apiClient';
 import { logger } from '../utils/logger';
 import { ajustarRestEndsAt } from '../engine/sessionSummary';
 import {
-  drainQueuedLiveActivityIntents,
+  peekQueuedLiveActivityIntents,
+  ackQueuedLiveActivityIntent,
   type QueuedLiveActivityIntent,
 } from '../../modules/live-activity';
 
@@ -1564,27 +1565,30 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     void retireLocalDraft(atual);
   },
 
-  // Fase 16 (CMD, Plano 16-02): drena a fila durável do App Group e aplica
-  // cada entrada contra o MESMO completeSet()/activateSet()/adjustRest() já
-  // existentes — nenhum caminho de gravação paralelo. Guarda de CAS: relê
-  // get().draft A CADA iteração (não uma cópia capturada antes do loop),
-  // porque completeSet() dentro do loop pode ele mesmo mudar o draft antes
-  // da próxima iteração processar. Entradas com sessionLogId ausente ou
-  // divergente do draft ATUAL são sempre descartadas silenciosamente.
+  // Fase 16 (CMD, Plano 16-07 / D1): lê a fila durável do App Group de forma
+  // NÃO-destrutiva e aplica cada entrada contra o MESMO completeSet()/
+  // activateSet()/adjustRest() já existentes — nenhum caminho de gravação
+  // paralelo. Guarda de CAS: relê get().draft A CADA iteração (não uma cópia
+  // capturada antes do loop), porque completeSet() dentro do loop pode ele
+  // mesmo mudar o draft antes da próxima iteração processar. Cada entrada só
+  // é confirmada (ackQueuedLiveActivityIntent) DEPOIS de saber o resultado
+  // real: aplicada com sucesso, ou definitivamente descartada por CAS
+  // (sessionLogId ausente/divergente do draft atual). Uma entrada reprovada
+  // por canCompleteSet() (dentro de completeSet()) NUNCA é acked — sobrevive
+  // na fila para a próxima reconciliação (fecha 16-VERIFICATION.md gap 1).
   reconcileLiveActivityIntents: async () => {
     // Guarda de hidratação (16-VERIFICATION.md gap 1 / 16-REVIEW.md CR-01):
     // sem draft ativo candidato, a fila do App Group nunca é sequer lida —
-    // drainQueuedLiveActivityIntents() é destrutivo (lê e remove na mesma
-    // chamada), então drená-la antes de haver um draft para aplicar a
-    // entrada a perderia para sempre, sem segunda chance.
+    // mesmo sendo peekQueuedLiveActivityIntents() não-destrutiva agora, não
+    // há draft para aplicar a entrada ainda.
     const draftAtual = get().draft;
     if (!draftAtual || draftAtual.status !== 'active') return;
     let entries: QueuedLiveActivityIntent[] = [];
     try {
-      entries = await drainQueuedLiveActivityIntents();
+      entries = await peekQueuedLiveActivityIntents();
     } catch (error) {
       console.warn(
-        '[liveActivity] não foi possível drenar a fila de intents:',
+        '[liveActivity] não foi possível ler a fila de intents:',
         error,
       );
       return;
@@ -1597,21 +1601,35 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         !entry.sessionLogId ||
         draft.sessionLogId !== entry.sessionLogId
       ) {
+        // Descarte definitivo por CAS: esta entrada nunca vai se tornar
+        // aplicável tentando de novo (draft trocou/encerrou ou sessionLogId
+        // diverge) — confirma para não acumular indefinidamente na fila.
+        void ackQueuedLiveActivityIntent(entry.id);
         continue;
       }
       switch (entry.kind) {
         case 'completeSet': {
           const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
-          if (alvo) await get().completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
+          let aplicado = true;
+          if (alvo) {
+            aplicado = await get().completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
+          }
+          // Só confirma quando completeSet() retornou true OU quando não
+          // havia nenhum alvo (nada a completar, situação terminal — não é
+          // reprovação de validação). Reprovado por canCompleteSet() NUNCA
+          // é acked aqui.
+          if (aplicado) void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
         case 'skipRest': {
           const proxima = findNextPendingSet(draft);
           if (proxima) get().activateSet(proxima.exercise.exerciseId, proxima.set.setOrder);
+          void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
         case 'adjustRest': {
           if (entry.deltaSeconds != null) get().adjustRest(entry.deltaSeconds);
+          void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
       }

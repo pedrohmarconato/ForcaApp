@@ -105,7 +105,7 @@ import { loadOutbox } from '../src/services/sessionOutboxStorage';
 // reconcileLiveActivityIntents() ao resolver para um draft ativo — não
 // mockado explicitamente neste arquivo, resolve para o mock global inerte
 // via moduleNameMapper (package.json), o mesmo usado por outras 13 suítes.
-import { drainQueuedLiveActivityIntents } from '../modules/live-activity';
+import { peekQueuedLiveActivityIntents } from '../modules/live-activity';
 
 
 // Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
@@ -892,7 +892,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
       startedAt: 'T0',
       setLogs: [],
     });
-    mock(drainQueuedLiveActivityIntents).mockResolvedValue([]);
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([]);
 
     await store().startOrResume({
       sessionId: 'sess-1',
@@ -902,7 +902,7 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
     await confirmarCheckInSePedido();
 
     expect(store().status).toBe('active');
-    expect(drainQueuedLiveActivityIntents).toHaveBeenCalled();
+    expect(peekQueuedLiveActivityIntents).toHaveBeenCalled();
   });
 });
 

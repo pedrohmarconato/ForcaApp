@@ -1,7 +1,8 @@
 // __mocks__/modules-live-activity.ts
 // Fase 16 Plano 16-02: `src/store/activeSessionStore.ts` passou a importar
-// `modules/live-activity` diretamente (drainQueuedLiveActivityIntents), o
-// que faria QUALQUER teste que importa a store transitivamente disparar
+// `modules/live-activity` diretamente (peekQueuedLiveActivityIntents, Plano
+// 16-07), o que faria QUALQUER teste que importa a store transitivamente
+// disparar
 // `requireNativeModule('LiveActivityModule')` do jest-expo — inexistente em
 // ambiente de teste. Mapeado via `moduleNameMapper` (package.json) para
 // todo teste que NÃO mocka `modules/live-activity` explicitamente
@@ -16,6 +17,6 @@ export const updateLiveActivity = jest.fn().mockResolvedValue(false);
 export const endLiveActivity = jest.fn().mockResolvedValue(false);
 export const isLiveActivityRunning = jest.fn().mockResolvedValue(false);
 export const reconcileLiveActivityOrphans = jest.fn().mockResolvedValue(false);
-export const drainQueuedLiveActivityIntents = jest.fn().mockResolvedValue([]);
+export const peekQueuedLiveActivityIntents = jest.fn().mockResolvedValue([]);
 export const ackQueuedLiveActivityIntent = jest.fn().mockResolvedValue(undefined);
 export const subscribeLiveActivityIntentAction = jest.fn(() => () => {});
