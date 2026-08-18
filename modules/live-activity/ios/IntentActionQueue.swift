@@ -10,8 +10,8 @@ public enum QueuedIntentActionKind: String, Codable {
 
 /// Entrada durável da fila do App Group. Gravada ANTES de qualquer tentativa
 /// de round-trip in-process (`LiveActivityModule.shared?.sendEvent`) — é o
-/// contrato que sobrevive a um app force-quit e que a Plano 16-02 (drenagem
-/// no cold-launch) consome via `drainAll()`.
+/// contrato que sobrevive a um app force-quit e que a reconciliação de
+/// cold-launch (Plano 16-07) consome via `peekAll()` (leitura não-destrutiva).
 public struct QueuedIntentAction: Codable {
   public let kind: QueuedIntentActionKind
   public let deltaSeconds: Int?
@@ -41,9 +41,10 @@ public struct QueuedIntentAction: Codable {
 
 /// Fila durável compartilhada entre a extensão de widget e o processo do
 /// app, via `UserDefaults(suiteName:)` do App Group. `enqueue` é chamado
-/// pelos três `LiveActivityIntent`s desta fase; `drainAll` fica pronto para
-/// a Plano 16-02 (reconciliação de cold-launch), mesmo padrão de código
-/// pronto-e-não-invocado que `reconcileOrphans` teve na Plano 15-01.
+/// pelos três `LiveActivityIntent`s desta fase; `peekAll` (leitura
+/// não-destrutiva, Plano 16-07) é usada pela reconciliação de cold-launch;
+/// `remove(ids:)` confirma seletivamente cada entrada depois de aplicada ou
+/// definitivamente descartada.
 public enum IntentActionQueue {
   private static let suiteName = "group.com.pmarconato.forcaapp.shared"
   private static let key = "pendingLiveActivityIntentActions"
@@ -75,12 +76,16 @@ public enum IntentActionQueue {
     writeAll(actions)
   }
 
-  /// Lê e limpa a fila inteira. Não é chamado pelo lado JS ainda nesta
-  /// plano — a Plano 16-02 adiciona o `AsyncFunction` que o expõe.
-  public static func drainAll() -> [QueuedIntentAction] {
-    let actions = readAll()
-    defaults()?.removeObject(forKey: key)
-    return actions
+  /// Lê a fila inteira SEM removê-la (Plano 16-07 / D1, 16-VERIFICATION.md
+  /// gap 1): usada por `activeSessionStore.reconcileLiveActivityIntents()`
+  /// via `AsyncFunction("peekIntentQueue")`. Cada entrada só é removida via
+  /// `remove(ids:)` (chamado por `ackIntentAction`) DEPOIS de confirmado que
+  /// foi aplicada com sucesso ou definitivamente descartada por CAS — nunca
+  /// só por ter sido lida. O antigo primitivo de leitura-e-remoção-na-mesma-
+  /// chamada foi removido por destruir entradas reprovadas por
+  /// `canCompleteSet()` antes da validação sequer rodar.
+  public static func peekAll() -> [QueuedIntentAction] {
+    readAll()
   }
 
   /// Remove seletivamente as entradas cujo `id` está em `ids`, preservando

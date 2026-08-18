@@ -126,12 +126,15 @@ public class LiveActivityModule: Module {
       return stillActiveSessionLogId != nil
     }
 
-    // Fase 16 Plano 16-02: expõe a fila durável do App Group (gravada pelos
-    // LiveActivityIntents mesmo com o app force-quit) para o lado JS drenar
-    // no boot. Conversão pura QueuedIntentAction -> QueuedIntentActionRecord,
-    // sem lógica de negócio nova aqui.
-    AsyncFunction("drainIntentQueue") { () -> [QueuedIntentActionRecord] in
-      IntentActionQueue.drainAll().map { action in
+    // Fase 16 Plano 16-07: expõe a fila durável do App Group (gravada pelos
+    // LiveActivityIntents mesmo com o app force-quit) para o lado JS LER de
+    // forma NÃO-destrutiva no boot — a remoção de cada entrada é seletiva e
+    // condicionada ao resultado real da aplicação (ver `ackIntentAction`
+    // abaixo), nunca acontece só por ter sido lida. Conversão pura
+    // QueuedIntentAction -> QueuedIntentActionRecord, sem lógica de negócio
+    // nova aqui.
+    AsyncFunction("peekIntentQueue") { () -> [QueuedIntentActionRecord] in
+      IntentActionQueue.peekAll().map { action in
         var record = QueuedIntentActionRecord()
         record.kind = action.kind.rawValue
         record.deltaSeconds = action.deltaSeconds

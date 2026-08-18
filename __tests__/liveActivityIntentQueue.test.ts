@@ -1,10 +1,20 @@
 // __tests__/liveActivityIntentQueue.test.ts
-// Fase 16 Plano 16-02 — reconcileLiveActivityIntents(): drena a fila durável
+// Fase 16 Plano 16-02 — reconcileLiveActivityIntents(): lê a fila durável
 // do App Group (fila gravada mesmo com o app force-quit, Plano 16-01) e
 // aplica cada entrada pendente contra completeSet()/activateSet()/adjustRest()
 // já existentes na store, com guarda de CAS por sessionLogId. Mesmo padrão de
 // mocks de módulo de __tests__/activeSessionStore.test.ts — o store real é
 // importado (não mockado inteiro), só os serviços de I/O externo são.
+//
+// Fase 16 Plano 16-07 (D1, 16-VERIFICATION.md gap 1): a leitura passou de
+// drenagem destrutiva (drainQueuedLiveActivityIntents, lia e removia na
+// mesma chamada) para leitura não-destrutiva (peekQueuedLiveActivityIntents)
+// com confirmação seletiva (ackQueuedLiveActivityIntent) condicionada ao
+// resultado real da aplicação. Os dois novos testes ao final do describe
+// chamam completeSet() REAL (sem mock de ação, via withRealActions) para
+// reproduzir o cenário exato do UAT físico force_quit_toque=FAIL: uma
+// entrada cuja série alvo reprova canCompleteSet() (reps/carga ausentes)
+// não pode ser perdida.
 
 jest.mock('../src/services/sessionExecutionRepository', () => {
   class SessionExecutionRequestError extends Error {
@@ -58,18 +68,22 @@ jest.mock('../src/services/api/apiClient', () => ({
   },
 }));
 
-const mockDrainQueuedLiveActivityIntents = jest.fn();
+const mockPeekQueuedLiveActivityIntents = jest.fn();
+const mockAckQueuedLiveActivityIntent = jest.fn().mockResolvedValue(undefined);
 jest.mock(
   '../modules/live-activity',
   () => ({
-    drainQueuedLiveActivityIntents: (...args: unknown[]) =>
-      mockDrainQueuedLiveActivityIntents(...args),
+    peekQueuedLiveActivityIntents: (...args: unknown[]) =>
+      mockPeekQueuedLiveActivityIntents(...args),
+    ackQueuedLiveActivityIntent: (...args: unknown[]) =>
+      mockAckQueuedLiveActivityIntent(...args),
   }),
   { virtual: true },
 );
 
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDraft } from '../src/engine/sessionModel';
+import { saveSetLog } from '../src/services/sessionExecutionRepository';
 
 const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
   version: 1,
@@ -157,6 +171,8 @@ let completeSet: jest.Mock;
 let activateSet: jest.Mock;
 let adjustRest: jest.Mock;
 
+const mock = <T>(fn: T) => fn as unknown as jest.Mock;
+
 /** Substitui só as três ações de gravação — reconcileLiveActivityIntents
  *  (não substituída) as lê de get() no momento da chamada. */
 const withMockedActions = (draftValue: SessionDraft | null): void => {
@@ -171,50 +187,82 @@ const withMockedActions = (draftValue: SessionDraft | null): void => {
   });
 };
 
+// Capturadas ANTES de qualquer withMockedActions() sobrescrever o slice —
+// permitem restaurar as ações REAIS da store nos dois testes D1 abaixo, que
+// precisam exercitar canCompleteSet() de verdade (Plano 16-07).
+const realCompleteSet = useActiveSessionStore.getState().completeSet;
+const realActivateSet = useActiveSessionStore.getState().activateSet;
+const realAdjustRest = useActiveSessionStore.getState().adjustRest;
+const realSetReps = useActiveSessionStore.getState().setReps;
+const realSetLoad = useActiveSessionStore.getState().setLoad;
+
+/** Restaura explicitamente as ações reais da store — nunca herda um
+ *  override deixado por um withMockedActions(...) anterior no mesmo módulo
+ *  Zustand, já que os testes rodam sequencialmente no mesmo processo. */
+const withRealActions = (draftValue: SessionDraft | null): void => {
+  useActiveSessionStore.setState({
+    completeSet: realCompleteSet,
+    activateSet: realActivateSet,
+    adjustRest: realAdjustRest,
+    setReps: realSetReps,
+    setLoad: realSetLoad,
+    draft: draftValue,
+  });
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mock(saveSetLog).mockImplementation(async (params: any) => ({
+    setLogId: 'set-real',
+    actualReps: params.actualReps,
+    actualLoadKg: params.actualLoadKg,
+    actualRir: params.actualRir,
+    outcome: params.outcome,
+  }));
 });
 
 describe('reconcileLiveActivityIntents', () => {
-  it('chamado com draft ainda null (ordem real do boot, sem setState prévio) não drena a fila nem perde a entrada', async () => {
+  it('chamado com draft ainda null (ordem real do boot, sem setState prévio) não lê a fila nem perde a entrada', async () => {
     // Reproduz o estado inicial real da store no boot (`draft: null`,
     // declarado como valor inicial em activeSessionStore.ts) SEM
     // withMockedActions() — a fila jamais deve ser lida antes de haver um
     // draft ativo candidato a receber a intenção (16-VERIFICATION.md gap 1 /
     // 16-REVIEW.md CR-01).
     useActiveSessionStore.setState({ draft: null });
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-1', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
 
-    expect(mockDrainQueuedLiveActivityIntents).not.toHaveBeenCalled();
+    expect(mockPeekQueuedLiveActivityIntents).not.toHaveBeenCalled();
   });
 
   it('depois que o draft é hidratado, uma nova chamada aplica a entrada que a chamada anterior (draft null) preservou', async () => {
     useActiveSessionStore.setState({ draft: null });
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-2', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
-    expect(mockDrainQueuedLiveActivityIntents).not.toHaveBeenCalled();
+    expect(mockPeekQueuedLiveActivityIntents).not.toHaveBeenCalled();
 
     // Só agora o draft é hidratado (equivalente a startOrResume() resolvendo
     // para um draft ativo) — a MESMA entrada, ainda intacta na fila
-    // simulada, deve ser aplicada nesta segunda chamada.
+    // simulada (peek nunca a removeu), deve ser aplicada nesta segunda
+    // chamada.
     withMockedActions(draft());
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
 
-    expect(mockDrainQueuedLiveActivityIntents).toHaveBeenCalledTimes(1);
+    expect(mockPeekQueuedLiveActivityIntents).toHaveBeenCalledTimes(1);
     expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-2');
   });
 
   it('completeSet com sessionLogId igual ao draft atual aplica completeSet sobre a série resolvida', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-3', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -223,12 +271,13 @@ describe('reconcileLiveActivityIntents', () => {
     expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
     expect(activateSet).not.toHaveBeenCalled();
     expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-3');
   });
 
-  it('entrada com sessionLogId diferente do draft atual não aplica nenhuma ação (CAS)', async () => {
+  it('entrada com sessionLogId diferente do draft atual não aplica nenhuma ação (CAS), mas confirma o ack (descarte definitivo)', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-DIFERENTE', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-4', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-DIFERENTE', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -236,12 +285,13 @@ describe('reconcileLiveActivityIntents', () => {
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
     expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-4');
   });
 
-  it('entrada com sessionLogId null não aplica nenhuma ação (descartada por ambiguidade)', async () => {
+  it('entrada com sessionLogId null não aplica nenhuma ação (descartada por ambiguidade), mas confirma o ack (descarte definitivo)', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-5', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -249,11 +299,12 @@ describe('reconcileLiveActivityIntents', () => {
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
     expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-5');
   });
 
-  it('fila vazia não chama nenhuma ação e não lança', async () => {
+  it('fila vazia não chama nenhuma ação, não confirma ack e não lança', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([]);
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([]);
 
     await expect(
       useActiveSessionStore.getState().reconcileLiveActivityIntents(),
@@ -262,11 +313,12 @@ describe('reconcileLiveActivityIntents', () => {
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
     expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
   });
 
-  it('drainQueuedLiveActivityIntents rejeitando resolve sem lançar', async () => {
+  it('peekQueuedLiveActivityIntents rejeitando resolve sem lançar', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockRejectedValue(new Error('bridge indisponível'));
+    mockPeekQueuedLiveActivityIntents.mockRejectedValue(new Error('bridge indisponível'));
 
     await expect(
       useActiveSessionStore.getState().reconcileLiveActivityIntents(),
@@ -275,12 +327,13 @@ describe('reconcileLiveActivityIntents', () => {
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
     expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
   });
 
-  it('adjustRest com deltaSeconds: 45 chama adjustRest(45) com o valor exato', async () => {
+  it('adjustRest com deltaSeconds: 45 chama adjustRest(45) com o valor exato e confirma o ack', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'adjustRest', deltaSeconds: 45, sessionLogId: 'log-1', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-6', kind: 'adjustRest', deltaSeconds: 45, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -288,17 +341,48 @@ describe('reconcileLiveActivityIntents', () => {
     expect(adjustRest).toHaveBeenCalledWith(45);
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-6');
   });
 
-  it('skipRest aplica activateSet sobre a próxima série pendente', async () => {
+  it('skipRest aplica activateSet sobre a próxima série pendente e confirma o ack', async () => {
     withMockedActions(draft());
-    mockDrainQueuedLiveActivityIntents.mockResolvedValue([
-      { kind: 'skipRest', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-7', kind: 'skipRest', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
 
     expect(activateSet).toHaveBeenCalledWith('ex-2', 1);
     expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-7');
+  });
+
+  it('D1: completeSet reprovado por validação real (reps/carga ausentes) NÃO confirma o ack — a entrada sobrevive para a próxima tentativa', async () => {
+    withRealActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-real-1', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('active');
+    expect(useActiveSessionStore.getState().saveError).toBe(
+      'Informe repetições e carga antes de concluir a série.',
+    );
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
+  });
+
+  it('D1: completeSet aplicado com sucesso via completeSet() real (reps/carga presentes) confirma o ack', async () => {
+    withRealActions(draft());
+    useActiveSessionStore.getState().setReps('ex-1', 1, 8);
+    useActiveSessionStore.getState().setLoad('ex-1', 1, 40);
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      { id: 'evt-real-2', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].status).toBe('done');
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-real-2');
   });
 });

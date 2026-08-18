@@ -38,7 +38,7 @@ declare class LiveActivityModuleType extends NativeModule<LiveActivityModuleEven
   ): Promise<boolean>;
   isActivityRunning(): Promise<boolean>;
   reconcileOrphans(stillActiveSessionLogId: string | null): Promise<boolean>;
-  drainIntentQueue(): Promise<QueuedLiveActivityIntent[]>;
+  peekIntentQueue(): Promise<QueuedLiveActivityIntent[]>;
   ackIntentAction(id: string): Promise<void>;
 }
 
@@ -65,8 +65,16 @@ export const reconcileLiveActivityOrphans = (
   stillActiveSessionLogId: string | null,
 ): Promise<boolean> => LiveActivityModule.reconcileOrphans(stillActiveSessionLogId);
 
-export const drainQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityIntent[]> =>
-  LiveActivityModule.drainIntentQueue();
+/**
+ * Lê a fila durável do App Group SEM removê-la (Fase 16 Plano 16-07 / D1) —
+ * cada entrada só é confirmada/removida individualmente via
+ * `ackQueuedLiveActivityIntent` DEPOIS de saber o resultado real da
+ * aplicação (aplicada com sucesso, ou definitivamente descartada por CAS).
+ * O antigo primitivo de leitura-e-remoção-na-mesma-chamada foi removido por
+ * destruir entradas reprovadas por validação antes dela sequer rodar.
+ */
+export const peekQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityIntent[]> =>
+  LiveActivityModule.peekIntentQueue();
 
 /**
  * Confirma que uma entrega in-process foi aplicada com sucesso, removendo
