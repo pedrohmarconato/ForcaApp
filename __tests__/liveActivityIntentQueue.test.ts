@@ -802,4 +802,73 @@ describe('CR-01: deltaValue atravessa a ponte e sobrevive ao cold-launch', () =>
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  // IN-02 (review 2026-08-19): `deltaValue > 0 ? 1 : -1` mapeava um
+  // deltaValue exatamente 0 ("nada a ajustar") para direção -1, decrementando
+  // reps/carga em silêncio. Diferente de deltaValue ausente (CR-01, teste
+  // acima) — aqui o dado está presente e é válido, só não pede direção
+  // alguma, então a entrada deve ser acked e descartada (não presa na fila
+  // para sempre, já que nunca vai deixar de ser 0).
+  it('adjustReps com deltaValue: 0 NÃO chama stepReps (nenhuma direção) e confirma o ack (IN-02)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      entradaFila({ id: 'evt-reps-zero', kind: 'adjustReps', deltaValue: 0, sessionLogId: 'log-1' }),
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(stepReps).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-reps-zero');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('adjustLoad com deltaValue: 0 NÃO chama stepLoad (nenhuma direção) e confirma o ack (IN-02)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      entradaFila({ id: 'evt-load-zero', kind: 'adjustLoad', deltaValue: 0, sessionLogId: 'log-1' }),
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    expect(stepLoad).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-load-zero');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // Prova direta do bug ANTES do fix (reprodução via ação real, não mock):
+  // um deltaValue 0 aplicado com a lógica antiga (`> 0 ? 1 : -1`) decrementava
+  // reps/carga em vez de não fazer nada — este teste usa withRealActions para
+  // exercitar stepReps/stepLoad DE VERDADE e provar que, pós-fix, o valor
+  // real da série não muda.
+  it('IN-02: deltaValue 0 não decrementa reps/carga no draft real (regressão do bug > 0 ? 1 : -1)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const draftComValores = draft({
+      exercises: [
+        {
+          ...draft().exercises[0],
+          sets: [
+            { ...draft().exercises[0].sets[0], actualReps: 8, actualLoadKg: 40 },
+          ],
+        },
+      ],
+    });
+    withRealActions(draftComValores);
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      entradaFila({ id: 'evt-reps-zero-real', kind: 'adjustReps', deltaValue: 0, sessionLogId: 'log-1' }),
+      entradaFila({ id: 'evt-load-zero-real', kind: 'adjustLoad', deltaValue: 0, sessionLogId: 'log-1' }),
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    const setAtual = useActiveSessionStore.getState().draft?.exercises[0].sets[0];
+    expect(setAtual?.actualReps).toBe(8);
+    expect(setAtual?.actualLoadKg).toBe(40);
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-reps-zero-real');
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-load-zero-real');
+    warn.mockRestore();
+  });
 });

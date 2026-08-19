@@ -1946,6 +1946,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             );
             break;
           }
+          // IN-02 (review 2026-08-19): deltaValue ausente (acima) e deltaValue
+          // igual a 0 (aqui) são estados DIFERENTES — ausência é dado
+          // corrompido/formato antigo (mantém na fila, CR-01); 0 é dado válido
+          // que significa "nada a ajustar". `> 0 ? 1 : -1` tratava os dois
+          // igual e mapeava 0 para -1, decrementando reps em silêncio. Como 0
+          // nunca vai deixar de ser 0, prender a entrada na fila não ajudaria
+          // em nada — acka e descarta, com log.
+          if (entry.deltaValue === 0) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) descartado: deltaValue igual a 0 (nada a ajustar)`,
+            );
+            void ackQueuedLiveActivityIntent(entry.id);
+            break;
+          }
           if (alvo) {
             get().stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
           }
@@ -1961,6 +1975,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             console.warn(
               `[activeSession] intent ${entry.id} (${entry.kind}) ignorado: deltaValue ausente — mantido na fila`,
             );
+            break;
+          }
+          // IN-02: mesmo tratamento de adjustReps acima — 0 é "nada a
+          // ajustar", não dado faltando.
+          if (entry.deltaValue === 0) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) descartado: deltaValue igual a 0 (nada a ajustar)`,
+            );
+            void ackQueuedLiveActivityIntent(entry.id);
             break;
           }
           if (alvo) {
