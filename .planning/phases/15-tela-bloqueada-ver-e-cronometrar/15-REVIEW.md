@@ -46,7 +46,29 @@ findings:
   warning: 2
   info: 0
   total: 6
-status: issues_found
+status: resolved
+resolved_at: 2026-08-19T21:00:00Z
+resolution: |
+  Os 6 achados (CR-01..CR-04, WR-01, WR-02) foram fechados pelos planos de
+  gap closure 15-07, 15-08, 15-09 e 15-09b. Confirmado no codigo vivo, nao
+  no SUMMARY:
+  - CR-01/CR-02 (readyOvertime e texto de overtime congelado): resolvidos no
+    widget com TimelineView + timeline.date; provados sem JS por
+    scripts/verify-live-activity-overtime.sh (exit 0).
+  - CR-03 (modulo iOS carregado incondicionalmente): requireOptionalNativeModule
+    sob ramo Platform.OS === 'ios' em modules/live-activity/index.ts. O IRMAO
+    do mesmo bug em modules/native-info/index.ts so apareceu ao reexecutar o
+    browser depois do primeiro conserto (15-09b, f88b7c3).
+  - CR-04 (Activity nao recriada apos timeout de inatividade): caminho de
+    recriacao em src/native/liveActivitySync.ts:96-115.
+  - WR-01 (exercicio recusado elegivel ao card): regra canonica
+    exercicioForaDeJogo aplicada em sessionModel.ts:378 e :391.
+  - WR-02 (3h medindo qualquer edicao): hasNewlyDoneSet
+    (liveActivitySync.ts:59) e a UNICA transicao que adia o prazo.
+  RESSALVA: o Escalation Gate deste documento exige tambem a UAT fisica dos
+  caminhos alterados antes de declarar LOCK-01/LOCK-03 concluidos. Essa UAT
+  e o checkpoint do 15-09, ainda NAO respondido pelo dono. Review resolvido
+  nao significa fase fechada.
 ---
 
 # Phase 15: Code Review Report
