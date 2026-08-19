@@ -126,104 +126,125 @@ const setDraft = (value: ReturnType<typeof draft> | null): void => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  completeSet = jest.fn();
+  completeSet = jest.fn().mockResolvedValue(true);
   activateSet = jest.fn();
   adjustRest = jest.fn();
   stepLoad = jest.fn();
   stepReps = jest.fn();
 });
 
-const getHandler = (): ((event: unknown) => void) => {
+const getHandler = (): ((event: unknown) => Promise<void>) => {
   registerLiveActivityIntentListener();
   expect(mockSubscribe).toHaveBeenCalledTimes(1);
-  return mockSubscribe.mock.calls[0]![0] as (event: unknown) => void;
+  return mockSubscribe.mock.calls[0]![0] as (event: unknown) => Promise<void>;
 };
 
 describe('liveActivityIntentBridge', () => {
-  it('completeSet com série ativa presente chama completeSet com a série ativa e confirma o ack', () => {
+  it('completeSet com série ativa presente chama completeSet com a série ativa e confirma o ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'completeSet', id: 'evt-1' });
+    await handler({ kind: 'completeSet', id: 'evt-1' });
 
     expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
     expect(activateSet).not.toHaveBeenCalled();
     expect(mockAck).toHaveBeenCalledWith('evt-1');
   });
 
-  it('completeSet sem série ativa mas com série pendente chama completeSet sobre a próxima pendente e confirma o ack', () => {
+  it('completeSet sem série ativa mas com série pendente chama completeSet sobre a próxima pendente e confirma o ack', async () => {
     const semAtiva = draft();
     semAtiva.exercises[0]!.sets[0]!.status = 'done';
     setDraft(semAtiva);
     const handler = getHandler();
 
-    handler({ kind: 'completeSet', id: 'evt-2' });
+    await handler({ kind: 'completeSet', id: 'evt-2' });
 
     expect(completeSet).toHaveBeenCalledWith('ex-2', 1);
     expect(mockAck).toHaveBeenCalledWith('evt-2');
   });
 
-  it('completeSet sem série ativa nem pendente (todas concluídas) não chama completeSet nem ackQueuedLiveActivityIntent', () => {
+  it('completeSet sem série ativa nem pendente (todas concluídas) não chama completeSet nem ackQueuedLiveActivityIntent', async () => {
     const semAlvo = draft();
     semAlvo.exercises[0]!.sets[0]!.status = 'done';
     semAlvo.exercises[1]!.sets[0]!.status = 'done';
     setDraft(semAlvo);
     const handler = getHandler();
 
-    handler({ kind: 'completeSet', id: 'evt-x' });
+    await handler({ kind: 'completeSet', id: 'evt-x' });
 
     expect(completeSet).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
-  it('CR-01: completeSet com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+  it('CR-01: completeSet com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'completeSet', sessionLogId: 'log-outra-sessao', id: 'evt-cr1' });
+    await handler({ kind: 'completeSet', sessionLogId: 'log-outra-sessao', id: 'evt-cr1' });
 
     expect(completeSet).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
-  it('CR-01: skipRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+  it('CR-01: skipRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'skipRest', sessionLogId: 'log-outra-sessao', id: 'evt-cr2' });
+    await handler({ kind: 'skipRest', sessionLogId: 'log-outra-sessao', id: 'evt-cr2' });
 
     expect(activateSet).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
-  it('CR-01: adjustRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+  it('CR-01: adjustRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'adjustRest', deltaSeconds: -30, sessionLogId: 'log-outra-sessao', id: 'evt-cr3' });
+    await handler({ kind: 'adjustRest', deltaSeconds: -30, sessionLogId: 'log-outra-sessao', id: 'evt-cr3' });
 
     expect(adjustRest).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
-  it('CR-01: sessionLogId IGUAL ao draft atual não bloqueia — completeSet aplica e confirma o ack', () => {
+  it('CR-01: sessionLogId IGUAL ao draft atual não bloqueia — completeSet aplica e confirma o ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'completeSet', sessionLogId: 'log-1', id: 'evt-cr4' });
+    await handler({ kind: 'completeSet', sessionLogId: 'log-1', id: 'evt-cr4' });
 
     expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
     expect(mockAck).toHaveBeenCalledWith('evt-cr4');
   });
 
-  it('CR-01: sessionLogId AUSENTE (build antigo) mantém o comportamento anterior — aplica e confirma o ack', () => {
+  it('CR-01: sessionLogId AUSENTE (build antigo) mantém o comportamento anterior — aplica e confirma o ack', async () => {
     setDraft(draft());
     const handler = getHandler();
 
-    handler({ kind: 'skipRest', id: 'evt-cr5' });
+    await handler({ kind: 'skipRest', id: 'evt-cr5' });
 
     expect(activateSet).toHaveBeenCalledWith('ex-2', 1);
     expect(mockAck).toHaveBeenCalledWith('evt-cr5');
+  });
+
+  it('WR-01: completeSet reprovado (resolve false — canCompleteSet/reentrância) NÃO confirma o ack', async () => {
+    setDraft(draft());
+    completeSet.mockResolvedValue(false);
+    const handler = getHandler();
+
+    await handler({ kind: 'completeSet', id: 'evt-wr1' });
+
+    expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('WR-01: completeSet que REJEITA também não confirma o ack (falha não vira destruição da entrada)', async () => {
+    setDraft(draft());
+    completeSet.mockRejectedValue(new Error('disco cheio'));
+    const handler = getHandler();
+
+    await handler({ kind: 'completeSet', id: 'evt-wr1b' });
+
+    expect(mockAck).not.toHaveBeenCalled();
   });
 
   it('skipRest chama activateSet sobre a série pendente, nunca completeSet, e confirma o ack', () => {

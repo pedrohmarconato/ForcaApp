@@ -26,7 +26,7 @@ import { useActiveSessionStore } from '../store/activeSessionStore';
  * atributo irresolvível, enviado como "") mantém o comportamento anterior:
  * sem prova de divergência, o toque não é bloqueado.
  */
-const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
+const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise<void> => {
   const draft = useActiveSessionStore.getState().draft;
   if (!draft) return;
 
@@ -35,10 +35,25 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
-        void useActiveSessionStore
-          .getState()
-          .completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
-        void ackQueuedLiveActivityIntent(event.id);
+        // WR-01 (review 2026-08-19): o ack é CONDICIONAL ao resultado —
+        // uma entrada reprovada por canCompleteSet() (reps/carga ausentes)
+        // ou pela trava de reentrância inFlight NUNCA é acked aqui, ficando
+        // na fila durável para a próxima reconciliação (mesma invariante
+        // D1 do cold path — activeSessionStore.ts só confirma entradas
+        // aplicadas). Antes, o ack incondicional destruía o toque. Rejeição
+        // (I/O local) tem o mesmo tratamento: sem ack, entrada preservada,
+        // e sem unhandled rejection no listener nativo.
+        try {
+          const ok = await useActiveSessionStore
+            .getState()
+            .completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
+          if (ok) void ackQueuedLiveActivityIntent(event.id);
+        } catch (error) {
+          console.warn(
+            `[liveActivity] completeSet do intent ${event.id} falhou (mantido na fila):`,
+            error,
+          );
+        }
       }
       return;
     }
