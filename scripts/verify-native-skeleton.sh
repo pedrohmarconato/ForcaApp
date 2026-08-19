@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as sete condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as oito condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -37,8 +37,13 @@
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das sete checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das oito checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
+#
+# A checagem (h) foi adicionada na Fase 17 Plano 17-01: as duas cópias de
+# SessionActivityAttributes.swift precisam ficar byte-idênticas (D-11) e
+# nenhuma checagem anterior provava isso — (g) só confirma presença do
+# struct, não diff de conteúdo (RESEARCH.md Pitfall 5).
 
 set -euo pipefail
 
@@ -148,7 +153,7 @@ rodar_checagens() {
   # checagem confirma só presença + declaração do struct, não diff de
   # conteúdo.
   local nome_intent
-  for nome_intent in CompleteSetIntent SkipRestIntent AdjustRestIntent; do
+  for nome_intent in CompleteSetIntent SkipRestIntent AdjustRestIntent AdjustLoadIntent; do
     if ! grep -q "struct ${nome_intent}" "modules/live-activity/ios/${nome_intent}.swift" 2>/dev/null; then
       vermelho "ABORTADO: [rodada ${rodada}] ${nome_intent} não existe nos dois targets (app + extensão)."
       echo "  Falta modules/live-activity/ios/${nome_intent}.swift ou não declara" >&2
@@ -163,7 +168,23 @@ rodar_checagens() {
     fi
   done
 
-  amarelo "  Rodada ${rodada}: (a)-(g) OK."
+  # (h) SessionActivityAttributes.swift precisa ficar BYTE-IDÊNTICO entre os
+  # dois targets (D-11, Fase 17) — ao contrário dos Intents (checagem g), que
+  # não precisam de paridade de conteúdo por design. A checagem (g) só prova
+  # presença + declaração do struct, nunca diff de conteúdo (RESEARCH.md
+  # Pitfall 5) — por isso esta checagem separada existe.
+  if ! diff -q \
+    targets/session-widget/SessionActivityAttributes.swift \
+    modules/live-activity/ios/SessionActivityAttributes.swift >/dev/null 2>&1; then
+    vermelho "ABORTADO: [rodada ${rodada}] as duas cópias de SessionActivityAttributes.swift divergem."
+    echo "  D-11 exige as duas cópias byte-idênticas:" >&2
+    echo "    targets/session-widget/SessionActivityAttributes.swift" >&2
+    echo "    modules/live-activity/ios/SessionActivityAttributes.swift" >&2
+    echo "  Rode: diff targets/session-widget/SessionActivityAttributes.swift modules/live-activity/ios/SessionActivityAttributes.swift" >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(h) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."

@@ -25,6 +25,7 @@ struct AdjustRestIntent: LiveActivityIntent {
       QueuedIntentAction(
         kind: .adjustRest,
         deltaSeconds: deltaSeconds,
+        deltaValue: nil,
         sessionLogId: sessionLogId,
         queuedAt: ISO8601DateFormatter().string(from: Date()),
         id: actionId

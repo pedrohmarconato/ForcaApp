@@ -1,11 +1,15 @@
 import Foundation
 
 /// Tipo de ação enfileirada por um `LiveActivityIntent` tocado na tela
-/// bloqueada. Fase 16 (CMD): três tipos, um por Intent.
+/// bloqueada. Fase 16 (CMD): três tipos, um por Intent. Fase 17 (REG-02):
+/// `.adjustReps` (Plano 17-03) e `.adjustLoad` (este plano) — dois tipos
+/// novos declarados juntos para não reabrir o enum entre planos.
 public enum QueuedIntentActionKind: String, Codable {
   case completeSet
   case skipRest
   case adjustRest
+  case adjustReps
+  case adjustLoad
 }
 
 /// Entrada durável da fila do App Group. Gravada ANTES de qualquer tentativa
@@ -15,6 +19,11 @@ public enum QueuedIntentActionKind: String, Codable {
 public struct QueuedIntentAction: Codable {
   public let kind: QueuedIntentActionKind
   public let deltaSeconds: Int?
+  /// Delta genérico para `.adjustReps` (inteiro, ex.: 1.0/-1.0) e
+  /// `.adjustLoad` (fracionário, ex.: 2.5/-2.5) — `deltaSeconds` continua
+  /// servindo só `.adjustRest`. Sem valor default: omissão em call sites
+  /// precisa ser explícita, nunca mascarada.
+  public let deltaValue: Double?
   public let sessionLogId: String?
   public let queuedAt: String
   /// Identificador estável (UUID) por entrada — gerado uma vez em `perform()`
@@ -27,12 +36,14 @@ public struct QueuedIntentAction: Codable {
   public init(
     kind: QueuedIntentActionKind,
     deltaSeconds: Int?,
+    deltaValue: Double?,
     sessionLogId: String?,
     queuedAt: String,
     id: String = UUID().uuidString
   ) {
     self.kind = kind
     self.deltaSeconds = deltaSeconds
+    self.deltaValue = deltaValue
     self.sessionLogId = sessionLogId
     self.queuedAt = queuedAt
     self.id = id
