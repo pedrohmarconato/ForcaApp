@@ -30,7 +30,7 @@ struct AdjustRepsIntent: LiveActivityIntent {
         deltaSeconds: nil,
         deltaValue: Double(deltaReps),
         sessionLogId: sessionLogId,
-        queuedAt: ISO8601DateFormatter().string(from: Date()),
+        queuedAt: IntentActionQueue.queuedAtNow(),
         id: actionId
       )
     )

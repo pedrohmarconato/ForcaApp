@@ -20,7 +20,7 @@ struct CompleteSetIntent: LiveActivityIntent {
         deltaSeconds: nil,
         deltaValue: nil,
         sessionLogId: sessionLogId,
-        queuedAt: ISO8601DateFormatter().string(from: Date()),
+        queuedAt: IntentActionQueue.queuedAtNow(),
         id: actionId
       )
     )

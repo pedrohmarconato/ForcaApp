@@ -278,7 +278,19 @@ let operationEpoch = 0;
  * Sem prova (draft sem `startedAt`, ou data ilegível) NÃO adota: perder uma
  * conclusão de série é ruim, mas aplicá-la na sessão errada corromperia o
  * histórico de treino em silêncio — que é pior e irreversível.
+ *
+ * WR-03 (review 2026-08-19): `queuedAt` nasce no relógio do APARELHO e
+ * `startedAt` no relógio do SERVIDOR — domínios de clock diferentes. A
+ * tolerância `SKEW_MS` absorve (a) o relógio do aparelho atrás do servidor
+ * (comum: skew de ~1 minuto anulava o fix da 16-12) e (b) a fronteira de
+ * precisão de segundos (o lado Swift agora emite fração, mas um toque
+ * dentro da mesma janela ainda compara contra milissegundos do servidor).
+ * Decisão registrada: o custo é admitir um órfão enfileirado até 60s ANTES
+ * do início da sessão — aplicá-lo é arriscado, mas descartá-lo é
+ * irreversível (a própria 16-12 nasceu de um toque descartado em silêncio).
  */
+const SKEW_MS = 60_000;
+
 const nasceuNestaSessao = (
   queuedAt: string,
   startedAt: string | null,
@@ -287,7 +299,7 @@ const nasceuNestaSessao = (
   const enfileiradoEm = Date.parse(queuedAt);
   const iniciadaEm = Date.parse(startedAt);
   if (Number.isNaN(enfileiradoEm) || Number.isNaN(iniciadaEm)) return false;
-  return enfileiradoEm >= iniciadaEm;
+  return enfileiradoEm >= iniciadaEm - SKEW_MS;
 };
 
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */

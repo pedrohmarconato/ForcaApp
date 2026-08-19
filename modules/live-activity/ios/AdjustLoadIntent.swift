@@ -29,7 +29,7 @@ struct AdjustLoadIntent: LiveActivityIntent {
         deltaSeconds: nil,
         deltaValue: deltaLoadKg,
         sessionLogId: sessionLogId,
-        queuedAt: ISO8601DateFormatter().string(from: Date()),
+        queuedAt: IntentActionQueue.queuedAtNow(),
         id: actionId
       )
     )
