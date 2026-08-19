@@ -17,6 +17,8 @@ import {
   metricOf,
   suggestLoad,
   suggestReps,
+  stepLoad as stepLoadPuro,
+  stepReps as stepRepsPuro,
   resolveInheritedSet,
   isFirstSetOfExerciseInSession,
   canCompleteSet,
@@ -1337,11 +1339,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         targetLoadKg: s.targetLoadKg,
         lastLoad: draft.lastLoadByExercise[exerciseIdentity(ex)],
       });
-      const base = s.actualLoadKg ?? fallback ?? 0;
-      const next =
-        Math.round(Math.max(0, base + direction * ex.loadIncrementKg) * 100) /
-        100;
-      return { ...s, actualLoadKg: next };
+      // WR-01 (review 2026-08-19): delega à função pura de sessionModel —
+      // a aritmética inline duplicada era uma segunda cópia do mesmo
+      // cálculo (round2 + piso 0). Uma única fonte de agora em diante.
+      return {
+        ...s,
+        actualLoadKg: stepLoadPuro(s.actualLoadKg, ex.loadIncrementKg, direction, fallback),
+      };
     });
     set({ draft: novo });
     // CR-01/D2 (16-10-PLAN.md): stepper de carga (+/-) é a interação PRIMÁRIA
@@ -1363,9 +1367,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         lastReps: draft.lastRepsByExercise[exerciseIdentity(ex)],
         isFirstSetOfExerciseInSession: isFirstSetOfExerciseInSession(ex, s),
       });
-      const base = s.actualReps ?? fallback ?? 0;
-      const next = Math.max(0, Math.round(base + direction));
-      return { ...s, actualReps: next };
+      // WR-01: mesma consolidação de stepLoad — a aritmética vive só em
+      // sessionModel.stepReps, não duplicada aqui.
+      return { ...s, actualReps: stepRepsPuro(s.actualReps, direction, fallback) };
     });
     set({ draft: novo });
     // Mesmo mecanismo de persistência fire-and-forget de stepLoad/setReps/setLoad
