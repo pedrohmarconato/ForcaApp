@@ -129,3 +129,28 @@ autonomous:false — vai parar em checkpoint de UAT físico no iPhone.
 
 ## E4 — regressão cruzada despachada
 tsc + suíte completa + skeleton/overtime/race. Resultado pendente.
+
+## E3/E4 — fechados no automatizável (HEAD a46bea8)
+- Fase 16: REVIEW resolved, VERIFICATION human_needed (4/5, SEM gap de código),
+  SECURITY SECURED (29 ameaças, 0 abertas, 9 riscos aceitos).
+- Fase 15: REVIEW resolved (6/6 confirmados no código vivo), VERIFICATION
+  human_needed (4/8), SECURITY 1 ameaça aberta (T-15-09-02 = evidência humana
+  ausente, não lacuna de código).
+- LOCK-01 estava marcado Complete sem lastro físico → corrigido para Pending
+  em REQUIREMENTS.md, com a razão registrada no próprio documento (d37193e).
+- Cinco fixes mesclados (a46bea8): IN-02, IN-03, IN-04, IN-05, REG-17.
+  Suíte 2017 → 2024 testes, 169 suítes, tsc 0, três harnesses exit 0 real.
+- REG-17 não estava em review nenhum: dois agentes independentes, em fases
+  diferentes, o acharam olhando outra coisa. findPendingSetAfter (Fase 17)
+  filtrava só cutByReplan — exercício RECUSADO era anunciado como "A SEGUIR"
+  na tela bloqueada. Mesma classe do WR-01 que a Fase 15 corrigiu, por um
+  chamador acrescentado depois. O docstring de exercicioForaDeJogo avisa
+  literalmente contra isso.
+- Worktree do executor removido; branch worktree-agent-* apagada (mesclada).
+  NÃO toquei em gsd-reviewfix/16-89574 (é de outra sessão) nem no worktree
+  gsd-workspaces/forca-v1-4-neon (feature/v1.4-neon-theme, sessão paralela ativa).
+
+## BLOQUEIO ÚNICO E ATUAL: UAT física
+Roteiro consolidado em `.planning/UAT-FISICO-15-16-17.md` — 5 itens, um resign
+só, contra o HEAD a46bea8. Destrava LOCK-01, LOCK-03, T-15-09-02 e a
+reconfirmação de CMD-01. NÃO auto-aprovar nenhum item.
