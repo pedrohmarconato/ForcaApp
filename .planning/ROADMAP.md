@@ -288,7 +288,7 @@ série/exercício antes do descanso acabar.
   4. Antes do descanso acabar, a tela bloqueada já mostra a próxima
      série/exercício e a prescrição prevista, sem esperar o descanso chegar a
      zero. (UAT do dono no aparelho físico)
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 
 Plans:
 **Wave 1** *(paralelo, sem arquivos em comum)*
@@ -311,7 +311,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 17-07-PLAN.md — Sessão física: UAT dos Critérios 2/3/4 + toque rápido + orçamento de update + migração de ContentState
+- [x] 17-07-PLAN.md — Sessão física: UAT dos Critérios 2/3/4 + toque rápido + orçamento de update + migração de ContentState
 
 ## Progress
 
@@ -333,4 +333,4 @@ Plans:
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
-| 17. Tela bloqueada — registrar e antecipar | v1.3 | 6/7 | In Progress|  |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 7/7 | In Progress|  |
