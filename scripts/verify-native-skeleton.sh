@@ -153,7 +153,7 @@ rodar_checagens() {
   # checagem confirma só presença + declaração do struct, não diff de
   # conteúdo.
   local nome_intent
-  for nome_intent in CompleteSetIntent SkipRestIntent AdjustRestIntent AdjustLoadIntent; do
+  for nome_intent in CompleteSetIntent SkipRestIntent AdjustRestIntent AdjustLoadIntent AdjustRepsIntent; do
     if ! grep -q "struct ${nome_intent}" "modules/live-activity/ios/${nome_intent}.swift" 2>/dev/null; then
       vermelho "ABORTADO: [rodada ${rodada}] ${nome_intent} não existe nos dois targets (app + extensão)."
       echo "  Falta modules/live-activity/ios/${nome_intent}.swift ou não declara" >&2
