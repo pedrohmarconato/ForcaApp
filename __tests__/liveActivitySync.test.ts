@@ -24,6 +24,7 @@ import {
   updateLiveActivity,
 } from '../modules/live-activity';
 import {
+  endLiveActivityForAbandonedSession,
   getLastStartFailed,
   INACTIVITY_TIMEOUT_MS,
   initLiveActivitySync,
@@ -122,6 +123,36 @@ beforeEach(() => {
 afterEach(() => {
   jest.clearAllTimers();
   jest.useRealTimers();
+});
+
+// Janela #6 (WINDOWS.md) — encerramento no caminho de erro de
+// ActiveSessionScreen.iniciar(), não no subscriber (ver nota "deliberado:"
+// mais abaixo, dentro de initLiveActivitySync).
+describe('endLiveActivityForAbandonedSession', () => {
+  it('com o store idle e draft null (abertura falhou e nada assumiu o card), encerra a Activity imediatamente', async () => {
+    useActiveSessionStore.setState({ status: 'idle', draft: null });
+
+    await endLiveActivityForAbandonedSession();
+
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+  });
+
+  it('com o store active e draft (outra sessão assumiu o card antes do encerramento), NÃO encerra', async () => {
+    useActiveSessionStore.setState({ status: 'active', draft: draft() });
+
+    await endLiveActivityForAbandonedSession();
+
+    expect(mockEnd).not.toHaveBeenCalled();
+  });
+
+  it('não propaga rejeição do encerramento', async () => {
+    useActiveSessionStore.setState({ status: 'idle', draft: null });
+    mockEnd.mockRejectedValueOnce(new Error('Activity já não existe'));
+
+    await expect(endLiveActivityForAbandonedSession()).resolves.toBeUndefined();
+
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+  });
 });
 
 describe('initLiveActivitySync', () => {
@@ -426,30 +457,26 @@ describe('initLiveActivitySync', () => {
     stop();
   });
 
-  // JANELA ABERTA #6 (WINDOWS.md) — este teste DOCUMENTA um defeito, não o
-  // aprova. Ele existe para que a correção quebre a suíte de propósito e o
-  // conserto seja consciente, não acidental.
+  // JANELA #6 (WINDOWS.md) FECHADA — este teste agora documenta um
+  // comportamento DELIBERADO do subscriber, não um defeito em aberto.
   //
   // O que acontece: reset() (activeSessionStore.ts:2286) leva o store de
   // 'active' para 'idle' com draft null. O subscriber abaixo faz early-return
-  // nesse caso e endLiveActivity nunca roda — o único call site é
-  // publishFinished, alcançável só por status 'finished'. Pior: a saída de
-  // 'active' executa clearInactivityTimeout, que remove o único outro
-  // mecanismo capaz de encerrar o card.
-  //
-  // Por que importa: reset() roda dentro de iniciar()
-  // (ActiveSessionScreen.tsx:270), a CADA abertura de sessão. Se
-  // getSessionDetail falhar (sem rede) ou devolver null, startOrResume nunca
-  // roda e o card da sessão anterior fica preso na tela bloqueada mostrando
-  // treino velho até o app reiniciar. Isso viola LOCK-03 na letra
-  // ("nunca fica presa mostrando treino velho"). A reconciliação de boot NÃO
-  // cobre o caso enquanto o app continua aberto.
-  //
-  // A correção está pendente de decisão do dono porque encerrar no subscriber
-  // gera um ciclo end+start a cada abertura de sessão, e o orçamento de
+  // nesse caso e endLiveActivity nunca roda por este caminho — o único call
+  // site do subscriber é publishFinished, alcançável só por status
+  // 'finished'. Isso continua verdadeiro por escolha: encerrar aqui, no
+  // subscriber, produziria um ciclo end+start a cada abertura de sessão
+  // (inclusive ao reabrir a MESMA sessão ativa), e o orçamento de
   // start/update da ActivityKit é risco de plataforma já registrado neste
   // projeto, sem fonte oficial da Apple.
-  it('JANELA #6 (defeito conhecido): reset() para idle durante active NÃO encerra a Activity — card fica preso até o boot', async () => {
+  //
+  // A janela foi fechada por outro caminho: ActiveSessionScreen.iniciar()
+  // (src/screens/ActiveSessionScreen.tsx) agora chama
+  // endLiveActivityForAbandonedSession() explicitamente nos dois ramos de
+  // falha da abertura de sessão (detalhe nulo e catch), depois da guarda
+  // isCurrent(). Ver os três testes de endLiveActivityForAbandonedSession
+  // acima e o teste de fluxo real em activeSessionScreen.test.tsx.
+  it('deliberado: reset() para idle durante active NÃO encerra a Activity pelo subscriber — o encerramento roda no caminho de erro de iniciar()', async () => {
     const stop = initLiveActivitySync();
     const current = draft();
     useActiveSessionStore.setState({ status: 'active', draft: current });

@@ -2283,6 +2283,14 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
   clearStorageWarning: () => set({ storageWarning: null }),
   clearReplanWarning: () => set({ replanWarning: null }),
 
+  // Janela #6 (WINDOWS.md): reset() tem hoje EXATAMENTE um chamador —
+  // ActiveSessionScreen.iniciar() — e a limpeza do card de Live Activity de
+  // uma sessão anterior (endLiveActivityForAbandonedSession, chamada por
+  // iniciar() nos ramos de falha, DEPOIS deste reset) depende dessa
+  // unicidade: ela assume que, se o store não está mais 'active' com draft
+  // quando o encerramento roda, é porque este reset() zerou e nenhuma outra
+  // sessão assumiu o lugar. Um segundo chamador exige revisitar a janela #6
+  // (src/native/liveActivitySync.ts::endLiveActivityForAbandonedSession).
   reset: (userId) => {
     operationEpoch += 1;
     const resyncEpoch = operationEpoch;
