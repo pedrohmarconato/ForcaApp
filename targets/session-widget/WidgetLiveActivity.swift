@@ -6,6 +6,11 @@ import WidgetKit
 private let activityBackground = Color(red: 0.039, green: 0.039, blue: 0.039)
 private let activityNeon = Color(red: 0.922, green: 1.0, blue: 0.0)
 private let activitySecondary = Color(red: 0.545, green: 0.565, blue: 0.596)
+/// IN-01 (review 2026-08-19): fallback do passo de carga quando o incremento
+/// configurado do exercício não chega ao widget — o MESMO 2.5 que o app usa
+/// como incremento default de carga. Extraído do literal duplicado nos dois
+/// botões do stepper de carga da Lock Screen.
+private let defaultLoadIncrementKg: Double = 2.5
 
 private func prescriptionText(_ state: SessionActivityAttributes.ContentState) -> String {
     if state.isBodyweight {
@@ -196,7 +201,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
             .tint(activityNeon)
             if !state.isBodyweight {
                 HStack {
-                    Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? 2.5))) {
+                    Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
                         Text("−")
                     }
                     Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
@@ -207,7 +212,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
                         .opacity(state.isLoadInherited ? 0.6 : 1.0)
                         .minimumScaleFactor(0.8)
                         .lineLimit(1)
-                    Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? 2.5)) {
+                    Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
                         Text("+")
                     }
                 }
