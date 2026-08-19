@@ -333,7 +333,7 @@ Plans:
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
-| 17. Tela bloqueada — registrar e antecipar | v1.3 | 7/7 | In Progress|  |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 7/7 | Complete    | 2026-08-19 |
 
 ## Backlog
 
@@ -353,4 +353,5 @@ de reps e carga (17-01/17-03) e a linha "A SEGUIR" (17-05). Escopo novo, não ga
 Prioridade a definir pelo dono.
 
 Plans:
+
 - [ ] TBD (promote with /gsd-review-backlog when ready)
