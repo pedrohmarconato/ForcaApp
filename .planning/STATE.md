@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
-current_phase: 16
-current_phase_name: tela-bloqueada-comandar
+current_phase: 17
+current_phase_name: tela-bloqueada-registrar-e-antecipar
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-08-19T00:38:45.755Z"
+last_updated: "2026-08-19T01:04:29.508Z"
 last_activity: 2026-08-18
-last_activity_desc: Phase 16 execution resumed (wave continue)
+last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 4
   completed_phases: 2
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
-**Current focus:** Phase 16 — tela-bloqueada-comandar
+**Current focus:** Phase 17 — tela-bloqueada-registrar-e-antecipar
 
 ## Current Position
 
-Phase: 16 (tela-bloqueada-comandar) — EXECUTING
-Plan: 1 of 11
-Status: Ready to execute
-Last activity: 2026-08-18 — Phase 16 execution resumed (wave continue)
+Phase: 17 (tela-bloqueada-registrar-e-antecipar) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 17
+Last activity: 2026-08-18 — Phase 17 execution started
 
 Progress: [█████████░] 89%
 

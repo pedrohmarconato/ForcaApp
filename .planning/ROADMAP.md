@@ -288,13 +288,13 @@ série/exercício antes do descanso acabar.
   4. Antes do descanso acabar, a tela bloqueada já mostra a próxima
      série/exercício e a prescrição prevista, sem esperar o descanso chegar a
      zero. (UAT do dono no aparelho físico)
-**Plans**: 7 plans
+**Plans**: 2/7 plans executed
 
 Plans:
 **Wave 1** *(paralelo, sem arquivos em comum)*
 
-- [ ] 17-01-PLAN.md — Tracer: AdjustLoadIntent ponta a ponta (fila + ContentState + bridge + widget + deep link D-12)
-- [ ] 17-02-PLAN.md — Motor REG-01: lastRepsByExercise, suggestReps/stepReps, resolveInheritedSet, completeSet() materializa herdado
+- [x] 17-01-PLAN.md — Tracer: AdjustLoadIntent ponta a ponta (fila + ContentState + bridge + widget + deep link D-12)
+- [x] 17-02-PLAN.md — Motor REG-01: lastRepsByExercise, suggestReps/stepReps, resolveInheritedSet, completeSet() materializa herdado
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -333,4 +333,4 @@ Plans:
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
-| 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/7 | Not started | - |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 2/7 | In Progress|  |
