@@ -21,8 +21,10 @@ import {
   stepReps,
   resolveInheritedSet,
   coerceDraftNumerics,
+  findPendingSetAfter,
 } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
+import type { DraftExercise, SetRef } from '../src/engine/sessionModel';
 
 describe('computeOutcome', () => {
   it('reps abaixo do mínimo = under', () => {
@@ -250,6 +252,92 @@ describe('coerceDraftNumerics — lastRepsByExercise', () => {
   it('coage string do PostgREST em lastRepsByExercise', () => {
     const draft = { ...draftBase, lastRepsByExercise: { a: '12' } };
     expect(coerceDraftNumerics(draft).lastRepsByExercise).toEqual({ a: 12 });
+  });
+});
+
+describe('findPendingSetAfter — a série ESTRITAMENTE DEPOIS de uma referência (Fase 17, PRED-01)', () => {
+  const makeExercicio = (
+    exerciseId: string,
+    name: string,
+    sets: Array<{ setOrder: number; status: 'pending' | 'active' | 'done' }>,
+    overrides: Partial<DraftExercise> = {},
+  ): DraftExercise => ({
+    exerciseId,
+    name,
+    order: 1,
+    metric: 'carga_reps',
+    equipment: 'Barra',
+    isBodyweight: false,
+    hasInjury: false,
+    loadIncrementKg: 2.5,
+    restSeconds: 90,
+    priority: 'primary',
+    targetRmPercent: null,
+    repsRaw: null,
+    sets: sets.map((s) => ({
+      plannedSetId: `${exerciseId}-set-${s.setOrder}`,
+      setOrder: s.setOrder,
+      targetRepsMin: 8,
+      targetRepsMax: 10,
+      targetLoadKg: 40,
+      targetRir: 2,
+      actualReps: null,
+      actualLoadKg: null,
+      actualRir: null,
+      status: s.status,
+      outcome: null,
+      setLogId: null,
+      adaptation: null,
+      activatedAt: null,
+      completedAt: null,
+    })),
+    ...overrides,
+  });
+
+  const ex1 = makeExercicio('ex-1', 'Supino reto', [
+    { setOrder: 1, status: 'done' },
+    { setOrder: 2, status: 'active' },
+    { setOrder: 3, status: 'pending' },
+  ]);
+  const ex2 = makeExercicio('ex-2', 'Remada curvada', [{ setOrder: 1, status: 'pending' }]);
+
+  const draftBase = { exercises: [ex1, ex2] } as any;
+
+  const ref = (ex: DraftExercise, setOrder: number): SetRef => ({
+    exercise: ex,
+    set: ex.sets.find((s) => s.setOrder === setOrder)!,
+  });
+
+  it('mesmo exercício: encontra a série seguinte, não a primeira pendente do draft', () => {
+    expect(findPendingSetAfter(draftBase, ref(ex1, 2))).toEqual({
+      exercise: ex1,
+      set: ex1.sets[2],
+    });
+  });
+
+  it('exercício esgotado: pula para a próxima série pendente do exercício seguinte', () => {
+    expect(findPendingSetAfter(draftBase, ref(ex1, 3))).toEqual({
+      exercise: ex2,
+      set: ex2.sets[0],
+    });
+  });
+
+  it('referência é a última série pendente do treino: devolve null (fim do treino)', () => {
+    expect(findPendingSetAfter(draftBase, ref(ex2, 1))).toBeNull();
+  });
+
+  it('exercício com cutByReplan entre a referência e a próxima série real é ignorado', () => {
+    const exCortado = makeExercicio('ex-cortado', 'Corrida', [{ setOrder: 1, status: 'pending' }], {
+      cutByReplan: true,
+    });
+    const draft = { exercises: [ex1, exCortado, ex2] } as any;
+    expect(findPendingSetAfter(draft, ref(ex1, 3))).toEqual({ exercise: ex2, set: ex2.sets[0] });
+  });
+
+  it('referência inexistente no draft (setOrder inválido) devolve null, nunca lança', () => {
+    const exForaDoDraft = makeExercicio('ex-fantasma', 'Fantasma', [{ setOrder: 99, status: 'pending' }]);
+    expect(() => findPendingSetAfter(draftBase, ref(exForaDoDraft, 99))).not.toThrow();
+    expect(findPendingSetAfter(draftBase, ref(exForaDoDraft, 99))).toBeNull();
   });
 });
 

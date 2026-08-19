@@ -388,6 +388,31 @@ export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
 };
 
 /**
+ * Série pendente ESTRITAMENTE POSTERIOR a uma referência dada (Fase 17,
+ * PRED-01) — a série que vai virar "atual" DEPOIS da que `ref` descreve, não a
+ * primeira pendente do draft inteiro (essa é `findNextPendingSet`). Mesmo
+ * padrão de iteração das duas funções vizinhas (ignora `cutByReplan`).
+ * Referência que não existe no draft (exercício/setOrder inválido) devolve
+ * null, nunca lança.
+ */
+export const findPendingSetAfter = (draft: SessionDraft, ref: SetRef): SetRef | null => {
+  let passed = false;
+  for (const ex of draft.exercises) {
+    if (ex.cutByReplan) continue;
+    for (const set of ex.sets) {
+      if (!passed) {
+        if (ex.exerciseId === ref.exercise.exerciseId && set.setOrder === ref.set.setOrder) {
+          passed = true;
+        }
+        continue;
+      }
+      if (set.status === 'pending') return { exercise: ex, set };
+    }
+  }
+  return null;
+};
+
+/**
  * Pace em segundos por quilômetro. Derivado — nunca digitado. Devolve null sem
  * distância (bike sem hodômetro, prancha): pace sem distância seria invenção.
  * Espelha a coluna GERADA set_logs.pace_seconds_per_km.

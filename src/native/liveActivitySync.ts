@@ -107,6 +107,12 @@ const buildFinishedContentState = (draft: ActiveDraft): LiveActivityContentState
     loadIncrementKg: null,
     currentReps: null,
     isRepsInherited: false,
+    nextExerciseName: null,
+    nextSetIndex: null,
+    nextSetTotal: null,
+    nextSuggestedReps: null,
+    nextSuggestedLoadKg: null,
+    nextIsBodyweight: null,
   };
 };
 

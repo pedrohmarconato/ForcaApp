@@ -24,6 +24,50 @@ private func seriesText(_ state: SessionActivityAttributes.ContentState) -> Stri
     "Série \(state.setIndex)/\(state.setTotal)"
 }
 
+/// Conteúdo da linha "A SEGUIR" (Fase 17, PRED-01): o MESMO valor que vai
+/// nascer pré-preenchido quando essa série virar a atual (`suggestReps()`/
+/// `suggestLoad()`), nunca o número cru da prescrição. Quando só
+/// `nextExerciseName` existe (virada para bloco de cardio/alongamento, D-03
+/// da Fase 15), mostra só o nome — sem detalhes de série.
+private func nextUpDetailText(_ state: SessionActivityAttributes.ContentState) -> String {
+    guard let name = state.nextExerciseName else { return "" }
+    guard let setIndex = state.nextSetIndex, let setTotal = state.nextSetTotal else {
+        return name
+    }
+    var valor = state.nextIsBodyweight == true
+        ? "peso corporal"
+        : state.nextSuggestedReps.map { "\($0) reps" } ?? "—"
+    if state.nextIsBodyweight != true, let load = state.nextSuggestedLoadKg {
+        valor += ", \(String(format: "%g", load)) kg"
+    }
+    return "\(name) · Série \(setIndex)/\(setTotal) · \(valor)"
+}
+
+/// Muda de exercício na virada? É a ÚNICA transição que altera o que o dono
+/// faz fisicamente (D-15) — só ela recebe destaque visual.
+private func nextUpIsExerciseChange(_ state: SessionActivityAttributes.ContentState) -> Bool {
+    state.nextExerciseName != nil && state.nextExerciseName != state.exerciseName
+}
+
+@ViewBuilder
+private func nextUpLine(_ state: SessionActivityAttributes.ContentState) -> some View {
+    if state.nextExerciseName != nil {
+        let destaque = nextUpIsExerciseChange(state)
+        VStack(alignment: .leading, spacing: 2) {
+            Text("A SEGUIR")
+                .font(.caption2)
+                .fontWeight(.regular)
+                .foregroundColor(destaque ? activityNeon : activitySecondary)
+            Text(nextUpDetailText(state))
+                .font(.caption2)
+                .fontWeight(destaque ? .bold : .regular)
+                .foregroundColor(destaque ? activityNeon : activitySecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
 private func overtimeText(_ state: SessionActivityAttributes.ContentState) -> String {
     guard let restEndsAt = state.restEndsAt else {
         return "+0:00"
@@ -126,6 +170,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
                 }
             }
             .tint(activityNeon)
+            nextUpLine(state)
         }
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
@@ -178,12 +223,14 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
             }
             .font(.caption2)
             .foregroundColor(activitySecondary)
+            nextUpLine(state)
         }
     case .readyOvertime:
         VStack(alignment: .leading, spacing: 4) {
             primaryValue(state)
             secondaryLine(state)
             overtimeValue(state)
+            nextUpLine(state)
         }
     case .blockOnly:
         primaryValue(state)

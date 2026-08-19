@@ -27,6 +27,12 @@ public struct SessionActivityAttributes: ActivityAttributes {
         var blockLabel: String?
         var blockIndex: Int?
         var blockTotal: Int?
+        var nextExerciseName: String?
+        var nextSetIndex: Int?
+        var nextSetTotal: Int?
+        var nextSuggestedReps: Int?
+        var nextSuggestedLoadKg: Double?
+        var nextIsBodyweight: Bool?
     }
 
     var sessionLogId: String
