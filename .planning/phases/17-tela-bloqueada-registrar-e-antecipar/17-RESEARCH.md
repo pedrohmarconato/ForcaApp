@@ -674,6 +674,18 @@ extensão aditiva de contratos existentes.
 
 ## Open Questions
 
+> **Disposição (registrada no fechamento do planejamento, 18/08/2026).** As quatro perguntas
+> foram encaminhadas; **duas continuam sem resposta** e só o aparelho as fecha — não estão
+> resolvidas, estão roteadas.
+>
+> | # | Disposição | Onde |
+> |---|---|---|
+> | 1 — toque rápido bypassa `perform()`? | **EM ABERTO** — incógnita de aparelho | Item de UAT físico obrigatório, `17-07-PLAN.md` |
+> | 2 — orçamento real de `Activity.update()`? | **EM ABERTO** — incógnita de aparelho; nenhum debounce preventivo foi planejado | Item de UAT físico obrigatório, `17-07-PLAN.md`; proibição explícita de coalescing em `17-01-PLAN.md` |
+> | 3 — `Link` como segundo tap-target no Lock Screen? | **CONTORNADA por decisão de projeto** — o plano reusa o `widgetURL` do card, caminho documentado; a pergunta em si segue sem resposta | `17-01-PLAN.md` |
+> | 4 — `active-session/:sessionId` pousa na série ativa? | **RESPONDIDA** — sim, sem parâmetro extra (`ActiveSessionScreen.tsx:60,271-282`, via `startOrResume`/`SessionPlayer`) | `17-PATTERNS.md` |
+
+
 1. **Toque rápido no stepper — bypassa o AppIntent e abre o app?**
    - O que sabemos: existe um relato de fórum não respondido descrevendo exatamente este
      comportamento em widgets interativos genéricos (não Live Activity especificamente).

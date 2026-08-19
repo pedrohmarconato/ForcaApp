@@ -4,15 +4,15 @@ milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 16
 current_phase_name: tela-bloqueada-comandar
-status: complete
+status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-08-18T22:52:52.492Z"
+last_updated: "2026-08-19T00:38:45.755Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 16 execution resumed (wave continue)
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 29
+  total_plans: 36
   completed_plans: 26
   percent: 50
 ---
@@ -33,7 +33,7 @@ pago, sem distribuição a terceiros).
 
 Phase: 16 (tela-bloqueada-comandar) — EXECUTING
 Plan: 1 of 11
-Status: Executing Phase 16
+Status: Ready to execute
 Last activity: 2026-08-18 — Phase 16 execution resumed (wave continue)
 
 Progress: [█████████░] 89%
