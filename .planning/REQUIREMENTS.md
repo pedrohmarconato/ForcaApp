@@ -113,7 +113,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | LOCK-03 | Phase 15 | Pending |
 | CMD-01 | Phase 16 | Complete |
 | CMD-02 | Phase 16 | Complete |
-| REG-01 | Phase 17 | Pending (falta PWA real) |
+| REG-01 | Phase 17 | Pending (falta ver no app do iPhone) |
 | REG-02 | Phase 17 | Complete |
 | PRED-01 | Phase 17 | Complete |
 
