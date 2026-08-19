@@ -16,6 +16,7 @@ import {
   getOpenSessionLog,
   finishSessionLog,
   getLastLoadByExercise,
+  getLastRepsByExercise,
   getCompletedSessions,
   getSetLogsResumo,
   getSessionLogDetail,
@@ -636,6 +637,116 @@ describe('getLastLoadByExercise', () => {
   });
 });
 
+describe('getLastRepsByExercise (Fase 17, D-02 — espelha getLastLoadByExercise em actual_reps)', () => {
+  it('lista vazia não consulta o banco', async () => {
+    expect(await getLastRepsByExercise([])).toEqual({});
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+
+  it('pega as reps MAIS RECENTES por exercício e coage numeric', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: '10',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: { planned_exercises: { name: 'Supino Reto' } },
+          },
+          {
+            actual_reps: '8',
+            completed_at: '2026-07-10T10:00:00Z',
+            planned_sets: { planned_exercises: { name: 'Supino Reto' } },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(await getLastRepsByExercise(['supino reto'])).toEqual({
+      'supino reto': 10,
+    });
+  });
+
+  it('casa pelo exercise_key mesmo quando o nome exibido difere', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: '12',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Flexão (variação)',
+                exercise_key: 'flexao_bracos',
+              },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(await getLastRepsByExercise(['k:flexao_bracos'])).toEqual({
+      'k:flexao_bracos': 12,
+    });
+  });
+
+  // D-02: bodyweight (sem actual_load_kg) precisa continuar contando reps —
+  // por isso a query filtra em actual_reps, nunca em actual_load_kg.
+  it('inclui exercício bodyweight sem carga, filtrando só por reps preenchidas', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: '15',
+            completed_at: '2026-07-17T10:00:00Z',
+            planned_sets: {
+              planned_exercises: { name: 'Flexão de Braço', exercise_key: null },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(await getLastRepsByExercise(['flexao de braco'])).toEqual({
+      'flexao de braco': 15,
+    });
+  });
+
+  it('ignora set_logs de plano purpose=joint na sugestão do treino solo', async () => {
+    fromMock.mockReturnValueOnce(
+      makeBuilder({
+        data: [
+          {
+            actual_reps: '6',
+            completed_at: '2026-08-04T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino Reto',
+                exercise_key: 'supino_reto_barra',
+                planned_sessions: { training_plans: { purpose: 'joint' } },
+              },
+            },
+          },
+          {
+            actual_reps: '9',
+            completed_at: '2026-07-20T10:00:00Z',
+            planned_sets: {
+              planned_exercises: {
+                name: 'Supino Reto',
+                exercise_key: 'supino_reto_barra',
+                planned_sessions: { training_plans: { purpose: 'solo' } },
+              },
+            },
+          },
+        ],
+        error: null,
+      }),
+    );
+    expect(
+      await getLastRepsByExercise(['k:supino_reto_barra']),
+    ).toEqual({ 'k:supino_reto_barra': 9 });
+  });
+});
+
 describe('getCompletedSessions', () => {
   it('mapeia sessões concluídas com título, semana e tempo efetivo', async () => {
     fromMock.mockReturnValueOnce(
@@ -1114,6 +1225,33 @@ describe('0026 ausente no banco — 42703 degrada sem quebrar (achado A1/A7)', (
       );
     expect(await getLastLoadByExercise(['k:supino_reto_barra'])).toEqual({
       'k:supino_reto_barra': 60,
+    });
+  });
+
+  it('getLastRepsByExercise refaz sem purpose e devolve as reps', async () => {
+    fromMock
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: null,
+          error: { code: '42703', message: 'column training_plans.purpose does not exist' },
+        }),
+      )
+      .mockReturnValueOnce(
+        makeBuilder({
+          data: [
+            {
+              actual_reps: '9',
+              completed_at: '2026-07-20T10:00:00Z',
+              planned_sets: {
+                planned_exercises: { name: 'Supino Reto', exercise_key: 'supino_reto_barra' },
+              },
+            },
+          ],
+          error: null,
+        }),
+      );
+    expect(await getLastRepsByExercise(['k:supino_reto_barra'])).toEqual({
+      'k:supino_reto_barra': 9,
     });
   });
 

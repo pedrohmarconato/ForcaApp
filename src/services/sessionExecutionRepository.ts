@@ -676,6 +676,68 @@ export const getLastLoadByExercise = async (
   return mapa;
 };
 
+/**
+ * Espelha getLastLoadByExercise (comentário acima) trocando a coluna filtrada
+ * para actual_reps — Fase 17, D-02: reps e carga vêm do mesmo lugar, mesma
+ * semeadura, mesmo envelhecimento. Filtra em actual_reps (não
+ * actual_load_kg): bodyweight tem reps sem carga e não pode ficar de fora
+ * (D-02 do CONTEXT.md — "sem a checagem isBodyweight — peso corporal ainda
+ * tem reps"). Duas queries SEPARADAS de propósito: combinar com
+ * getLastLoadByExercise numa só quebraria a leitura de reps de bodyweight,
+ * que o filtro de carga excluiria.
+ */
+export const getLastRepsByExercise = async (
+  identities: string[],
+): Promise<Record<string, number>> => {
+  if (identities.length === 0) return {};
+  const alvo = new Set(identities);
+
+  const consultaReps = (comPurpose: boolean) => {
+    const query = supabase
+      .from('set_logs')
+      .select(
+        comPurpose
+          ? 'actual_reps, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key, planned_sessions!inner(training_plans!inner(purpose))))'
+          : 'actual_reps, completed_at, planned_sets!inner(planned_exercises!inner(name, exercise_key))',
+      )
+      .not('actual_reps', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(300);
+    return comPurpose
+      ? query.neq(
+          'planned_sets.planned_exercises.planned_sessions.training_plans.purpose',
+          'joint',
+        )
+      : query;
+  };
+
+  let { data, error } = await consultaReps(true);
+  if (erroDeColunaAusente(error)) {
+    // 0026 ausente no banco: refaz sem o embed/filtro de purpose e segue.
+    ({ data, error } = await consultaReps(false));
+  }
+  if (error) throw error;
+
+  const mapa: Record<string, number> = {};
+  for (const linha of (data ?? []) as any[]) {
+    const exercicio = linha?.planned_sets?.planned_exercises;
+    const nome: string | undefined = exercicio?.name;
+    const reps = linha?.actual_reps;
+    if (!nome || reps == null) continue;
+    const purpose = exercicio?.planned_sessions?.training_plans?.purpose;
+    if (purpose === 'joint') continue;
+    const chave = exerciseIdentity({
+      exerciseKey: exercicio?.exercise_key ?? null,
+      name: nome,
+    });
+    if (!alvo.has(chave)) continue;
+    // Ordenado por completed_at desc → o PRIMEIRO visto é o mais recente.
+    const numeric = toNum(reps);
+    if (!(chave in mapa) && numeric != null) mapa[chave] = numeric;
+  }
+  return mapa;
+};
+
 // ============================================================
 // Histórico (Perfil)
 // ============================================================
