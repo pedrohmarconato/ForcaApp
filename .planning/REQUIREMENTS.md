@@ -129,17 +129,24 @@ fisico do `17-07-PLAN.md`):**
   `Activity.update()`). Um achado de design foi registrado (card do Lock Screen
   pequeno para a densidade de informacao) — nao bloqueia REG-02, e escopo novo,
   ver `17-07-SUMMARY.md`.
-- **REG-01** continua com a janela aberta #5 em `WINDOWS.md` (`unrun-verify`). Esta
-  pendencia NAO foi coberta pelo UAT fisico do 17-07: o Criterio 1 do ROADMAP
-  (correspondente a REG-01, no app) nao carrega a marcacao "(UAT do dono no
-  aparelho fisico)" — o proprio `17-07-PLAN.md` declara isso no objective
-  ("o criterio 1, REG-01 no app, nao exige UAT fisico"), entao o roteiro da sessao
-  fisica nunca incluiu REG-01. A pendencia real e outra: a checagem do PWA real
-  (`expo start --web`, 390x844) nao pode ser executada no worktree sandboxed; foi
-  substituida por replica de box-model em Chromium, que nao e o app rodando. Essa
-  janela sobrevive a este UAT porque nenhuma sessao ate agora testou o caminho PWA
-  no aparelho ou em ambiente equivalente — fica para o dono repetir antes de
-  considerar REG-01 verificado ponta a ponta.
+- **REG-01** continua `Pending`, com a janela #5 de `WINDOWS.md` (`unrun-verify`) ABERTA.
+  O UAT fisico do 17-07 nao cobriu este requisito: o Criterio 1 do ROADMAP nao carrega a
+  marcacao "(UAT do dono no aparelho fisico)", e o proprio `17-07-PLAN.md` declara no
+  objective que "o criterio 1, REG-01 no app, nao exige UAT fisico" — o roteiro da sessao
+  fisica nunca o incluiu.
+  O plano original era fechar REG-01 pelo PWA (`expo start --web`, 390x844). Esse caminho
+  esta INEXEQUIVEL: em 2026-08-19 o web foi executado de verdade e a aplicacao crasha no
+  mount com 'Cannot find native module LiveActivityModule' — `modules/live-activity/index.ts:49`
+  chama `requireNativeModule` no topo do modulo, sem guarda de `Platform.OS` (idem
+  `liveActivitySync.ts` e `liveActivityIntentBridge.ts`). Quebrado desde a Fase 16
+  (`3dabb0e`), nao e regressao da Fase 17. Por decisao do dono em 2026-08-19, o web/PWA
+  deixou de ser superficie suportada na v1.3 (o milestone virou app nativo pessoal), entao
+  esse crash e consequencia aceita e nao bug em aberto.
+  **O que fecha REG-01:** o dono abrir a tela de sessao ativa no APP DO IPHONE (nao a tela
+  bloqueada), num exercicio com historico, e confirmar pre-preenchimento vindo do historico,
+  ajuste apenas por +/-, marca de valor herdado, e ausencia de teclado ou overflow. A
+  evidencia atual (replica de CSS/box-model em Chromium via Playwright, 0 overflow em
+  390x844 e 360px) prova o layout, mas nao e o app rodando.
 Dois bugs que so o build Xcode completo revelou (ponte Expo sem os 11 campos novos do
 ContentState; lockfile sem o workspace `modules/live-activity`) foram corrigidos no
 Plano 17-06 — ver `17-06-SUMMARY.md`.
