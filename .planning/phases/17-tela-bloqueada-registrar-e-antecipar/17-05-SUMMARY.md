@@ -159,3 +159,14 @@ None - nenhuma configuração de serviço externo necessária.
 ---
 *Phase: 17-tela-bloqueada-registrar-e-antecipar*
 *Completed: 2026-08-19*
+
+## Self-Check: PASSED
+
+- FOUND: .planning/phases/17-tela-bloqueada-registrar-e-antecipar/17-05-SUMMARY.md
+- FOUND: src/engine/sessionModel.ts
+- FOUND: src/engine/liveActivityContentState.ts
+- FOUND: targets/session-widget/WidgetLiveActivity.swift
+- FOUND: 7286592
+- FOUND: dcd6e4e
+- FOUND: 8952442
+- FOUND: e48979e
