@@ -15,6 +15,14 @@
  */
 export const LOAD_INPUT_STYLE = { flex: 1, minWidth: 0 } as const;
 
+/**
+ * Valor central do stepper de reps (−/valor/+), Fase 17 (D-05): mesma classe
+ * de bug de largura no react-native-web que motivou `LOAD_INPUT_STYLE` —
+ * nome separado (em vez de reaproveitar `LOAD_INPUT_STYLE`) para os dois
+ * campos poderem divergir no futuro sem reabrir este arquivo.
+ */
+export const REPS_INPUT_STYLE = { flex: 1, minWidth: 0 } as const;
+
 /** Proporção do campo de reps na linha de medição. */
 export const FIELD_FLEX = 1;
 

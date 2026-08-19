@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 2
 waived_count: 0
 fixed_count: 3
-total_count: 4
-last_updated: 2026-08-17T02:53:42.318Z
+total_count: 5
+last_updated: 2026-08-19T02:07:27.217Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,7 @@ last_updated: 2026-08-17T02:53:42.318Z
 | 2 | 13 | deviation | supabase/migrations/0038_push_subscriptions.sql |  | Migration 0038 criada e testada (DO-block de asserção) mas aplicação em staging (mjdjtiujhwklchalquhc) BLOQUEADA: SUPABASE_ACCESS_TOKEN do ambiente pertence a outra conta/org sem acesso ao ForcaApp. Dono precisa supabase login + relink + db push antes do UAT do Plano 13-04. | fixed |  | 2026-08-15T15:23:22.926Z | 2026-08-15T19:19:28.797Z |
 | 3 | 13 | deviation | supabase/migrations/0039_push_reminder_idempotencia.sql |  | Migration 0039 (reminder_sent_at + índice parcial) criada e testada (DO-block de asserção) mas aplicação em staging (mjdjtiujhwklchalquhc) BLOQUEADA: mesma credencial documentada na entrada #2 (SUPABASE_ACCESS_TOKEN do ambiente sem acesso ao org do ForçaApp). Dono precisa aplicar 0038 e 0039 juntas antes do UAT do Plano 13-04. | fixed |  | 2026-08-15T15:38:28.515Z | 2026-08-15T19:19:28.896Z |
 | 4 | 15 | stub | src/engine/liveActivityContentState.ts | 44 | blockLabel/blockIndex/blockTotal permanecem null nesta tracer; o Plano 15-02 emitirá blockOnly. | open |  | 2026-08-17T02:53:42.318Z |  |
+| 5 | 17 | unrun-verify | src/components/session/SessionPlayer.tsx |  | 17-04 Task 2: checagem manual de PWA (npx expo start --web, viewport 390x844, DevTools/claude-in-chrome) não pôde ser executada neste worktree sandboxed (sem .env/Supabase, sem MCP de browser). Substituída por verificação real em Chromium (Playwright) de uma réplica exata do CSS/box-model (tokens de theme.ts reais, fonte Inter-Variable.ttf real) do card measiring empilhado — confirmou 0 overflow em 390x844 e 360px, mas não é o app real rodando. Recomenda-se ao dono repetir o check físico/PWA antes de fechar REG-01 no v1.3. | open |  | 2026-08-19T02:07:27.217Z |  |
 
 ````json
 [
@@ -68,6 +69,18 @@ last_updated: 2026-08-17T02:53:42.318Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-17T02:53:42.318Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "17",
+    "file": "src/components/session/SessionPlayer.tsx",
+    "line": null,
+    "description": "17-04 Task 2: checagem manual de PWA (npx expo start --web, viewport 390x844, DevTools/claude-in-chrome) não pôde ser executada neste worktree sandboxed (sem .env/Supabase, sem MCP de browser). Substituída por verificação real em Chromium (Playwright) de uma réplica exata do CSS/box-model (tokens de theme.ts reais, fonte Inter-Variable.ttf real) do card measiring empilhado — confirmou 0 overflow em 390x844 e 360px, mas não é o app real rodando. Recomenda-se ao dono repetir o check físico/PWA antes de fechar REG-01 no v1.3.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-19T02:07:27.217Z",
     "resolved_at": null
   }
 ]

@@ -32,6 +32,7 @@ import {
   findNextPendingSet,
   isTimeBased,
   metricOf,
+  resolveInheritedSet,
   type SessionDraft,
   type DraftExercise,
   type DraftSet,
@@ -46,8 +47,8 @@ import {
 import { easeImpulso } from '../../utils/motion';
 import {
   FIELD_FLEX,
-  FIELD_WIDE_FLEX,
   LOAD_INPUT_STYLE,
+  REPS_INPUT_STYLE,
   idDoExercicioNoCard,
 } from './sessionPlayerLayout';
 import { tapLight } from '../../utils/haptics';
@@ -114,13 +115,14 @@ type RestState = {
 type Props = {
   draft: SessionDraft;
   suggestedLoadFor: (exercise: DraftExercise, set: DraftSet) => number | null;
+  suggestedRepsFor: (exercise: DraftExercise, set: DraftSet) => number | null;
 };
 
-const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
+const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => {
   const activateSet = useActiveSessionStore((s) => s.activateSet);
-  const setReps = useActiveSessionStore((s) => s.setReps);
   const setLoad = useActiveSessionStore((s) => s.setLoad);
   const stepLoad = useActiveSessionStore((s) => s.stepLoad);
+  const stepReps = useActiveSessionStore((s) => s.stepReps);
   const setRir = useActiveSessionStore((s) => s.setRir);
   const setDuration = useActiveSessionStore((s) => s.setDuration);
   const setDistance = useActiveSessionStore((s) => s.setDistance);
@@ -149,6 +151,28 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
 
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
+  // D-06: quando não há série ativa, uma série `next` cujo pré-preenchimento
+  // (histórico/alvo, D-17) já passa em canCompleteSet() revela o card de
+  // medição direto — sem depender de `active`, que a Fase 15 já registrou
+  // como estado de UI puramente local (não sobrevive à retomada).
+  const readyToMeasure =
+    active ??
+    (next &&
+    canCompleteSet(
+      {
+        ...next.set,
+        ...resolveInheritedSet(
+          next.set,
+          next.exercise,
+          draft.lastRepsByExercise[exerciseIdentity(next.exercise)],
+          draft.lastLoadByExercise[exerciseIdentity(next.exercise)],
+        ),
+      },
+      next.exercise.isBodyweight,
+      metricOf(next.exercise),
+    )
+      ? next
+      : null);
   const restEndsAtMs = draft.restEndsAt ? new Date(draft.restEndsAt).getTime() : Number.NaN;
   const restRemainingDisplay = Number.isFinite(restEndsAtMs)
     ? Math.round((restEndsAtMs - Date.now()) / 1000)
@@ -272,8 +296,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
 
   const posicao = exercicioAtivoId ? posicaoDoExercicio(draft, exercicioAtivoId) : null;
 
-  // Trocou de série → o texto em edição não pertence mais a ela.
-  const serieAtivaId = active?.set.plannedSetId ?? null;
+  // Trocou de série → o texto em edição não pertence mais a ela. Usa
+  // `readyToMeasure` (não só `active`): D-06 revela o card de medição sem
+  // passar por `activateSet` quando o pré-preenchimento já é suficiente, e
+  // sem este ajuste um texto digitado numa série revelada direto vazaria
+  // para a próxima série revelada direto (nenhuma das duas passa por `active`).
+  const serieAtivaId = readyToMeasure?.set.plannedSetId ?? null;
   useEffect(() => {
     setTextoCarga(null);
     setTextoDistancia(null);
@@ -306,8 +334,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   }, [active?.set.plannedSetId, rest]);
 
   const onConcluir = async () => {
-    if (!active) return;
-    const { exercise, set } = active;
+    if (!readyToMeasure) return;
+    const { exercise, set } = readyToMeasure;
     setSaving(true);
     try {
       const ok = await completeSet(exercise.exerciseId, set.setOrder);
@@ -617,13 +645,37 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
   }
 
   // ---------------- measuring ----------------
-  if (active) {
-    const { exercise, set } = active;
+  if (readyToMeasure) {
+    const { exercise, set } = readyToMeasure;
     const suggestedLoad = suggestedLoadFor(exercise, set);
-    const podeConcluir = canCompleteSet(set, exercise.isBodyweight, metricOf(exercise));
+    const suggestedReps = suggestedRepsFor(exercise, set);
+    // podeConcluir precisa enxergar o MESMO valor herdado que a tela mostra —
+    // sem isto, o botão "Concluir série" ficaria desabilitado mesmo quando o
+    // card já nasceu revelado por já passar em canCompleteSet() (D-06).
+    const podeConcluir = canCompleteSet(
+      {
+        ...set,
+        actualReps: set.actualReps ?? suggestedReps,
+        actualLoadKg: exercise.isBodyweight ? null : (set.actualLoadKg ?? suggestedLoad),
+      },
+      exercise.isBodyweight,
+      metricOf(exercise),
+    );
     const precisaCarga =
       !exercise.isBodyweight && suggestedLoad == null && set.actualLoadKg == null;
+    // O primeiro dígito digitado já torna `actualLoadKg` não-nulo, o que
+    // zeraria `precisaCarga` NO MEIO da digitação (D-04 exige o teclado
+    // aberto até o aluno terminar de digitar, não só no primeiro caractere).
+    // `textoCarga` já existe para guardar o texto cru em edição — reusa-lo
+    // aqui mantém o TextInput montado até o aluno soltar o campo (stepper ou
+    // troca de série, que já resetam `textoCarga` para null).
+    const editandoCarga = textoCarga != null;
     const totalSeries = exercise.sets.length;
+
+    // D-03: o valor herdado (ainda não tocado) fica marcado até o primeiro +/−.
+    const valorReps = set.actualReps ?? suggestedReps;
+    const herdadoReps = set.actualReps == null;
+    const herdadoCarga = set.actualLoadKg == null;
 
     // Última carga REAL deste exercício (histórico semeado + sessão corrente).
     const ultimaCarga = draft.lastLoadByExercise[exerciseIdentity(exercise)];
@@ -648,30 +700,60 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
           </View>
         ) : null}
 
-        <View style={styles.inputsRow}>
-          <View style={styles.field}>
+        {/*
+          Reps e carga EMPILHADOS (não lado a lado): os dois agora têm o
+          MESMO formato (−/valor/+ com botões hitTarget.regular=50pt) desde
+          que reps ganhou stepper nesta fase. O antigo inputsRow dividia a
+          linha 1:2.2 (FIELD_FLEX:FIELD_WIDE_FLEX) — proporção calibrada para
+          quando reps era um TextInput solto sem botões. Com dois botões de
+          50pt também no campo de reps, a fatia de 1/3.2 da linha (≈92,5pt a
+          390pt) fica MENOR que só os dois botões do próprio stepper de reps
+          (2×50 + 2×gap = 112pt) — o par "+/−" do stepper de reps estourava a
+          tela ANTES mesmo do valor entrar. Medido ao planejar a Task 2
+          (checagem de largura no PWA, D-05): ver measureField/measureFields
+          abaixo e o teste equivalente de largura. D-07 já aceitava o card
+          mais alto com dois steppers — o empilhamento cumpre essa troca.
+        */}
+        <View style={styles.measureFields}>
+          <View style={styles.measureField}>
             <Text style={styles.fieldLabel}>Reps</Text>
-            <TextInput
-              style={styles.bigInput}
-              editable={!saving}
-              keyboardType="number-pad"
-              value={set.actualReps != null ? String(set.actualReps) : ''}
-              onChangeText={(t) =>
-                setReps(exercise.exerciseId, set.setOrder, parseIntOrNull(t))
-              }
-              placeholder={String(set.targetRepsMin)}
-              placeholderTextColor={theme.colors.text.quiet}
-              accessibilityLabel={`Repetições da série ${set.setOrder}`}
-            />
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={[styles.stepBtn, saving && styles.controlDisabled]}
+                onPress={() => stepReps(exercise.exerciseId, set.setOrder, -1)}
+                disabled={saving}
+                accessibilityLabel={`Diminuir repetições da série ${set.setOrder}`}
+              >
+                <Text style={styles.stepBtnText}>−</Text>
+              </TouchableOpacity>
+              <Text
+                style={[
+                  styles.bigInput,
+                  styles.repsInput,
+                  herdadoReps && styles.inheritedValue,
+                ]}
+                accessibilityLabel={`Repetições da série ${set.setOrder}`}
+              >
+                {String(valorReps ?? '—')}
+              </Text>
+              <TouchableOpacity
+                style={[styles.stepBtn, saving && styles.controlDisabled]}
+                onPress={() => stepReps(exercise.exerciseId, set.setOrder, 1)}
+                disabled={saving}
+                accessibilityLabel={`Aumentar repetições da série ${set.setOrder}`}
+              >
+                <Text style={styles.stepBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {exercise.isBodyweight ? (
-            <View style={styles.fieldWide}>
+            <View style={styles.measureField}>
               <Text style={styles.fieldLabel}>Carga</Text>
               <Text style={styles.bodyweightTag}>Peso corporal</Text>
             </View>
           ) : (
-            <View style={styles.fieldWide}>
+            <View style={styles.measureField}>
               <Text style={styles.fieldLabel}>Carga (kg)</Text>
               <View style={styles.stepper}>
                 <TouchableOpacity
@@ -685,22 +767,41 @@ const SessionPlayer = ({ draft, suggestedLoadFor }: Props) => {
                 >
                   <Text style={styles.stepBtnText}>−</Text>
                 </TouchableOpacity>
-                <TextInput
-                  style={[styles.bigInput, styles.loadInput]}
-                  editable={!saving}
-                  keyboardType="decimal-pad"
-                  value={
-                    textoCarga ??
-                    (set.actualLoadKg != null ? String(set.actualLoadKg) : '')
-                  }
-                  onChangeText={(t) => {
-                    setTextoCarga(t);
-                    setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t));
-                  }}
-                  placeholder={suggestedLoad != null ? String(suggestedLoad) : 'kg'}
-                  placeholderTextColor={theme.colors.text.quiet}
-                  accessibilityLabel={`Carga da série ${set.setOrder}`}
-                />
+                {precisaCarga || editandoCarga ? (
+                  <TextInput
+                    style={[styles.bigInput, styles.loadInput]}
+                    editable={!saving}
+                    keyboardType="decimal-pad"
+                    autoFocus={precisaCarga}
+                    value={
+                      textoCarga ??
+                      (set.actualLoadKg != null ? String(set.actualLoadKg) : '')
+                    }
+                    onChangeText={(t) => {
+                      setTextoCarga(t);
+                      setLoad(exercise.exerciseId, set.setOrder, parseFloatOrNull(t));
+                    }}
+                    placeholder="kg"
+                    placeholderTextColor={theme.colors.text.quiet}
+                    accessibilityLabel={`Carga da série ${set.setOrder}`}
+                  />
+                ) : (
+                  <Text
+                    style={[
+                      styles.bigInput,
+                      styles.loadInput,
+                      herdadoCarga && styles.inheritedValue,
+                    ]}
+                    accessibilityLabel={`Carga da série ${set.setOrder}`}
+                  >
+                    {String(set.actualLoadKg ?? suggestedLoad).replace('.', ',')}
+                    {/* "kg" num corpo menor: no formato antigo (mesma fonte
+                        grande do número) o sufixo sozinho já reduzia a folga
+                        de largura medida em loadInputLayoutWeb.test.ts de
+                        8,3pt para negativo em telas de 390pt. */}
+                    <Text style={styles.loadUnitSuffix}> kg</Text>
+                  </Text>
+                )}
                 <TouchableOpacity
                   style={[styles.stepBtn, saving && styles.controlDisabled]}
                   onPress={() => {
@@ -989,9 +1090,6 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.lg,
   },
   field: { flex: FIELD_FLEX },
-  // 1.8 → 2.2: com 1.8 o campo ficava com 60,3pt úteis e "102,5" ocupa 62pt —
-  // carga de três dígitos com decimal era cortada mesmo depois do minWidth.
-  fieldWide: { flex: FIELD_WIDE_FLEX },
   fieldLabel: {
     marginBottom: theme.spacing.xxs,
     color: theme.colors.text.quiet,
@@ -1012,6 +1110,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   loadInput: LOAD_INPUT_STYLE,
+  repsInput: REPS_INPUT_STYLE,
+  // D-03: marca do valor herdado (ainda não tocado) — mesma cor discreta de
+  // `lastLineText` ("Última carga"), sem paleta nova. Some assim que o aluno
+  // toca +/− pela primeira vez.
+  inheritedValue: {
+    color: theme.colors.text.quiet,
+  },
+  // Reps e carga empilhados no card measuring (D-05): cada campo ocupa a
+  // largura inteira do card — os dois agora têm o mesmo formato de stepper
+  // (2 botões de 50pt + valor), e side-by-side (o antigo inputsRow) não
+  // sobra espaço nem para os botões do próprio stepper de reps a 390pt.
+  measureFields: {
+    marginTop: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+  measureField: {},
+  // "kg" em corpo menor que o número: no mesmo tamanho de fonte do valor
+  // (bigInput/loadInput), o sufixo sozinho já apertava a folga de largura
+  // medida em loadInputLayoutWeb.test.ts (8,3pt) a negativo em 390pt.
+  loadUnitSuffix: {
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.medium,
+    color: theme.colors.text.quiet,
+  },
   bodyweightTag: {
     paddingVertical: theme.spacing.md,
     color: theme.colors.text.secondary,

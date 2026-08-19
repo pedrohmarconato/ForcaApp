@@ -48,7 +48,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — registrar (REG)
 
-- [ ] **REG-01**: Ao registrar uma série no app, reps e carga vêm pré-preenchidos
+- [x] **REG-01**: Ao registrar uma série no app, reps e carga vêm pré-preenchidos
   do histórico do exercício (última sessão), ajustáveis só por botões +/− (passo
   de anilha por exercício; ex.: ±1 rep, ±2,5 kg) e confirmação em 1 toque —
   teclado deixa de ser necessário no fluxo padrão.
@@ -113,7 +113,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | LOCK-03 | Phase 15 | Pending |
 | CMD-01 | Phase 16 | Complete |
 | CMD-02 | Phase 16 | Complete |
-| REG-01 | Phase 17 | Pending |
+| REG-01 | Phase 17 | Complete |
 | REG-02 | Phase 17 | Complete |
 | PRED-01 | Phase 17 | Pending |
 

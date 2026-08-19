@@ -32,6 +32,7 @@ import {
 import {
   useActiveSessionStore,
   suggestionFor,
+  suggestedRepsFor,
 } from '../store/activeSessionStore';
 import {
   sessionProgress,
@@ -556,6 +557,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
         <SessionPlayer
           draft={draft}
           suggestedLoadFor={(ex, s) => suggestionFor(draft, ex, s)}
+          suggestedRepsFor={(ex, s) => suggestedRepsFor(draft, ex, s)}
         />
 
         <TouchableOpacity

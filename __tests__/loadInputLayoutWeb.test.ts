@@ -12,17 +12,27 @@
 //
 // O segundo contrato é de conteúdo: 78,3pt de caixa = 60,3pt úteis, e "102,5"
 // ocupa 62pt na fonte real (Inter 600 a 24px, medido com canvas). Ou seja, só
-// o minWidth ainda cortava carga de três dígitos com decimal — daí o fieldWide
-// ir de 1.8 para 2.2.
+// o minWidth ainda cortava carga de três dígitos com decimal.
+//
+// Fase 17 (Plano 17-04, D-05): reps ganhou o MESMO stepper (2 botões de
+// 50pt + valor) que carga já tinha. O layout antigo dividia a linha 1:2.2
+// (FIELD_FLEX:FIELD_WIDE_FLEX — calibrado quando reps era um TextInput solto
+// sem botões) — com dois botões de 50pt também em reps, a fatia de 1/3.2 da
+// linha (≈92,5pt a 390pt) é MENOR que só os dois botões do próprio stepper de
+// reps (2×50 + 2×gap = 112pt): o "+/−" de reps estourava a tela antes mesmo
+// do valor entrar. `FIELD_WIDE_FLEX`/`fieldWide` ficaram para trás (SessionPlayer.tsx
+// não usa mais o split lado a lado nesse card — só o campo de tempo/distância
+// do cardio, que usa FIELD_FLEX igualmente nas 3 colunas); os dois campos do
+// card measuring agora EMPILHAM (`measureFields`/`measureField`), cada um com
+// a largura inteira do card — os testes abaixo medem essa forma nova.
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 import theme from '../src/theme/theme';
 import {
-  FIELD_FLEX,
-  FIELD_WIDE_FLEX,
   LOAD_INPUT_STYLE,
+  REPS_INPUT_STYLE,
   idDoExercicioNoCard,
 } from '../src/components/session/sessionPlayerLayout';
 
@@ -33,35 +43,61 @@ const LARGURA_DA_TELA = 390;
 const LARGURA_DO_TEXTO = { '42,5': 50.7, '102,5': 62, '127,5': 58.1 } as const;
 
 /**
- * Largura útil (para texto) do campo de carga, refeita a partir dos tokens
- * reais. Espelha a cadeia: tela → padding do scroll → borda+padding do card →
- * gap da linha → proporção dos campos → botões e gaps do stepper → padding e
- * borda do próprio input.
+ * Largura interior do card (conteúdo disponível para QUALQUER campo
+ * empilhado): tela → padding do scroll → borda+padding do card. Não há mais
+ * divisão de linha entre reps e carga — cada `measureField` ocupa essa
+ * largura inteira.
  */
-const larguraUtilDoCampoDeCarga = (larguraDaTela: number): number => {
+const interiorDoCard = (larguraDaTela: number): number => {
   const conteudoDaTela = larguraDaTela - 2 * theme.spacing.xl; // styles.scroll
-  const interiorDoCard = conteudoDaTela - 2 - 2 * theme.spacing.xl; // borda + padding
-  const linha = interiorDoCard - theme.spacing.md; // gap da inputsRow
-  const campoDeCarga = linha * (FIELD_WIDE_FLEX / (FIELD_FLEX + FIELD_WIDE_FLEX));
-  const caixaDoInput =
-    campoDeCarga - 2 * theme.hitTarget.regular - 2 * theme.spacing.xs; // −/+ e gaps
-  return caixaDoInput - 2 * theme.spacing.sm - 2; // padding + borda do input
+  return conteudoDaTela - 2 - 2 * theme.spacing.xl; // borda + padding do card
 };
 
-describe('campo de carga do SessionPlayer — largura no web', () => {
-  it('declara minWidth 0 (sem isso o <input> não encolhe e o "+" sai da tela)', () => {
+/**
+ * Largura útil (para texto) de UM campo empilhado (reps OU carga — mesmo
+ * formato de stepper nos dois desde a Fase 17): interior do card menos os
+ * dois botões −/+ e seus gaps, menos o padding/borda do próprio valor.
+ */
+const larguraUtilDoCampoEmpilhado = (larguraDaTela: number): number => {
+  const caixaDoValor =
+    interiorDoCard(larguraDaTela) - 2 * theme.hitTarget.regular - 2 * theme.spacing.xs;
+  return caixaDoValor - 2 * theme.spacing.sm - 2; // padding + borda do valor
+};
+
+describe('campos empilhados do SessionPlayer (reps e carga) — largura no web', () => {
+  it('declaram minWidth 0 (sem isso o <input>/valor não encolhe e o "+" sai da tela)', () => {
     expect(LOAD_INPUT_STYLE.minWidth).toBe(0);
     expect(LOAD_INPUT_STYLE.flex).toBe(1);
+    expect(REPS_INPUT_STYLE.minWidth).toBe(0);
+    expect(REPS_INPUT_STYLE.flex).toBe(1);
   });
 
-  it('cabe uma carga de três dígitos com decimal no iPhone 13', () => {
-    const util = larguraUtilDoCampoDeCarga(LARGURA_DA_TELA);
+  it('cabe uma carga de três dígitos com decimal + sufixo "kg" no iPhone 13', () => {
+    const util = larguraUtilDoCampoEmpilhado(LARGURA_DA_TELA);
+    // "kg" renderiza em corpo menor (styles.loadUnitSuffix) que o número —
+    // ~20pt de folga é sobra generosa mesmo somando o sufixo ao "127,5".
+    expect(util).toBeGreaterThan(LARGURA_DO_TEXTO['102,5'] + 20);
+    expect(util).toBeGreaterThan(LARGURA_DO_TEXTO['127,5'] + 20);
+  });
+
+  it('cabe reps de até 3 dígitos com folga MUITO maior que carga (mesmo campo, conteúdo bem mais curto)', () => {
+    const util = larguraUtilDoCampoEmpilhado(LARGURA_DA_TELA);
+    // Reps nunca chega perto de "102,5" (3 dígitos + decimal); mesmo um valor
+    // hipotético de 3 dígitos ("999") é mais estreito que "102,5".
     expect(util).toBeGreaterThan(LARGURA_DO_TEXTO['102,5']);
-    expect(util).toBeGreaterThan(LARGURA_DO_TEXTO['127,5']);
+  });
+
+  it('o próprio stepper (2 botões de 50pt + gaps) cabe no card a 390pt — a classe de bug que motivou o empilhamento', () => {
+    // Antes do empilhamento, a fatia de reps (1/3.2 da linha, ≈92,5pt) era
+    // MENOR que só os botões do stepper (112pt) — negativo antes até de
+    // considerar o valor. Com o campo ocupando o card inteiro, isso não
+    // pode mais acontecer.
+    const doisBotoesEGaps = 2 * theme.hitTarget.regular + 2 * theme.spacing.xs;
+    expect(interiorDoCard(LARGURA_DA_TELA)).toBeGreaterThan(doisBotoesEGaps);
   });
 
   it('cabe também numa tela de 360pt (Android estreito), ainda que justo', () => {
-    expect(larguraUtilDoCampoDeCarga(360)).toBeGreaterThan(LARGURA_DO_TEXTO['42,5']);
+    expect(larguraUtilDoCampoEmpilhado(360)).toBeGreaterThan(LARGURA_DO_TEXTO['42,5']);
   });
 
   it('mantém o alvo de toque dos botões −/+ em pelo menos 44pt', () => {
