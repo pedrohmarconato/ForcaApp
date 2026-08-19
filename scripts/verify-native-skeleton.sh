@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as nove condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as dez condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -37,7 +37,7 @@
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das nove checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das dez checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 #
 # A checagem (h) foi adicionada na Fase 17 Plano 17-01: as duas cópias de
@@ -49,6 +49,14 @@
 # QueuedIntentActionRecord precisam espelhar os de QueuedIntentAction —
 # a ponte Expo serializa só os @Field do Record, e um campo ausente morre
 # na ponte sem que nenhum teste JS acuse (os mocks injetavam o campo).
+#
+# A checagem (j) foi adicionada na Fase 15 Plano 15-07 (fechamento dos
+# blockers CR-01/CR-02 de 15-VERIFICATION.md): executa
+# scripts/verify-live-activity-overtime.sh, a prova Swift standalone de
+# que o card sai sozinho de resting para readyOvertime/Pronto no
+# vencimento absoluto de restEndsAt e que o overtime cresce até +59:59,
+# mesmo com o processo JS suspenso. Nenhuma checagem anterior provava
+# comportamento temporal — só estrutura/presença.
 
 set -euo pipefail
 
@@ -60,7 +68,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As nove checagens (a)-(i). Chamadas duas vezes (rodada 1 e rodada 2),
+# As dez checagens (a)-(j). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -216,7 +224,23 @@ rodar_checagens() {
     exit 1
   fi
 
-  amarelo "  Rodada ${rodada}: (a)-(i) OK."
+  # (j) prova Swift standalone do resolvedor temporal e do formatter de
+  # overtime (D-04, Fase 15 Plano 15-07 — fecha CR-01/CR-02 de
+  # 15-VERIFICATION.md: o card precisa sair sozinho de resting para
+  # readyOvertime/Pronto no vencimento de restEndsAt, e o overtime precisa
+  # crescer até +59:59, mesmo com o processo JS suspenso). Roda depois do
+  # prebuild que garante a extensão disponível (checagem a) e antes da
+  # mensagem de sucesso da rodada — prova o comportamento Swift real do
+  # target, não apenas a sobrevivência do esqueleto ao --clean.
+  if ! bash scripts/verify-live-activity-overtime.sh; then
+    vermelho "ABORTADO: [rodada ${rodada}] prova temporal de RestPhaseResolver/OvertimeFormatter falhou."
+    echo "  Rode: bash scripts/verify-live-activity-overtime.sh" >&2
+    echo "  e corrija targets/session-widget/RestPhaseResolver.swift ou" >&2
+    echo "  targets/session-widget/OvertimeFormatter.swift conforme a mensagem FALHA acima." >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(j) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."
