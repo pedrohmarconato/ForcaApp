@@ -99,6 +99,9 @@ describe('buildLiveActivityContentState', () => {
       blockLabel: null,
       blockIndex: null,
       blockTotal: null,
+      currentLoadKg: null,
+      isLoadInherited: false,
+      loadIncrementKg: null,
     });
   });
 
@@ -210,6 +213,68 @@ describe('buildLiveActivityContentState', () => {
       blockIndex: 2,
       blockTotal: 2,
       blockLabel: 'Alongamento',
+    });
+  });
+
+  describe('carga em edição (currentLoadKg/isLoadInherited/loadIncrementKg)', () => {
+    it('measuring com carga real digitada usa a carga real e marca como não herdada', () => {
+      const sets = [{ ...makeSet(1, 'active'), actualLoadKg: 40 }];
+      const exercise = makeExercise(sets, { loadIncrementKg: 2.5 });
+
+      expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+        phase: 'measuring',
+        currentLoadKg: 40,
+        isLoadInherited: false,
+        loadIncrementKg: 2.5,
+      });
+    });
+
+    it('measuring sem carga real herda a carga-alvo e marca como herdada', () => {
+      const sets = [{ ...makeSet(1, 'active'), actualLoadKg: null, targetLoadKg: 50 }];
+      const exercise = makeExercise(sets, { loadIncrementKg: 2.5 });
+
+      expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+        phase: 'measuring',
+        currentLoadKg: 50,
+        isLoadInherited: true,
+        loadIncrementKg: 2.5,
+      });
+    });
+
+    it('measuring de exercício bodyweight não preenche os campos de carga', () => {
+      const sets = [makeSet(1, 'active')];
+      const exercise = makeExercise(sets, { isBodyweight: true });
+
+      expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+        phase: 'measuring',
+        currentLoadKg: null,
+        isLoadInherited: false,
+        loadIncrementKg: null,
+      });
+    });
+
+    it('readyOvertime não preenche os campos de carga', () => {
+      const draft = makeDraft([makeSet(1, 'active'), makeSet(2, 'pending')]);
+      draft.restEndsAt = now.toISOString();
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'readyOvertime',
+        currentLoadKg: null,
+        isLoadInherited: false,
+        loadIncrementKg: null,
+      });
+    });
+
+    it('blockOnly não preenche os campos de carga', () => {
+      const sets = [makeSet(1, 'active')];
+      const exercise = makeExercise(sets, { metric: 'tempo', name: 'Alongamento' });
+
+      expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+        phase: 'blockOnly',
+        currentLoadKg: null,
+        isLoadInherited: false,
+        loadIncrementKg: null,
+      });
     });
   });
 });

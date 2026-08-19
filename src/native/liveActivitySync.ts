@@ -102,6 +102,9 @@ const buildFinishedContentState = (draft: ActiveDraft): LiveActivityContentState
     blockLabel: null,
     blockIndex: null,
     blockTotal: null,
+    currentLoadKg: null,
+    isLoadInherited: false,
+    loadIncrementKg: null,
   };
 };
 
