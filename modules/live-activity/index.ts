@@ -5,11 +5,11 @@ import type { LiveActivityContentState } from '../../src/engine/liveActivityCont
 export type { LiveActivityContentState } from '../../src/engine/liveActivityContentState';
 
 export type LiveActivityIntentActionEvent =
-  | { id: string; kind: 'completeSet' }
-  | { id: string; kind: 'skipRest' }
-  | { id: string; kind: 'adjustRest'; deltaSeconds: number }
-  | { id: string; kind: 'adjustLoad'; deltaLoadKg: number }
-  | { id: string; kind: 'adjustReps'; deltaReps: number };
+  | { id: string; kind: 'completeSet'; sessionLogId?: string }
+  | { id: string; kind: 'skipRest'; sessionLogId?: string }
+  | { id: string; kind: 'adjustRest'; deltaSeconds: number; sessionLogId?: string }
+  | { id: string; kind: 'adjustLoad'; deltaLoadKg: number; sessionLogId?: string }
+  | { id: string; kind: 'adjustReps'; deltaReps: number; sessionLogId?: string };
 
 /**
  * Entrada drenada da fila durável do App Group (Fase 16 Plano 16-02) —

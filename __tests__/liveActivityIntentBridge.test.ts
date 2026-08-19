@@ -176,6 +176,56 @@ describe('liveActivityIntentBridge', () => {
     expect(mockAck).not.toHaveBeenCalled();
   });
 
+  it('CR-01: completeSet com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'completeSet', sessionLogId: 'log-outra-sessao', id: 'evt-cr1' });
+
+    expect(completeSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('CR-01: skipRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'skipRest', sessionLogId: 'log-outra-sessao', id: 'evt-cr2' });
+
+    expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('CR-01: adjustRest com sessionLogId DIVERGENTE do draft atual é recusado sem aplicar e sem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustRest', deltaSeconds: -30, sessionLogId: 'log-outra-sessao', id: 'evt-cr3' });
+
+    expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('CR-01: sessionLogId IGUAL ao draft atual não bloqueia — completeSet aplica e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'completeSet', sessionLogId: 'log-1', id: 'evt-cr4' });
+
+    expect(completeSet).toHaveBeenCalledWith('ex-1', 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-cr4');
+  });
+
+  it('CR-01: sessionLogId AUSENTE (build antigo) mantém o comportamento anterior — aplica e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'skipRest', id: 'evt-cr5' });
+
+    expect(activateSet).toHaveBeenCalledWith('ex-2', 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-cr5');
+  });
+
   it('skipRest chama activateSet sobre a série pendente, nunca completeSet, e confirma o ack', () => {
     setDraft(draft());
     const handler = getHandler();

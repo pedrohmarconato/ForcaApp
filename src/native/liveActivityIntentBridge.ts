@@ -14,6 +14,17 @@ import { useActiveSessionStore } from '../store/activeSessionStore';
  * `activeSessionStore.ts` — o MESMO caminho `completeSet()`/`activateSet()`/
  * `adjustRest()` que o app já usa. A Live Activity permanece espelho, nunca
  * fonte de verdade.
+ *
+ * CR-01 (review 2026-08-19): guarda de CAS por sessionLogId no caminho
+ * quente, espelhando a guarda `pertenceAoDraft` do loop de reconciliação —
+ * o evento carrega o id da sessão da Activity de onde veio o toque
+ * (`Activity.activities.first?.attributes.sessionLogId`, enviado pelos
+ * cinco intents em `perform()`); quando presente e DIVERGENTE do draft
+ * atual, o evento é recusado sem aplicar e sem ack, e a entrada dura
+ * continua na fila para o CAS da reconciliação decidir (descartar, se
+ * provar pertencer a outra sessão). Ausência do campo (build antigo ou
+ * atributo irresolvível, enviado como "") mantém o comportamento anterior:
+ * sem prova de divergência, o toque não é bloqueado.
  */
 const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
   const draft = useActiveSessionStore.getState().draft;
@@ -21,6 +32,7 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
 
   switch (event.kind) {
     case 'completeSet': {
+      if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
         void useActiveSessionStore
@@ -31,6 +43,7 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       return;
     }
     case 'skipRest': {
+      if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       const proxima = findNextPendingSet(draft);
       if (proxima) {
         useActiveSessionStore
@@ -41,11 +54,13 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       return;
     }
     case 'adjustRest': {
+      if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       useActiveSessionStore.getState().adjustRest(event.deltaSeconds);
       void ackQueuedLiveActivityIntent(event.id);
       return;
     }
     case 'adjustLoad': {
+      if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
         // O widget sempre envia ±loadIncrementKg como delta, mas stepLoad()
@@ -59,6 +74,7 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       return;
     }
     case 'adjustReps': {
+      if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
         // Mesmo padrão de adjustLoad: só o SINAL do delta importa, stepReps()
