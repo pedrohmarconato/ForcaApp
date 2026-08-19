@@ -6,7 +6,8 @@
 import React from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import theme from '../../theme/theme';
+import { useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 
 type FModulesProps = {
   /** Quantos módulos acesos (0 a 3). */
@@ -28,6 +29,7 @@ export const FModules = ({
   style,
   testID,
 }: FModulesProps) => {
+  const styles = useThemeStyles(createStyles);
   const litClamped = Math.max(0, Math.min(3, Math.round(lit)));
   const barHeight = Math.max(3, Math.round(size * 0.22));
   const gap = Math.max(2, Math.round(size * 0.12));
@@ -54,10 +56,11 @@ export const FModules = ({
   );
 };
 
-const styles = StyleSheet.create({
-  bar: { borderRadius: 2 },
-  on: { backgroundColor: theme.colors.accent.main },
-  off: { backgroundColor: theme.colors.veil.medium },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    bar: { borderRadius: 2 },
+    on: { backgroundColor: theme.colors.accent.main },
+    off: { backgroundColor: theme.colors.veil.medium },
+  });
 
 export default FModules;

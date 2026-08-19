@@ -26,10 +26,12 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import { usePressPhysics } from './pressPhysics';
 
-export type ButtonVariant = 'primary' | 'tonal' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant =
+  'primary' | 'tonal' | 'outline' | 'ghost' | 'danger';
 
 type ButtonProps = {
   label: string;
@@ -45,13 +47,13 @@ type ButtonProps = {
   testID?: string;
 };
 
-const CONTENT_COLOR: Record<ButtonVariant, string> = {
+const contentColors = (theme: Theme): Record<ButtonVariant, string> => ({
   primary: theme.colors.accent.on,
   tonal: theme.colors.text.primary,
   outline: theme.colors.text.primary,
   ghost: theme.colors.text.secondary,
   danger: theme.colors.status.danger,
-};
+});
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -66,8 +68,10 @@ const Button = ({
   style,
   testID,
 }: ButtonProps) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const isInactive = disabled || loading;
-  const contentColor = CONTENT_COLOR[variant];
+  const contentColor = contentColors(theme)[variant];
   const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({
     haptic: variant === 'primary' || variant === 'tonal',
     disabled: isInactive,
@@ -104,43 +108,44 @@ const Button = ({
   );
 };
 
-const styles = StyleSheet.create({
-  base: {
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.transparent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
-  },
-  regular: { minHeight: theme.hitTarget.regular },
-  compact: { minHeight: theme.hitTarget.compact },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  label: {
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    letterSpacing: 0.2,
-  },
-  primary: { backgroundColor: theme.colors.accent.main },
-  tonal: {
-    backgroundColor: theme.colors.surface.elevated,
-    borderColor: theme.colors.border.subtle,
-  },
-  outline: {
-    backgroundColor: theme.colors.transparent,
-    borderColor: theme.colors.border.strong,
-  },
-  ghost: { backgroundColor: theme.colors.transparent },
-  danger: {
-    backgroundColor: theme.colors.status.dangerSoft,
-    borderColor: theme.colors.status.dangerBorder,
-  },
-  inactive: { opacity: 0.45 },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    base: {
+      borderRadius: theme.borderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.transparent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.lg,
+    },
+    regular: { minHeight: theme.hitTarget.regular },
+    compact: { minHeight: theme.hitTarget.compact },
+    content: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+    },
+    label: {
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      letterSpacing: 0.2,
+    },
+    primary: { backgroundColor: theme.colors.accent.main },
+    tonal: {
+      backgroundColor: theme.colors.surface.elevated,
+      borderColor: theme.colors.border.subtle,
+    },
+    outline: {
+      backgroundColor: theme.colors.transparent,
+      borderColor: theme.colors.border.strong,
+    },
+    ghost: { backgroundColor: theme.colors.transparent },
+    danger: {
+      backgroundColor: theme.colors.status.dangerSoft,
+      borderColor: theme.colors.status.dangerBorder,
+    },
+    inactive: { opacity: 0.45 },
+  });
 
 export default Button;

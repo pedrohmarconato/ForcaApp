@@ -18,7 +18,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import { usePressPhysics } from './pressPhysics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -35,20 +36,30 @@ type ScreenProps = {
 };
 
 /** Fundo e área segura padrão de todas as telas. */
-export const Screen = ({ children, scroll = false, contentStyle, style, testID }: ScreenProps) => (
-  <SafeAreaView style={[styles.screen, style]} testID={testID}>
-    {scroll ? (
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, contentStyle]}
-      >
-        {children}
-      </ScrollView>
-    ) : (
-      <View style={[styles.plainContent, contentStyle]}>{children}</View>
-    )}
-  </SafeAreaView>
-);
+export const Screen = ({
+  children,
+  scroll = false,
+  contentStyle,
+  style,
+  testID,
+}: ScreenProps) => {
+  const styles = useThemeStyles(createStyles);
+
+  return (
+    <SafeAreaView style={[styles.screen, style]} testID={testID}>
+      {scroll ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.scrollContent, contentStyle]}
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        <View style={[styles.plainContent, contentStyle]}>{children}</View>
+      )}
+    </SafeAreaView>
+  );
+};
 
 // --- Título de tela -------------------------------------------------------
 
@@ -61,15 +72,24 @@ type ScreenTitleProps = {
 };
 
 /** Cabeçalho editorial: kicker discreto, título humano, subtítulo opcional. */
-export const ScreenTitle = ({ kicker, title, subtitle, style }: ScreenTitleProps) => (
-  <View style={[styles.screenTitle, style]}>
-    {kicker ? <Text style={styles.kicker}>{kicker}</Text> : null}
-    <Text style={styles.title} accessibilityRole="header">
-      {title}
-    </Text>
-    {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-  </View>
-);
+export const ScreenTitle = ({
+  kicker,
+  title,
+  subtitle,
+  style,
+}: ScreenTitleProps) => {
+  const styles = useThemeStyles(createStyles);
+
+  return (
+    <View style={[styles.screenTitle, style]}>
+      {kicker ? <Text style={styles.kicker}>{kicker}</Text> : null}
+      <Text style={styles.title} accessibilityRole="header">
+        {title}
+      </Text>
+      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+    </View>
+  );
+};
 
 // --- Card -----------------------------------------------------------------
 
@@ -91,8 +111,11 @@ export const Card = ({
   style,
   testID,
 }: CardProps) => {
+  const styles = useThemeStyles(createStyles);
   // Superfície grande afunda pouco (0.985) — presença, não pulo.
-  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ scale: 0.985 });
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({
+    scale: 0.985,
+  });
   const content = [styles.card, elevated && styles.cardElevated, style];
 
   if (!onPress) {
@@ -133,18 +156,26 @@ export const SectionHeader = ({
   actionLabel,
   onActionPress,
   style,
-}: SectionHeaderProps) => (
-  <View style={[styles.sectionHeader, style]}>
-    <Text style={styles.sectionTitle} accessibilityRole="header">
-      {title}
-    </Text>
-    {actionLabel ? (
-      <Pressable onPress={onActionPress} accessibilityRole="button" hitSlop={8}>
-        <Text style={styles.sectionAction}>{actionLabel}</Text>
-      </Pressable>
-    ) : null}
-  </View>
-);
+}: SectionHeaderProps) => {
+  const styles = useThemeStyles(createStyles);
+
+  return (
+    <View style={[styles.sectionHeader, style]}>
+      <Text style={styles.sectionTitle} accessibilityRole="header">
+        {title}
+      </Text>
+      {actionLabel ? (
+        <Pressable
+          onPress={onActionPress}
+          accessibilityRole="button"
+          hitSlop={8}
+        >
+          <Text style={styles.sectionAction}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+};
 
 // --- Linha de lista -------------------------------------------------------
 
@@ -177,6 +208,8 @@ export const ListRow = ({
   style,
   testID,
 }: ListRowProps) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const body = (
     <>
       {leading ? <View style={styles.rowLeading}>{leading}</View> : null}
@@ -185,13 +218,19 @@ export const ListRow = ({
         {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
       </View>
       {trailingLabel ? (
-        <Text style={[styles.rowState, trailingAccent && styles.rowStateAccent]}>
+        <Text
+          style={[styles.rowState, trailingAccent && styles.rowStateAccent]}
+        >
           {trailingLabel}
         </Text>
       ) : null}
       {trailing ? <View style={styles.rowTrailing}>{trailing}</View> : null}
       {showChevron ? (
-        <Feather name="chevron-right" size={16} color={theme.colors.text.quiet} />
+        <Feather
+          name="chevron-right"
+          size={16}
+          color={theme.colors.text.quiet}
+        />
       ) : null}
     </>
   );
@@ -231,7 +270,10 @@ const PressableListRow = ({
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) => {
-  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({ scale: 0.985 });
+  const styles = useThemeStyles(createStyles);
+  const { animatedStyle, onPressIn, onPressOut } = usePressPhysics({
+    scale: 0.985,
+  });
 
   return (
     <AnimatedPressable
@@ -248,113 +290,115 @@ const PressableListRow = ({
   );
 };
 
-export const Divider = ({ style }: { style?: StyleProp<ViewStyle> }) => (
-  <View style={[styles.divider, style]} />
-);
+export const Divider = ({ style }: { style?: StyleProp<ViewStyle> }) => {
+  const styles = useThemeStyles(createStyles);
+  return <View style={[styles.divider, style]} />;
+};
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: theme.colors.surface.canvas,
-  },
-  scrollContent: {
-    paddingHorizontal: theme.spacing.xl,
-    paddingTop: theme.spacing.lg,
-    paddingBottom: theme.spacing.huge,
-  },
-  plainContent: {
-    flex: 1,
-    paddingHorizontal: theme.spacing.xl,
-    paddingTop: theme.spacing.lg,
-  },
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: theme.colors.surface.canvas,
+    },
+    scrollContent: {
+      paddingHorizontal: theme.spacing.xl,
+      paddingTop: theme.spacing.lg,
+      paddingBottom: theme.spacing.huge,
+    },
+    plainContent: {
+      flex: 1,
+      paddingHorizontal: theme.spacing.xl,
+      paddingTop: theme.spacing.lg,
+    },
 
-  screenTitle: { marginBottom: theme.spacing.xxl },
-  kicker: {
-    marginBottom: theme.spacing.xs,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    letterSpacing: theme.typography.letterSpacing.wide,
-    textTransform: 'uppercase',
-  },
-  title: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.display,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    letterSpacing: theme.typography.letterSpacing.display,
-  },
-  subtitle: {
-    marginTop: theme.spacing.xs,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-  },
+    screenTitle: { marginBottom: theme.spacing.xxl },
+    kicker: {
+      marginBottom: theme.spacing.xs,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      letterSpacing: theme.typography.letterSpacing.wide,
+      textTransform: 'uppercase',
+    },
+    title: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.display,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      letterSpacing: theme.typography.letterSpacing.display,
+    },
+    subtitle: {
+      marginTop: theme.spacing.xs,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+    },
 
-  card: {
-    padding: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.xl,
-    backgroundColor: theme.colors.surface.card,
-  },
-  cardElevated: { backgroundColor: theme.colors.surface.elevated },
+    card: {
+      padding: theme.spacing.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.xl,
+      backgroundColor: theme.colors.surface.card,
+    },
+    cardElevated: { backgroundColor: theme.colors.surface.elevated },
 
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: theme.spacing.md,
-  },
-  sectionTitle: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.md,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    letterSpacing: theme.typography.letterSpacing.tight,
-  },
-  sectionAction: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-  },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      marginBottom: theme.spacing.md,
+    },
+    sectionTitle: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.md,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      letterSpacing: theme.typography.letterSpacing.tight,
+    },
+    sectionAction: {
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+    },
 
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface.card,
-  },
-  rowLeading: { justifyContent: 'center' },
-  rowTrailing: { flexDirection: 'row', alignItems: 'center' },
-  rowCopy: { flex: 1, minWidth: 0 },
-  rowTitle: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  rowSubtitle: {
-    marginTop: 2,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-  },
-  rowState: {
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-  },
-  rowStateAccent: { color: theme.colors.text.accent },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.md,
+      marginBottom: theme.spacing.sm,
+      padding: theme.spacing.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.lg,
+      backgroundColor: theme.colors.surface.card,
+    },
+    rowLeading: { justifyContent: 'center' },
+    rowTrailing: { flexDirection: 'row', alignItems: 'center' },
+    rowCopy: { flex: 1, minWidth: 0 },
+    rowTitle: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    rowSubtitle: {
+      marginTop: 2,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+    },
+    rowState: {
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+    },
+    rowStateAccent: { color: theme.colors.text.accent },
 
-  divider: {
-    height: 1,
-    backgroundColor: theme.colors.border.subtle,
-  },
-});
+    divider: {
+      height: 1,
+      backgroundColor: theme.colors.border.subtle,
+    },
+  });
