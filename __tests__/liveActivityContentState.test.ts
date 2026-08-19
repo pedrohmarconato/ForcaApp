@@ -105,6 +105,12 @@ describe('buildLiveActivityContentState', () => {
       loadIncrementKg: null,
       currentReps: null,
       isRepsInherited: false,
+      nextExerciseName: null,
+      nextSetIndex: null,
+      nextSetTotal: null,
+      nextSuggestedReps: null,
+      nextSuggestedLoadKg: null,
+      nextIsBodyweight: null,
     });
   });
 
@@ -346,6 +352,111 @@ describe('buildLiveActivityContentState', () => {
         currentLoadKg: null,
         currentReps: 5,
         isRepsInherited: true,
+      });
+    });
+  });
+
+  describe('antecipação "A SEGUIR" (next* — Fase 17, PRED-01)', () => {
+    it('measuring: a série depois da ativa, mesmo exercício — D-17 ramo 2 (alvo vence do histórico)', () => {
+      const exA = makeExercise(
+        [
+          { ...makeSet(1, 'done'), actualReps: 8, actualLoadKg: 40 },
+          makeSet(2, 'active'),
+          { ...makeSet(3, 'pending'), targetRepsMin: 8, targetLoadKg: 40 },
+        ],
+        { exerciseId: 'ex-a', name: 'A' },
+      );
+      const draft = makeDraft([], [exA]);
+      draft.lastRepsByExercise = { a: 5 };
+      draft.lastLoadByExercise = { a: 30 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        nextExerciseName: 'A',
+        nextSetIndex: 3,
+        nextSetTotal: 3,
+        nextSuggestedReps: 8, // D-17 ramo 2: alvo (8) vence do histórico (5)
+        nextSuggestedLoadKg: 40, // D-08 inalterada: alvo vence do histórico
+        nextIsBodyweight: false,
+      });
+    });
+
+    it('resting: a série depois da atual pertence ao exercício SEGUINTE (B), não um fallback repetindo A', () => {
+      const exA = makeExercise([makeSet(1, 'done'), makeSet(2, 'pending')], {
+        exerciseId: 'ex-a',
+        name: 'A',
+      });
+      const exB = makeExercise([{ ...makeSet(1, 'pending'), targetRepsMin: 8, targetLoadKg: 40 }], {
+        exerciseId: 'ex-b',
+        name: 'B',
+      });
+      const draft = makeDraft([], [exA, exB]);
+      draft.restEndsAt = '2026-08-16T12:01:30.000Z';
+      draft.lastRepsByExercise = { b: 6 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'resting',
+        exerciseName: 'A',
+        nextExerciseName: 'B', // não repete A
+        nextSetIndex: 1,
+        nextSetTotal: 1,
+        nextSuggestedReps: 6, // D-17 ramo 1 (1ª série de B na sessão): histórico vence
+        nextSuggestedLoadKg: 40,
+        nextIsBodyweight: false,
+      });
+    });
+
+    it('current é a ÚLTIMA série pendente do treino: os 6 campos next* saem null', () => {
+      const draft = makeDraft([makeSet(1, 'active')]);
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        nextExerciseName: null,
+        nextSetIndex: null,
+        nextSetTotal: null,
+        nextSuggestedReps: null,
+        nextSuggestedLoadKg: null,
+        nextIsBodyweight: null,
+      });
+    });
+
+    it('virada para bloco de cardio/alongamento: só o NOME antecipado, nunca prescrição de tempo/distância (D-03)', () => {
+      const exA = makeExercise([makeSet(1, 'active')], { exerciseId: 'ex-a', name: 'A' });
+      const exB = makeExercise([makeSet(1, 'pending')], {
+        exerciseId: 'ex-b',
+        name: 'Alongamento',
+        metric: 'tempo',
+      });
+      const draft = makeDraft([], [exA, exB]);
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        nextExerciseName: 'Alongamento',
+        nextSetIndex: null,
+        nextSetTotal: null,
+        nextSuggestedReps: null,
+        nextSuggestedLoadKg: null,
+        nextIsBodyweight: null,
+      });
+    });
+
+    it('phase === blockOnly: os 6 campos next* saem null, mesmo havendo série de força depois', () => {
+      const exA = makeExercise([makeSet(1, 'active')], {
+        exerciseId: 'ex-a',
+        name: 'Alongamento',
+        metric: 'tempo',
+      });
+      const exB = makeExercise([makeSet(1, 'pending')], { exerciseId: 'ex-b', name: 'B' });
+      const draft = makeDraft([], [exA, exB]);
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'blockOnly',
+        nextExerciseName: null,
+        nextSetIndex: null,
+        nextSetTotal: null,
+        nextSuggestedReps: null,
+        nextSuggestedLoadKg: null,
+        nextIsBodyweight: null,
       });
     });
   });
