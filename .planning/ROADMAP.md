@@ -288,7 +288,30 @@ série/exercício antes do descanso acabar.
   4. Antes do descanso acabar, a tela bloqueada já mostra a próxima
      série/exercício e a prescrição prevista, sem esperar o descanso chegar a
      zero. (UAT do dono no aparelho físico)
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+**Wave 1** *(paralelo, sem arquivos em comum)*
+
+- [ ] 17-01-PLAN.md — Tracer: AdjustLoadIntent ponta a ponta (fila + ContentState + bridge + widget + deep link D-12)
+- [ ] 17-02-PLAN.md — Motor REG-01: lastRepsByExercise, suggestReps/stepReps, resolveInheritedSet, completeSet() materializa herdado
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 17-03-PLAN.md — AdjustRepsIntent (espelha 17-01) + reconciliação cold-launch (adjustReps/adjustLoad)
+- [ ] 17-04-PLAN.md — SessionPlayer.tsx: steppers sem teclado, marca de herdado, revelação direta (D-03/D-04/D-05/D-06)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 17-05-PLAN.md — PRED-01: findPendingSetAfter + linha "A SEGUIR" (D-13..D-16)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 17-06-PLAN.md — Pre-flight automatizado: suite completa + tsc + skeleton nativo + build Release
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 17-07-PLAN.md — Sessão física: UAT dos Critérios 2/3/4 + toque rápido + orçamento de update + migração de ContentState
 
 ## Progress
 
@@ -310,4 +333,4 @@ série/exercício antes do descanso acabar.
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
-| 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/TBD | Not started | - |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 0/7 | Not started | - |
