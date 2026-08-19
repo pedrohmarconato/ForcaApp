@@ -288,7 +288,7 @@ série/exercício antes do descanso acabar.
   4. Antes do descanso acabar, a tela bloqueada já mostra a próxima
      série/exercício e a prescrição prevista, sem esperar o descanso chegar a
      zero. (UAT do dono no aparelho físico)
-**Plans**: 2/7 plans executed
+**Plans**: 4/7 plans executed
 
 Plans:
 **Wave 1** *(paralelo, sem arquivos em comum)*
@@ -298,8 +298,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-03-PLAN.md — AdjustRepsIntent (espelha 17-01) + reconciliação cold-launch (adjustReps/adjustLoad)
-- [ ] 17-04-PLAN.md — SessionPlayer.tsx: steppers sem teclado, marca de herdado, revelação direta (D-03/D-04/D-05/D-06)
+- [x] 17-03-PLAN.md — AdjustRepsIntent (espelha 17-01) + reconciliação cold-launch (adjustReps/adjustLoad)
+- [x] 17-04-PLAN.md — SessionPlayer.tsx: steppers sem teclado, marca de herdado, revelação direta (D-03/D-04/D-05/D-06)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -333,4 +333,4 @@ Plans:
 | 14. Fundação nativa | v1.3 | 9/9 | Complete    | 2026-08-16 |
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
-| 17. Tela bloqueada — registrar e antecipar | v1.3 | 2/7 | In Progress|  |
+| 17. Tela bloqueada — registrar e antecipar | v1.3 | 4/7 | In Progress|  |
