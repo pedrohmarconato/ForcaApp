@@ -334,3 +334,23 @@ Plans:
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 7/7 | In Progress|  |
+
+## Backlog
+
+### Phase 999.1: Remodelar o card da Live Activity da tela bloqueada (BACKLOG)
+
+**Goal:** [Captured for future planning] Reduzir a densidade de informação do card da
+Live Activity na tela bloqueada — o box ficou pequeno para a quantidade de informação
+que passou a carregar.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Origem: achado do UAT físico da Fase 17 (`17-07-SUMMARY.md`, 2026-08-19). O dono acertou
+os alvos de toque 5 de 5 por par e leu os números de relance — nenhum Success Criteria da
+Fase 17 foi reprovado — mas pediu a remodelagem explicitamente. Materializa a consequência
+que a decisão D-09 (`17-CONTEXT.md`) aceitou por escrito ao adensar o card com os steppers
+de reps e carga (17-01/17-03) e a linha "A SEGUIR" (17-05). Escopo novo, não gap da Fase 17.
+Prioridade a definir pelo dono.
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
