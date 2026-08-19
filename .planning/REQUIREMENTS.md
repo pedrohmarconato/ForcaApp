@@ -129,20 +129,24 @@ fisico do `17-07-PLAN.md`):**
   `Activity.update()`). Um achado de design foi registrado (card do Lock Screen
   pequeno para a densidade de informacao) — nao bloqueia REG-02, e escopo novo,
   ver `17-07-SUMMARY.md`.
-- **REG-01** esta `Complete` e VERIFICADO EM SUPERFICIE REAL desde 2026-08-19. A janela #5
-  de `WINDOWS.md` (`unrun-verify`) foi fechada no mesmo dia: o dono abriu a tela de sessao
-  ativa no APP DO IPHONE (build assinado do HEAD, instalado as 10:12:33) e aprovou o
-  pre-preenchimento vindo do historico, o ajuste apenas por +/-, a marca de valor herdado e
-  a ausencia de teclado ou overflow.
-  Observacao de metodo: o plano original fechava REG-01 pelo PWA (`expo start --web`,
-  390x844). Esse caminho ficou INEXEQUIVEL — ao executar o web de verdade em 2026-08-19, a
-  aplicacao crashou no mount com 'Cannot find native module LiveActivityModule'
-  (`modules/live-activity/index.ts:49` chama `requireNativeModule` no topo do modulo, sem
-  guarda de `Platform.OS`; idem `liveActivitySync.ts` e `liveActivityIntentBridge.ts`).
-  Quebrado desde a Fase 16 (`3dabb0e`), nao e regressao da Fase 17. Por decisao do dono em
-  2026-08-19 o web/PWA deixou de ser superficie suportada na v1.3 (o milestone virou app
-  nativo pessoal), entao esse crash e consequencia aceita e nao bug em aberto, e a
-  verificacao de REG-01 migrou para o app do aparelho.
+- **REG-01** esta `Complete` e VERIFICADO EM SUPERFICIE REAL desde 2026-08-19: o dono abriu a
+  tela de sessao ativa no APP DO IPHONE (build assinado do HEAD, instalado as 10:12:33) e
+  aprovou o pre-preenchimento vindo do historico, o ajuste apenas por +/-, a marca de valor
+  herdado e a ausencia de teclado ou overflow. A janela #5 de `WINDOWS.md` esta `resolved`.
+  **Correcao de registro (2026-08-19):** esta nota chegou a afirmar que o caminho de verificacao
+  por PWA era inexequivel e que o web deixara de ser superficie suportada na v1.3, tratando o
+  crash como consequencia aceita. Isso estava errado. O web nao estava abandonado por decisao de
+  projeto: estava quebrado por DOIS modulos nativos requeridos sem guarda de plataforma —
+  `LiveActivityModule` (`modules/live-activity/index.ts`, desde a Fase 16, commit `3dabb0e`) e
+  `NativeInfoModule` (`modules/native-info/index.ts`, alcancado pelo grafo
+  `App.tsx` -> `ProvisioningBanner.tsx`). O primeiro ja estava agendado no roadmap como CR-03 da
+  Fase 15. Ambos foram corrigidos em 2026-08-19 (plano 15-09 e fechamento 15-09b), com
+  `requireOptionalNativeModule` avaliado apenas no ramo iOS. Verificado em navegador real na
+  mesma data: o app sobe e renderiza a tela de Login, sem erro de modulo nativo. O teste
+  `__tests__/nativeModulePlatformImport.test.ts` cobre agora o grafo de import a partir de
+  `App.tsx`, travando a classe do bug. Por decisao do dono, o web volta a ser superficie
+  suportada na v1.3 — e o caminho de verificacao por PWA (`expo start --web`, 390x844) esta
+  novamente disponivel.
 Dois bugs que so o build Xcode completo revelou (ponte Expo sem os 11 campos novos do
 ContentState; lockfile sem o workspace `modules/live-activity`) foram corrigidos no
 Plano 17-06 — ver `17-06-SUMMARY.md`.
