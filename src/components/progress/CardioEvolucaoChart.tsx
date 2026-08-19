@@ -18,6 +18,7 @@ import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react
 import { LineChart } from 'react-native-chart-kit';
 
 import theme from '../../theme/theme';
+import { useTheme } from '../../theme/ThemeProvider';
 import { Card, SectionHeader } from '../ui/Surface';
 import Button from '../ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../ui/Feedback';
@@ -59,18 +60,27 @@ const hexParaRgbCsv = (hex: string): string => {
 const formatarPaceEixo = (segundosPorKm: number): string =>
   formatPace(segundosPorKm).replace(' /km', '');
 
-const chartConfig = {
-  backgroundColor: theme.colors.surface.card,
-  backgroundGradientFrom: theme.colors.surface.card,
-  backgroundGradientTo: theme.colors.surface.card,
-  color: (opacity = 1) => `rgba(${hexParaRgbCsv(theme.palette.neon)}, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(${hexParaRgbCsv(theme.palette.cinza)}, ${opacity})`,
-  propsForBackgroundLines: { stroke: theme.colors.border.subtle },
-  propsForDots: { r: '3', strokeWidth: '2', stroke: theme.palette.neon },
-};
-
 const CardioEvolucaoChart = () => {
   const { user } = useAuth();
+  const { theme: runtimeTheme } = useTheme();
+  const chartConfig = useMemo(() => {
+    const accentRgb = hexParaRgbCsv(runtimeTheme.colors.accent.main);
+    const labelRgb = hexParaRgbCsv(runtimeTheme.palette.cinza);
+
+    return {
+      backgroundColor: runtimeTheme.colors.surface.card,
+      backgroundGradientFrom: runtimeTheme.colors.surface.card,
+      backgroundGradientTo: runtimeTheme.colors.surface.card,
+      color: (opacity = 1) => `rgba(${accentRgb}, ${opacity})`,
+      labelColor: (opacity = 1) => `rgba(${labelRgb}, ${opacity})`,
+      propsForBackgroundLines: { stroke: runtimeTheme.colors.border.subtle },
+      propsForDots: {
+        r: '3',
+        strokeWidth: '2',
+        stroke: runtimeTheme.colors.accent.main,
+      },
+    };
+  }, [runtimeTheme]);
   // `null` = carregando; `[]` = confirmado vazio (mesma convenção do resto da aba).
   const [logs, setLogs] = useState<CardioLog[] | null>(null);
   const [erro, setErro] = useState(false);

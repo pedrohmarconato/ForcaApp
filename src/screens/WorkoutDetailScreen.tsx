@@ -10,7 +10,8 @@ import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-nativ
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
 import {
   getSessionDetail,
@@ -42,6 +43,8 @@ import { SetasReordenar } from '../components/session/ReorderControls';
 import SkipReasonSheet from '../components/session/SkipReasonSheet';
 
 const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string } } }) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const { sessionId } = route.params;
   const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'WorkoutDetail'>>();
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -510,7 +513,7 @@ const WorkoutDetailScreen = ({ route }: { route: { params: { sessionId: string }
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   summary: { marginBottom: theme.spacing.xl },

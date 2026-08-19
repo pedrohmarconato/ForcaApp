@@ -21,7 +21,8 @@ import {
 } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useManualPlanStore } from '../store/manualPlanStore';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import {
   DEFAULT_MANUAL_PROGRESSION,
   canProgressSeries,
@@ -36,6 +37,8 @@ import {
 const DAY_NAMES = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'] as const;
 
 const ManualPlanEditorScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { user, updateProfile } = useAuth();
@@ -484,7 +487,7 @@ const ManualPlanEditorScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   content: {
     paddingHorizontal: theme.spacing.xl,
     paddingTop: theme.spacing.lg,

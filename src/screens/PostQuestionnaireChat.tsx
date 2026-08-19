@@ -32,7 +32,8 @@ import { STORAGE_KEY_CHAT_PREFIX, STORAGE_KEY_CHAT_STATE_PREFIX } from '../servi
 import { useAuth } from '../contexts/AuthContext';
 import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import type { ManualOnboardingQuestionnaire } from '../types/manualPlan';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import Button from '../components/ui/Button';
 import { EmptyState, Notice } from '../components/ui/Feedback';
 import FModules from '../components/ui/FModules';
@@ -99,6 +100,8 @@ const PostQuestionnaireChat = () => {
     const navigation = useNavigation<PostQuestionnaireChatNavigationProp>();
     const { user, updateProfile } = useAuth();
     const flatListRef = useRef<FlatList<Content>>(null);
+    const { theme } = useTheme();
+    const styles = useThemeStyles(createStyles);
 
     // --- Estados ---
     const [messages, setMessages] = useState<Content[]>([]);
@@ -790,324 +793,8 @@ const handleEnterApp = useCallback(async () => {
                 <Text style={textStyle}>{messageText}</Text>
             </View>
         );
-    }, []);
+    }, [styles]);
 
-    // --- ESTILOS ---
-    // Direção 02: uma única superfície de conversa, sem card flutuante nem
-    // círculos decorativos. O neon fica na bolha do usuário e no enviar.
-    const styles = useMemo(() => StyleSheet.create({
-        screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
-        flex: { flex: 1 },
-        centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
-
-        conversa: {
-            flex: 1,
-            margin: theme.spacing.lg,
-            padding: theme.spacing.lg,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.xxl,
-            backgroundColor: theme.colors.surface.card,
-        },
-        cabecalho: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingBottom: theme.spacing.md,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.border.subtle,
-        },
-        cabecalhoTitulo: {
-            color: theme.colors.text.primary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.lg,
-            fontWeight: theme.typography.fontWeights.semiBold,
-        },
-        cabecalhoMeta: {
-            color: theme.colors.text.quiet,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.sm,
-        },
-
-        lista: { flex: 1, marginVertical: theme.spacing.md },
-        listaConteudo: { paddingBottom: theme.spacing.sm },
-        vazio: { alignItems: 'center', padding: theme.spacing.xl },
-
-        bolhaBase: {
-            maxWidth: '86%',
-            marginVertical: theme.spacing.xxs,
-            paddingVertical: theme.spacing.sm,
-            paddingHorizontal: theme.spacing.md,
-            borderRadius: theme.borderRadius.xl,
-        },
-        bolhaUsuario: { alignSelf: 'flex-end', backgroundColor: theme.colors.accent.main },
-        bolhaIa: {
-            alignSelf: 'flex-start',
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            backgroundColor: theme.colors.surface.elevated,
-        },
-        bolhaSistema: { alignSelf: 'center', backgroundColor: theme.colors.transparent },
-        textoUsuario: {
-            color: theme.colors.accent.on,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
-        },
-        textoIa: {
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
-        },
-        textoSistema: {
-            color: theme.colors.text.quiet,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.sm,
-            textAlign: 'center',
-        },
-
-        escolhaInicial: {
-            marginVertical: 'auto',
-            padding: theme.spacing.lg,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.lg,
-            backgroundColor: theme.colors.surface.elevated,
-        },
-        escolhaTexto: {
-            marginBottom: theme.spacing.lg,
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
-            textAlign: 'center',
-        },
-        escolhaAcoes: { gap: theme.spacing.sm },
-        escolhaBotao: { width: '100%' },
-
-        entrada: {
-            flexDirection: 'row',
-            alignItems: 'flex-end',
-            gap: theme.spacing.sm,
-            paddingTop: theme.spacing.md,
-            borderTopWidth: 1,
-            borderTopColor: theme.colors.border.subtle,
-        },
-        campo: {
-            flex: 1,
-            // Ver dateCell no QuestionnaireScreen: TextInput em row precisa de
-            // minWidth 0 no web, senão não encolhe e empurra o botão de enviar
-            // para fora da tela.
-            minWidth: 0,
-            maxHeight: 96,
-            minHeight: theme.hitTarget.compact,
-            paddingHorizontal: theme.spacing.md,
-            paddingVertical: theme.spacing.sm,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.md,
-            backgroundColor: theme.colors.surface.elevated,
-            color: theme.colors.text.primary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-        },
-        acaoRedonda: {
-            width: 42,
-            height: 42,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: theme.borderRadius.pill,
-            backgroundColor: theme.colors.accent.main,
-        },
-        acaoSecundaria: {
-            borderWidth: 1,
-            borderColor: theme.colors.border.strong,
-            backgroundColor: theme.colors.transparent,
-        },
-        acaoInativa: { opacity: 0.45 },
-
-        rodape: {
-            marginTop: theme.spacing.md,
-            color: theme.colors.text.quiet,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.micro,
-            textAlign: 'center',
-        },
-        estado: { alignItems: 'center', paddingTop: theme.spacing.md },
-        aviso: { marginTop: theme.spacing.md },
-        avisoAcoes: { flexDirection: 'row', gap: theme.spacing.sm },
-
-        modalFundo: {
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: theme.spacing.xl,
-            backgroundColor: theme.colors.overlay,
-        },
-        modalCartao: {
-            width: '100%',
-            maxHeight: '80%',
-            padding: theme.spacing.xl,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.xxl,
-            backgroundColor: theme.colors.surface.card,
-        },
-        modalTitulo: {
-            marginBottom: theme.spacing.lg,
-            color: theme.colors.text.primary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.lg,
-            fontWeight: theme.typography.fontWeights.semiBold,
-        },
-        modalRolagem: { maxHeight: '62%', marginBottom: theme.spacing.lg },
-        modalResumo: {
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-            lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
-        },
-        modalAcoes: { gap: theme.spacing.sm },
-        modalCarregando: { alignItems: 'center', paddingVertical: theme.spacing.lg },
-        modalCarregandoTexto: {
-            marginTop: theme.spacing.md,
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-        },
-        esperandoTexto: {
-            marginTop: theme.spacing.md,
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-            textAlign: 'center',
-        },
-
-        // --- Sugestões prontas ---
-        sugestoes: {
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: theme.spacing.sm,
-            paddingTop: theme.spacing.md,
-        },
-        sugestaoChip: {
-            minHeight: theme.hitTarget.compact,
-            justifyContent: 'center',
-            paddingHorizontal: theme.spacing.lg,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.pill,
-            backgroundColor: theme.colors.surface.elevated,
-        },
-        sugestaoTexto: {
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.sm,
-            fontWeight: theme.typography.fontWeights.semiBold,
-        },
-
-        // --- Construção do plano ---
-        construcao: {
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: theme.spacing.xxxl,
-        },
-        construcaoTitulo: {
-            marginTop: theme.spacing.xxl,
-            marginBottom: theme.spacing.xxxl,
-            color: theme.colors.text.primary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.display,
-            fontWeight: theme.typography.fontWeights.semiBold,
-            letterSpacing: theme.typography.letterSpacing.display,
-            textAlign: 'center',
-        },
-        construcaoEtapas: { alignSelf: 'stretch', gap: theme.spacing.lg },
-        etapa: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
-        etapaPendente: { opacity: 0.35 },
-        etapaMarcador: {
-            width: 26,
-            height: 26,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: 1.5,
-            borderColor: theme.colors.border.strong,
-            borderRadius: theme.borderRadius.pill,
-        },
-        etapaMarcadorAtivo: {
-            borderColor: theme.colors.accent.border,
-            backgroundColor: theme.colors.accent.soft,
-        },
-        etapaTexto: {
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.md,
-        },
-        etapaTextoAtivo: { color: theme.colors.text.primary },
-        construcaoDetalhe: {
-            marginTop: theme.spacing.xxl,
-            color: theme.colors.text.quiet,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.sm,
-            textAlign: 'center',
-        },
-
-        // --- Revelação ---
-        revelacao: {
-            flex: 1,
-            justifyContent: 'center',
-            padding: theme.spacing.xxxl,
-        },
-        revelacaoKicker: {
-            marginTop: theme.spacing.xl,
-            color: theme.colors.text.accent,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.micro,
-            fontWeight: theme.typography.fontWeights.bold,
-            letterSpacing: theme.typography.letterSpacing.wide,
-            textTransform: 'uppercase',
-        },
-        revelacaoTitulo: {
-            marginTop: theme.spacing.xs,
-            color: theme.colors.text.primary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.display,
-            fontWeight: theme.typography.fontWeights.semiBold,
-            letterSpacing: theme.typography.letterSpacing.display,
-            lineHeight: theme.typography.fontSizes.display * theme.typography.lineHeights.tight,
-        },
-        revelacaoResumo: {
-            marginTop: theme.spacing.sm,
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.base,
-        },
-        revelacaoNota: {
-            flexDirection: 'row',
-            gap: theme.spacing.md,
-            alignItems: 'flex-start',
-            marginTop: theme.spacing.xxl,
-            padding: theme.spacing.lg,
-            borderWidth: 1,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.borderRadius.lg,
-            backgroundColor: theme.colors.surface.raised,
-        },
-        revelacaoNotaTexto: {
-            flex: 1,
-            color: theme.colors.text.secondary,
-            fontFamily: theme.fonts.ui,
-            fontSize: theme.typography.fontSizes.sm,
-            lineHeight: theme.typography.fontSizes.sm * theme.typography.lineHeights.normal,
-        },
-        revelacaoNotaForte: {
-            color: theme.colors.text.primary,
-            fontWeight: theme.typography.fontWeights.semiBold,
-        },
-        revelacaoCta: { marginTop: theme.spacing.xxl },
-    }), []);
 
     // --- RENDERIZAÇÃO ---
 
@@ -1502,5 +1189,323 @@ const handleEnterApp = useCallback(async () => {
     );
 
 };
+
+// --- ESTILOS ---
+// Direção 02: uma única superfície de conversa, sem card flutuante nem
+// círculos decorativos. O neon fica na bolha do usuário e no enviar.
+const createStyles = (theme: Theme) => StyleSheet.create({
+    screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
+    flex: { flex: 1 },
+    centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
+
+    conversa: {
+        flex: 1,
+        margin: theme.spacing.lg,
+        padding: theme.spacing.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.xxl,
+        backgroundColor: theme.colors.surface.card,
+    },
+    cabecalho: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingBottom: theme.spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.border.subtle,
+    },
+    cabecalhoTitulo: {
+        color: theme.colors.text.primary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.lg,
+        fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    cabecalhoMeta: {
+        color: theme.colors.text.quiet,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.sm,
+    },
+
+    lista: { flex: 1, marginVertical: theme.spacing.md },
+    listaConteudo: { paddingBottom: theme.spacing.sm },
+    vazio: { alignItems: 'center', padding: theme.spacing.xl },
+
+    bolhaBase: {
+        maxWidth: '86%',
+        marginVertical: theme.spacing.xxs,
+        paddingVertical: theme.spacing.sm,
+        paddingHorizontal: theme.spacing.md,
+        borderRadius: theme.borderRadius.xl,
+    },
+    bolhaUsuario: { alignSelf: 'flex-end', backgroundColor: theme.colors.accent.main },
+    bolhaIa: {
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        backgroundColor: theme.colors.surface.elevated,
+    },
+    bolhaSistema: { alignSelf: 'center', backgroundColor: theme.colors.transparent },
+    textoUsuario: {
+        color: theme.colors.accent.on,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+        lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+    },
+    textoIa: {
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+        lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+    },
+    textoSistema: {
+        color: theme.colors.text.quiet,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.sm,
+        textAlign: 'center',
+    },
+
+    escolhaInicial: {
+        marginVertical: 'auto',
+        padding: theme.spacing.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.lg,
+        backgroundColor: theme.colors.surface.elevated,
+    },
+    escolhaTexto: {
+        marginBottom: theme.spacing.lg,
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+        lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+        textAlign: 'center',
+    },
+    escolhaAcoes: { gap: theme.spacing.sm },
+    escolhaBotao: { width: '100%' },
+
+    entrada: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: theme.spacing.sm,
+        paddingTop: theme.spacing.md,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.border.subtle,
+    },
+    campo: {
+        flex: 1,
+        // Ver dateCell no QuestionnaireScreen: TextInput em row precisa de
+        // minWidth 0 no web, senão não encolhe e empurra o botão de enviar
+        // para fora da tela.
+        minWidth: 0,
+        maxHeight: 96,
+        minHeight: theme.hitTarget.compact,
+        paddingHorizontal: theme.spacing.md,
+        paddingVertical: theme.spacing.sm,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.md,
+        backgroundColor: theme.colors.surface.elevated,
+        color: theme.colors.text.primary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+    },
+    acaoRedonda: {
+        width: 42,
+        height: 42,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: theme.borderRadius.pill,
+        backgroundColor: theme.colors.accent.main,
+    },
+    acaoSecundaria: {
+        borderWidth: 1,
+        borderColor: theme.colors.border.strong,
+        backgroundColor: theme.colors.transparent,
+    },
+    acaoInativa: { opacity: 0.45 },
+
+    rodape: {
+        marginTop: theme.spacing.md,
+        color: theme.colors.text.quiet,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.micro,
+        textAlign: 'center',
+    },
+    estado: { alignItems: 'center', paddingTop: theme.spacing.md },
+    aviso: { marginTop: theme.spacing.md },
+    avisoAcoes: { flexDirection: 'row', gap: theme.spacing.sm },
+
+    modalFundo: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: theme.spacing.xl,
+        backgroundColor: theme.colors.overlay,
+    },
+    modalCartao: {
+        width: '100%',
+        maxHeight: '80%',
+        padding: theme.spacing.xl,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.xxl,
+        backgroundColor: theme.colors.surface.card,
+    },
+    modalTitulo: {
+        marginBottom: theme.spacing.lg,
+        color: theme.colors.text.primary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.lg,
+        fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    modalRolagem: { maxHeight: '62%', marginBottom: theme.spacing.lg },
+    modalResumo: {
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+        lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+    },
+    modalAcoes: { gap: theme.spacing.sm },
+    modalCarregando: { alignItems: 'center', paddingVertical: theme.spacing.lg },
+    modalCarregandoTexto: {
+        marginTop: theme.spacing.md,
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+    },
+    esperandoTexto: {
+        marginTop: theme.spacing.md,
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+        textAlign: 'center',
+    },
+
+    // --- Sugestões prontas ---
+    sugestoes: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: theme.spacing.sm,
+        paddingTop: theme.spacing.md,
+    },
+    sugestaoChip: {
+        minHeight: theme.hitTarget.compact,
+        justifyContent: 'center',
+        paddingHorizontal: theme.spacing.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.pill,
+        backgroundColor: theme.colors.surface.elevated,
+    },
+    sugestaoTexto: {
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.sm,
+        fontWeight: theme.typography.fontWeights.semiBold,
+    },
+
+    // --- Construção do plano ---
+    construcao: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: theme.spacing.xxxl,
+    },
+    construcaoTitulo: {
+        marginTop: theme.spacing.xxl,
+        marginBottom: theme.spacing.xxxl,
+        color: theme.colors.text.primary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.display,
+        fontWeight: theme.typography.fontWeights.semiBold,
+        letterSpacing: theme.typography.letterSpacing.display,
+        textAlign: 'center',
+    },
+    construcaoEtapas: { alignSelf: 'stretch', gap: theme.spacing.lg },
+    etapa: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+    etapaPendente: { opacity: 0.35 },
+    etapaMarcador: {
+        width: 26,
+        height: 26,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1.5,
+        borderColor: theme.colors.border.strong,
+        borderRadius: theme.borderRadius.pill,
+    },
+    etapaMarcadorAtivo: {
+        borderColor: theme.colors.accent.border,
+        backgroundColor: theme.colors.accent.soft,
+    },
+    etapaTexto: {
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.md,
+    },
+    etapaTextoAtivo: { color: theme.colors.text.primary },
+    construcaoDetalhe: {
+        marginTop: theme.spacing.xxl,
+        color: theme.colors.text.quiet,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.sm,
+        textAlign: 'center',
+    },
+
+    // --- Revelação ---
+    revelacao: {
+        flex: 1,
+        justifyContent: 'center',
+        padding: theme.spacing.xxxl,
+    },
+    revelacaoKicker: {
+        marginTop: theme.spacing.xl,
+        color: theme.colors.text.accent,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.micro,
+        fontWeight: theme.typography.fontWeights.bold,
+        letterSpacing: theme.typography.letterSpacing.wide,
+        textTransform: 'uppercase',
+    },
+    revelacaoTitulo: {
+        marginTop: theme.spacing.xs,
+        color: theme.colors.text.primary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.display,
+        fontWeight: theme.typography.fontWeights.semiBold,
+        letterSpacing: theme.typography.letterSpacing.display,
+        lineHeight: theme.typography.fontSizes.display * theme.typography.lineHeights.tight,
+    },
+    revelacaoResumo: {
+        marginTop: theme.spacing.sm,
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.base,
+    },
+    revelacaoNota: {
+        flexDirection: 'row',
+        gap: theme.spacing.md,
+        alignItems: 'flex-start',
+        marginTop: theme.spacing.xxl,
+        padding: theme.spacing.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border.subtle,
+        borderRadius: theme.borderRadius.lg,
+        backgroundColor: theme.colors.surface.raised,
+    },
+    revelacaoNotaTexto: {
+        flex: 1,
+        color: theme.colors.text.secondary,
+        fontFamily: theme.fonts.ui,
+        fontSize: theme.typography.fontSizes.sm,
+        lineHeight: theme.typography.fontSizes.sm * theme.typography.lineHeights.normal,
+    },
+    revelacaoNotaForte: {
+        color: theme.colors.text.primary,
+        fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    revelacaoCta: { marginTop: theme.spacing.xxl },
+
+});
 
 export default PostQuestionnaireChat;

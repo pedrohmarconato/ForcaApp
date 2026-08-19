@@ -11,7 +11,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../contexts/AuthContext';
 import type { ProgressStackParamList } from '../navigation/MainNavigator';
 import {
@@ -50,6 +51,8 @@ const formatarKg = (v: number): string =>
   v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 
 const ProgressScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation =
     useNavigation<StackNavigationProp<ProgressStackParamList, 'ProgressMain'>>();
   const { user } = useAuth();
@@ -345,7 +348,7 @@ const ProgressScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   section: { marginBottom: theme.spacing.xxl },
 
   constHeaderRow: {

@@ -10,7 +10,8 @@ import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../contexts/AuthContext';
 import type { ProgressStackParamList } from '../navigation/MainNavigator';
 import {
@@ -32,6 +33,8 @@ const formatarQuando = (iso: string): string => {
 };
 
 const SessionHistoryScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation = useNavigation<StackNavigationProp<ProgressStackParamList, 'SessionHistory'>>();
   const { user } = useAuth();
   const [items, setItems] = useState<CompletedSessionSummary[]>([]);
@@ -122,7 +125,7 @@ const SessionHistoryScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   loader: { marginTop: theme.spacing.xxl },
   list: { paddingBottom: theme.spacing.xxl },
 });

@@ -39,7 +39,8 @@ import { semanasConstantes } from '../engine/progressStats';
 import { localTodayISO } from '../engine/agendaDias';
 import { normalizeName } from '../engine/sessionModel';
 import { updateTrainingBadge } from '../utils/pushBadge';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { Screen, Card, SectionHeader, ListRow } from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Chip, EmptyState, Notice, Skeleton } from '../components/ui/Feedback';
@@ -62,6 +63,8 @@ const saudacao = (hora: number): string => {
 };
 
 const HomeScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation = useNavigation<StackNavigationProp<HomeStackParamList, 'HomeMain'>>();
   const { user, profile } = useAuth();
   const [todaySession, setTodaySession] = useState<PlannedSession | null>(null);
@@ -467,7 +470,7 @@ const HomeScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'flex-end',

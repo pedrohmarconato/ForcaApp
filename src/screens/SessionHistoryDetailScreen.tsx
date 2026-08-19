@@ -4,7 +4,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, SectionList, StyleSheet, ActivityIndicator } from 'react-native';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import {
   getSessionLogDetail,
   type SessionLogDetail,
@@ -15,7 +16,7 @@ import { isTimeBased, formatCardioSetResult } from '../engine/sessionModel';
 import { duracaoEmMinutos, formatarDuracao } from '../utils/weekSummary';
 
 const OUTCOME_LABEL: Record<Outcome, string> = { on_target: 'No alvo', under: 'Abaixo', over: 'Acima' };
-const outcomeColor = (o: Outcome): string =>
+const outcomeColor = (theme: Theme, o: Outcome): string =>
   o === 'on_target'
     ? theme.colors.status.success
     : o === 'under'
@@ -42,6 +43,8 @@ const descreveSerie = (s: HistorySetLog, metric: ExerciseMetric | null | undefin
 };
 
 const SessionHistoryDetailScreen = ({ route }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const { sessionLogId } = route.params;
   const [detail, setDetail] = useState<SessionLogDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,7 +130,7 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
               Série {item.setOrder ?? '—'}: {descreveSerie(item, section.metric)}
             </Text>
             {item.outcome ? (
-              <Text style={[styles.chip, { color: outcomeColor(item.outcome) }]}>
+              <Text style={[styles.chip, { color: outcomeColor(theme, item.outcome) }]}>
                 {OUTCOME_LABEL[item.outcome]}
               </Text>
             ) : null}
@@ -143,7 +146,7 @@ const SessionHistoryDetailScreen = ({ route }: Props) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   container: {
     flex: 1,
     padding: theme.spacing.xl,

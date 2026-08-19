@@ -108,8 +108,10 @@ export const LINKING_CONFIG = {
     },
     Profile: {
       path: 'profile',
+      initialRouteName: 'ProfileMain',
       screens: {
         ProfileMain: '',
+        Settings: 'settings',
       },
     },
     // INST-02 (Fase 12): rota pública de instalação guiada. TOP-LEVEL,
