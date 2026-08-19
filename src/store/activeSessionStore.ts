@@ -1296,17 +1296,34 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     if (!ativou) return;
     // D3: garante a invariante de série ativa única ANTES do commit final.
     const semOutrasAtivas = deactivateOtherActiveSets(novo, exerciseId, setOrder);
-    set({ draft: { ...semOutrasAtivas, restEndsAt: null } });
+    const draftAtivado: SessionDraft = { ...semOutrasAtivas, restEndsAt: null };
+    set({ draft: draftAtivado });
+    // IN-05 (review 2026-08-19): activateSet era uma das duas ações de escrita
+    // em séries (junto de adjustRest, abaixo) que ficavam só em memória — as
+    // outras sete (setReps/setLoad/stepLoad/stepReps/setRir/setDuration/
+    // setDistance/setEffort) já persistem fire-and-forget desde 16-10. Sem
+    // isto, um completeSet() aplicado pela reconciliação de cold-launch envia
+    // startedAt: serie.activatedAt (~linha 1568) com activatedAt nulo — o
+    // set_log chega ao servidor com started_at NULL.
+    saveDraft(draftAtivado).catch((e) => {
+      console.warn('[activeSession] ativação da série não persistida (não-fatal):', e);
+    });
   },
 
   adjustRest: (deltaSeconds) => {
     const draft = get().draft;
     if (!draft?.restEndsAt || !Number.isFinite(deltaSeconds)) return;
-    set({
-      draft: {
-        ...draft,
-        restEndsAt: ajustarRestEndsAt(draft.restEndsAt, deltaSeconds),
-      },
+    const novo: SessionDraft = {
+      ...draft,
+      restEndsAt: ajustarRestEndsAt(draft.restEndsAt, deltaSeconds),
+    };
+    set({ draft: novo });
+    // IN-05 (review 2026-08-19): mesmo mecanismo de activateSet acima —
+    // sem persistir, um ajuste de descanso feito pouco antes de um
+    // force-quit se perde e o card volta a mostrar o restEndsAt anterior
+    // na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] ajuste de descanso não persistido (não-fatal):', e);
     });
   },
 
