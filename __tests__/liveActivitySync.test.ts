@@ -297,7 +297,7 @@ describe('initLiveActivitySync', () => {
     stop();
   });
 
-  it('reinicia o timeout quando uma atualização da Activity conclui', async () => {
+  it('D-08: editar só reps/carga/RIR/descanso perto do prazo publica a atualização, mas o timeout ORIGINAL ainda encerra a Activity', async () => {
     const stop = initLiveActivitySync();
     const current = draft();
     useActiveSessionStore.setState({ status: 'active', draft: current });
@@ -311,13 +311,117 @@ describe('initLiveActivitySync', () => {
     useActiveSessionStore.setState({ status: 'active', draft: updated });
     await flushPromises();
 
+    // A edição publica a atualização necessária...
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    // ...mas não adia o prazo: 1ms depois ainda é o instante original.
+    expect(mockEnd).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flushPromises();
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+
+    stop();
+  });
+
+  it('D-08: nova série done da mesma sessão substitui o deadline por três horas a partir da conclusão', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS - 1);
+    const comSerieDone: SessionDraft = {
+      ...current,
+      exercises: [
+        {
+          ...current.exercises[0]!,
+          sets: current.exercises[0]!.sets.map((s) =>
+            s.plannedSetId === 'set-1' ? { ...s, status: 'done' as const } : s,
+          ),
+        },
+      ],
+    };
+    useActiveSessionStore.setState({ status: 'active', draft: comSerieDone });
+    await flushPromises();
+
+    // O prazo original (que venceria em 1ms) foi substituído pela conclusão.
     jest.advanceTimersByTime(1);
     await flushPromises();
     expect(mockEnd).not.toHaveBeenCalled();
 
+    // Passa quase as novas três horas a partir da conclusão: ainda não vence.
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS - 2);
+    await flushPromises();
+    expect(mockEnd).not.toHaveBeenCalled();
+
+    // No instante exato do novo prazo, encerra.
+    jest.advanceTimersByTime(1);
+    await flushPromises();
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+
+    stop();
+  });
+
+  it('depois do timeout, update=false recria a Activity quando a sessão ainda é a mesma e active', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+
     jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS);
     await flushPromises();
     expect(mockEnd).toHaveBeenCalledWith('immediate');
+    expect(mockStart).toHaveBeenCalledTimes(1);
+
+    mockUpdate.mockResolvedValueOnce(false);
+    const updated = {
+      ...current,
+      restEndsAt: new Date(Date.now() + 90_000).toISOString(),
+    };
+    useActiveSessionStore.setState({ status: 'active', draft: updated });
+    await flushPromises();
+
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    expect(mockStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'resting', restEndsAt: updated.restEndsAt }),
+      'log-1',
+    );
+
+    stop();
+  });
+
+  it('finish antes de update=false resolver impede recriar a Activity de sessão que já terminou', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+
+    jest.advanceTimersByTime(INACTIVITY_TIMEOUT_MS);
+    await flushPromises();
+    expect(mockEnd).toHaveBeenCalledWith('immediate');
+    mockEnd.mockClear();
+    mockStart.mockClear();
+
+    let resolveUpdate: ((value: boolean) => void) | undefined;
+    mockUpdate.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+
+    const updated = {
+      ...current,
+      restEndsAt: new Date(Date.now() + 90_000).toISOString(),
+    };
+    useActiveSessionStore.setState({ status: 'active', draft: updated });
+
+    // Sessão termina (draft some no mesmo frame) ANTES do update resolver.
+    useActiveSessionStore.setState({ status: 'finished', draft: null });
+    resolveUpdate?.(false);
+    await flushPromises();
+
+    expect(mockStart).not.toHaveBeenCalled();
 
     stop();
   });
