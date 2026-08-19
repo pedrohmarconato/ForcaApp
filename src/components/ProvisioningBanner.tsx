@@ -39,10 +39,19 @@ const ProvisioningBanner = () => {
     if (Platform.OS !== 'ios') return undefined;
 
     let cancelled = false;
-    getProvisioningProfileExpiry().then((iso) => {
-      if (cancelled || !iso) return;
-      setExpiryDate(new Date(iso));
-    });
+    getProvisioningProfileExpiry()
+      .then((iso) => {
+        if (cancelled || !iso) return;
+        setExpiryDate(new Date(iso));
+      })
+      // WR-04 (14-REVIEW.md, 2026-08-19): a ponte nativa pode REJEITAR — perfil
+      // de provisionamento ausente, plist ilegível, permissão negada. Sem este
+      // catch a rejeição virava unhandled rejection em vez do comportamento
+      // documentado em D-03: o aviso de validade é informativo, nunca
+      // bloqueante, então falha de leitura mantém o banner oculto.
+      .catch((e) => {
+        console.warn('[provisioning] validade do perfil não pôde ser lida (não-fatal):', e);
+      });
 
     return () => {
       cancelled = true;

@@ -104,7 +104,9 @@ rodar_checagens() {
   # ios/.targets/<slug>/ — um diretório oculto que ios/*/*.entitlements não
   # alcança.
   local arquivo_entitlements
+  local entitlements_inspecionados=0
   while IFS= read -r arquivo_entitlements; do
+    entitlements_inspecionados=$((entitlements_inspecionados + 1))
     if grep -q aps-environment "$arquivo_entitlements" 2>/dev/null; then
       vermelho "ABORTADO: [rodada ${rodada}] aps-environment vazou para ${arquivo_entitlements}."
       echo "  Nenhum plano antes da Plano 14-05 (spike de App Group aprovado)" >&2
@@ -112,6 +114,19 @@ rodar_checagens() {
       exit 1
     fi
   done < <(find ios -name '*.entitlements')
+  # WR-01 (14-REVIEW.md, 2026-08-19): sem esta guarda, um `find` que nao devolve
+  # NADA faz o laco acima nunca executar e a checagem (c) APROVA sem ter
+  # inspecionado arquivo nenhum — a classe exata de verificacao que passa sem
+  # exercitar. Hoje o cenario e pego de carona pela checagem (k), que exige pelo
+  # menos 2 entitlements; mas (k) nasceu na Fase 17 por outro motivo e roda
+  # DEPOIS, entao (c) dependia de um acidente de ordenacao para nao mentir.
+  # Cada checagem responde pela propria premissa.
+  if [[ "$entitlements_inspecionados" -eq 0 ]]; then
+    vermelho "ABORTADO: [rodada ${rodada}] nenhum .entitlements gerado em ios/ — a checagem (c) nao tinha o que inspecionar."
+    echo "  O prebuild deveria gerar entitlements para o app e para o session-widget." >&2
+    echo "  Confira app.json (ios.entitlements) e targets/session-widget/expo-target.config.js." >&2
+    exit 1
+  fi
 
   # (d) os módulos locais precisam aparecer no autolinking do iOS.
   local autolinking

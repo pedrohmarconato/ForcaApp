@@ -98,6 +98,34 @@ describe('ProvisioningBanner (componente)', () => {
     await waitFor(() => expect(screen.queryByTestId('provisioning-banner')).toBeTruthy());
   });
 
+  // WR-04 (14-REVIEW.md, 2026-08-19): getProvisioningProfileExpiry() e uma
+  // ponte para modulo nativo — pode REJEITAR (perfil ausente, plist ilegivel,
+  // permissao negada). Sem .catch(), a rejeicao virava unhandled rejection em
+  // vez do comportamento documentado, que e manter o banner oculto: o aviso de
+  // validade e informativo (D-03), nunca bloqueante.
+  it('WR-04: rejeição da ponte nativa mantém o banner oculto e não vira unhandled rejection', async () => {
+    const rejeicoes: unknown[] = [];
+    const capturar = (motivo: unknown): void => {
+      rejeicoes.push(motivo);
+    };
+    process.on('unhandledRejection', capturar);
+    const aviso = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      mockedGetExpiry.mockRejectedValue(new Error('perfil de provisionamento ilegível'));
+      const { toJSON } = render(<ProvisioningBanner />);
+
+      // Deixa a microtask da rejeição drenar antes de assertar.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(toJSON()).toBeNull();
+      expect(rejeicoes).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', capturar);
+      aviso.mockRestore();
+    }
+  });
+
   it('quando visível, o texto cita o dia da semana derivado de expiryDate e mantém o testID', async () => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
     const expiryDate = new Date(Date.now() - 24 * 60 * 60 * 1000);

@@ -58,13 +58,20 @@ npx expo prebuild -p ios --clean --non-interactive
 #       contra expo.name — dinâmico (não hardcoda "ForcaApp") e correto.
 # ---------------------------------------------------------------------------
 echo "3/8 — descobrindo scheme Xcode..."
-EXPO_NAME="$(node -e "console.log(require('${REPO_ROOT}/app.json').expo.name)")"
-SCHEME="$(xcodebuild -list -workspace ios/*.xcworkspace -json | node -e "
+# WR-03 (14-REVIEW.md / 14-SECURITY.md, 2026-08-19): os valores chegam ao
+# `node -e` por VARIAVEL DE AMBIENTE, nao por interpolacao de string. Antes,
+# ${REPO_ROOT} e ${EXPO_NAME} eram costurados dentro de strings JS de aspas
+# simples — um app.json cujo expo.name contivesse aspa simples quebraria a
+# string e executaria JS arbitrario no contexto do build. Limite de confianca
+# baixo na pratica (so o dono edita app.json), mas e injecao de comando por
+# input nao sanitizado, e o custo de fechar e uma linha.
+EXPO_NAME="$(APP_JSON_PATH="${REPO_ROOT}/app.json" node -e "console.log(require(process.env.APP_JSON_PATH).expo.name)")"
+SCHEME="$(xcodebuild -list -workspace ios/*.xcworkspace -json | EXPO_NAME="$EXPO_NAME" node -e "
 let d = '';
 process.stdin.on('data', (c) => { d += c; });
 process.stdin.on('end', () => {
   const schemes = JSON.parse(d).workspace.schemes;
-  const nome = '${EXPO_NAME}';
+  const nome = process.env.EXPO_NAME;
   if (schemes.includes(nome)) {
     console.log(nome);
   }
