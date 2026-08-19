@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
-current_phase: 17
-current_phase_name: tela-bloqueada-registrar-e-antecipar
+current_phase: 16
+current_phase_name: tela-bloqueada-comandar
 status: executing
-stopped_at: "Phase 17 paused after wave 4 — 6/7 plans done, 17-07 physical UAT deferred by owner"
-last_updated: "2026-08-19T01:04:29.508Z"
+stopped_at: "Fase 17 fechada (7/7, todos os gates verdes). Fase 16 com os 11 planos executados, mas gates de fechamento em aberto: VERIFICATION gaps_found, REVIEW issues_found, SECURITY ausente, VALIDATION draft"
+last_updated: "2026-08-19T16:25:08.483Z"
 last_activity: 2026-08-19
-last_activity_desc: "Phase 17 waves 1-4 executed and merged; 17-07 (UAT no iPhone) pending"
+last_activity_desc: "Fase 17 completa; retomada da Fase 16 — planos ja executados, falta o gauntlet de fechamento"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 36
-  completed_plans: 26
-  percent: 50
+  completed_plans: 33
+  percent: 75
 ---
 
 # Project State
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
 pago, sem distribuição a terceiros).
-**Current focus:** Phase 17 — tela-bloqueada-registrar-e-antecipar
+**Current focus:** Phase 16 — tela-bloqueada-comandar
 
 ## Current Position
 
-Phase: 17 (tela-bloqueada-registrar-e-antecipar) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 17
-Last activity: 2026-08-18 — Phase 17 execution started
+Phase: 16 (tela-bloqueada-comandar) — EXECUTING
+Plan: 1 of 11
+Status: Executing Phase 16
+Last activity: 2026-08-19 — Phase 16 execution started
 
 Progress: [█████████░] 89%
 
@@ -42,7 +42,7 @@ Progress: [█████████░] 89%
 
 **Velocity:**
 
-- Total plans completed: 14 (v1.3)
+- Total plans completed: 16 (v1.3)
 - Average duration: —
 - Total execution time: —
 
@@ -53,6 +53,7 @@ Progress: [█████████░] 89%
 | Phase 05 P01 | 3 tasks | 4min | 4min |
 | Phase 05 P02 | 1 tasks | 9min | 9min |
 | 14 | 9 | - | - |
+| 17 | 7 | - | - |
 
 **Recent Trend:**
 
