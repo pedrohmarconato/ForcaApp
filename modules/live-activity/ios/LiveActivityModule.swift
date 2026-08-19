@@ -14,6 +14,17 @@ public struct LiveActivityContentStateRecord: Record {
   @Field var blockLabel: String? = nil
   @Field var blockIndex: Int? = nil
   @Field var blockTotal: Int? = nil
+  @Field var currentLoadKg: Double? = nil
+  @Field var isLoadInherited: Bool = false
+  @Field var loadIncrementKg: Double? = nil
+  @Field var currentReps: Int? = nil
+  @Field var isRepsInherited: Bool = false
+  @Field var nextExerciseName: String? = nil
+  @Field var nextSetIndex: Int? = nil
+  @Field var nextSetTotal: Int? = nil
+  @Field var nextSuggestedReps: Int? = nil
+  @Field var nextSuggestedLoadKg: Double? = nil
+  @Field var nextIsBodyweight: Bool? = nil
 
   public init() {}
 }
@@ -59,11 +70,22 @@ public class LiveActivityModule: Module {
       targetRepsMin: record.targetRepsMin,
       targetRepsMax: record.targetRepsMax,
       targetLoadKg: record.targetLoadKg,
+      currentLoadKg: record.currentLoadKg,
+      isLoadInherited: record.isLoadInherited,
+      loadIncrementKg: record.loadIncrementKg,
+      currentReps: record.currentReps,
+      isRepsInherited: record.isRepsInherited,
       isBodyweight: record.isBodyweight,
       restEndsAt: iso8601Date(from: record.restEndsAt),
       blockLabel: record.blockLabel,
       blockIndex: record.blockIndex,
-      blockTotal: record.blockTotal
+      blockTotal: record.blockTotal,
+      nextExerciseName: record.nextExerciseName,
+      nextSetIndex: record.nextSetIndex,
+      nextSetTotal: record.nextSetTotal,
+      nextSuggestedReps: record.nextSuggestedReps,
+      nextSuggestedLoadKg: record.nextSuggestedLoadKg,
+      nextIsBodyweight: record.nextIsBodyweight
     )
   }
 
