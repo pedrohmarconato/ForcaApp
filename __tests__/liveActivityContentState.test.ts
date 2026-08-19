@@ -103,6 +103,8 @@ describe('buildLiveActivityContentState', () => {
       currentLoadKg: null,
       isLoadInherited: false,
       loadIncrementKg: null,
+      currentReps: null,
+      isRepsInherited: false,
     });
   });
 
@@ -275,6 +277,75 @@ describe('buildLiveActivityContentState', () => {
         currentLoadKg: null,
         isLoadInherited: false,
         loadIncrementKg: null,
+      });
+    });
+  });
+
+  describe('reps em edição (currentReps/isRepsInherited — precedência híbrida D-17)', () => {
+    it('1ª série do exercício na sessão: sem reps real, histórico vence do alvo (D-01)', () => {
+      const sets = [{ ...makeSet(1, 'active'), actualReps: null, targetRepsMin: 8 }];
+      const exercise = makeExercise(sets);
+      const draft = makeDraft(sets, [exercise]);
+      draft.lastRepsByExercise = { 'supino reto': 5 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        currentReps: 5,
+        isRepsInherited: true,
+      });
+    });
+
+    it('série seguinte do exercício na sessão: sem reps real, alvo vence do histórico (D-08)', () => {
+      const sets = [
+        { ...makeSet(1, 'done'), actualReps: 7 },
+        { ...makeSet(2, 'active'), actualReps: null, targetRepsMin: 8 },
+      ];
+      const exercise = makeExercise(sets);
+      const draft = makeDraft(sets, [exercise]);
+      draft.lastRepsByExercise = { 'supino reto': 5 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        currentReps: 8,
+        isRepsInherited: true,
+      });
+    });
+
+    it('reps real digitada sempre vence, independente do ramo D-17', () => {
+      const sets = [{ ...makeSet(1, 'active'), actualReps: 12, targetRepsMin: 8 }];
+      const exercise = makeExercise(sets);
+      const draft = makeDraft(sets, [exercise]);
+      draft.lastRepsByExercise = { 'supino reto': 5 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        currentReps: 12,
+        isRepsInherited: false,
+      });
+    });
+
+    it('fase não-measuring não preenche currentReps/isRepsInherited', () => {
+      const draft = makeDraft([makeSet(1, 'done'), makeSet(2, 'pending')]);
+      draft.restEndsAt = '2026-08-16T12:01:30.000Z';
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'resting',
+        currentReps: null,
+        isRepsInherited: false,
+      });
+    });
+
+    it('reps aparecem para exercício bodyweight (só a carga é omitida)', () => {
+      const sets = [{ ...makeSet(1, 'active'), actualReps: null, targetRepsMin: 8 }];
+      const exercise = makeExercise(sets, { isBodyweight: true });
+      const draft = makeDraft(sets, [exercise]);
+      draft.lastRepsByExercise = { 'supino reto': 5 };
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'measuring',
+        currentLoadKg: null,
+        currentReps: 5,
+        isRepsInherited: true,
       });
     });
   });

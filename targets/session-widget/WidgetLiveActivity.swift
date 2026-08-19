@@ -130,6 +130,25 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
             secondaryLine(state)
+            // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
+            // omitida para bodyweight, nunca as reps.
+            HStack {
+                Button(intent: AdjustRepsIntent(deltaReps: -1)) {
+                    Text("−")
+                }
+                Text(state.currentReps.map(String.init) ?? "—")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .monospacedDigit()
+                    .foregroundColor(.white)
+                    .opacity(state.isRepsInherited ? 0.6 : 1.0)
+                    .minimumScaleFactor(0.8)
+                    .lineLimit(1)
+                Button(intent: AdjustRepsIntent(deltaReps: 1)) {
+                    Text("+")
+                }
+            }
+            .tint(activityNeon)
             if !state.isBodyweight {
                 HStack {
                     Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? 2.5))) {
@@ -148,8 +167,6 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
                     }
                 }
                 .tint(activityNeon)
-            } else {
-                primaryValue(state)
             }
             Button(intent: CompleteSetIntent()) {
                 Text("Concluir série")

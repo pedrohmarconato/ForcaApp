@@ -1889,6 +1889,25 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
+        case 'adjustReps': {
+          const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
+          if (alvo && entry.deltaValue != null) {
+            get().stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
+          }
+          // Ack incondicional (mesmo padrão de adjustRest, diferente de
+          // completeSet): ajustar reps/carga não tem uma "reprovação" de
+          // canCompleteSet a respeitar — é sempre aplicável quando há alvo.
+          void ackQueuedLiveActivityIntent(entry.id);
+          break;
+        }
+        case 'adjustLoad': {
+          const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
+          if (alvo && entry.deltaValue != null) {
+            get().stepLoad(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
+          }
+          void ackQueuedLiveActivityIntent(entry.id);
+          break;
+        }
       }
     }
   },

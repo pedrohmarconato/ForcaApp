@@ -105,6 +105,8 @@ const buildFinishedContentState = (draft: ActiveDraft): LiveActivityContentState
     currentLoadKg: null,
     isLoadInherited: false,
     loadIncrementKg: null,
+    currentReps: null,
+    isRepsInherited: false,
   };
 };
 

@@ -2,9 +2,11 @@ import {
   exerciseIdentity,
   findActiveSet,
   findNextPendingSet,
+  isFirstSetOfExerciseInSession,
   isTimeBased,
   metricOf,
   suggestLoad,
+  suggestReps,
   type SessionDraft,
 } from './sessionModel';
 import { posicaoNoBlocoDeMetrica } from './sessionFlow';
@@ -35,6 +37,14 @@ export type LiveActivityContentState = {
   isLoadInherited: boolean;
   /** Passo do stepper de carga do Lock Screen — só preenchido em measuring. */
   loadIncrementKg: number | null;
+  /**
+   * Reps EM EDIÇÃO (nunca a faixa-alvo estática) — só preenchida em measuring.
+   * Ao contrário de currentLoadKg, existe também para exercício bodyweight
+   * (reps sempre existem; só a carga é omitida para bodyweight).
+   */
+  currentReps: number | null;
+  /** true quando currentReps foi herdado (histórico/alvo, D-17), nunca digitado/ajustado nesta série. */
+  isRepsInherited: boolean;
 };
 
 const contentStateFor = (
@@ -45,12 +55,23 @@ const contentStateFor = (
   restEndsAt: string | null,
   blockPosition: { indice: number; total: number } | null = null,
 ): LiveActivityContentState => {
-  const isMeasuring = phase === 'measuring' && !exercise.isBodyweight;
+  const isMeasuringPhase = phase === 'measuring';
+  const isMeasuring = isMeasuringPhase && !exercise.isBodyweight;
   const currentLoadKg = isMeasuring
     ? suggestLoad({
         actualLoadKg: set.actualLoadKg,
         targetLoadKg: set.targetLoadKg,
         lastLoad: draft.lastLoadByExercise[exerciseIdentity(exercise)],
+      })
+    : null;
+  // Reps sempre existem (inclusive bodyweight) — só a carga é omitida para
+  // bodyweight, por isso usa isMeasuringPhase, não isMeasuring.
+  const currentReps = isMeasuringPhase
+    ? suggestReps({
+        actualReps: set.actualReps,
+        targetRepsMin: set.targetRepsMin > 0 ? set.targetRepsMin : null,
+        lastReps: draft.lastRepsByExercise[exerciseIdentity(exercise)],
+        isFirstSetOfExerciseInSession: isFirstSetOfExerciseInSession(exercise, set),
       })
     : null;
 
@@ -70,6 +91,8 @@ const contentStateFor = (
     currentLoadKg,
     isLoadInherited: isMeasuring && set.actualLoadKg == null,
     loadIncrementKg: isMeasuring ? exercise.loadIncrementKg : null,
+    currentReps,
+    isRepsInherited: isMeasuringPhase && set.actualReps == null,
   };
 };
 
