@@ -72,6 +72,7 @@ import { saveSetLog } from '../src/services/sessionExecutionRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import SessionPlayer from '../src/components/session/SessionPlayer';
 import type { SessionDraft, DraftExercise, DraftSet } from '../src/engine/sessionModel';
+import theme from '../src/theme/theme';
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 
@@ -194,6 +195,34 @@ const renderComDraft = (draft: SessionDraft) => {
   return render(<PlayerComStore />);
 };
 
+// Variante com suggestedLoadFor/suggestedRepsFor configuráveis — os 5 casos
+// de D-03/D-04/D-06 (Task 2) precisam controlar a sugestão exibida em vez do
+// fixo 40/8 do PlayerComStore acima.
+const PlayerComStoreCustom = ({
+  suggestedLoadFor = () => 40,
+  suggestedRepsFor = () => 8,
+}: {
+  suggestedLoadFor?: (exercise: DraftExercise, set: DraftSet) => number | null;
+  suggestedRepsFor?: (exercise: DraftExercise, set: DraftSet) => number | null;
+}) => {
+  const draft = useActiveSessionStore((s) => s.draft);
+  if (!draft) return null;
+  return (
+    <SessionPlayer
+      draft={draft}
+      suggestedLoadFor={suggestedLoadFor}
+      suggestedRepsFor={suggestedRepsFor}
+    />
+  );
+};
+
+/** D-03: o nó carrega a cor discreta de `styles.inheritedValue`? */
+const temMarcaDeHerdado = (node: any): boolean => {
+  const style = node.props?.style;
+  const list = Array.isArray(style) ? style.flat(3) : [style];
+  return list.some((s: any) => s && s.color === theme.colors.text.quiet);
+};
+
 // Série ativa JÁ medida (reps + carga preenchidos) para o Concluir passar.
 const serieAtiva = (plannedSetId: string, setOrder: number): DraftSet =>
   serie(plannedSetId, setOrder, {
@@ -299,5 +328,100 @@ describe('cardio: distância digitada com vírgula (REQ-01)', () => {
     expect(
       useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualDistanceM,
     ).toBe(2400);
+  });
+});
+
+// Fase 17 (REG-01): D-03 (marca de herdado), D-04 (teclado só na estreia),
+// D-05 (sem TextInput no fluxo padrão), D-06 (revelação direta do card).
+describe('Fase 17 (REG-01): steppers sem teclado, marca de herdado, revelação direta', () => {
+  it('(a) carga herdada (sem toque): mostra o valor como texto, sem TextInput, com a marca de herdado', () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [
+        serie('st-1', 1, { status: 'active', targetLoadKg: 50 }),
+      ]),
+    ]);
+    useActiveSessionStore.setState({ draft, status: 'active' });
+    const screen = render(<PlayerComStoreCustom suggestedLoadFor={() => 50} />);
+
+    const valor = screen.getByLabelText('Carga da série 1');
+    expect(valor).toHaveTextContent('50 kg');
+    // Nunca virou TextInput: elemento estático não tem prop `editable`.
+    expect(valor.props.editable).toBeUndefined();
+    expect(temMarcaDeHerdado(valor)).toBe(true);
+  });
+
+  it('(b) após o primeiro toque em "+", a carga vira firme (perde a marca de herdado)', () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [
+        serie('st-1', 1, { status: 'active', targetLoadKg: 50 }),
+      ]),
+    ]);
+    useActiveSessionStore.setState({ draft, status: 'active' });
+    const screen = render(<PlayerComStoreCustom suggestedLoadFor={() => 50} />);
+
+    fireEvent.press(screen.getByLabelText('Aumentar carga da série 1'));
+
+    const valor = screen.getByLabelText('Carga da série 1');
+    // stepLoad parte da sugestão (50, via targetLoadKg) + loadIncrementKg (2.5).
+    expect(valor).toHaveTextContent('52,5 kg');
+    expect(temMarcaDeHerdado(valor)).toBe(false);
+    expect(
+      useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualLoadKg,
+    ).toBe(52.5);
+  });
+
+  it('(c) sem histórico e sem alvo: carga continua TextInput editável com autoFocus (D-04)', () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [serie('st-1', 1, { status: 'active' })]),
+    ]);
+    useActiveSessionStore.setState({
+      draft: { ...draft, lastLoadByExercise: {} },
+      status: 'active',
+    });
+    const screen = render(<PlayerComStoreCustom suggestedLoadFor={() => null} />);
+
+    expect(screen.getByText(/informe a carga usada/i)).toBeTruthy();
+    const campo = screen.getByLabelText('Carga da série 1');
+    expect(campo.props.editable).toBe(true);
+    expect(campo.props.autoFocus).toBe(true);
+  });
+
+  it('(d) série "next" com pré-preenchimento válido revela o card de medição direto, sem "Iniciar série" (D-06)', async () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [
+        serie('st-1', 1, { targetRepsMin: 8, targetLoadKg: 50 }),
+      ]),
+    ]);
+    useActiveSessionStore.setState({
+      draft: { ...draft, lastLoadByExercise: {}, lastRepsByExercise: {} },
+      status: 'active',
+    });
+    const screen = render(<PlayerComStoreCustom suggestedLoadFor={() => 50} />);
+
+    expect(screen.queryByText('Iniciar série')).toBeNull();
+    expect(screen.getByLabelText('Repetições da série 1')).toHaveTextContent('8');
+    expect(screen.getByLabelText('Carga da série 1')).toHaveTextContent('50 kg');
+    // completeSet funciona sobre a série pending sem passar por activateSet.
+    fireEvent.press(screen.getByText('Concluir série'));
+    await waitFor(() =>
+      expect(
+        useActiveSessionStore.getState().draft?.exercises[0].sets[0].status,
+      ).not.toBe('pending'),
+    );
+  });
+
+  it('(e) série "next" sem pré-preenchimento válido continua exigindo "Iniciar série" (sem regressão)', () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [serie('st-1', 1, { targetRepsMin: 8 })]),
+    ]);
+    useActiveSessionStore.setState({
+      draft: { ...draft, lastLoadByExercise: {} },
+      status: 'active',
+    });
+    const screen = render(<PlayerComStoreCustom suggestedLoadFor={() => null} />);
+
+    expect(screen.getByText('Iniciar série')).toBeTruthy();
+    expect(screen.queryByLabelText('Carga da série 1')).toBeNull();
+    expect(screen.queryByLabelText('Repetições da série 1')).toBeNull();
   });
 });

@@ -47,7 +47,6 @@ import {
 import { easeImpulso } from '../../utils/motion';
 import {
   FIELD_FLEX,
-  FIELD_WIDE_FLEX,
   LOAD_INPUT_STYLE,
   REPS_INPUT_STYLE,
   idDoExercicioNoCard,
@@ -701,8 +700,22 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           </View>
         ) : null}
 
-        <View style={styles.inputsRow}>
-          <View style={styles.field}>
+        {/*
+          Reps e carga EMPILHADOS (não lado a lado): os dois agora têm o
+          MESMO formato (−/valor/+ com botões hitTarget.regular=50pt) desde
+          que reps ganhou stepper nesta fase. O antigo inputsRow dividia a
+          linha 1:2.2 (FIELD_FLEX:FIELD_WIDE_FLEX) — proporção calibrada para
+          quando reps era um TextInput solto sem botões. Com dois botões de
+          50pt também no campo de reps, a fatia de 1/3.2 da linha (≈92,5pt a
+          390pt) fica MENOR que só os dois botões do próprio stepper de reps
+          (2×50 + 2×gap = 112pt) — o par "+/−" do stepper de reps estourava a
+          tela ANTES mesmo do valor entrar. Medido ao planejar a Task 2
+          (checagem de largura no PWA, D-05): ver measureField/measureFields
+          abaixo e o teste equivalente de largura. D-07 já aceitava o card
+          mais alto com dois steppers — o empilhamento cumpre essa troca.
+        */}
+        <View style={styles.measureFields}>
+          <View style={styles.measureField}>
             <Text style={styles.fieldLabel}>Reps</Text>
             <View style={styles.stepper}>
               <TouchableOpacity
@@ -735,12 +748,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           </View>
 
           {exercise.isBodyweight ? (
-            <View style={styles.fieldWide}>
+            <View style={styles.measureField}>
               <Text style={styles.fieldLabel}>Carga</Text>
               <Text style={styles.bodyweightTag}>Peso corporal</Text>
             </View>
           ) : (
-            <View style={styles.fieldWide}>
+            <View style={styles.measureField}>
               <Text style={styles.fieldLabel}>Carga (kg)</Text>
               <View style={styles.stepper}>
                 <TouchableOpacity
@@ -781,7 +794,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
                     ]}
                     accessibilityLabel={`Carga da série ${set.setOrder}`}
                   >
-                    {String(set.actualLoadKg ?? suggestedLoad).replace('.', ',')} kg
+                    {String(set.actualLoadKg ?? suggestedLoad).replace('.', ',')}
+                    {/* "kg" num corpo menor: no formato antigo (mesma fonte
+                        grande do número) o sufixo sozinho já reduzia a folga
+                        de largura medida em loadInputLayoutWeb.test.ts de
+                        8,3pt para negativo em telas de 390pt. */}
+                    <Text style={styles.loadUnitSuffix}> kg</Text>
                   </Text>
                 )}
                 <TouchableOpacity
@@ -1072,9 +1090,6 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.lg,
   },
   field: { flex: FIELD_FLEX },
-  // 1.8 → 2.2: com 1.8 o campo ficava com 60,3pt úteis e "102,5" ocupa 62pt —
-  // carga de três dígitos com decimal era cortada mesmo depois do minWidth.
-  fieldWide: { flex: FIELD_WIDE_FLEX },
   fieldLabel: {
     marginBottom: theme.spacing.xxs,
     color: theme.colors.text.quiet,
@@ -1100,6 +1115,23 @@ const styles = StyleSheet.create({
   // `lastLineText` ("Última carga"), sem paleta nova. Some assim que o aluno
   // toca +/− pela primeira vez.
   inheritedValue: {
+    color: theme.colors.text.quiet,
+  },
+  // Reps e carga empilhados no card measuring (D-05): cada campo ocupa a
+  // largura inteira do card — os dois agora têm o mesmo formato de stepper
+  // (2 botões de 50pt + valor), e side-by-side (o antigo inputsRow) não
+  // sobra espaço nem para os botões do próprio stepper de reps a 390pt.
+  measureFields: {
+    marginTop: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+  measureField: {},
+  // "kg" em corpo menor que o número: no mesmo tamanho de fonte do valor
+  // (bigInput/loadInput), o sufixo sozinho já apertava a folga de largura
+  // medida em loadInputLayoutWeb.test.ts (8,3pt) a negativo em 390pt.
+  loadUnitSuffix: {
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.medium,
     color: theme.colors.text.quiet,
   },
   bodyweightTag: {

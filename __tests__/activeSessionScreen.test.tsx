@@ -305,7 +305,9 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   // barreira da primeira carga: aparece a dica e o botão fica desabilitado
   expect(screen.getByText(/informe a carga usada/i)).toBeTruthy();
 
-  fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '8');
+  // Fase 17 (D-05/D-17): reps já nasce pré-preenchida do alvo (sem histórico
+  // ainda) — nenhum toque necessário; só a carga exige o teclado (D-04).
+  expect(screen.getByLabelText('Repetições da série 1')).toHaveTextContent('8');
   fireEvent.changeText(screen.getByLabelText('Carga da série 1'), '40');
   fireEvent.press(screen.getByText('Concluir série'));
 
@@ -319,10 +321,11 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   fireEvent.press(screen.getByLabelText('Fechar andamento'));
 
   // --- Série 2 do Supino: pós-conclusão o player entra em DESCANSO; pular
-  // avança direto para a medição (auto-avanço do redesign). A sugestão 40
-  // aparece, mas só vira valor gravado quando o aluno ACEITA (F10) ---
+  // avança direto para a medição (auto-avanço do redesign). A carga
+  // herdada (40, do histórico da própria sessão) aparece, mas só vira valor
+  // gravado quando o aluno ACEITA (F10); reps ajusta via stepper (D-05) ---
   fireEvent.press(screen.getByLabelText('Pular descanso'));
-  fireEvent.changeText(screen.getByLabelText('Repetições da série 2'), '9');
+  fireEvent.press(screen.getByLabelText('Aumentar repetições da série 2'));
   expect(screen.getByText('Usar sugestão: 40 kg')).toBeTruthy();
   fireEvent.press(screen.getByText('Usar sugestão: 40 kg'));
   fireEvent.press(screen.getByText('Concluir série'));
@@ -343,7 +346,10 @@ it('executa a sessão de ponta a ponta e conclui o treino', async () => {
   fireEvent.press(screen.getByLabelText('Pular descanso'));
   expect(screen.getByText('Peso corporal')).toBeTruthy();
   expect(screen.queryByLabelText('Carga da série 1')).toBeNull(); // bodyweight não tem input de kg
-  fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '15');
+  // Reps nasce herdada do alvo (10) — sobe pra 15 via stepper (D-05, sem teclado).
+  for (let i = 0; i < 5; i += 1) {
+    fireEvent.press(screen.getByLabelText('Aumentar repetições da série 1'));
+  }
   fireEvent.press(screen.getByText('Concluir série'));
   await abrirAndamento(screen);
   await waitFor(() =>
@@ -415,13 +421,17 @@ it('bloqueia edição da medição enquanto a gravação está em voo', async ()
   await waitFor(() => expect(screen.getByText('Push A')).toBeTruthy());
 
   fireEvent.press(screen.getAllByText('Iniciar série')[0]);
-  fireEvent.changeText(screen.getByLabelText('Repetições da série 1'), '8');
+  // Reps já nasce herdada do alvo (8) — nenhum toque necessário (D-05/D-17).
   fireEvent.changeText(screen.getByLabelText('Carga da série 1'), '40');
   fireEvent.press(screen.getByText('Concluir série'));
 
-  expect(screen.getByLabelText('Repetições da série 1').props.editable).toBe(
-    false,
-  );
+  // Reps é um stepper (D-05): não editable — os botões ficam desabilitados
+  // enquanto a gravação está em voo. `disabled` na TouchableOpacity vira
+  // accessibilityState.disabled no host node que getByLabelText resolve.
+  expect(
+    screen.getByLabelText('Aumentar repetições da série 1').props.accessibilityState
+      ?.disabled,
+  ).toBe(true);
   expect(screen.getByLabelText('Carga da série 1').props.editable).toBe(false);
   fireEvent.press(screen.getByLabelText('Aumentar carga da série 1'));
   expect(screen.getByLabelText('Carga da série 1').props.value).toBe('40');
