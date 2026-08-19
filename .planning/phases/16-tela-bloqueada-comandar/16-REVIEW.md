@@ -30,7 +30,15 @@ findings:
   warning: 4
   info: 5
   total: 10
-status: issues_found
+status: resolved
+resolved_at: 2026-08-19T20:45:54Z
+fix_report: .planning/phases/16-tela-bloqueada-comandar/16-REVIEW-FIX.md
+resolution: |
+  CR-01 e WR-01..WR-04 (5 achados em escopo) corrigidos na branch
+  gsd-reviewfix/16-89574 e mesclados no main pelo commit 49fa980.
+  Os cinco informativos (IN-01..IN-05) ficaram fora de escopo por decisao
+  explicita de fix_scope: critical_warning — permanecem registrados neste
+  documento, nao viraram divida silenciosa.
 ---
 
 # Fase 16: Code Review Report
