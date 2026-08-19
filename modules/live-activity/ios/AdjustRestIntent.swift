@@ -27,15 +27,19 @@ struct AdjustRestIntent: LiveActivityIntent {
         deltaSeconds: deltaSeconds,
         deltaValue: nil,
         sessionLogId: sessionLogId,
-        queuedAt: ISO8601DateFormatter().string(from: Date()),
+        queuedAt: IntentActionQueue.queuedAtNow(),
         id: actionId
       )
     )
 
     // O mesmo `id` viaja aqui para o lado JS confirmar (ackIntentAction) a
     // remoção desta entrada da fila durável depois de aplicá-la — fecha
-    // 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02.
-    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustRest", "deltaSeconds": deltaSeconds, "id": actionId])
+    // 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02. `sessionLogId` (CR-01,
+    // review 2026-08-19) é o id da sessão da Activity de onde veio o toque:
+    // a bridge recusa sem aplicar o evento cujo id divirja do draft atual.
+    // `?? ""` preserva a ausência (atributo irresolvível) como "origem
+    // desconhecida" — o CAS da reconciliação decide.
+    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustRest", "sessionLogId": sessionLogId ?? "", "id": actionId])
 
     return .result()
   }

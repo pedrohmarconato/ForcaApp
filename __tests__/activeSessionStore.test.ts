@@ -102,12 +102,20 @@ import type { SessionDetail } from '../src/services/trainingRepository';
 // desta suíte agora precisam drenar EXPLICITAMENTE (drainAll) para observar o
 // resultado da RPC, já que completeSet nunca mais aguarda a rede (D-05).
 import { drainAll, enqueueItem } from '../src/services/sessionOutboxDrain';
+// WR-02: spy no enqueueAndDrain do MESMO módulo usado pela store — com
+// babel/CJS a store chama via property access em tempo de execução, então
+// jest.spyOn aqui intercepta a chamada de completeSet() de verdade.
+import * as sessionOutboxDrain from '../src/services/sessionOutboxDrain';
 import { loadOutbox } from '../src/services/sessionOutboxStorage';
 // Fase 16 Plano 16-04: prova que startOrResume() de fato chama
 // reconcileLiveActivityIntents() ao resolver para um draft ativo — não
 // mockado explicitamente neste arquivo, resolve para o mock global inerte
 // via moduleNameMapper (package.json), o mesmo usado por outras 13 suítes.
-import { peekQueuedLiveActivityIntents } from '../modules/live-activity';
+import { peekQueuedLiveActivityIntents, ackQueuedLiveActivityIntent } from '../modules/live-activity';
+import {
+  markHotIntentDelivered,
+  resetHotIntentDelivered,
+} from '../src/native/intentDeliveryRegistry';
 
 
 // Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
@@ -268,6 +276,7 @@ const store = () => useActiveSessionStore.getState();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  resetHotIntentDelivered();
   useActiveSessionStore.setState({
     draft: null,
     status: 'idle',
@@ -1433,6 +1442,189 @@ describe('retomar sessão (fechar no meio e reabrir)', () => {
 
     expect(store().status).toBe('active');
     expect(peekQueuedLiveActivityIntents).toHaveBeenCalled();
+  });
+});
+
+describe('Fase 16 — reconcileLiveActivityIntents: adoção de órfãs com skew de relógio (WR-03)', () => {
+  const iniciarDraftAtivo = async (): Promise<void> => {
+    const draftLocal = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftLocal.sessionLogId = 'sl-1';
+    draftLocal.startedAt = '2026-08-16T11:00:00.000Z';
+    mock(loadDraft).mockResolvedValue(draftLocal);
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-1',
+      startedAt: '2026-08-16T11:00:00.000Z',
+      setLogs: [],
+    });
+    // A reconciliação interna do startOrResume NUNCA pode ver o mock de
+    // implementação do teste anterior (clearAllMocks não limpa
+    // implementações) — zera antes do boot e só depois semeia as entradas.
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([]);
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    // Garante o contrato temporal da heurística independente do ramo de
+    // hidratação usado pelo startOrResume (a fonte do startedAt varia).
+    useActiveSessionStore.setState({
+      draft: {
+        ...store().draft!,
+        sessionLogId: 'sl-1',
+        startedAt: '2026-08-16T11:00:00.000Z',
+      },
+    });
+  };
+
+  const entradaOrfa = (id: string, queuedAt: string) => ({
+    kind: 'skipRest' as const,
+    deltaSeconds: null,
+    deltaValue: null,
+    sessionLogId: null,
+    queuedAt,
+    id,
+  });
+
+  it('WR-03: órfã enfileirada DENTRO da janela de skew (30s antes de startedAt, relógio do aparelho atrás) é adotada e aplicada', async () => {
+    await iniciarDraftAtivo();
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      entradaOrfa('orphan-dentro', '2026-08-16T10:59:30.000Z'),
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    // skipRest aplicado → a primeira série pendente (ex-1/1, todas pendentes
+    // no draft hidratado) virou ativa
+    expect(store().draft?.exercises[0]!.sets[0]!.status).toBe('active');
+    expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('orphan-dentro');
+  });
+
+  it('WR-03: órfã enfileirada FORA da janela de skew (90s antes de startedAt) é descartada por CAS, sem aplicar', async () => {
+    await iniciarDraftAtivo();
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      entradaOrfa('orphan-fora', '2026-08-16T10:58:30.000Z'),
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    expect(store().draft?.exercises[1]!.sets[0]!.status).not.toBe('active');
+    // descarte definitivo por CAS: confirmada para não acumular na fila
+    expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('orphan-fora');
+  });
+
+  it('WR-03: fronteira de precisão — órfã sem fração de segundo no MESMO segundo do início (startedAt .300) é adotada', async () => {
+    await iniciarDraftAtivo();
+    // startedAt do servidor com milissegundos; queuedAt de um build antigo
+    // (sem fração) no mesmo segundo — antes do fix, 11:00:00.000 < 11:00:00.300
+    // descartava o toque legítimo.
+    useActiveSessionStore.setState({
+      draft: { ...store().draft!, startedAt: '2026-08-16T11:00:00.300Z' },
+    });
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      entradaOrfa('orphan-segundo', '2026-08-16T11:00:00Z'),
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    expect(store().draft?.exercises[0]!.sets[0]!.status).toBe('active');
+    expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('orphan-segundo');
+  });
+});
+
+describe('Fase 16 — reconcileLiveActivityIntents: falha de UM item não aborta o boot (WR-02)', () => {
+  const iniciarDraftAtivo = async (): Promise<void> => {
+    const draftLocal = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftLocal.sessionLogId = 'sl-1';
+    draftLocal.startedAt = '2026-08-16T11:00:00.000Z';
+    mock(loadDraft).mockResolvedValue(draftLocal);
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-1',
+      startedAt: '2026-08-16T11:00:00.000Z',
+      setLogs: [],
+    });
+    // Mesma disciplina do bloco WR-03: a reconciliação interna do boot não
+    // pode consumir o mock de implementação do teste anterior.
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([]);
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    useActiveSessionStore.setState({
+      draft: {
+        ...store().draft!,
+        sessionLogId: 'sl-1',
+        startedAt: '2026-08-16T11:00:00.000Z',
+      },
+    });
+  };
+
+  it('WR-02: completeSet que rejeita (I/O local) não derruba a sessão para error nem bloqueia as demais entradas', async () => {
+    await iniciarDraftAtivo();
+    // Série ativa com reps/carga preenchidas para completeSet() passar da
+    // validação canCompleteSet e chegar ao enqueueAndDrain (que vai falhar).
+    const draft = store().draft!;
+    draft.exercises[0]!.sets[0]!.actualReps = 8;
+    draft.exercises[0]!.sets[0]!.actualLoadKg = 40;
+    useActiveSessionStore.setState({ draft });
+    const spy = jest
+      .spyOn(sessionOutboxDrain, 'enqueueAndDrain')
+      .mockRejectedValueOnce(new Error('disco cheio'));
+
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      {
+        kind: 'completeSet',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.000Z',
+        id: 'entry-falha',
+      },
+      {
+        kind: 'skipRest',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.100Z',
+        id: 'entry-ok',
+      },
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    // Boot preservado: sessão segue ativa, sem saveError genérico.
+    expect(store().status).toBe('active');
+    expect(store().saveError).toBeNull();
+    // A entrada seguinte do MESMO snapshot foi processada (skipRest ativou ex-1/1).
+    expect(store().draft?.exercises[0]!.sets[0]!.status).toBe('active');
+    // A entrada que falhou ficou NA FILA (sem ack) para a próxima reconciliação.
+    expect(mock(ackQueuedLiveActivityIntent)).not.toHaveBeenCalledWith('entry-falha');
+    expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('entry-ok');
+    spy.mockRestore();
+  });
+
+  it('WR-04: entrada já aplicada pelo caminho quente (mesmo id marcado) não é reaplicada pelo loop', async () => {
+    await iniciarDraftAtivo();
+    // O bridge aplicou o toque quente e marcou o id no registro compartilhado.
+    markHotIntentDelivered('hot-1');
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      {
+        kind: 'skipRest',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.000Z',
+        id: 'hot-1',
+      },
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    // Nada aplicado (sem ativação de série) e sem ack — o bridge já cuidou.
+    expect(store().draft?.exercises[0]!.sets[0]!.status).not.toBe('active');
+    expect(mock(ackQueuedLiveActivityIntent)).not.toHaveBeenCalledWith('hot-1');
   });
 });
 

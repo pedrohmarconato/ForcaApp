@@ -93,6 +93,7 @@ import {
   ackQueuedLiveActivityIntent,
   type QueuedLiveActivityIntent,
 } from '../../modules/live-activity';
+import { wasHotIntentDelivered } from '../native/intentDeliveryRegistry';
 
 type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
@@ -278,7 +279,19 @@ let operationEpoch = 0;
  * Sem prova (draft sem `startedAt`, ou data ilegível) NÃO adota: perder uma
  * conclusão de série é ruim, mas aplicá-la na sessão errada corromperia o
  * histórico de treino em silêncio — que é pior e irreversível.
+ *
+ * WR-03 (review 2026-08-19): `queuedAt` nasce no relógio do APARELHO e
+ * `startedAt` no relógio do SERVIDOR — domínios de clock diferentes. A
+ * tolerância `SKEW_MS` absorve (a) o relógio do aparelho atrás do servidor
+ * (comum: skew de ~1 minuto anulava o fix da 16-12) e (b) a fronteira de
+ * precisão de segundos (o lado Swift agora emite fração, mas um toque
+ * dentro da mesma janela ainda compara contra milissegundos do servidor).
+ * Decisão registrada: o custo é admitir um órfão enfileirado até 60s ANTES
+ * do início da sessão — aplicá-lo é arriscado, mas descartá-lo é
+ * irreversível (a própria 16-12 nasceu de um toque descartado em silêncio).
  */
+const SKEW_MS = 60_000;
+
 const nasceuNestaSessao = (
   queuedAt: string,
   startedAt: string | null,
@@ -287,7 +300,7 @@ const nasceuNestaSessao = (
   const enfileiradoEm = Date.parse(queuedAt);
   const iniciadaEm = Date.parse(startedAt);
   if (Number.isNaN(enfileiradoEm) || Number.isNaN(iniciadaEm)) return false;
-  return enfileiradoEm >= iniciadaEm;
+  return enfileiradoEm >= iniciadaEm - SKEW_MS;
 };
 
 /** Substitui uma série (imutável) aplicando `fn(set, exercise)`. */
@@ -1844,12 +1857,21 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return;
     }
     for (const entry of entries) {
-      const draft = get().draft;
-      if (!draft || draft.status !== 'active') {
-        // Descarte definitivo: não há sessão ativa para receber a entrada.
-        void ackQueuedLiveActivityIntent(entry.id);
-        continue;
-      }
+      // WR-04 (review 2026-08-19): dedupe contra o caminho quente — um toque
+      // no boot pode ter a entrada NESTE snapshot (peek anterior ao ack) E
+      // ter sido aplicado pelo bridge (mesmo id, evento onIntentAction). Sem
+      // este salto, o loop reaplicaria a entrada sobre o draft já atualizado:
+      // "Pular descanso" ativaria N+2 em vez de N+1 — um toque, dois
+      // descansos pulados. O bridge marca o id logo após aplicar; o ack já
+      // foi feito por ele.
+      if (wasHotIntentDelivered(entry.id)) continue;
+      try {
+        const draft = get().draft;
+        if (!draft || draft.status !== 'active') {
+          // Descarte definitivo: não há sessão ativa para receber a entrada.
+          void ackQueuedLiveActivityIntent(entry.id);
+          continue;
+        }
       // Plano 16-12: `sessionLogId` DIVERGENTE e `sessionLogId` NULO não são a
       // mesma coisa e não podem compartilhar destino. Divergente PROVA que a
       // entrada pertence a outra sessão — descartar está correto (guarda de
@@ -1930,6 +1952,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
+      }
+      } catch (e) {
+        // WR-02 (review 2026-08-19): falha de UM item não pode abortar o
+        // boot da sessão. completeSet() rejeita quando enqueueAndDrain falha
+        // (persistência local — disco cheio, quota do AsyncStorage); sem
+        // este guard, a rejeição propagava para o catch de startOrResume e
+        // derrubava a sessão para status 'error' com saveError genérico —
+        // um toque da Lock Screen com I/O local falho impedia o treino de
+        // abrir. A entrada continua NA FILA (sem ack) para a próxima
+        // reconciliação; as demais entradas deste snapshot seguem.
+        console.warn(
+          `[liveActivity] intent ${entry.id} falhou ao aplicar (mantido na fila):`,
+          e,
+        );
       }
     }
   },

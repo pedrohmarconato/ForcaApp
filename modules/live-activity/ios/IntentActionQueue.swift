@@ -70,6 +70,23 @@ public enum IntentActionQueue {
   /// persistência não mudou — UserDefaults continua o mesmo.
   private static let queue = DispatchQueue(label: "com.pmarconato.forcaapp.intent-action-queue")
 
+  /// WR-03 (review 2026-08-19): carimbo ISO8601 de `queuedAt` COM fração de
+  /// segundos. O `ISO8601DateFormatter()` padrão emite só segundos — e o
+  /// `startedAt` da sessão vem do servidor COM milissegundos: um toque no
+  /// mesmo segundo do início da sessão perdia a comparação `>=` da
+  /// heurística de órfã (`nasceuNestaSessao`), que também ganhou tolerância
+  /// de skew no lado JS. Formatter é stateless e thread-safe.
+  private static let queuedAtFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+
+  /// Grava o carimbo de enfileiramento no formato canônico da fila.
+  public static func queuedAtNow() -> String {
+    queuedAtFormatter.string(from: Date())
+  }
+
   private static func defaults() -> UserDefaults? {
     UserDefaults(suiteName: suiteName)
   }
