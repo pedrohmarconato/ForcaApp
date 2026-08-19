@@ -34,6 +34,7 @@ import {
   suggestionFor,
   suggestedRepsFor,
 } from '../store/activeSessionStore';
+import { endLiveActivityForAbandonedSession } from '../native/liveActivitySync';
 import {
   sessionProgress,
   isSessionComplete,
@@ -273,6 +274,11 @@ const ActiveSessionScreen = ({ route }: Props) => {
       if (!isCurrent()) return;
       if (!d) {
         setDetailError(true);
+        // Janela #6 (WINDOWS.md): reset() acima já zerou o store para
+        // idle/draft null. Se nenhuma sessão assumiu o card enquanto
+        // esperávamos o detalhe, encerra a Activity da sessão anterior em
+        // vez de deixá-la presa mostrando treino velho (LOCK-03).
+        void endLiveActivityForAbandonedSession();
         return;
       }
       setDetail(d);
@@ -284,6 +290,9 @@ const ActiveSessionScreen = ({ route }: Props) => {
       if (!isCurrent()) return;
       console.error('Erro ao iniciar sessão:', err);
       setDetailError(true);
+      // Janela #6 (WINDOWS.md): mesma lógica do ramo acima — a abertura
+      // falhou depois de reset() zerar o store, então encerra o card órfão.
+      void endLiveActivityForAbandonedSession();
     } finally {
       if (isCurrent()) setDetailLoading(false);
     }

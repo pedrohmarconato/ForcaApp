@@ -203,6 +203,12 @@ import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
 import { getSessionDetail } from '../src/services/trainingRepository';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+// Janela #6 (WINDOWS.md): 'modules/live-activity' é substituído globalmente
+// por __mocks__/modules-live-activity.ts (moduleNameMapper em package.json)
+// — o mesmo jest.fn() importado aqui é o que
+// src/native/liveActivitySync.ts::endLiveActivityForAbandonedSession chama
+// por baixo dos panos.
+import { endLiveActivity } from '../modules/live-activity';
 
 // Fixture local de 1 exercício de cardio — NÃO reutiliza/modifica o `detail`
 // module-level (fixture de força, dezenas de asserções já fixas nele).
@@ -380,6 +386,30 @@ it('erro ao carregar o detalhe mostra erro (não sessão vazia)', async () => {
   await waitFor(() =>
     expect(screen.getByText(/Não foi possível abrir o treino/)).toBeTruthy(),
   );
+});
+
+// Janela #6 (WINDOWS.md), fechada: reprodução real do defeito. Sessão A
+// ativa com card na tela bloqueada (draft + status 'active' no store) →
+// aluno abre uma sessão (esta tela monta) → iniciar() chama reset() (zera
+// para idle/draft null) → getSessionDetail falha (sem rede) →
+// startOrResume nunca roda. Antes da correção, o card de A ficava preso
+// mostrando treino velho até o app reiniciar (violação de LOCK-03). Depois
+// da correção, o catch de iniciar() chama
+// endLiveActivityForAbandonedSession(), que encerra o card porque o store
+// já não está mais 'active' com draft (reset() zerou antes do catch rodar).
+it('sessão anterior tinha card ativo; abertura de nova sessão falha por rede e o card É encerrado (Janela #6 fechada)', async () => {
+  useActiveSessionStore.setState({
+    status: 'active',
+    draft: { sessionLogId: 'log-sessao-anterior', exercises: [] } as any,
+  });
+  (getSessionDetail as jest.Mock).mockRejectedValueOnce(new Error('rede'));
+
+  const screen = renderScreen();
+  await waitFor(() =>
+    expect(screen.getByText(/Não foi possível abrir o treino/)).toBeTruthy(),
+  );
+
+  expect(endLiveActivity).toHaveBeenCalledWith('immediate');
 });
 
 it('achado 2 (painel 05-02): quarentena da fila fica VISÍVEL na tela, não some em silêncio', async () => {

@@ -192,6 +192,27 @@ const publishFinished = async (draft: ActiveDraft | null): Promise<void> => {
   }
 };
 
+/**
+ * Encerra o card quando a ABERTURA de uma sessão falha e nenhuma outra assume
+ * o lugar. Janela #6 (WINDOWS.md): iniciar() chama reset(), que leva o store a
+ * idle/draft null; o subscriber faz early-return nesse estado e a saída de
+ * 'active' ainda limpa o timeout de inatividade — sem esta função o card da
+ * sessão anterior ficava preso mostrando treino velho até o app reiniciar,
+ * violando LOCK-03.
+ *
+ * A guarda de status é o que evita encerrar um card legítimo: se startOrResume
+ * já colocou outra sessão em 'active', ela assumiu o card e nada é encerrado.
+ */
+export const endLiveActivityForAbandonedSession = async (): Promise<void> => {
+  const { status, draft } = useActiveSessionStore.getState();
+  if (status === 'active' && draft) return;
+  try {
+    await endLiveActivity('immediate');
+  } catch (error) {
+    console.warn('[liveActivity] não foi possível encerrar apos abertura falha:', error);
+  }
+};
+
 /** Encerra Activities órfãs no boot e repõe somente o card da sessão ainda vigente. */
 export const reconcileOrphanActivities = async (): Promise<void> => {
   const initialState = useActiveSessionStore.getState();
