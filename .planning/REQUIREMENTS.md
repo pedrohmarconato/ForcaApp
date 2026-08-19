@@ -53,7 +53,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
   de anilha por exercício; ex.: ±1 rep, ±2,5 kg) e confirmação em 1 toque —
   teclado deixa de ser necessário no fluxo padrão.
 
-- [ ] **REG-02**: O mesmo registro sem teclado funciona na Live Activity: ajustar
+- [x] **REG-02**: O mesmo registro sem teclado funciona na Live Activity: ajustar
   reps/carga por +/− e confirmar a série pela tela bloqueada, com o valor
   acumulado entre toques preservado (arquitetura conforme o spike de NAT-02).
   Valor atípico fora do passo (ex.: 37,5 kg com passo 5) abre o app — exceção
@@ -114,7 +114,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | CMD-01 | Phase 16 | Complete |
 | CMD-02 | Phase 16 | Complete |
 | REG-01 | Phase 17 | Pending |
-| REG-02 | Phase 17 | Pending |
+| REG-02 | Phase 17 | Complete |
 | PRED-01 | Phase 17 | Pending |
 
 Coverage: 10/10 v1.3 requirements mapped. No orphans.
@@ -122,7 +122,9 @@ Coverage: 10/10 v1.3 requirements mapped. No orphans.
 **Nota sobre CMD-01/CMD-02 (Fase 16, marcados Complete em 2026-08-18):** os três
 Success Criteria da Fase 16 no `ROADMAP.md` têm UAT físico do dono — ver
 `.planning/phases/16-tela-bloqueada-comandar/16-UAT.md`. O critério 3 (force-quit
+
 + toque na tela bloqueada) reprovou na primeira rodada, teve a causa diagnosticada
+
 (descarte silencioso de intent órfã) e passou na segunda, após o fix `54de3ef`,
 com o caminho de UI confirmado individualmente (só o stepper de carga).
 
