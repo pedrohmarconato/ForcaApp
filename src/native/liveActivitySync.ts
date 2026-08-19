@@ -209,7 +209,7 @@ export const endLiveActivityForAbandonedSession = async (): Promise<void> => {
   try {
     await endLiveActivity('immediate');
   } catch (error) {
-    console.warn('[liveActivity] não foi possível encerrar apos abertura falha:', error);
+    console.warn('[liveActivity] não foi possível encerrar após abertura falha:', error);
   }
 };
 

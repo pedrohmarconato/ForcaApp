@@ -1,8 +1,8 @@
 ---
 tipo: roteiro-uat-fisico-consolidado
 criado: 2026-08-19
-fases: [15, 16, 17]
-head_alvo: a46bea8
+fases: [14, 15, 16, 17]
+head_alvo: 9d9e04b
 status: aguarda-dono
 bloqueia:
   - LOCK-01 (Fase 15)
@@ -105,6 +105,23 @@ Comportamento **corrigido hoje** — nunca foi exercitado fisicamente.
 
 ---
 
+## Item 6 — Card não fica preso quando a abertura de sessão falha (Janela #6, LOCK-03)
+
+Comportamento **corrigido hoje**, nunca exercitado no aparelho. É o defeito mais
+sutil da lista: o card ficava preso mostrando treino velho.
+
+1. Inicie uma sessão e deixe-a ativa, com o card visível na tela bloqueada.
+2. Volte para a lista de sessões.
+3. **Ative o modo avião** (a falha de rede é o gatilho).
+4. Toque numa sessão para abrir.
+
+**Passa se:** a tela mostra erro de carregamento **e** o card some da tela
+bloqueada.
+
+**Reprova se:** o card continua lá, mostrando o treino da sessão anterior.
+
+---
+
 ## Como reportar
 
 Responda literalmente, um por linha:
@@ -115,6 +132,7 @@ inactivity_timeout_recovery=PASS|FAIL|PENDENTE
 no_resurrection_after_finish_cancel=PASS|FAIL
 completeSet_lockscreen_force_quit=PASS|FAIL
 next_up_ignora_recusado=PASS|FAIL
+card_nao_fica_preso_apos_falha=PASS|FAIL
 ```
 
 Para cada FAIL, descreva o erro exato observado.
