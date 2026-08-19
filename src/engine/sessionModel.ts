@@ -367,20 +367,28 @@ export const metricOf = (
   ex: Pick<DraftExercise, 'metric'> | { metric?: ExerciseMetric | null },
 ): ExerciseMetric => ex.metric ?? 'carga_reps';
 
-/** Série ativa (se houver), ignorando exercícios cortados pelo replanejamento. */
+/**
+ * Série ativa (se houver), ignorando exercício fora de jogo (WR-01): corte do
+ * replanejamento OU recusa declarada do aluno, via `exercicioForaDeJogo` —
+ * mesma regra canônica que `applyExerciseSkipToDraft`/`sessionProgress` já
+ * usam, para o Lock Screen nunca apontar para exercício recusado.
+ */
 export const findActiveSet = (draft: SessionDraft): SetRef | null => {
   for (const ex of draft.exercises) {
-    if (ex.cutByReplan) continue;
+    if (exercicioForaDeJogo(ex)) continue;
     const set = ex.sets.find((s) => s.status === 'active');
     if (set) return { exercise: ex, set };
   }
   return null;
 };
 
-/** Próxima série pendente na ordem do treino, ignorando exercícios cortados. */
+/**
+ * Próxima série pendente na ordem do treino, ignorando exercício fora de
+ * jogo (WR-01) pela mesma regra canônica `exercicioForaDeJogo`.
+ */
 export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
   for (const ex of draft.exercises) {
-    if (ex.cutByReplan) continue;
+    if (exercicioForaDeJogo(ex)) continue;
     const set = ex.sets.find((s) => s.status === 'pending');
     if (set) return { exercise: ex, set };
   }

@@ -22,6 +22,8 @@ import {
   resolveInheritedSet,
   coerceDraftNumerics,
   findPendingSetAfter,
+  findActiveSet,
+  findNextPendingSet,
 } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
 import type { DraftExercise, SetRef } from '../src/engine/sessionModel';
@@ -338,6 +340,101 @@ describe('findPendingSetAfter — a série ESTRITAMENTE DEPOIS de uma referênci
     const exForaDoDraft = makeExercicio('ex-fantasma', 'Fantasma', [{ setOrder: 99, status: 'pending' }]);
     expect(() => findPendingSetAfter(draftBase, ref(exForaDoDraft, 99))).not.toThrow();
     expect(findPendingSetAfter(draftBase, ref(exForaDoDraft, 99))).toBeNull();
+  });
+});
+
+describe('findActiveSet / findNextPendingSet — regra canônica exercicioForaDeJogo (WR-01)', () => {
+  const makeExercicio = (
+    exerciseId: string,
+    name: string,
+    sets: Array<{ setOrder: number; status: 'pending' | 'active' | 'done' }>,
+    overrides: Partial<DraftExercise> = {},
+  ): DraftExercise => ({
+    exerciseId,
+    name,
+    order: 1,
+    metric: 'carga_reps',
+    equipment: 'Barra',
+    isBodyweight: false,
+    hasInjury: false,
+    loadIncrementKg: 2.5,
+    restSeconds: 90,
+    priority: 'primary',
+    targetRmPercent: null,
+    repsRaw: null,
+    sets: sets.map((s) => ({
+      plannedSetId: `${exerciseId}-set-${s.setOrder}`,
+      setOrder: s.setOrder,
+      targetRepsMin: 8,
+      targetRepsMax: 10,
+      targetLoadKg: 40,
+      targetRir: 2,
+      actualReps: null,
+      actualLoadKg: null,
+      actualRir: null,
+      status: s.status,
+      outcome: null,
+      setLogId: null,
+      adaptation: null,
+      activatedAt: null,
+      completedAt: null,
+    })),
+    ...overrides,
+  });
+
+  it('findActiveSet ignora série active de exercício skippedByUser e acha a próxima active elegível', () => {
+    const exRecusado = makeExercicio('ex-recusado', 'Supino reto', [{ setOrder: 1, status: 'active' }], {
+      skippedByUser: true,
+    });
+    const exElegivel = makeExercicio('ex-elegivel', 'Remada curvada', [{ setOrder: 1, status: 'active' }]);
+    const draft = { exercises: [exRecusado, exElegivel] } as any;
+
+    expect(findActiveSet(draft)).toEqual({ exercise: exElegivel, set: exElegivel.sets[0] });
+  });
+
+  it('findActiveSet devolve null quando a única série active pertence a exercício skippedByUser', () => {
+    const exRecusado = makeExercicio('ex-recusado', 'Supino reto', [{ setOrder: 1, status: 'active' }], {
+      skippedByUser: true,
+    });
+    const draft = { exercises: [exRecusado] } as any;
+
+    expect(findActiveSet(draft)).toBeNull();
+  });
+
+  it('findNextPendingSet ignora pending de exercício skippedByUser e devolve a próxima pendente elegível', () => {
+    const exRecusado = makeExercicio('ex-recusado', 'Supino reto', [{ setOrder: 1, status: 'pending' }], {
+      skippedByUser: true,
+    });
+    const exElegivel = makeExercicio('ex-elegivel', 'Remada curvada', [{ setOrder: 1, status: 'pending' }]);
+    const draft = { exercises: [exRecusado, exElegivel] } as any;
+
+    expect(findNextPendingSet(draft)).toEqual({ exercise: exElegivel, set: exElegivel.sets[0] });
+  });
+
+  it('findNextPendingSet devolve null quando a única série pending pertence a exercício skippedByUser', () => {
+    const exRecusado = makeExercicio('ex-recusado', 'Supino reto', [{ setOrder: 1, status: 'pending' }], {
+      skippedByUser: true,
+    });
+    const draft = { exercises: [exRecusado] } as any;
+
+    expect(findNextPendingSet(draft)).toBeNull();
+  });
+
+  it('regressão: cutByReplan continua ignorado por findActiveSet e findNextPendingSet', () => {
+    const exCortadoActive = makeExercicio('ex-cortado-active', 'Corrida', [{ setOrder: 1, status: 'active' }], {
+      cutByReplan: true,
+    });
+    const exCortadoPending = makeExercicio('ex-cortado-pending', 'Bike', [{ setOrder: 1, status: 'pending' }], {
+      cutByReplan: true,
+    });
+    const exElegivel = makeExercicio('ex-elegivel', 'Remada curvada', [
+      { setOrder: 1, status: 'active' },
+      { setOrder: 2, status: 'pending' },
+    ]);
+    const draft = { exercises: [exCortadoActive, exCortadoPending, exElegivel] } as any;
+
+    expect(findActiveSet(draft)).toEqual({ exercise: exElegivel, set: exElegivel.sets[0] });
+    expect(findNextPendingSet(draft)).toEqual({ exercise: exElegivel, set: exElegivel.sets[1] });
   });
 });
 
