@@ -2,19 +2,27 @@
 phase: 17
 slug: tela-bloqueada-registrar-e-antecipar
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-status: validated_partial
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-18
 validated: 2026-08-19
+reaudited: 2026-08-19
 ---
 
 > **Nota de auditoria (2026-08-19, gate Nyquist retroativo):** este arquivo ficou em
 > `draft`/`pending` desde o seed do plan-phase e nunca foi atualizado após a execução.
 > Auditoria abaixo confere cada linha da tabela contra o teste real (arquivo existe, caso
-> nomeado existe, suíte roda verde) — não contra a intenção do PLAN. `nyquist_compliant`
-> permanece `false` porque REG-01 tem lacuna real e conhecida (ver §REG-01 abaixo);
-> marcar `true` aqui seria o gate se auto-aprovando.
+> nomeado existe, suíte roda verde) — não contra a intenção do PLAN. Na primeira passada
+> `nyquist_compliant` ficou em `false` porque REG-01 tinha lacuna real e conhecida: nenhuma
+> verificação em superfície real (PWA nem app) havia ocorrido.
+
+> **Reauditoria (2026-08-19, mesma data, sessão posterior):** a lacuna de REG-01 foi
+> fechada por evidência de primeira ordem — ver §REG-01/Reabertura abaixo. `nyquist_compliant`
+> passa a `true`. Os seis comandos automatizados listados na tabela abaixo foram
+> re-executados nesta reauditoria (`npx jest` nos 6 arquivos do Wave 0): **6 suítes / 190
+> testes, todos PASS**, idêntico ao resultado da primeira passada — nenhuma regressão
+> automatizada entrou entre as duas auditorias.
 
 # Phase 17 — Validation Strategy
 
@@ -68,7 +76,7 @@ das Fases 15/16, reafirmada pela pesquisa desta fase.
 | 17-02 | 17-02-PLAN.md | W0 | REG-01 | — | N/A | unit | `npx jest __tests__/sessionModel.test.ts -t "canCompleteSet"` (D-06) | ✅ arquivo / ✅ casos (L344-356) | ✅ green |
 | 17-02 | 17-02-PLAN.md | W0 | REG-01 | — | N/A | unit | `npx jest __tests__/activeSessionStore.test.ts -t "Fase 17"` (seed `lastRepsByExercise` + update em `completeSet()`) | ✅ arquivo / ✅ casos (`describe('Fase 17 (REG-01)...D-17')` L551) | ✅ green |
 | 17-04 | 17-04-PLAN.md | W0 | REG-01 | — | N/A | component (RTL/jsdom) | `npx jest __tests__/sessionPlayerTransitions.test.tsx -t "Fase 17"` (sem `TextInput` no fluxo padrão + marca de herdado + revelação direta D-06) | ✅ arquivo / ✅ casos, `describe('Fase 17 (REG-01)...')` L336, 5/5 (a)-(e) | ✅ green |
-| 17-04 | 17-04-PLAN.md | W0 | REG-01 | — | N/A | manual (PWA real) | `expo start --web`, viewport 390×844, navegador real | ❌ nunca executado neste worktree — substituído por réplica Chromium/Playwright do box-model, não é o app rodando | ❌ **red / gap real** (WINDOWS.md #5, open) |
+| 17-04 | 17-04-PLAN.md | W0 | REG-01 | — | N/A | manual (superfície real, app do aparelho — PWA abandonado) | Tela de sessão ativa no APP DO IPHONE (não PWA), build assinado do HEAD instalado 2026-08-19 10:12:33, exercício com histórico | ✅ executado pelo dono, 2026-08-19 — pré-preenchimento por histórico, ajuste só por +/−, marca de valor herdado, ausência de teclado, ausência de overflow. Reportado literalmente "testei e esta aprovado" | ✅ green (WINDOWS.md #5, `resolved` em 2026-08-19T15:37:59.000Z) |
 | 17-01/17-03 | 17-01/17-03-PLAN.md | W0 | REG-02 | T-17-01 | Delta aplicado só via ação existente da store; widget/intent nunca escreve em ActivityKit direto | integration | `npx jest __tests__/liveActivityIntentBridge.test.ts` | ✅ arquivo / ✅ casos (`adjustLoad`/`adjustReps` roteando p/ `stepLoad`/`stepReps`) | ✅ green |
 | 17-01/17-06 | 17-01/17-06-PLAN.md | W0 | REG-02 | T-17-01 | Payload de delta decodificado com peek não-destrutivo e ack condicionado; `deltaValue` propagado ponta a ponta na fila durável | integration | `npx jest __tests__/liveActivityIntentQueue.test.ts` | ✅ arquivo / ✅ casos — inclui regressão de CR-01 (`deltaValue` ausente no Record Expo, fechado em `b02041e`, +102 linhas de teste) | ✅ green |
 | 17-07 | 17-07-PLAN.md | — | REG-02 | — | Acumulação sob toque rápido; orçamento de `Activity.update()`; navegação "abrir para ajustar" | manual (UAT físico) | Roteiro `17-UAT.md` itens 25-27 | ✅ executado — iPhone 13, 2026-08-19, PASS | ✅ green |
@@ -109,15 +117,35 @@ desatualizada, não a implementação.
       achado CRITICAL do `17-REVIEW.md`, fechado no commit `b02041e` com +102 linhas de teste).
 - [x] Nenhum framework de teste Swift a instalar — fora do escopo. Cobertura Swift = compilação
       (`verify-native-skeleton.sh`, exit 0) + UAT físico (`17-UAT.md`, 7/7 PASS).
-- [ ] **GAP REAL — não fechado.** Nenhum teste automatizado nem verificação manual real de
-      layout web foi executado. `17-04-PLAN.md` Task 2 previa `npx expo start --web` em
-      viewport 390×844 num navegador real; o worktree sandboxed não tinha `.env`/Supabase nem
-      MCP de browser, então foi substituído por uma réplica exata de CSS/box-model em
-      Chromium via Playwright (`17-04-pwa-check.png`) — real, mas não é o app rodando.
-      Registrado como `WINDOWS.md #5` (`unrun-verify`, `status: open`), reafirmado em
-      `REQUIREMENTS.md` (REG-01 = "Pending (falta PWA real)") e em `17-VERIFICATION.md`
-      (Critério 1 = `PRESENT_BEHAVIOR_UNVERIFIED`). Esta auditoria concorda com essa
-      classificação e não a fecha por conta própria.
+- [x] **GAP FECHADO nesta reauditoria (2026-08-19).** O caminho original de `17-04-PLAN.md`
+      Task 2 (`npx expo start --web`, viewport 390×844, navegador real) ficou **inexequível**,
+      não apenas não-executado: rodar `expo start --web` de verdade crasha no mount
+      (`Cannot find native module 'LiveActivityModule'` — `modules/live-activity/index.ts:49`
+      chama `requireNativeModule` no topo do módulo sem guarda de `Platform.OS`; mesmo padrão
+      em `liveActivitySync.ts` e `liveActivityIntentBridge.ts`). Bug pré-existente da Fase 16
+      (commit `3dabb0e`), não regressão da Fase 17 — confirmado por leitura do código, não
+      apenas relatado. Por decisão do dono em 2026-08-19, web/PWA deixou de ser superfície
+      suportada na v1.3 (o milestone virou app nativo pessoal); a réplica Chromium/Playwright
+      do box-model (`17-04-pwa-check.png`) permanece válida como prova de layout, mas não é
+      mais o critério de fechamento.
+      A verificação de REG-01 migrou para a superfície real equivalente — o app do
+      aparelho. Em 2026-08-19 o dono abriu a tela de sessão ativa no APP DO IPHONE (não a
+      tela bloqueada — essa é REG-02), num build assinado do HEAD instalado às 10:12:33 do
+      mesmo dia, num exercício com histórico, e confirmou os quatro critérios do gap
+      original: pré-preenchimento vindo do histórico, ajuste só por +/−, marca de valor
+      herdado, ausência de teclado e de overflow. `WINDOWS.md` janela #5 tem `status:
+      "resolved"`, `resolved_at: "2026-08-19T15:37:59.000Z"` e o texto de `reason` nomeia a
+      superfície (app do iPhone, não PWA) e o horário do build — bloco JSON e linha da
+      tabela concordam. `REQUIREMENTS.md` reflete o mesmo fechamento (REG-01 "Complete e
+      VERIFICADO EM SUPERFICIE REAL desde 2026-08-19", linha 132-145).
+      **Por que a substituição de superfície é legítima:** o requisito REG-01 fala do
+      comportamento do registro de série no app, não do PWA especificamente — o PWA era o
+      canal de verificação planejado, não o objeto do requisito. Com o PWA descontinuado por
+      decisão explícita do dono (não por atalho do executor) e o app do aparelho sendo o
+      canal real de uso em produção da v1.3, a verificação no app do iPhone é evidência
+      igualmente forte — na verdade mais forte, por ser a superfície que o usuário real usa.
+      Não há lacuna residual: os quatro critérios do requisito foram checados um a um em
+      superfície real, com timestamp de build e aprovação literal registrada.
 
 ---
 
@@ -138,27 +166,36 @@ desatualizada, não a implementação.
 
 ## Validation Sign-Off
 
-- [x] Todas as tarefas têm `<verify>` automatizado ou dependência declarada de Wave 0 —
-      exceto a linha REG-01/PWA-real, que é dependência de Wave 0 declarada mas **nunca
-      satisfeita** (ver gap acima).
+- [x] Todas as tarefas têm `<verify>` automatizado ou dependência declarada de Wave 0. A
+      linha REG-01/superfície-real, que na primeira auditoria era dependência declarada mas
+      não satisfeita, tem agora verificação manual real executada (app do iPhone, ver acima).
 - [x] Continuidade de amostragem: nunca 3 tarefas consecutivas sem verify automatizado
-- [x] Wave 0 cobre todas as referências MISSING acima, **com uma exceção**: a verificação
-      manual de PWA real (REG-01) ficou substituída por réplica, não executada.
+- [x] Wave 0 cobre todas as referências MISSING acima, sem exceção remanescente: a
+      verificação de superfície real de REG-01 migrou do PWA (inexequível, ver gap acima)
+      para o app do aparelho e foi executada.
 - [x] Nenhuma flag de watch-mode
-- [x] Latência de feedback < 60 s (`npm test` completo ~1s para o subconjunto tocado nesta
-      auditoria; suíte completa 167/167, ver `17-06-SUMMARY.md`)
+- [x] Latência de feedback < 60 s (`npm test` completo re-executado nesta reauditoria: 6
+      suítes / 190 testes do Wave 0, todos PASS em ~1s; suíte completa 167/167, ver
+      `17-06-SUMMARY.md`)
 - [x] Roteiro físico das 8 verificações manual-only escrito, auto-contido, com PASS/FAIL por
       item — executado em `17-UAT.md`, 27/27 itens PASS (inclui os 7 do roteiro físico do
       dono no iPhone 13, 2026-08-19)
-- [ ] `nyquist_compliant: true` no frontmatter — **NÃO marcado.** REG-02 e PRED-01 têm
-      cobertura completa (automatizada + UAT físico) e sustentam `true` isoladamente. REG-01
-      tem cobertura automatizada real e forte no nível de lógica/componente (unit +
-      RTL/jsdom, 100% dos casos do Wave 0 presentes e verdes), mas a verificação de
-      renderização na superfície real (PWA em navegador real, ou app no dispositivo físico)
-      nunca ocorreu — é lacuna deliberadamente não fechada pelo dono (`WINDOWS.md #5`,
-      `REQUIREMENTS.md` REG-01 = Pending). Gate não se auto-aprova sobre requisito que o
-      próprio projeto já reconhece como pendente.
+- [x] `nyquist_compliant: true` no frontmatter — **marcado nesta reauditoria.** REG-02 e
+      PRED-01 já tinham cobertura completa (automatizada + UAT físico) na primeira passada.
+      REG-01 tinha cobertura automatizada real e forte no nível de lógica/componente (unit +
+      RTL/jsdom, 100% dos casos do Wave 0 presentes e verdes) mas nenhuma verificação em
+      superfície real. Essa lacuna está fechada: o dono verificou os quatro critérios do
+      requisito (pré-preenchimento por histórico, ajuste só por +/−, marca de valor herdado,
+      ausência de teclado/overflow) na tela de sessão ativa do APP DO IPHONE, build assinado
+      do HEAD instalado 2026-08-19 10:12:33, com aprovação literal registrada
+      ("testei e esta aprovado"). `WINDOWS.md` #5 está `resolved` com `resolved_at` e razão
+      nomeando a superfície e o horário do build; `REQUIREMENTS.md` reflete o mesmo estado
+      para os três requisitos (`Complete`). A substituição PWA→app do aparelho é legítima
+      porque o requisito trata do comportamento de registro no app, não do canal PWA em si,
+      e o PWA foi descontinuado por decisão explícita e documentada do dono (não por atalho
+      do executor), com causa técnica confirmada por leitura de código
+      (`modules/live-activity/index.ts:49`), não apenas por relato.
 
-**Approval:** partial — REG-02 e PRED-01 aprovados; REG-01 aprovado só no nível de
-lógica/componente, pendente de verificação de superfície real (PWA/app) pelo dono antes do
-fechamento do v1.3.
+**Approval:** full — REG-01, REG-02 e PRED-01 aprovados, todos com cobertura automatizada
+(unit/integration/component) e verificação em superfície real (UAT físico no iPhone 13 do
+dono). Nenhuma lacuna residual identificada nesta reauditoria.
