@@ -155,6 +155,28 @@ tela de início (WidgetKit); qualquer mudança de schema no banco.
   para o bloco é anunciada** ("A seguir: Alongamento"). A D-03 da Fase 15 fala do
   conteúdo DENTRO do bloco; anunciar a entrada nele não a contradiz.
 
+### Reconciliação D-01 × D-08 (decisão do dono, 18/08/2026)
+
+- **D-17:** A precedência das reps pré-preenchidas é **híbrida por escopo**, e não uma
+  ordem única. Na **primeira série do exercício dentro da sessão** vale a D-01:
+  `actual > lastRepsByExercise > targetRepsMin` — o histórico ganha do alvo do papel, que é
+  exatamente o que o critério 1 do ROADMAP exige ("pré-preenchidos com o valor da última
+  sessão do mesmo exercício"). Nas **séries seguintes dentro da mesma sessão** vale a D-08 no
+  escopo que o próprio texto dela declara ("dentro da mesma sessão, a série seguinte"):
+  `actual > targetRepsMin (já reescrito pela adaptação intra-sessão) > lastRepsByExercise`.
+
+  **Por que não a leitura única.** Espelhar `suggestLoad()` byte a byte em reps parecia
+  simétrico, mas a simetria é falsa: `target_load_kg` costuma ser nulo, então em carga o
+  histórico entra naturalmente; `targetRepsMin` está quase sempre preenchido, então a ordem
+  `alvo > histórico` faria o histórico de reps praticamente nunca aparecer e deixaria o
+  critério 1 do ROADMAP cumprido só para carga. A ordem inversa única também não serve —
+  faria o histórico ganhar do alvo que a adaptação intra-sessão acabou de reescrever,
+  desfazendo o trabalho de `intraSessionAdaptation.ts:426`.
+
+  **Nem D-01 nem D-08 são revogadas** — cada uma governa o momento de que fala.
+  — **Reversibility:** cheap — é ordem de precedência dentro de uma função pura de
+  `src/engine/sessionModel.ts`, coberta por teste unitário; inverter é editar a função e o teste.
+
 ### Claude's Discretion
 
 - Layout exato do card da tela bloqueada com os dois pares de `−/+` — dentro do
