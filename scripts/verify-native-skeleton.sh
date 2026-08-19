@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as oito condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as nove condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -37,13 +37,18 @@
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das oito checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das nove checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 #
 # A checagem (h) foi adicionada na Fase 17 Plano 17-01: as duas cópias de
 # SessionActivityAttributes.swift precisam ficar byte-idênticas (D-11) e
 # nenhuma checagem anterior provava isso — (g) só confirma presença do
 # struct, não diff de conteúdo (RESEARCH.md Pitfall 5).
+#
+# A checagem (i) foi adicionada no CR-01 (review 2026-08-19): os campos de
+# QueuedIntentActionRecord precisam espelhar os de QueuedIntentAction —
+# a ponte Expo serializa só os @Field do Record, e um campo ausente morre
+# na ponte sem que nenhum teste JS acuse (os mocks injetavam o campo).
 
 set -euo pipefail
 
@@ -55,7 +60,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As sete checagens (a)-(g). Chamadas duas vezes (rodada 1 e rodada 2),
+# As nove checagens (a)-(i). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -184,7 +189,34 @@ rodar_checagens() {
     exit 1
   fi
 
-  amarelo "  Rodada ${rodada}: (a)-(h) OK."
+  # (i) QueuedIntentAction (IntentActionQueue.swift) e QueuedIntentActionRecord
+  # (LiveActivityModule.swift) precisam declarar os MESMOS campos. O Record é
+  # o espelho serializável que a ponte Expo entrega ao JS — e a ponte
+  # serializa APENAS os @Field declarados. CR-01 (review 2026-08-19) foi
+  # exatamente um campo declarado no struct e ausente no Record: deltaValue
+  # morria na ponte, o ajuste enfileirado na Lock Screen sumia no cold-launch
+  # sem erro nem log, e os testes JS passavam porque injetavam o campo direto
+  # no mock. Compara o CONJUNTO de nomes (ordem de declaração não importa),
+  # mesma severidade do diff -q da checagem (h).
+  local campos_record campos_action
+  campos_record="$(sed -n '/public struct QueuedIntentActionRecord/,/^}/p' \
+    modules/live-activity/ios/LiveActivityModule.swift \
+    | grep -o '@Field var [A-Za-z0-9_]*' \
+    | sed 's/@Field var //' | sort)"
+  campos_action="$(sed -n '/public struct QueuedIntentAction: Codable/,/^}/p' \
+    modules/live-activity/ios/IntentActionQueue.swift \
+    | grep -o 'public let [A-Za-z0-9_]*' \
+    | sed 's/public let //' | sort)"
+  if [[ "$campos_record" != "$campos_action" ]]; then
+    vermelho "ABORTADO: [rodada ${rodada}] campos de QueuedIntentActionRecord divergem de QueuedIntentAction."
+    echo "  QueuedIntentActionRecord declara: $(tr '\n' ' ' <<<"$campos_record")" >&2
+    echo "  QueuedIntentAction declara:       $(tr '\n' ' ' <<<"$campos_action")" >&2
+    echo "  Campo declarado no struct e ausente no Record morre na ponte" >&2
+    echo "  (bug CR-01). Alinhe os dois structs antes de prosseguir." >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(i) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."
