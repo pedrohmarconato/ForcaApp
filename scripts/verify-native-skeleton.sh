@@ -8,7 +8,7 @@
 # por drift de config, plugin quebrado, ou edição acidental fora do padrão
 # esperado — o sintoma só aparece na hora do build físico, potencialmente
 # no meio de uma sessão com o dono (Plano 14-06/14-07). Este script prova
-# as dez condições ANTES disso, em 1 comando, e roda 2x consecutivas
+# as onze condições ANTES disso, em 1 comando, e roda 2x consecutivas
 # sem alteração de estado para confirmar que o resultado é estável.
 #
 # Também guarda contra o Pitfall 5 (RESEARCH.md): nenhuma entitlement de
@@ -37,7 +37,7 @@
 #   npm run verify:native
 #
 # Saída 0 = esqueleto nativo íntegro, reproduzível, sem regressão. Saída
-# != 0 = alguma das dez checagens falhou; a mensagem ABORTADO diz qual
+# != 0 = alguma das onze checagens falhou; a mensagem ABORTADO diz qual
 # e como corrigir.
 #
 # A checagem (h) foi adicionada na Fase 17 Plano 17-01: as duas cópias de
@@ -57,6 +57,15 @@
 # vencimento absoluto de restEndsAt e que o overtime cresce até +59:59,
 # mesmo com o processo JS suspenso. Nenhuma checagem anterior provava
 # comportamento temporal — só estrutura/presença.
+#
+# A checagem (k) foi adicionada no IN-04 (review 2026-08-19): a checagem (c)
+# prova que aps-environment NÃO vaza para nenhum .entitlements gerado, mas
+# nenhuma checagem provava o INVERSO — que com.apple.security.application-
+# groups com o grupo group.com.pmarconato.forcaapp.shared SOBREVIVE ao
+# --clean nos dois targets (app e session-widget). Se essa entitlement
+# regredir, UserDefaults(suiteName:) vira no-op silencioso e a fila inteira
+# da Fase 16 (IntentActionQueue) morre sem erro nem log — o mesmo padrão de
+# bug que as checagens (e)/(i) existem para pegar, agora do lado App Group.
 
 set -euo pipefail
 
@@ -68,7 +77,7 @@ amarelo()  { printf '\033[1;33m%s\033[0m\n' "$*"; }
 verde()    { printf '\033[1;32m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# As dez checagens (a)-(j). Chamadas duas vezes (rodada 1 e rodada 2),
+# As onze checagens (a)-(k). Chamadas duas vezes (rodada 1 e rodada 2),
 # sem nenhuma mudança de arquivo entre elas, para provar idempotência.
 # ---------------------------------------------------------------------------
 rodar_checagens() {
@@ -240,7 +249,33 @@ rodar_checagens() {
     exit 1
   fi
 
-  amarelo "  Rodada ${rodada}: (a)-(j) OK."
+  # (k) com.apple.security.application-groups com o grupo
+  # group.com.pmarconato.forcaapp.shared precisa sobreviver ao --clean nos
+  # DOIS targets (app + session-widget) — espelha a checagem (c) (mesmo
+  # `find`, não glob, pelo mesmo motivo: o widget grava seu entitlements
+  # dentro de ios/.targets/<slug>/, um diretório oculto que
+  # ios/*/*.entitlements não alcança). Se essa entitlement regredir,
+  # UserDefaults(suiteName:) vira no-op silencioso e a fila inteira da
+  # Fase 16 (IntentActionQueue) morre sem erro nem log.
+  local grupo_app_group="group.com.pmarconato.forcaapp.shared"
+  local total_entitlements=0
+  while IFS= read -r arquivo_entitlements; do
+    total_entitlements=$((total_entitlements + 1))
+    if ! grep -q "$grupo_app_group" "$arquivo_entitlements" 2>/dev/null; then
+      vermelho "ABORTADO: [rodada ${rodada}] App Group ausente em ${arquivo_entitlements}."
+      echo "  com.apple.security.application-groups com \"${grupo_app_group}\"" >&2
+      echo "  precisa estar presente. Confira app.json (ios.entitlements) e" >&2
+      echo "  targets/session-widget/expo-target.config.js (entitlements)." >&2
+      exit 1
+    fi
+  done < <(find ios -name '*.entitlements')
+  if [[ "$total_entitlements" -lt 2 ]]; then
+    vermelho "ABORTADO: [rodada ${rodada}] esperava pelo menos 2 .entitlements gerados (app + session-widget), achou ${total_entitlements}."
+    echo "  Um dos dois targets parou de gerar .entitlements no --clean." >&2
+    exit 1
+  fi
+
+  amarelo "  Rodada ${rodada}: (a)-(k) OK."
 }
 
 echo "Verificando esqueleto nativo (session-widget + native-info + live-activity)..."
