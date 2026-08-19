@@ -120,7 +120,8 @@
     "preset": "jest-expo",
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "<rootDir>/__tests__/integration/"
+      "<rootDir>/__tests__/integration/",
+      "<rootDir>/.claude/worktrees/"
     ],
     "moduleNameMapper": {
       "modules/live-activity$": "<rootDir>/__mocks__/modules-live-activity.ts"
