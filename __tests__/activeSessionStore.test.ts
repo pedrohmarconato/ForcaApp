@@ -33,6 +33,7 @@ jest.mock('../src/services/sessionExecutionRepository', () => {
     finishSessionLog: jest.fn(),
     getOpenSessionLog: jest.fn(),
     getLastLoadByExercise: jest.fn(),
+    getLastRepsByExercise: jest.fn(),
     SessionExecutionRequestError,
     isTransportSessionExecutionError: (error: unknown) =>
       error instanceof SessionExecutionRequestError &&
@@ -83,6 +84,7 @@ import {
   finishSessionLog,
   getOpenSessionLog,
   getLastLoadByExercise,
+  getLastRepsByExercise,
   SessionExecutionRequestError,
 } from '../src/services/sessionExecutionRepository';
 import {
@@ -272,6 +274,7 @@ beforeEach(() => {
     saveError: null,
   });
   mock(getLastLoadByExercise).mockResolvedValue({});
+  mock(getLastRepsByExercise).mockResolvedValue({});
   mock(loadDraft).mockResolvedValue(null);
   mock(getOpenSessionLog).mockResolvedValue(null);
   mock(startSessionLog).mockResolvedValue({
@@ -542,6 +545,125 @@ describe('concluir série', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('Fase 17 (REG-01): reps herdadas — stepReps e materialização em completeSet (D-17)', () => {
+  const start = async () => {
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+  };
+
+  it('stepReps na PRIMEIRA série do exercício usa o histórico como base (D-17 ramo 1) e persiste via saveDraft', async () => {
+    // ex-1/st-1: targetRepsMin=8. Histórico (6) vence do alvo na 1ª série (D-01).
+    mock(getLastRepsByExercise).mockResolvedValue({ 'supino reto': 6 });
+    await start();
+    store().activateSet('ex-1', 1);
+    mock(saveDraft).mockClear();
+
+    store().stepReps('ex-1', 1, 1);
+
+    const s1 = store().draft!.exercises[0].sets[0];
+    expect(s1.actualReps).toBe(7); // base = 6 (histórico) + 1
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].actualReps).toBe(7);
+  });
+
+  it('completeSet na PRIMEIRA série materializa reps do HISTÓRICO sem nenhum toque manual (D-17 ramo 1)', async () => {
+    mock(getLastRepsByExercise).mockResolvedValue({ 'supino reto': 6 });
+    mock(getLastLoadByExercise).mockResolvedValue({ 'supino reto': 40 });
+    await start();
+    store().activateSet('ex-1', 1);
+    // nenhum toque manual em reps nem carga
+
+    const ok = await store().completeSet('ex-1', 1);
+
+    expect(ok).toBe(true);
+    const s1 = store().draft!.exercises[0].sets[0];
+    expect(s1.actualReps).toBe(6); // histórico (6) vence do alvo (targetRepsMin=8) — D-01
+    expect(s1.actualLoadKg).toBe(40); // carga: sem alvo, cai no histórico — D-08 intacta
+
+    await drainAll('user-1');
+    expect(saveSetLog).toHaveBeenCalledWith(
+      expect.objectContaining({ plannedSetId: 'st-1', actualReps: 6, actualLoadKg: 40 }),
+      expect.anything(),
+    );
+  });
+
+  it('completeSet numa série SEGUINTE do mesmo exercício usa o ALVO (D-17 ramo 2), não o histórico', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-1';
+    draft.lastRepsByExercise = { 'supino reto': 6 };
+    draft.lastLoadByExercise = { 'supino reto': 40 };
+    // st-1 já concluída nesta sessão → st-2 deixa de ser a "primeira série".
+    draft.exercises[0].sets[0] = {
+      ...draft.exercises[0].sets[0],
+      status: 'done',
+      actualReps: 9,
+      actualLoadKg: 40,
+      outcome: 'on_target',
+      setLogId: 'set-old',
+      completedAt: '2026-08-18T10:00:00Z',
+    };
+    // targetRepsMin já reescrito pela adaptação intra-sessão (simulado aqui).
+    draft.exercises[0].sets[1] = {
+      ...draft.exercises[0].sets[1],
+      targetRepsMin: 10,
+    };
+    useActiveSessionStore.setState({ draft, status: 'active' });
+
+    const ok = await store().completeSet('ex-1', 2);
+
+    expect(ok).toBe(true);
+    const s2 = store().draft!.exercises[0].sets[1];
+    expect(s2.actualReps).toBe(10); // alvo (D-08 ramo 2) vence do histórico (6)
+    expect(s2.actualLoadKg).toBe(40); // carga: sem alvo próprio, cai no histórico (D-08 intacta p/ carga)
+  });
+
+  it('completeSet grava a carga do ALVO quando não há toque manual, qualquer ramo de reps', async () => {
+    const draft = buildDraftFromDetail(makeDetail(), 'user-1');
+    draft.sessionLogId = 'sl-1';
+    draft.exercises[0].sets[0] = {
+      ...draft.exercises[0].sets[0],
+      targetLoadKg: 50,
+    };
+    useActiveSessionStore.setState({ draft, status: 'active' });
+    store().setReps('ex-1', 1, 8); // toque manual só em reps; carga fica intocada
+
+    const ok = await store().completeSet('ex-1', 1);
+
+    expect(ok).toBe(true);
+    expect(store().draft!.exercises[0].sets[0].actualLoadKg).toBe(50);
+  });
+
+  it('completeSet sem histórico e sem alvo de carga continua reprovando com a mesma mensagem (D-17 nunca inventa)', async () => {
+    await start(); // getLastLoadByExercise/getLastRepsByExercise = {} (default do beforeEach)
+    store().activateSet('ex-1', 1);
+    store().setReps('ex-1', 1, 8); // reps informadas, carga NÃO
+    const ok = await store().completeSet('ex-1', 1);
+
+    expect(ok).toBe(false);
+    expect(store().saveError).toMatch(/carga/i);
+    expect(store().draft!.exercises[0].sets[0].status).not.toBe('done');
+  });
+
+  it('lastRepsByExercise é atualizado em completeSet() com o valor MATERIALIZADO, mesmo em bodyweight (D-02)', async () => {
+    mock(getLastRepsByExercise).mockResolvedValue({ flexao: 12 });
+    await start();
+    store().activateSet('ex-2', 1); // bodyweight, sem toque manual
+
+    const ok = await store().completeSet('ex-2', 1);
+
+    expect(ok).toBe(true);
+    const s = store().draft!.exercises[1].sets[0];
+    expect(s.actualReps).toBe(12); // herdado do histórico (1ª série do exercício, D-01)
+    expect(store().draft!.lastRepsByExercise.flexao).toBe(12);
   });
 });
 

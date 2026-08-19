@@ -16,6 +16,9 @@ import {
   isTimeBased,
   metricOf,
   suggestLoad,
+  suggestReps,
+  resolveInheritedSet,
+  isFirstSetOfExerciseInSession,
   canCompleteSet,
   reconcileInjuryFlags,
   applyExerciseSkipToDraft,
@@ -34,6 +37,7 @@ import {
   startSessionLog,
   getOpenSessionLog,
   getLastLoadByExercise,
+  getLastRepsByExercise,
   skipPlannedSession,
   isTransportSessionExecutionError,
   type OpenSessionLog,
@@ -174,6 +178,8 @@ interface ActiveSessionState {
   setReps: (exerciseId: string, setOrder: number, reps: number | null) => void;
   setLoad: (exerciseId: string, setOrder: number, load: number | null) => void;
   stepLoad: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
+  /** Fase 17 (REG-01): espelha stepLoad, mas para reps — passo fixo de 1. */
+  stepReps: (exerciseId: string, setOrder: number, direction: 1 | -1) => void;
   setRir: (exerciseId: string, setOrder: number, rir: number | null) => void;
   /** Cardio/isometria (0014): duração em segundos. */
   setDuration: (exerciseId: string, setOrder: number, seconds: number | null) => void;
@@ -354,6 +360,24 @@ export const suggestionFor = (
   });
 };
 
+/**
+ * Reps sugeridas para uma série, dado o estado atual do rascunho — Fase 17
+ * (REG-01), export nomeado usado como prop wiring em SessionPlayer.tsx (Plano
+ * 17-04). Bifurca pelo ramo D-17 correto para aquela série específica via
+ * isFirstSetOfExerciseInSession.
+ */
+export const suggestedRepsFor = (
+  draft: SessionDraft,
+  exercise: DraftExercise,
+  set: DraftSet,
+): number | null =>
+  suggestReps({
+    actualReps: set.actualReps,
+    targetRepsMin: set.targetRepsMin > 0 ? set.targetRepsMin : null,
+    lastReps: draft.lastRepsByExercise[exerciseIdentity(exercise)],
+    isFirstSetOfExerciseInSession: isFirstSetOfExerciseInSession(exercise, set),
+  });
+
 /** Semente de última carga por exercício (best-effort; falha não derruba o início). */
 const seedLastLoads = async (
   detail: SessionDetail,
@@ -366,6 +390,27 @@ const seedLastLoads = async (
   } catch (e) {
     console.warn(
       '[activeSession] não foi possível semear cargas do histórico:',
+      e,
+    );
+    return {};
+  }
+};
+
+/**
+ * Semente de últimas reps por exercício (Fase 17, D-01/D-02) — mesmo padrão
+ * best-effort de seedLastLoads: falha não derruba o início da sessão.
+ */
+const seedLastReps = async (
+  detail: SessionDetail,
+): Promise<Record<string, number>> => {
+  try {
+    const identidades = (detail.planned_exercises ?? []).map((e) =>
+      exerciseIdentity({ exerciseKey: e.exercise_key ?? null, name: e.name }),
+    );
+    return await getLastRepsByExercise(identidades);
+  } catch (e) {
+    console.warn(
+      '[activeSession] não foi possível semear reps do histórico:',
       e,
     );
     return {};
@@ -425,9 +470,17 @@ const applyServerSetLogs = (
     }
   }
   const lastLoad = { ...draft.lastLoadByExercise };
+  const lastReps = { ...draft.lastRepsByExercise };
   const latestFromOpenLog = new Map<
     string,
     { load: number; completedAt: string }
+  >();
+  // Fase 17 (D-02): reconciliação espelhada de lastReps — SEM a checagem
+  // !ex.isBodyweight que lastLoad tem, porque reps sempre contam (bodyweight
+  // não tem carga, mas tem reps).
+  const latestRepsFromOpenLog = new Map<
+    string,
+    { reps: number; completedAt: string }
   >();
   const exercises = draft.exercises.map((ex) => ({
     ...ex,
@@ -466,6 +519,19 @@ const applyServerSetLogs = (
           });
         }
       }
+      if (sl.actual_reps != null) {
+        const key = exerciseIdentity(ex);
+        const previousReps = latestRepsFromOpenLog.get(key);
+        if (
+          !previousReps ||
+          String(sl.completed_at).localeCompare(previousReps.completedAt) > 0
+        ) {
+          latestRepsFromOpenLog.set(key, {
+            reps: sl.actual_reps,
+            completedAt: String(sl.completed_at),
+          });
+        }
+      }
       return {
         ...s,
         status: 'done' as const,
@@ -493,6 +559,9 @@ const applyServerSetLogs = (
   for (const [key, value] of latestFromOpenLog) {
     if (!(key in lastLoad)) lastLoad[key] = value.load;
   }
+  for (const [key, value] of latestRepsFromOpenLog) {
+    if (!(key in lastReps)) lastReps[key] = value.reps;
+  }
   // Reaplica os efeitos das adaptações restauradas às próximas séries pendentes (retomada).
   const reaplicado = replayAdaptations({
     ...draft,
@@ -500,6 +569,7 @@ const applyServerSetLogs = (
     startedAt: aberta.startedAt,
     exercises,
     lastLoadByExercise: lastLoad,
+    lastRepsByExercise: lastReps,
   });
   // Fase 6: um corte de tempo CONFIRMADO fica no snapshot do log — a retomada
   // (local ou reconstruída) reaplica o corte; sem evento, nada muda.
@@ -732,9 +802,10 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         // Há log aberto (mesmo id ou não) → reconstrói do SERVIDOR (autoritativo),
         // nunca adota o local cru.
         const seed = await seedLastLoads(detail);
+        const repsSeed = await seedLastReps(detail);
         if (!isCurrent()) return;
         const draftServidor = applyServerSetLogs(
-          buildDraftFromDetail(detail, userId, seed),
+          buildDraftFromDetail(detail, userId, seed, repsSeed),
           aberta,
           local, // preserva adaptações locais ainda não confirmadas no servidor
         );
@@ -761,8 +832,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
       // 2. Sem rascunho local (ou de outra sessão): reconstroi do servidor.
       const seed = await seedLastLoads(detail);
+      const repsSeed = await seedLastReps(detail);
       if (!isCurrent()) return;
-      let draft = buildDraftFromDetail(detail, userId, seed);
+      let draft = buildDraftFromDetail(detail, userId, seed, repsSeed);
 
       // Já existe execução em aberto desta sessão? Retoma-a (não duplica session_log).
       const aberta = await getOpenSessionLog(userId, sessionId);
@@ -1281,6 +1353,29 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     });
   },
 
+  stepReps: (exerciseId, setOrder, direction) => {
+    const draft = get().draft;
+    if (!draft) return;
+    const novo = withSet(draft, exerciseId, setOrder, (s, ex) => {
+      const fallback = suggestReps({
+        actualReps: null,
+        targetRepsMin: s.targetRepsMin > 0 ? s.targetRepsMin : null,
+        lastReps: draft.lastRepsByExercise[exerciseIdentity(ex)],
+        isFirstSetOfExerciseInSession: isFirstSetOfExerciseInSession(ex, s),
+      });
+      const base = s.actualReps ?? fallback ?? 0;
+      const next = Math.max(0, Math.round(base + direction));
+      return { ...s, actualReps: next };
+    });
+    set({ draft: novo });
+    // Mesmo mecanismo de persistência fire-and-forget de stepLoad/setReps/setLoad
+    // acima — sem isto, um force-quit logo após usar o stepper de reps descarta
+    // o valor e reprova canCompleteSet() na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] reps (stepper) não persistidas (não-fatal):', e);
+    });
+  },
+
   setRir: (exerciseId, setOrder, rir) => {
     const draft = get().draft;
     if (!draft) return;
@@ -1383,7 +1478,25 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     const metrica = metricOf(exercise);
     const cardio = isTimeBased(metrica);
 
-    if (!canCompleteSet(serie, exercise.isBodyweight, metrica)) {
+    // Fase 17 (D-17): materializa o valor herdado ANTES de validar — "1 toque"
+    // sem nenhum ajuste manual grava o valor herdado (histórico/alvo), nunca
+    // exige que outro call site pré-preencha o draft. Cardio (isTimeBased) e
+    // bodyweight continuam sem alteração de comportamento (o ramo cardio
+    // abaixo zera actualReps/actualLoadKg de qualquer forma; resolveInheritedSet
+    // já devolve actualLoadKg: null para bodyweight).
+    const resolvido = resolveInheritedSet(
+      serie,
+      exercise,
+      draft.lastRepsByExercise[exerciseIdentity(exercise)],
+      draft.lastLoadByExercise[exerciseIdentity(exercise)],
+    );
+    const serieResolvida: DraftSet = {
+      ...serie,
+      actualReps: resolvido.actualReps,
+      actualLoadKg: resolvido.actualLoadKg,
+    };
+
+    if (!canCompleteSet(serieResolvida, exercise.isBodyweight, metrica)) {
       set({
         saveError: cardio
           ? 'Informe o tempo da atividade antes de concluir.'
@@ -1396,9 +1509,9 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
 
     // Cardio/isometria: a medição é tempo (e distância). Reps e carga ficam
     // NULAS — gravar 0 reps diria "falhei a série", que é outra coisa.
-    const actualReps = cardio ? null : (serie.actualReps as number);
+    const actualReps = cardio ? null : (serieResolvida.actualReps as number);
     const actualLoadKg =
-      cardio || exercise.isBodyweight ? null : (serie.actualLoadKg as number);
+      cardio || exercise.isBodyweight ? null : (serieResolvida.actualLoadKg as number);
     const actualDurationSeconds = cardio
       ? (serie.actualDurationSeconds as number)
       : null;
@@ -1475,6 +1588,12 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       if (actualLoadKg != null && !exercise.isBodyweight) {
         lastLoad[exerciseIdentity(exercise)] = actualLoadKg;
       }
+      // Fase 17 (D-02): espelha lastLoad acima, SEM a checagem isBodyweight —
+      // reps sempre contam, mesmo em peso corporal.
+      const lastReps = { ...atual.lastRepsByExercise };
+      if (actualReps != null) {
+        lastReps[exerciseIdentity(exercise)] = actualReps;
+      }
       const novo: SessionDraft = {
         ...withSet(atual, exerciseId, setOrder, (s) => ({
           ...s,
@@ -1490,6 +1609,7 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           completedAt: null,
         })),
         lastLoadByExercise: lastLoad,
+        lastRepsByExercise: lastReps,
       };
       const proxima = findNextPendingSet(novo);
       const restEndsAt =

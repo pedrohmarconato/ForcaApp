@@ -171,6 +171,31 @@ const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
   ...overrides,
 });
 
+/**
+ * Fase 17 (D-17): variante de `draft()` sem NENHUMA fonte de preenchimento
+ * herdado para a série ativa (targetRepsMin=0 tratado como "sem alvo real" —
+ * PLAN.md nota de flag; targetLoadKg=null; sem lastRepsByExercise/
+ * lastLoadByExercise) — resolveInheritedSet() continua devolvendo null nos
+ * dois campos, preservando o cenário "reps/carga ausentes" que estes testes
+ * de reconciliação exercitam. Sem isto, a materialização de REG-01 preencheria
+ * os dois campos a partir de targetRepsMin=8/targetLoadKg=40 do fixture base
+ * e canCompleteSet() nunca reprovaria.
+ */
+const draftSemPreenchimentoHerdado = (): SessionDraft => {
+  const base = draft();
+  return {
+    ...base,
+    exercises: base.exercises.map((ex, i) =>
+      i === 0
+        ? {
+            ...ex,
+            sets: ex.sets.map((s) => ({ ...s, targetRepsMin: 0, targetLoadKg: null })),
+          }
+        : ex,
+    ),
+  };
+};
+
 /** Draft de exercício medido por tempo (metric 'tempo_distancia').
  *  Plano 16-11: canCompleteSet() exige, para métrica de tempo,
  *  actualDurationSeconds != null && > 0 (sessionModel.ts:272-273) — reps e
@@ -422,7 +447,7 @@ describe('reconcileLiveActivityIntents', () => {
   });
 
   it('D1: completeSet reprovado por validação real (reps/carga ausentes) NÃO confirma o ack — a entrada sobrevive para a próxima tentativa', async () => {
-    withRealActions(draft());
+    withRealActions(draftSemPreenchimentoHerdado());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
       { id: 'evt-real-1', kind: 'completeSet', deltaSeconds: null, sessionLogId: 'log-1', queuedAt: 'T1' },
     ]);
@@ -594,7 +619,7 @@ describe('16-12: intent órfã (sessionLogId nulo) não pode ser destruída em s
   });
 
   it('órfã adotada cujo completeSet REAL reprova NÃO confirma o ack — sobrevive para a próxima tentativa', async () => {
-    withRealActions(draft()); // reps/carga ausentes → canCompleteSet() reprova
+    withRealActions(draftSemPreenchimentoHerdado()); // reps/carga ausentes (Fase 17: sem alvo/histórico) → canCompleteSet() reprova
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
       { id: 'evt-orfa-5', kind: 'completeSet', deltaSeconds: null, sessionLogId: null, queuedAt: '2026-08-17T12:00:00Z' },
     ]);
