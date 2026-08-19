@@ -16,6 +16,11 @@ import {
   sessionProgress,
   isSessionComplete,
   toNum,
+  isFirstSetOfExerciseInSession,
+  suggestReps,
+  stepReps,
+  resolveInheritedSet,
+  coerceDraftNumerics,
 } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
 
@@ -85,6 +90,166 @@ describe('stepLoad', () => {
   it('nunca desce abaixo de 0', () => {
     expect(stepLoad(1, 2.5, -1)).toBe(0);
     expect(stepLoad(null, 2.5, -1)).toBe(0);
+  });
+});
+
+describe('isFirstSetOfExerciseInSession — discriminador da precedência híbrida D-17', () => {
+  it('nenhuma série anterior done → primeira série', () => {
+    expect(
+      isFirstSetOfExerciseInSession(
+        { sets: [{ setOrder: 1, status: 'pending' } as any] },
+        { setOrder: 1 },
+      ),
+    ).toBe(true);
+  });
+  it('série anterior do MESMO exercício já done → não é a primeira', () => {
+    expect(
+      isFirstSetOfExerciseInSession(
+        {
+          sets: [
+            { setOrder: 1, status: 'done' } as any,
+            { setOrder: 2, status: 'pending' } as any,
+          ],
+        },
+        { setOrder: 2 },
+      ),
+    ).toBe(false);
+  });
+  it('série done com setOrder MAIOR não conta como anterior', () => {
+    expect(
+      isFirstSetOfExerciseInSession(
+        {
+          sets: [
+            { setOrder: 1, status: 'pending' } as any,
+            { setOrder: 2, status: 'done' } as any,
+          ],
+        },
+        { setOrder: 1 },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('suggestReps — precedência híbrida D-17 (nunca inventa reps)', () => {
+  it('actual sempre vence, nos dois ramos', () => {
+    expect(
+      suggestReps({ actualReps: 8, targetRepsMin: 10, lastReps: 6, isFirstSetOfExerciseInSession: true }),
+    ).toBe(8);
+    expect(
+      suggestReps({ actualReps: 8, targetRepsMin: 10, lastReps: 6, isFirstSetOfExerciseInSession: false }),
+    ).toBe(8);
+  });
+  it('D-17 ramo 1ª série: histórico vence do alvo (D-01)', () => {
+    expect(
+      suggestReps({ actualReps: null, targetRepsMin: 10, lastReps: 6, isFirstSetOfExerciseInSession: true }),
+    ).toBe(6);
+  });
+  it('D-17 ramo série seguinte: alvo (já reescrito pela adaptação) vence do histórico (D-08)', () => {
+    expect(
+      suggestReps({ actualReps: null, targetRepsMin: 10, lastReps: 6, isFirstSetOfExerciseInSession: false }),
+    ).toBe(10);
+  });
+  it('estreia: sem histórico, cai no alvo mesmo no ramo D-01', () => {
+    expect(
+      suggestReps({ actualReps: null, targetRepsMin: 10, lastReps: null, isFirstSetOfExerciseInSession: true }),
+    ).toBe(10);
+  });
+  it('ramo série seguinte sem alvo real: cai no histórico', () => {
+    expect(
+      suggestReps({ actualReps: null, targetRepsMin: null, lastReps: 6, isFirstSetOfExerciseInSession: false }),
+    ).toBe(6);
+  });
+  it('nada inventado: sem actual, sem alvo, sem histórico → null', () => {
+    expect(
+      suggestReps({ actualReps: null, targetRepsMin: null, lastReps: null, isFirstSetOfExerciseInSession: true }),
+    ).toBeNull();
+  });
+});
+
+describe('stepReps', () => {
+  it('incrementa/decrementa em passo fixo de 1', () => {
+    expect(stepReps(8, 1)).toBe(9);
+  });
+  it('nunca desce abaixo de 0', () => {
+    expect(stepReps(0, -1)).toBe(0);
+  });
+  it('usa fallback quando ainda não há valor', () => {
+    expect(stepReps(null, 1, 10)).toBe(11);
+  });
+});
+
+describe('resolveInheritedSet — materialização herdada dos dois ramos D-17', () => {
+  it('série seguinte do exercício: reps por D-17 ramo 2 (alvo vence); carga inalterada (D-08, alvo vence)', () => {
+    expect(
+      resolveInheritedSet(
+        { actualReps: null, actualLoadKg: null, targetRepsMin: 10, targetLoadKg: 50, setOrder: 2 },
+        {
+          isBodyweight: false,
+          sets: [
+            { setOrder: 1, status: 'done' } as any,
+            { setOrder: 2, status: 'pending' } as any,
+          ],
+        },
+        6,
+        45,
+      ),
+    ).toEqual({ actualReps: 10, actualLoadKg: 50 });
+  });
+  it('1ª série do exercício: reps do HISTÓRICO (D-17 ramo 1); carga continua vindo do alvo (D-08 intacta)', () => {
+    expect(
+      resolveInheritedSet(
+        { actualReps: null, actualLoadKg: null, targetRepsMin: 10, targetLoadKg: 50, setOrder: 1 },
+        { isBodyweight: false, sets: [{ setOrder: 1, status: 'pending' } as any] },
+        6,
+        45,
+      ),
+    ).toEqual({ actualReps: 6, actualLoadKg: 50 });
+  });
+  it('reps já digitado preservado, nos dois ramos; carga cai no histórico por falta de alvo', () => {
+    expect(
+      resolveInheritedSet(
+        { actualReps: 12, actualLoadKg: null, targetRepsMin: 10, targetLoadKg: null, setOrder: 1 },
+        { isBodyweight: false, sets: [{ setOrder: 1, status: 'pending' } as any] },
+        6,
+        45,
+      ),
+    ).toEqual({ actualReps: 12, actualLoadKg: 45 });
+  });
+  it('bodyweight nunca tem carga, independente do ramo de reps', () => {
+    const resultado = resolveInheritedSet(
+      { actualReps: null, actualLoadKg: null, targetRepsMin: 10, targetLoadKg: 50, setOrder: 1 },
+      { isBodyweight: true, sets: [{ setOrder: 1, status: 'pending' } as any] },
+      6,
+      45,
+    );
+    expect(resultado.actualLoadKg).toBeNull();
+  });
+});
+
+describe('coerceDraftNumerics — lastRepsByExercise', () => {
+  const draftBase: any = {
+    version: 1,
+    plannedSessionId: 'sess-1',
+    sessionLogId: null,
+    userId: 'user-1',
+    title: 'Push A',
+    weekNumber: 1,
+    startedAt: null,
+    status: 'active',
+    restEndsAt: null,
+    exercises: [],
+    lastLoadByExercise: {},
+  };
+
+  it('lastRepsByExercise ausente (undefined) → devolve {}, nunca lança', () => {
+    const draft = { ...draftBase };
+    delete draft.lastRepsByExercise;
+    expect(() => coerceDraftNumerics(draft)).not.toThrow();
+    expect(coerceDraftNumerics(draft).lastRepsByExercise).toEqual({});
+  });
+  it('coage string do PostgREST em lastRepsByExercise', () => {
+    const draft = { ...draftBase, lastRepsByExercise: { a: '12' } };
+    expect(coerceDraftNumerics(draft).lastRepsByExercise).toEqual({ a: 12 });
   });
 });
 

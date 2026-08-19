@@ -146,6 +146,10 @@ export type SessionDraft = {
   // chave do catálogo quando existe — antes disso era o nome, e "Supino com
   // Halteres (Deload)" perdia o histórico de "Supino com Halteres".
   lastLoadByExercise: Record<string, number>;
+  // Última repetição REAL conhecida por exercício (identidade → reps). Mesmo
+  // formato/chave/semeadura de lastLoadByExercise (Fase 17, D-01/D-02): semeada
+  // do histórico no início e atualizada a cada série concluída na sessão.
+  lastRepsByExercise: Record<string, number>;
   // Fingerprints determinísticos de propostas de replanejamento recusadas pelo
   // aluno neste aparelho. Oculta somente a proposta idêntica; mudança de séries,
   // minutos, cortes ou redistribuição gera fingerprint diferente (visível).
@@ -253,6 +257,83 @@ export const stepLoad = (
   const base = current ?? fallback ?? 0;
   return round2(Math.max(0, base + direction * incrementKg));
 };
+
+/**
+ * Primeira série de um exercício DENTRO DA SESSÃO ATUAL? Discriminador da
+ * precedência híbrida D-17: `true` quando nenhuma série do MESMO exercício com
+ * `setOrder` menor já está `done` nesta sessão. Deriva inteiramente de
+ * `DraftSet.status`/`DraftSet.setOrder`, que já existem — nenhum campo novo
+ * persistido além do `lastRepsByExercise` que a D-01 já autorizou.
+ */
+export const isFirstSetOfExerciseInSession = (
+  exercise: Pick<DraftExercise, 'sets'>,
+  set: Pick<DraftSet, 'setOrder'>,
+): boolean => !exercise.sets.some((s) => s.status === 'done' && s.setOrder < set.setOrder);
+
+/**
+ * Reps sugeridas para uma série. NUNCA inventa: sem nenhuma fonte, devolve null
+ * e a tela pede ao aluno — mesma garantia de `suggestLoad`.
+ *
+ * D-17 (reconciliação D-01 × D-08, decisão do dono 18/08/2026): a precedência é
+ * HÍBRIDA por escopo, não uma ordem única. `actual` sempre vence primeiro, nos
+ * dois ramos. Dali em diante bifurca por `isFirstSetOfExerciseInSession`:
+ *  - `true` (primeira série do exercício na sessão, D-01): `lastReps` antes de
+ *    `targetRepsMin` — o histórico ganha do alvo do papel.
+ *  - `false` (série seguinte na mesma sessão, D-08 no escopo do seu próprio
+ *    texto): `targetRepsMin` (já reescrito pela adaptação intra-sessão) antes
+ *    de `lastReps`.
+ * Em ambos os ramos, ausência das duas fontes devolve `null`.
+ */
+export const suggestReps = (params: {
+  actualReps: number | null;
+  targetRepsMin: number | null;
+  lastReps: number | null | undefined;
+  isFirstSetOfExerciseInSession: boolean;
+}): number | null => {
+  if (params.actualReps != null) return params.actualReps;
+  if (params.isFirstSetOfExerciseInSession) {
+    if (params.lastReps != null) return params.lastReps;
+    if (params.targetRepsMin != null) return params.targetRepsMin;
+    return null;
+  }
+  if (params.targetRepsMin != null) return params.targetRepsMin;
+  if (params.lastReps != null) return params.lastReps;
+  return null;
+};
+
+/**
+ * Um passo do stepper de reps. Parte do valor atual (ou do fallback, ou 0),
+ * incrementa em 1 fixo (reps não têm passo configurável por exercício, ao
+ * contrário da carga) e nunca desce abaixo de 0.
+ */
+export const stepReps = (
+  current: number | null,
+  direction: 1 | -1,
+  fallback: number | null = null,
+): number => Math.max(0, Math.round((current ?? fallback ?? 0) + direction));
+
+/**
+ * Resolve reps e carga herdados de uma série antes da materialização em
+ * `completeSet()` (D-17). Reps sempre via `suggestReps` bifurcado pelo ramo
+ * D-17; carga via `suggestLoad` — carga NÃO bifurca, D-08 continua intacta
+ * para carga. Bodyweight nunca tem carga, independente do ramo de reps.
+ */
+export const resolveInheritedSet = (
+  set: Pick<DraftSet, 'actualReps' | 'actualLoadKg' | 'targetRepsMin' | 'targetLoadKg' | 'setOrder'>,
+  exercise: Pick<DraftExercise, 'isBodyweight' | 'sets'>,
+  lastReps: number | null | undefined,
+  lastLoad: number | null | undefined,
+): { actualReps: number | null; actualLoadKg: number | null } => ({
+  actualReps: suggestReps({
+    actualReps: set.actualReps,
+    targetRepsMin: set.targetRepsMin > 0 ? set.targetRepsMin : null,
+    lastReps,
+    isFirstSetOfExerciseInSession: isFirstSetOfExerciseInSession(exercise, set),
+  }),
+  actualLoadKg: exercise.isBodyweight
+    ? null
+    : suggestLoad({ actualLoadKg: set.actualLoadKg, targetLoadKg: set.targetLoadKg, lastLoad }),
+});
 
 /**
  * Uma série pode ser concluída? Exige reps informadas (>= 0). Para exercício com
@@ -427,6 +508,7 @@ export const buildDraftFromDetail = (
   detail: SessionDetail,
   userId: string,
   lastLoadSeed: Record<string, number> = {},
+  lastRepsSeed: Record<string, number> = {},
 ): SessionDraft => {
   const exercises: DraftExercise[] = (detail.planned_exercises ?? []).map((ex) => ({
     exerciseId: ex.id,
@@ -479,6 +561,7 @@ export const buildDraftFromDetail = (
     restEndsAt: null,
     exercises,
     lastLoadByExercise: { ...lastLoadSeed },
+    lastRepsByExercise: { ...lastRepsSeed },
     declinedReplanFingerprints: [],
   };
 };
@@ -505,6 +588,14 @@ export const coerceDraftNumerics = (draft: SessionDraft): SessionDraft => ({
   // contaminaria do mesmo jeito. Coage os valores (descarta os que não são número).
   lastLoadByExercise: Object.fromEntries(
     Object.entries(draft.lastLoadByExercise ?? {}).flatMap(([k, v]) => {
+      const n = toNum(v);
+      return n == null ? [] : [[k, n] as [string, number]];
+    }),
+  ),
+  // Mesmo padrão de lastLoadByExercise logo acima — um rascunho anterior à
+  // Fase 17 não tem o campo (undefined) e nunca deve propagar isso adiante.
+  lastRepsByExercise: Object.fromEntries(
+    Object.entries(draft.lastRepsByExercise ?? {}).flatMap(([k, v]) => {
       const n = toNum(v);
       return n == null ? [] : [[k, n] as [string, number]];
     }),

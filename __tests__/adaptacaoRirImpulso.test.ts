@@ -168,6 +168,8 @@ describe('transparência do "manter" automático (store)', () => {
         startedAt: 'T0',
         title: 'Push A',
         weekNumber: 1,
+        lastLoadByExercise: {},
+        lastRepsByExercise: {},
         exercises: [
           {
             exerciseId: 'ex-1',

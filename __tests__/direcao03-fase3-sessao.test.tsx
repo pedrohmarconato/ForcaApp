@@ -74,6 +74,7 @@ const draftBase = (exercises: DraftExercise[], startedAt: string | null): Sessio
   restEndsAt: null,
   exercises,
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
 });
 
 describe('Fase 3 — montarResumoSessao (nada de número inventado)', () => {
