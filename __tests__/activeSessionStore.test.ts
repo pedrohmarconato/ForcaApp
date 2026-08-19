@@ -910,6 +910,43 @@ describe('D2: setReps/setLoad persistem via saveDraft (16-08-PLAN.md/16-VERIFICA
     const ultimoDraft = chamadas[chamadas.length - 1][0];
     expect(ultimoDraft.exercises[0].sets[0].perceivedEffort).toBe('moderado');
   });
+
+  // IN-05 (review 2026-08-19): activateSet e adjustRest eram as DUAS únicas
+  // ações de escrita em séries que não persistiam via saveDraft — um
+  // completeSet() aplicado pela reconciliação de cold-launch envia
+  // startedAt: serie.activatedAt (linha ~1568) e, sem persistência,
+  // activatedAt nunca sobrevive a um force-quit: o set_log chega ao servidor
+  // com started_at NULL.
+  it('activateSet chama saveDraft com o draft cujo activatedAt da série está preenchido', async () => {
+    await start();
+    mock(saveDraft).mockClear();
+
+    store().activateSet('ex-1', 1);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.exercises[0].sets[0].activatedAt).toEqual(expect.any(String));
+  });
+
+  it('adjustRest chama saveDraft com o draft cujo restEndsAt foi ajustado', async () => {
+    await start();
+    const draft = store().draft!;
+    useActiveSessionStore.setState({
+      draft: {
+        ...draft,
+        restEndsAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    mock(saveDraft).mockClear();
+
+    store().adjustRest(30);
+
+    expect(saveDraft).toHaveBeenCalled();
+    const chamadas = mock(saveDraft).mock.calls;
+    const ultimoDraft = chamadas[chamadas.length - 1][0];
+    expect(ultimoDraft.restEndsAt).toBe(store().draft!.restEndsAt);
+  });
 });
 
 describe('D2/D2b: retomada preserva reps/carga digitados antes de um force-quit', () => {

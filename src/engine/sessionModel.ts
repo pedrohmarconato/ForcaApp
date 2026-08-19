@@ -399,14 +399,17 @@ export const findNextPendingSet = (draft: SessionDraft): SetRef | null => {
  * Série pendente ESTRITAMENTE POSTERIOR a uma referência dada (Fase 17,
  * PRED-01) — a série que vai virar "atual" DEPOIS da que `ref` descreve, não a
  * primeira pendente do draft inteiro (essa é `findNextPendingSet`). Mesmo
- * padrão de iteração das duas funções vizinhas (ignora `cutByReplan`).
+ * padrão de iteração das duas funções vizinhas: ignora exercício fora de jogo
+ * pela regra canônica `exercicioForaDeJogo` (REG-17, review 2026-08-19 —
+ * a versão anterior filtrava só `cutByReplan`, deixando um exercício
+ * RECUSADO pelo aluno ser anunciado como "A SEGUIR" na tela bloqueada).
  * Referência que não existe no draft (exercício/setOrder inválido) devolve
  * null, nunca lança.
  */
 export const findPendingSetAfter = (draft: SessionDraft, ref: SetRef): SetRef | null => {
   let passed = false;
   for (const ex of draft.exercises) {
-    if (ex.cutByReplan) continue;
+    if (exercicioForaDeJogo(ex)) continue;
     for (const set of ex.sets) {
       if (!passed) {
         if (ex.exerciseId === ref.exercise.exerciseId && set.setOrder === ref.set.setOrder) {

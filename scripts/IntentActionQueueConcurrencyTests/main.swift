@@ -1,20 +1,28 @@
 // scripts/IntentActionQueueConcurrencyTests.swift
 //
-// Teste de concorrência do IntentActionQueue (achado WR-02 do review
-// 2026-08-19): enfileira N ações em paralelo e prova que as N sobrevivem.
-// Sem serialização, enqueue/remove fazem read-modify-write sobrepostos no
-// UserDefaults do App Group e toques rápidos sucessivos na Lock Screen
-// podem perder uma entrada em silêncio.
+// Dois testes standalone do IntentActionQueue REAL, cada um provando um
+// achado de review distinto sobre a mesma fila durável do App Group:
+//
+// 1) Concorrência (achado WR-02 do review 2026-08-19): enfileira N ações em
+//    paralelo e prova que as N sobrevivem. Sem serialização, enqueue/remove
+//    fazem read-modify-write sobrepostos no UserDefaults do App Group e
+//    toques rápidos sucessivos na Lock Screen podem perder uma entrada em
+//    silêncio.
+// 2) Decode elemento a elemento (achado IN-03 do review 2026-08-19): grava
+//    um array JSON cru com uma entrada em formato antigo (sem o campo `id`)
+//    e prova que `peekAll()` descarta só a entrada inválida, preservando as
+//    demais — o decode do array inteiro é atômico por padrão e uma única
+//    entrada corrompida fazia a fila INTEIRA retornar vazia.
 //
 // Compilado junto com o arquivo REAL (sem mock, sem cópia):
 //   swiftc modules/live-activity/ios/IntentActionQueue.swift \
-//           scripts/IntentActionQueueConcurrencyTests.swift \
+//           scripts/IntentActionQueueConcurrencyTests/main.swift \
 //           -o /tmp/iaq-concurrency-test
 //
-// Exit 0 = as N entradas sobreviveram à corrida. Exit != 0 = perdeu
-// entrada (o read-modify-write não é atômico). O harness limpa a chave do
-// domínio ao final — um CLI no macOS não compartilha defaults com o
-// simulador iOS, mas o teste não deixa resíduo mesmo assim.
+// Exit 0 = os dois testes passaram. Exit != 0 = o primeiro que falhar aborta
+// e imprime FALHA. Cada teste limpa a chave do domínio ao final — um CLI no
+// macOS não compartilha defaults com o simulador iOS, mas nenhum teste deixa
+// resíduo mesmo assim.
 
 import Foundation
 
@@ -25,6 +33,8 @@ func falhar(_ mensagem: String) -> Never {
   FileHandle.standardError.write(Data("FALHA: \(mensagem)\n".utf8))
   exit(1)
 }
+
+// --- Teste 1: concorrência (WR-02) ------------------------------------
 
 // N == maxEntries (20, cap explícito de IntentActionQueue): as N entradas
 // enfileiradas em paralelo DEVEM sobreviver todas — nenhum cap entra em
@@ -78,3 +88,45 @@ if idsPresentes != idsEsperados {
 }
 
 print("OK: \(sobreviventes.count) entradas enfileiradas em paralelo sobreviveram intactas")
+
+// --- Teste 2: decode elemento a elemento (IN-03) -----------------------
+//
+// Grava um array JSON CRU com 3 entradas — a do meio em formato antigo (sem
+// o campo `id`, que QueuedIntentAction declara SEM default por design: o
+// comentário do próprio struct exige que a omissão seja explícita, nunca
+// mascarada). Antes do fix, `rawReadAll()` decodificava o array inteiro
+// atomicamente: uma entrada inválida fazia `peekAll()` devolver [] — as 2
+// entradas válidas (novas, legítimas) sumiam junto. Depois do fix,
+// `rawReadAll()` cai para um decode elemento a elemento e descarta só a
+// entrada inválida.
+let jsonComEntradaEmFormatoAntigo = """
+[
+  {"kind":"adjustLoad","deltaSeconds":null,"deltaValue":2.5,"sessionLogId":"log-1","queuedAt":"2026-08-19T10:00:00.000Z","id":"id-valida-1"},
+  {"kind":"completeSet","deltaSeconds":null,"deltaValue":null,"sessionLogId":null,"queuedAt":"2026-08-19T10:00:01.000Z"},
+  {"kind":"skipRest","deltaSeconds":null,"deltaValue":null,"sessionLogId":"log-1","queuedAt":"2026-08-19T10:00:02.000Z","id":"id-valida-2"}
+]
+"""
+
+guard let defaultsDecode = UserDefaults(suiteName: suite) else {
+  falhar("não foi possível abrir UserDefaults do App Group \(suite) para o teste de decode")
+}
+defaultsDecode.set(Data(jsonComEntradaEmFormatoAntigo.utf8), forKey: key)
+
+let sobreviventesDecode = IntentActionQueue.peekAll()
+let idsDecode = Set(sobreviventesDecode.map(\.id))
+let idsEsperadosDecode: Set<String> = ["id-valida-1", "id-valida-2"]
+
+// Limpeza: remove só a chave gravada por este processo.
+defaultsDecode.removeObject(forKey: key)
+defaultsDecode.synchronize()
+
+if idsDecode != idsEsperadosDecode {
+  falhar(
+    "decode elemento a elemento não preservou as entradas válidas: esperava "
+      + "\(idsEsperadosDecode.sorted()), obteve \(sobreviventesDecode.count) "
+      + "entrada(s) \(idsDecode.sorted()) — uma entrada em formato antigo "
+      + "(sem \"id\") não pode descartar a fila inteira"
+  )
+}
+
+print("OK: decode elemento a elemento preservou 2/3 entradas (1 em formato antigo descartada)")

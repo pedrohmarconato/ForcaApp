@@ -1296,17 +1296,34 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
     if (!ativou) return;
     // D3: garante a invariante de série ativa única ANTES do commit final.
     const semOutrasAtivas = deactivateOtherActiveSets(novo, exerciseId, setOrder);
-    set({ draft: { ...semOutrasAtivas, restEndsAt: null } });
+    const draftAtivado: SessionDraft = { ...semOutrasAtivas, restEndsAt: null };
+    set({ draft: draftAtivado });
+    // IN-05 (review 2026-08-19): activateSet era uma das duas ações de escrita
+    // em séries (junto de adjustRest, abaixo) que ficavam só em memória — as
+    // outras sete (setReps/setLoad/stepLoad/stepReps/setRir/setDuration/
+    // setDistance/setEffort) já persistem fire-and-forget desde 16-10. Sem
+    // isto, um completeSet() aplicado pela reconciliação de cold-launch envia
+    // startedAt: serie.activatedAt (~linha 1568) com activatedAt nulo — o
+    // set_log chega ao servidor com started_at NULL.
+    saveDraft(draftAtivado).catch((e) => {
+      console.warn('[activeSession] ativação da série não persistida (não-fatal):', e);
+    });
   },
 
   adjustRest: (deltaSeconds) => {
     const draft = get().draft;
     if (!draft?.restEndsAt || !Number.isFinite(deltaSeconds)) return;
-    set({
-      draft: {
-        ...draft,
-        restEndsAt: ajustarRestEndsAt(draft.restEndsAt, deltaSeconds),
-      },
+    const novo: SessionDraft = {
+      ...draft,
+      restEndsAt: ajustarRestEndsAt(draft.restEndsAt, deltaSeconds),
+    };
+    set({ draft: novo });
+    // IN-05 (review 2026-08-19): mesmo mecanismo de activateSet acima —
+    // sem persistir, um ajuste de descanso feito pouco antes de um
+    // force-quit se perde e o card volta a mostrar o restEndsAt anterior
+    // na retomada.
+    saveDraft(novo).catch((e) => {
+      console.warn('[activeSession] ajuste de descanso não persistido (não-fatal):', e);
     });
   },
 
@@ -1929,6 +1946,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             );
             break;
           }
+          // IN-02 (review 2026-08-19): deltaValue ausente (acima) e deltaValue
+          // igual a 0 (aqui) são estados DIFERENTES — ausência é dado
+          // corrompido/formato antigo (mantém na fila, CR-01); 0 é dado válido
+          // que significa "nada a ajustar". `> 0 ? 1 : -1` tratava os dois
+          // igual e mapeava 0 para -1, decrementando reps em silêncio. Como 0
+          // nunca vai deixar de ser 0, prender a entrada na fila não ajudaria
+          // em nada — acka e descarta, com log.
+          if (entry.deltaValue === 0) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) descartado: deltaValue igual a 0 (nada a ajustar)`,
+            );
+            void ackQueuedLiveActivityIntent(entry.id);
+            break;
+          }
           if (alvo) {
             get().stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
           }
@@ -1944,6 +1975,15 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
             console.warn(
               `[activeSession] intent ${entry.id} (${entry.kind}) ignorado: deltaValue ausente — mantido na fila`,
             );
+            break;
+          }
+          // IN-02: mesmo tratamento de adjustReps acima — 0 é "nada a
+          // ajustar", não dado faltando.
+          if (entry.deltaValue === 0) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) descartado: deltaValue igual a 0 (nada a ajustar)`,
+            );
+            void ackQueuedLiveActivityIntent(entry.id);
             break;
           }
           if (alvo) {
