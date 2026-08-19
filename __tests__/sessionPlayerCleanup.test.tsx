@@ -135,6 +135,7 @@ const draftCom = (): SessionDraft => ({
     ]),
   ],
   lastLoadByExercise: { 'k:supino': 40 },
+  lastRepsByExercise: {},
   declinedReplanFingerprints: [],
 });
 

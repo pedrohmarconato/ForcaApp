@@ -300,6 +300,7 @@ const makeDraft = (
   status: 'active',
   restEndsAt: null,
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
   exercises: [
     {
       exerciseId: 'ex-1',

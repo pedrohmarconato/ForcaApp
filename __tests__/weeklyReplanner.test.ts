@@ -276,6 +276,7 @@ const makeDraft = (): SessionDraft => ({
     },
   ],
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
 });
 
 describe('applyTimeCutToDraft', () => {

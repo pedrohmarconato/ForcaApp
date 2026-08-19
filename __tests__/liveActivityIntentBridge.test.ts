@@ -102,6 +102,7 @@ const draft = (): SessionDraft => ({
     },
   ],
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
 });
 
 const mockGetState = useActiveSessionStore.getState as jest.Mock;

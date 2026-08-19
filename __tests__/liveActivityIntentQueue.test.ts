@@ -167,6 +167,7 @@ const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
     },
   ],
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
   ...overrides,
 });
 

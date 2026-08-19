@@ -57,6 +57,7 @@ const makeDraft = (sets: DraftSet[], exercises?: DraftExercise[]): SessionDraft 
   restEndsAt: null,
   exercises: exercises ?? [makeExercise(sets)],
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
 });
 
 describe('buildLiveActivityContentState', () => {

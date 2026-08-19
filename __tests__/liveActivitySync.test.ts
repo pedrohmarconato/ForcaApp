@@ -96,6 +96,7 @@ const draft = (): SessionDraft => ({
     },
   ],
   lastLoadByExercise: {},
+  lastRepsByExercise: {},
 });
 
 const mockStart = startLiveActivity as jest.Mock;
