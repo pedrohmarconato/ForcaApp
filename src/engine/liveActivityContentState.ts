@@ -1,8 +1,10 @@
 import {
+  exerciseIdentity,
   findActiveSet,
   findNextPendingSet,
   isTimeBased,
   metricOf,
+  suggestLoad,
   type SessionDraft,
 } from './sessionModel';
 import { posicaoNoBlocoDeMetrica } from './sessionFlow';
@@ -27,28 +29,49 @@ export type LiveActivityContentState = {
   blockLabel: string | null;
   blockIndex: number | null;
   blockTotal: number | null;
+  /** Carga EM EDIÇÃO (nunca a faixa-alvo estática) — só preenchida em measuring. */
+  currentLoadKg: number | null;
+  /** true quando currentLoadKg foi herdado (alvo/histórico), nunca digitado/ajustado nesta série. */
+  isLoadInherited: boolean;
+  /** Passo do stepper de carga do Lock Screen — só preenchido em measuring. */
+  loadIncrementKg: number | null;
 };
 
 const contentStateFor = (
+  draft: SessionDraft,
   phase: LiveActivityPhase,
   exercise: NonNullable<ReturnType<typeof findActiveSet>>['exercise'],
   set: NonNullable<ReturnType<typeof findActiveSet>>['set'],
   restEndsAt: string | null,
   blockPosition: { indice: number; total: number } | null = null,
-): LiveActivityContentState => ({
-  phase,
-  exerciseName: exercise.name,
-  setIndex: set.setOrder,
-  setTotal: exercise.sets.length,
-  targetRepsMin: phase === 'blockOnly' ? null : set.targetRepsMin,
-  targetRepsMax: phase === 'blockOnly' ? null : set.targetRepsMax,
-  targetLoadKg: phase === 'blockOnly' ? null : set.targetLoadKg,
-  isBodyweight: exercise.isBodyweight,
-  restEndsAt: restEndsAt ? new Date(restEndsAt).toISOString() : null,
-  blockLabel: phase === 'blockOnly' ? exercise.name : null,
-  blockIndex: phase === 'blockOnly' ? blockPosition?.indice ?? null : null,
-  blockTotal: phase === 'blockOnly' ? blockPosition?.total ?? null : null,
-});
+): LiveActivityContentState => {
+  const isMeasuring = phase === 'measuring' && !exercise.isBodyweight;
+  const currentLoadKg = isMeasuring
+    ? suggestLoad({
+        actualLoadKg: set.actualLoadKg,
+        targetLoadKg: set.targetLoadKg,
+        lastLoad: draft.lastLoadByExercise[exerciseIdentity(exercise)],
+      })
+    : null;
+
+  return {
+    phase,
+    exerciseName: exercise.name,
+    setIndex: set.setOrder,
+    setTotal: exercise.sets.length,
+    targetRepsMin: phase === 'blockOnly' ? null : set.targetRepsMin,
+    targetRepsMax: phase === 'blockOnly' ? null : set.targetRepsMax,
+    targetLoadKg: phase === 'blockOnly' ? null : set.targetLoadKg,
+    isBodyweight: exercise.isBodyweight,
+    restEndsAt: restEndsAt ? new Date(restEndsAt).toISOString() : null,
+    blockLabel: phase === 'blockOnly' ? exercise.name : null,
+    blockIndex: phase === 'blockOnly' ? blockPosition?.indice ?? null : null,
+    blockTotal: phase === 'blockOnly' ? blockPosition?.total ?? null : null,
+    currentLoadKg,
+    isLoadInherited: isMeasuring && set.actualLoadKg == null,
+    loadIncrementKg: isMeasuring ? exercise.loadIncrementKg : null,
+  };
+};
 
 /** Deriva o estado nativo sem I/O e sem produzir timer para measuring. */
 export const buildLiveActivityContentState = (
@@ -65,6 +88,7 @@ export const buildLiveActivityContentState = (
 
   if (isTimeBased(metricOf(current.exercise))) {
     return contentStateFor(
+      draft,
       'blockOnly',
       current.exercise,
       current.set,
@@ -75,7 +99,7 @@ export const buildLiveActivityContentState = (
 
   if (validRestEndsAt) {
     const phase = restEndsAtMs > now.getTime() ? 'resting' : 'readyOvertime';
-    return contentStateFor(phase, current.exercise, current.set, validRestEndsAt);
+    return contentStateFor(draft, phase, current.exercise, current.set, validRestEndsAt);
   }
 
   // `active` é estado de UI puramente local (só setado por activateSet()) e
@@ -88,5 +112,5 @@ export const buildLiveActivityContentState = (
   // publishUpdate/updateActivity (que não cria Activity nova quando nenhuma
   // existe), o card ficaria ausente pelo resto da sessão. `current` sempre
   // existe aqui (já filtrado por `if (!current) return null` acima).
-  return contentStateFor('measuring', current.exercise, current.set, null);
+  return contentStateFor(draft, 'measuring', current.exercise, current.set, null);
 };

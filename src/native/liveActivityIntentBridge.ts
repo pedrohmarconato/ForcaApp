@@ -45,6 +45,19 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       void ackQueuedLiveActivityIntent(event.id);
       return;
     }
+    case 'adjustLoad': {
+      const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
+      if (alvo) {
+        // O widget sempre envia ±loadIncrementKg como delta, mas stepLoad()
+        // já reaplica o incremento REAL do exercício — só o SINAL do delta
+        // recebido importa aqui, evitando drift se os dois discordarem.
+        useActiveSessionStore
+          .getState()
+          .stepLoad(alvo.exercise.exerciseId, alvo.set.setOrder, event.deltaLoadKg > 0 ? 1 : -1);
+        void ackQueuedLiveActivityIntent(event.id);
+      }
+      return;
+    }
   }
 };
 

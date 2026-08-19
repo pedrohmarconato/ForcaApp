@@ -109,6 +109,7 @@ const mockGetState = useActiveSessionStore.getState as jest.Mock;
 let completeSet: jest.Mock;
 let activateSet: jest.Mock;
 let adjustRest: jest.Mock;
+let stepLoad: jest.Mock;
 
 const setDraft = (value: ReturnType<typeof draft> | null): void => {
   mockGetState.mockReturnValue({
@@ -116,6 +117,7 @@ const setDraft = (value: ReturnType<typeof draft> | null): void => {
     completeSet,
     activateSet,
     adjustRest,
+    stepLoad,
   });
 };
 
@@ -124,6 +126,7 @@ beforeEach(() => {
   completeSet = jest.fn();
   activateSet = jest.fn();
   adjustRest = jest.fn();
+  stepLoad = jest.fn();
 });
 
 const getHandler = (): ((event: unknown) => void) => {
@@ -211,6 +214,51 @@ describe('liveActivityIntentBridge', () => {
 
     expect(completeSet).not.toHaveBeenCalled();
     expect(activateSet).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('adjustLoad com série ativa presente e delta positivo chama stepLoad com direção +1 e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', deltaLoadKg: 2.5, id: 'evt-7' });
+
+    expect(stepLoad).toHaveBeenCalledWith('ex-1', 1, 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-7');
+  });
+
+  it('adjustLoad com delta negativo chama stepLoad com direção -1 e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', deltaLoadKg: -2.5, id: 'evt-8' });
+
+    expect(stepLoad).toHaveBeenCalledWith('ex-1', 1, -1);
+    expect(mockAck).toHaveBeenCalledWith('evt-8');
+  });
+
+  it('adjustLoad sem série ativa mas com série pendente aplica sobre a próxima pendente e confirma o ack', () => {
+    const semAtiva = draft();
+    semAtiva.exercises[0]!.sets[0]!.status = 'done';
+    setDraft(semAtiva);
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', deltaLoadKg: 2.5, id: 'evt-9' });
+
+    expect(stepLoad).toHaveBeenCalledWith('ex-2', 1, 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-9');
+  });
+
+  it('adjustLoad sem série ativa nem pendente não chama stepLoad nem ack', () => {
+    const semAlvo = draft();
+    semAlvo.exercises[0]!.sets[0]!.status = 'done';
+    semAlvo.exercises[1]!.sets[0]!.status = 'done';
+    setDraft(semAlvo);
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', deltaLoadKg: 2.5, id: 'evt-z' });
+
+    expect(stepLoad).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
