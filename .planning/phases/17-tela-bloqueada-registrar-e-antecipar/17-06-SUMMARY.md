@@ -172,3 +172,10 @@ None - nenhuma configuração de serviço externo necessária.
 ---
 *Phase: 17-tela-bloqueada-registrar-e-antecipar*
 *Completed: 2026-08-19*
+
+## Self-Check: PASSED
+
+- FOUND: modules/live-activity/ios/LiveActivityModule.swift
+- FOUND: package-lock.json (modified, verified via `git show --stat 5080d87`)
+- FOUND: commit 5080d87 (fix)
+- FOUND: commit 7cd3e28 (docs, this SUMMARY)
