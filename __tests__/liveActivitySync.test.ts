@@ -426,6 +426,48 @@ describe('initLiveActivitySync', () => {
     stop();
   });
 
+  // JANELA ABERTA #6 (WINDOWS.md) — este teste DOCUMENTA um defeito, não o
+  // aprova. Ele existe para que a correção quebre a suíte de propósito e o
+  // conserto seja consciente, não acidental.
+  //
+  // O que acontece: reset() (activeSessionStore.ts:2286) leva o store de
+  // 'active' para 'idle' com draft null. O subscriber abaixo faz early-return
+  // nesse caso e endLiveActivity nunca roda — o único call site é
+  // publishFinished, alcançável só por status 'finished'. Pior: a saída de
+  // 'active' executa clearInactivityTimeout, que remove o único outro
+  // mecanismo capaz de encerrar o card.
+  //
+  // Por que importa: reset() roda dentro de iniciar()
+  // (ActiveSessionScreen.tsx:270), a CADA abertura de sessão. Se
+  // getSessionDetail falhar (sem rede) ou devolver null, startOrResume nunca
+  // roda e o card da sessão anterior fica preso na tela bloqueada mostrando
+  // treino velho até o app reiniciar. Isso viola LOCK-03 na letra
+  // ("nunca fica presa mostrando treino velho"). A reconciliação de boot NÃO
+  // cobre o caso enquanto o app continua aberto.
+  //
+  // A correção está pendente de decisão do dono porque encerrar no subscriber
+  // gera um ciclo end+start a cada abertura de sessão, e o orçamento de
+  // start/update da ActivityKit é risco de plataforma já registrado neste
+  // projeto, sem fonte oficial da Apple.
+  it('JANELA #6 (defeito conhecido): reset() para idle durante active NÃO encerra a Activity — card fica preso até o boot', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+    mockEnd.mockClear();
+
+    // reset() (ActiveSessionScreen.iniciar, roda a cada abertura de sessão)
+    // vai direto para status:'idle', draft:null — NÃO passa por 'finished'.
+    useActiveSessionStore.setState({ status: 'idle', draft: null });
+    await flushPromises();
+
+    // Comportamento ATUAL, indesejado. Ao fechar a janela #6, esta asserção
+    // vira expect(mockEnd).toHaveBeenCalled() — a quebra aqui é o sinal.
+    expect(mockEnd).not.toHaveBeenCalled();
+
+    stop();
+  });
+
   it('limpa o timeout quando a sessão sai de active por outro caminho', async () => {
     const stop = initLiveActivitySync();
     try {

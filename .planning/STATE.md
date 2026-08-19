@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 16
 current_phase_name: tela-bloqueada-comandar
-status: executing
-stopped_at: "Fase 17 fechada (7/7, todos os gates verdes). Fase 16 com os 11 planos executados, mas gates de fechamento em aberto: VERIFICATION gaps_found, REVIEW issues_found, SECURITY ausente, VALIDATION draft"
-last_updated: "2026-08-19T16:25:08.483Z"
+status: blocked-human
+stopped_at: "36/36 planos executados no milestone. Fases 14 e 17 completas. Fases 15 e 16 com TODOS os portoes automatizaveis fechados (REVIEW resolved, VERIFICATION human_needed sem gap de codigo, SECURITY auditada, VALIDATION validated) e bloqueadas num unico portao humano: a UAT fisica no iPhone, roteiro consolidado em .planning/UAT-FISICO-15-16-17.md contra o HEAD a46bea8. NAO auto-aprovar. Pendencias de decisao do dono: janela aberta #6 (LOCK-03 - reset() deixa card preso, correcao tem trade-off de orcamento da ActivityKit) e IN-01 do 16-REVIEW (contrato de ack da fila). Fase 14 e Complete pela ferramenta mas antecede o gauntlet atual: VALIDATION draft, sem SECURITY/REVIEW/UAT."
+last_updated: "2026-08-19T21:45:00.000Z"
 last_activity: 2026-08-19
-last_activity_desc: "Fase 17 completa; retomada da Fase 16 — planos ja executados, falta o gauntlet de fechamento"
+last_activity_desc: "Fases 15 e 16 levadas ao limite do automatizavel; 5 fixes mesclados (a46bea8); bloqueio unico e a UAT fisica"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 36
-  completed_plans: 33
-  percent: 75
+  completed_plans: 36
+  percent: 100
 ---
 
 # Project State
@@ -31,12 +31,12 @@ pago, sem distribuição a terceiros).
 
 ## Current Position
 
-Phase: 16 (tela-bloqueada-comandar) — EXECUTING
-Plan: 1 of 11
-Status: Executing Phase 16
-Last activity: 2026-08-19 — Phase 16 execution started
+Phase: 15 e 16 — BLOQUEADAS em portao humano (UAT fisica)
+Plan: 36 of 36 (execucao completa no milestone)
+Status: aguarda .planning/UAT-FISICO-15-16-17.md ser respondido pelo dono
+Last activity: 2026-08-19 — gauntlet de fechamento das Fases 15 e 16
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100% dos planos — fechamento retido no portao humano
 
 ## Performance Metrics
 
