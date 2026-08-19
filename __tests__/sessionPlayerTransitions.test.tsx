@@ -184,7 +184,9 @@ afterEach(() => {
 const PlayerComStore = () => {
   const draft = useActiveSessionStore((s) => s.draft);
   if (!draft) return null;
-  return <SessionPlayer draft={draft} suggestedLoadFor={() => 40} />;
+  return (
+    <SessionPlayer draft={draft} suggestedLoadFor={() => 40} suggestedRepsFor={() => 8} />
+  );
 };
 
 const renderComDraft = (draft: SessionDraft) => {

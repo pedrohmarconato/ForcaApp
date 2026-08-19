@@ -142,7 +142,9 @@ const draftCom = (): SessionDraft => ({
 const PlayerComStore = () => {
   const draft = useActiveSessionStore((s) => s.draft);
   if (!draft) return null;
-  return <SessionPlayer draft={draft} suggestedLoadFor={() => 40} />;
+  return (
+    <SessionPlayer draft={draft} suggestedLoadFor={() => 40} suggestedRepsFor={() => 8} />
+  );
 };
 
 describe('cleanup de timers e animações no unmount', () => {
