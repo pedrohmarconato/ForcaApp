@@ -62,29 +62,42 @@ public enum IntentActionQueue {
   /// Cap explícito — mitigação de DoS local (T-16-01-01): a fila nunca
   /// acumula indefinidamente mesmo se o app nunca reabrir.
   private static let maxEntries = 20
+  /// WR-02 (review 2026-08-19): serializa TODO o acesso à fila — leitura,
+  /// mutação e escrita rodam como uma unidade nesta fila serial. Sem isto,
+  /// enqueue/remove faziam read-modify-write sobrepostos no UserDefaults do
+  /// App Group e toques rápidos sucessivos na Lock Screen perdiam entradas
+  /// (reproduzido: 16-19 de 20 enqueues concorrentes sumiam). O mecanismo de
+  /// persistência não mudou — UserDefaults continua o mesmo.
+  private static let queue = DispatchQueue(label: "com.pmarconato.forcaapp.intent-action-queue")
 
   private static func defaults() -> UserDefaults? {
     UserDefaults(suiteName: suiteName)
   }
 
-  private static func readAll() -> [QueuedIntentAction] {
+  /// Lê SEM serializar — quem chama já está dentro de `queue.sync`.
+  private static func rawReadAll() -> [QueuedIntentAction] {
     guard let data = defaults()?.data(forKey: key) else { return [] }
     return (try? JSONDecoder().decode([QueuedIntentAction].self, from: data)) ?? []
   }
 
-  private static func writeAll(_ actions: [QueuedIntentAction]) {
+  /// Escreve SEM serializar — quem chama já está dentro de `queue.sync`.
+  private static func rawWriteAll(_ actions: [QueuedIntentAction]) {
     guard let data = try? JSONEncoder().encode(actions) else { return }
     defaults()?.set(data, forKey: key)
   }
 
   /// Grava uma nova ação, aparando as mais antigas se o cap for excedido.
+  /// Read-modify-write inteiro dentro de um único `queue.sync` — atômico
+  /// entre threads do MESMO processo (app ou extensão).
   public static func enqueue(_ action: QueuedIntentAction) {
-    var actions = readAll()
-    actions.append(action)
-    if actions.count > maxEntries {
-      actions.removeFirst(actions.count - maxEntries)
+    queue.sync {
+      var actions = rawReadAll()
+      actions.append(action)
+      if actions.count > maxEntries {
+        actions.removeFirst(actions.count - maxEntries)
+      }
+      rawWriteAll(actions)
     }
-    writeAll(actions)
   }
 
   /// Lê a fila inteira SEM removê-la (Plano 16-07 / D1, 16-VERIFICATION.md
@@ -94,9 +107,11 @@ public enum IntentActionQueue {
   /// foi aplicada com sucesso ou definitivamente descartada por CAS — nunca
   /// só por ter sido lida. O antigo primitivo de leitura-e-remoção-na-mesma-
   /// chamada foi removido por destruir entradas reprovadas por
-  /// `canCompleteSet()` antes da validação sequer rodar.
+  /// `canCompleteSet()` antes da validação sequer rodar. Snapshot consistente
+  /// (uma unidade na fila serial): nunca mistura metade de um estado antigo
+  /// com metade de um estado novo.
   public static func peekAll() -> [QueuedIntentAction] {
-    readAll()
+    queue.sync { rawReadAll() }
   }
 
   /// Remove seletivamente as entradas cujo `id` está em `ids`, preservando
@@ -104,10 +119,13 @@ public enum IntentActionQueue {
   /// que o lado JS confirma que aplicou uma entrega in-process com sucesso —
   /// fecha 16-VERIFICATION.md gap 2 / 16-REVIEW.md CR-02: uma ação já
   /// aplicada pelo caminho quente não deve sobreviver na fila para ser
-  /// redescoberta e reaplicada num cold-launch futuro.
+  /// redescoberta e reaplicada num cold-launch futuro. Read-modify-write
+  /// inteiro dentro de um único `queue.sync`.
   public static func remove(ids: Set<String>) {
-    let actions = readAll()
-    let remaining = actions.filter { !ids.contains($0.id) }
-    writeAll(remaining)
+    queue.sync {
+      let actions = rawReadAll()
+      let remaining = actions.filter { !ids.contains($0.id) }
+      rawWriteAll(remaining)
+    }
   }
 }
