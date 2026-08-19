@@ -61,7 +61,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Antecipação (PRED)
 
-- [ ] **PRED-01**: Antes do descanso acabar, a Live Activity já mostra a próxima
+- [x] **PRED-01**: Antes do descanso acabar, a Live Activity já mostra a próxima
   ação prevista (próxima série/exercício e prescrição) — o dado já existe no
   `activeSessionStore`, é composição de UI.
 
@@ -115,20 +115,31 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | CMD-02 | Phase 16 | Complete |
 | REG-01 | Phase 17 | Complete |
 | REG-02 | Phase 17 | Complete |
-| PRED-01 | Phase 17 | Pending |
+| PRED-01 | Phase 17 | Complete |
 
 Coverage: 10/10 v1.3 requirements mapped. No orphans.
 
-**Nota sobre REG-01/REG-02 (Fase 17, marcados Complete em 2026-08-19):** marcam
-entrega de CODIGO, nao verificacao em aparelho — mesma convencao de CMD-01/CMD-02.
-O UAT fisico da fase (`17-07-PLAN.md`) NAO foi executado: a fase parou em 6/7 planos
-por decisao do dono. Enquanto o 17-07 nao rodar:
-- REG-02 (ajuste na tela bloqueada) nao tem confirmacao de aparelho. O proprio
-  17-07-PLAN.md proibe fechar REG-02 por "compilou"/"prebuild passou"/"17-06 verde".
-- REG-01 tem a janela aberta #5 em `WINDOWS.md` (`unrun-verify`): a checagem do PWA
-  real (`expo start --web`, 390x844) nao pode ser executada no worktree sandboxed;
-  foi substituida por replica de box-model em Chromium, que nao e o app rodando.
-- PRED-01 segue `Pending` de proposito — so o 17-07 o fecha.
+**Nota sobre REG-01/REG-02/PRED-01 (Fase 17, atualizada em 2026-08-19 apos o UAT
+fisico do `17-07-PLAN.md`):**
+- **REG-02** e **PRED-01** tem agora confirmacao de aparelho fisico: sessao do dono
+  no iPhone 13 em 2026-08-19, 7/7 itens do roteiro PASS (ver `17-07-SUMMARY.md`).
+  Os Criterios 2, 3 e 4 do ROADMAP (os tres com a marcacao "(UAT do dono no aparelho
+  fisico)") passaram, junto com a migracao de `ContentState` e os dois riscos de
+  plataforma sem fonte oficial da Apple (toque rapido, orcamento de
+  `Activity.update()`). Um achado de design foi registrado (card do Lock Screen
+  pequeno para a densidade de informacao) — nao bloqueia REG-02, e escopo novo,
+  ver `17-07-SUMMARY.md`.
+- **REG-01** continua com a janela aberta #5 em `WINDOWS.md` (`unrun-verify`). Esta
+  pendencia NAO foi coberta pelo UAT fisico do 17-07: o Criterio 1 do ROADMAP
+  (correspondente a REG-01, no app) nao carrega a marcacao "(UAT do dono no
+  aparelho fisico)" — o proprio `17-07-PLAN.md` declara isso no objective
+  ("o criterio 1, REG-01 no app, nao exige UAT fisico"), entao o roteiro da sessao
+  fisica nunca incluiu REG-01. A pendencia real e outra: a checagem do PWA real
+  (`expo start --web`, 390x844) nao pode ser executada no worktree sandboxed; foi
+  substituida por replica de box-model em Chromium, que nao e o app rodando. Essa
+  janela sobrevive a este UAT porque nenhuma sessao ate agora testou o caminho PWA
+  no aparelho ou em ambiente equivalente — fica para o dono repetir antes de
+  considerar REG-01 verificado ponta a ponta.
 Dois bugs que so o build Xcode completo revelou (ponte Expo sem os 11 campos novos do
 ContentState; lockfile sem o workspace `modules/live-activity`) foram corrigidos no
 Plano 17-06 — ver `17-06-SUMMARY.md`.
