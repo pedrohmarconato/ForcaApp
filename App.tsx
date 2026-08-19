@@ -1,7 +1,7 @@
 // Na RAIZ do projeto: ForcaApp/App.tsx
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 
@@ -28,6 +28,16 @@ export default function App() {
   });
 
   useEffect(() => {
+    // Fase 15 Plano 15-09 (CR-03, 15-VERIFICATION.md gap 4): Live Activity é
+    // exclusiva de ActivityKit (iOS). Fora do ramo iOS, `initLiveActivitySync`
+    // assinaria o store para nunca ter destino (nenhuma escrita nativa
+    // possível), e `reconcileOrphanActivities`/`registerLiveActivityIntentListener`
+    // não têm o que reconciliar ou escutar. O import do bridge já é seguro em
+    // qualquer plataforma (modules/live-activity/index.ts guarda
+    // `Platform.OS === 'ios'` no próprio carregamento do módulo nativo); esta
+    // guarda aqui evita apenas o "writer sem destino" em Android/web.
+    if (Platform.OS !== 'ios') return undefined;
+
     // Fase 16 (CMD, Plano 16-04): a reconciliação da fila de intents da
     // tela bloqueada SAIU do boot cru — chamá-la aqui rodava antes de
     // qualquer hidratação de `draft` (startOrResume(), só disparado depois,

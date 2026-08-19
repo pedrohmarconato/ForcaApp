@@ -1,4 +1,5 @@
-import { NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireOptionalNativeModule } from 'expo';
+import { Platform } from 'react-native';
 
 import type { LiveActivityContentState } from '../../src/engine/liveActivityContentState';
 
@@ -46,28 +47,56 @@ declare class LiveActivityModuleType extends NativeModule<LiveActivityModuleEven
   ackIntentAction(id: string): Promise<void>;
 }
 
-const LiveActivityModule = requireNativeModule<LiveActivityModuleType>('LiveActivityModule');
+/**
+ * Live Activities é uma API exclusiva da Apple (ActivityKit) —
+ * `expo-module.config.json` já limita a plataforma a `apple`. Fora do ramo
+ * iOS, `LiveActivityModule` permanece `null` e o bootstrap NUNCA lança:
+ * `requireOptionalNativeModule` só é avaliado quando `Platform.OS ===
+ * 'ios'`, então Android/web nunca tocam sequer o `requireNativeModule`
+ * obrigatório que lançava aqui antes (15-VERIFICATION.md gap 4 / CR-03 — bug
+ * confirmado em produção: `npx expo start --web` crashava no mount com
+ * "Cannot find native module 'LiveActivityModule'"). No iOS, se o módulo
+ * não estiver instalado (build errado, Simulator sem entitlement), o mesmo
+ * `null` alimenta o retorno `false` de cada wrapper — exatamente o sinal
+ * que `liveActivitySync.ts` já trata como falha não bloqueante (banner
+ * D-12). Quando presente, cada wrapper delega ao módulo real sem qualquer
+ * mudança de comportamento observável no iOS.
+ */
+const LiveActivityModule: LiveActivityModuleType | null =
+  Platform.OS === 'ios'
+    ? requireOptionalNativeModule<LiveActivityModuleType>('LiveActivityModule')
+    : null;
 
 export const startLiveActivity = (
   state: LiveActivityContentState,
   sessionLogId: string,
-): Promise<boolean> => LiveActivityModule.startActivity(state, sessionLogId);
+): Promise<boolean> =>
+  LiveActivityModule
+    ? LiveActivityModule.startActivity(state, sessionLogId)
+    : Promise.resolve(false);
 
 export const updateLiveActivity = (
   state: LiveActivityContentState,
-): Promise<boolean> => LiveActivityModule.updateActivity(state);
+): Promise<boolean> =>
+  LiveActivityModule ? LiveActivityModule.updateActivity(state) : Promise.resolve(false);
 
 export const endLiveActivity = (
   dismissalPolicy: 'immediate' | 'afterDate',
   afterSeconds?: number,
-): Promise<boolean> => LiveActivityModule.endActivity(dismissalPolicy, afterSeconds);
+): Promise<boolean> =>
+  LiveActivityModule
+    ? LiveActivityModule.endActivity(dismissalPolicy, afterSeconds)
+    : Promise.resolve(false);
 
 export const isLiveActivityRunning = (): Promise<boolean> =>
-  LiveActivityModule.isActivityRunning();
+  LiveActivityModule ? LiveActivityModule.isActivityRunning() : Promise.resolve(false);
 
 export const reconcileLiveActivityOrphans = (
   stillActiveSessionLogId: string | null,
-): Promise<boolean> => LiveActivityModule.reconcileOrphans(stillActiveSessionLogId);
+): Promise<boolean> =>
+  LiveActivityModule
+    ? LiveActivityModule.reconcileOrphans(stillActiveSessionLogId)
+    : Promise.resolve(false);
 
 /**
  * Lê a fila durável do App Group SEM removê-la (Fase 16 Plano 16-07 / D1) —
@@ -75,10 +104,11 @@ export const reconcileLiveActivityOrphans = (
  * `ackQueuedLiveActivityIntent` DEPOIS de saber o resultado real da
  * aplicação (aplicada com sucesso, ou definitivamente descartada por CAS).
  * O antigo primitivo de leitura-e-remoção-na-mesma-chamada foi removido por
- * destruir entradas reprovadas por validação antes dela sequer rodar.
+ * destruir entradas reprovadas por validação antes dela sequer rodar. Fora
+ * do iOS (ou iOS sem módulo instalado), resolve fila vazia — nada a drenar.
  */
 export const peekQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityIntent[]> =>
-  LiveActivityModule.peekIntentQueue();
+  LiveActivityModule ? LiveActivityModule.peekIntentQueue() : Promise.resolve([]);
 
 /**
  * Confirma que uma entrega in-process foi aplicada com sucesso, removendo
@@ -87,11 +117,12 @@ export const peekQueuedLiveActivityIntents = (): Promise<QueuedLiveActivityInten
  * logo após despachar a ação contra um alvo resolvido.
  */
 export const ackQueuedLiveActivityIntent = (id: string): Promise<void> =>
-  LiveActivityModule.ackIntentAction(id);
+  LiveActivityModule ? LiveActivityModule.ackIntentAction(id) : Promise.resolve(undefined);
 
 export const subscribeLiveActivityIntentAction = (
   listener: (event: LiveActivityIntentActionEvent) => void,
 ): (() => void) => {
+  if (!LiveActivityModule) return () => {};
   const subscription = LiveActivityModule.addListener('onIntentAction', listener);
   return () => subscription.remove();
 };
