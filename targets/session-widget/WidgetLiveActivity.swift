@@ -129,12 +129,38 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
         }
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
-            primaryValue(state)
             secondaryLine(state)
+            if !state.isBodyweight {
+                HStack {
+                    Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? 2.5))) {
+                        Text("−")
+                    }
+                    Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                        .foregroundColor(.white)
+                        .opacity(state.isLoadInherited ? 0.6 : 1.0)
+                        .minimumScaleFactor(0.8)
+                        .lineLimit(1)
+                    Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? 2.5)) {
+                        Text("+")
+                    }
+                }
+                .tint(activityNeon)
+            } else {
+                primaryValue(state)
+            }
             Button(intent: CompleteSetIntent()) {
                 Text("Concluir série")
             }
             .tint(activityNeon)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.forward.app")
+                Text("Ajustar no app")
+            }
+            .font(.caption2)
+            .foregroundColor(activitySecondary)
         }
     case .readyOvertime:
         VStack(alignment: .leading, spacing: 4) {
@@ -184,7 +210,7 @@ struct WidgetLiveActivity: Widget {
                 .padding()
                 .activityBackgroundTint(activityBackground)
                 .activitySystemActionForegroundColor(Color.white)
-                .widgetURL(URL(string: "forcaapp://session/active"))
+                .widgetURL(URL(string: "forcaapp://home/active-session/\(context.attributes.sessionLogId)"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
