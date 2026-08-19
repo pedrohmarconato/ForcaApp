@@ -1856,12 +1856,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return;
     }
     for (const entry of entries) {
-      const draft = get().draft;
-      if (!draft || draft.status !== 'active') {
-        // Descarte definitivo: não há sessão ativa para receber a entrada.
-        void ackQueuedLiveActivityIntent(entry.id);
-        continue;
-      }
+      try {
+        const draft = get().draft;
+        if (!draft || draft.status !== 'active') {
+          // Descarte definitivo: não há sessão ativa para receber a entrada.
+          void ackQueuedLiveActivityIntent(entry.id);
+          continue;
+        }
       // Plano 16-12: `sessionLogId` DIVERGENTE e `sessionLogId` NULO não são a
       // mesma coisa e não podem compartilhar destino. Divergente PROVA que a
       // entrada pertence a outra sessão — descartar está correto (guarda de
@@ -1942,6 +1943,20 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
           void ackQueuedLiveActivityIntent(entry.id);
           break;
         }
+      }
+      } catch (e) {
+        // WR-02 (review 2026-08-19): falha de UM item não pode abortar o
+        // boot da sessão. completeSet() rejeita quando enqueueAndDrain falha
+        // (persistência local — disco cheio, quota do AsyncStorage); sem
+        // este guard, a rejeição propagava para o catch de startOrResume e
+        // derrubava a sessão para status 'error' com saveError genérico —
+        // um toque da Lock Screen com I/O local falho impedia o treino de
+        // abrir. A entrada continua NA FILA (sem ack) para a próxima
+        // reconciliação; as demais entradas deste snapshot seguem.
+        console.warn(
+          `[liveActivity] intent ${entry.id} falhou ao aplicar (mantido na fila):`,
+          e,
+        );
       }
     }
   },

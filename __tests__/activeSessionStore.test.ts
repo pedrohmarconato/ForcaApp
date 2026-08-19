@@ -102,6 +102,10 @@ import type { SessionDetail } from '../src/services/trainingRepository';
 // desta suíte agora precisam drenar EXPLICITAMENTE (drainAll) para observar o
 // resultado da RPC, já que completeSet nunca mais aguarda a rede (D-05).
 import { drainAll, enqueueItem } from '../src/services/sessionOutboxDrain';
+// WR-02: spy no enqueueAndDrain do MESMO módulo usado pela store — com
+// babel/CJS a store chama via property access em tempo de execução, então
+// jest.spyOn aqui intercepta a chamada de completeSet() de verdade.
+import * as sessionOutboxDrain from '../src/services/sessionOutboxDrain';
 import { loadOutbox } from '../src/services/sessionOutboxStorage';
 // Fase 16 Plano 16-04: prova que startOrResume() de fato chama
 // reconcileLiveActivityIntents() ao resolver para um draft ativo — não
@@ -1447,6 +1451,10 @@ describe('Fase 16 — reconcileLiveActivityIntents: adoção de órfãs com skew
       startedAt: '2026-08-16T11:00:00.000Z',
       setLogs: [],
     });
+    // A reconciliação interna do startOrResume NUNCA pode ver o mock de
+    // implementação do teste anterior (clearAllMocks não limpa
+    // implementações) — zera antes do boot e só depois semeia as entradas.
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([]);
     await store().startOrResume({
       sessionId: 'sess-1',
       userId: 'user-1',
@@ -1516,6 +1524,80 @@ describe('Fase 16 — reconcileLiveActivityIntents: adoção de órfãs com skew
 
     expect(store().draft?.exercises[0]!.sets[0]!.status).toBe('active');
     expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('orphan-segundo');
+  });
+});
+
+describe('Fase 16 — reconcileLiveActivityIntents: falha de UM item não aborta o boot (WR-02)', () => {
+  const iniciarDraftAtivo = async (): Promise<void> => {
+    const draftLocal = buildDraftFromDetail(makeDetail(), 'user-1');
+    draftLocal.sessionLogId = 'sl-1';
+    draftLocal.startedAt = '2026-08-16T11:00:00.000Z';
+    mock(loadDraft).mockResolvedValue(draftLocal);
+    mock(getOpenSessionLog).mockResolvedValue({
+      sessionLogId: 'sl-1',
+      startedAt: '2026-08-16T11:00:00.000Z',
+      setLogs: [],
+    });
+    // Mesma disciplina do bloco WR-03: a reconciliação interna do boot não
+    // pode consumir o mock de implementação do teste anterior.
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([]);
+    await store().startOrResume({
+      sessionId: 'sess-1',
+      userId: 'user-1',
+      detail: makeDetail(),
+    });
+    await confirmarCheckInSePedido();
+    useActiveSessionStore.setState({
+      draft: {
+        ...store().draft!,
+        sessionLogId: 'sl-1',
+        startedAt: '2026-08-16T11:00:00.000Z',
+      },
+    });
+  };
+
+  it('WR-02: completeSet que rejeita (I/O local) não derruba a sessão para error nem bloqueia as demais entradas', async () => {
+    await iniciarDraftAtivo();
+    // Série ativa com reps/carga preenchidas para completeSet() passar da
+    // validação canCompleteSet e chegar ao enqueueAndDrain (que vai falhar).
+    const draft = store().draft!;
+    draft.exercises[0]!.sets[0]!.actualReps = 8;
+    draft.exercises[0]!.sets[0]!.actualLoadKg = 40;
+    useActiveSessionStore.setState({ draft });
+    const spy = jest
+      .spyOn(sessionOutboxDrain, 'enqueueAndDrain')
+      .mockRejectedValueOnce(new Error('disco cheio'));
+
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      {
+        kind: 'completeSet',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.000Z',
+        id: 'entry-falha',
+      },
+      {
+        kind: 'skipRest',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.100Z',
+        id: 'entry-ok',
+      },
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    // Boot preservado: sessão segue ativa, sem saveError genérico.
+    expect(store().status).toBe('active');
+    expect(store().saveError).toBeNull();
+    // A entrada seguinte do MESMO snapshot foi processada (skipRest ativou ex-1/1).
+    expect(store().draft?.exercises[0]!.sets[0]!.status).toBe('active');
+    // A entrada que falhou ficou NA FILA (sem ack) para a próxima reconciliação.
+    expect(mock(ackQueuedLiveActivityIntent)).not.toHaveBeenCalledWith('entry-falha');
+    expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('entry-ok');
+    spy.mockRestore();
   });
 });
 
