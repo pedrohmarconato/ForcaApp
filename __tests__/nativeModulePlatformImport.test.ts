@@ -18,12 +18,12 @@
 //    de importar/usar fora do iOS — mesma cobertura que
 //    `liveActivityPlatformImport.test.ts` já dá a `modules/live-activity`.
 //
-// 2. Prova o GRAFO DE IMPORT REAL a partir de `App.tsx`: monta o `App` real
-//    com `ProvisioningBanner` REAL (não mockado) em web/android. Isso é
-//    exatamente o que faltava — qualquer novo `requireNativeModule`
-//    desguardado em QUALQUER módulo alcançável a partir de `App.tsx` volta a
-//    quebrar este teste no futuro, porque o teste 2 sobe o grafo de
-//    verdade, não um substituto mockado.
+// 2. Prova o GRAFO DE IMPORT REAL a partir de `App.tsx`: importa (`require`)
+//    o `App` real com `ProvisioningBanner` REAL (não mockado) em
+//    web/android. Isso é exatamente o que faltava — qualquer novo
+//    `requireNativeModule` desguardado em QUALQUER módulo alcançável a
+//    partir de `App.tsx` volta a quebrar este teste no futuro, porque o
+//    teste 2 sobe o grafo de import de verdade, não um substituto mockado.
 //
 // Decisão de arquivo (vs. estender liveActivityPlatformImport.test.ts):
 // arquivo novo, escopo próprio. O teste do 15-09 é sobre um módulo
@@ -43,7 +43,6 @@
 
 import React from 'react';
 import { Platform } from 'react-native';
-import { render } from '@testing-library/react-native';
 
 // --- mocks dos dependentes pesados/alheios ao módulo sob teste -----------
 // Mesma lista de `liveActivityPlatformImport.test.ts`, MENOS
@@ -178,28 +177,44 @@ describe('modules/native-info — preservação do ramo iOS real (D-03)', () => 
 });
 
 describe('App — grafo de import real sobrevive fora do iOS (irmão do CR-03)', () => {
+  // Só `require()`, NUNCA `render()`, neste describe: o bug reproduzido aqui
+  // é de TEMPO DE IMPORT (o `requireNativeModule` desguardado roda ao
+  // carregar `modules/native-info/index.ts`, alcançado transitivamente por
+  // `App.tsx` → `ProvisioningBanner.tsx`), então `require()` sozinho já
+  // reproduz e prova o fix — sem precisar montar a árvore. Chamar
+  // `jest.resetModules()` e então `render()` com `react-test-renderer`
+  // criaria uma SEGUNDA instância de `react` desacoplada da que
+  // `react-test-renderer` já carregou (armadilha documentada no cabeçalho de
+  // `liveActivityPlatformImport.test.ts`), quebrando os hooks com "Cannot
+  // read properties of null (reading 'useEffect')" — sintoma de identidade
+  // de módulo, não do bug sob teste. `render()` do grafo completo já é
+  // coberto, para a guarda de EFEITO do live-activity, pelo describe "App —
+  // efeito root" do arquivo irmão (que usa `import` estático, sem
+  // `resetModules`, por essa mesma razão).
   afterEach(() => {
     jest.resetModules();
     jest.dontMock('expo');
   });
 
-  it('android: montar App (com ProvisioningBanner REAL, sem mock de native-info) não lança', () => {
+  it('android: importar App (com ProvisioningBanner REAL, sem mock de native-info) não lança', () => {
     withPlatform('android', () => {
       jest.resetModules();
+      let AppModule: { default: React.ComponentType } | undefined;
       expect(() => {
-        const RealApp = (require(APP_PATH) as { default: React.ComponentType }).default;
-        render(React.createElement(RealApp));
+        AppModule = require(APP_PATH) as { default: React.ComponentType };
       }).not.toThrow();
+      expect(typeof AppModule?.default).toBe('function');
     });
   });
 
-  it('web: montar App (com ProvisioningBanner REAL, sem mock de native-info) não lança', () => {
+  it('web: importar App (com ProvisioningBanner REAL, sem mock de native-info) não lança', () => {
     withPlatform('web', () => {
       jest.resetModules();
+      let AppModule: { default: React.ComponentType } | undefined;
       expect(() => {
-        const RealApp = (require(APP_PATH) as { default: React.ComponentType }).default;
-        render(React.createElement(RealApp));
+        AppModule = require(APP_PATH) as { default: React.ComponentType };
       }).not.toThrow();
+      expect(typeof AppModule?.default).toBe('function');
     });
   });
 });
