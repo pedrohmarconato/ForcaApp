@@ -154,3 +154,28 @@ tsc + suíte completa + skeleton/overtime/race. Resultado pendente.
 Roteiro consolidado em `.planning/UAT-FISICO-15-16-17.md` — 5 itens, um resign
 só, contra o HEAD a46bea8. Destrava LOCK-01, LOCK-03, T-15-09-02 e a
 reconfirmação de CMD-01. NÃO auto-aprovar nenhum item.
+
+## Rodada final (HEAD 9d9e04b -> 16555d9): os 3 itens pendentes
+1. **UAT fisica** — parte automatizavel feita: build e assinatura passam
+   (BUILD SUCCEEDED). Instalacao BLOQUEADA: iPhone `unavailable` no
+   `xcrun devicectl list devices`. Roteiro ampliado para 6 itens.
+   ATENCAO: a notificacao do harness reportou exit 0 para o `npm run resign`
+   porque capturou um `echo` encadeado; o exit real do script era 1. Ler a
+   saida, nao o codigo de retorno da notificacao.
+2. **Janela #6 (LOCK-03)** — corrigida no caminho de ERRO de `iniciar()`, nao no
+   subscriber, porque `reset()` tem chamador unico e o subscriber geraria ciclo
+   end+start a cada reabertura de sessao (orcamento da ActivityKit). Achei de
+   quebra a janela #4 obsoleta. **Ledger com 0 abertas pela primeira vez.**
+3. **Fase 14 re-auditada** — REVIEW (0 CR / 4 WR / 2 IN), SECURITY (17 ameacas,
+   0 abertas), VALIDATION validated. Premissa minha estava ERRADA: a fase JA
+   tinha threat model STRIDE nos 9 planos; 0 ameacas derivadas retroativamente.
+   WR-01, WR-03 e WR-04 corrigidos com RED provado. WR-02 (icone do widget
+   apontando para github.com/expo.png, baixado a cada prebuild) fica com o dono.
+
+### Erro de metodo cometido nesta rodada
+Despachei um agente instruido a rodar `verify-native-skeleton.sh` e rodei o
+mesmo script em paralelo. Os dois fazem `expo prebuild --clean` no MESMO `ios/`,
+que apaga o diretorio antes de regenerar — o meu abortou na rodada 2. Nao era
+regressao: exit 0 nas duas rodadas quando rodado sozinho. Mesma classe da
+duplicacao do Jest mais cedo. Efeito colateral util: a guarda do WR-01, escrita
+minutos antes, foi o que detectou a arvore pela metade.

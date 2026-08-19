@@ -5,10 +5,10 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 16
 current_phase_name: tela-bloqueada-comandar
 status: blocked-human
-stopped_at: "36/36 planos executados no milestone. Fases 14 e 17 completas. Fases 15 e 16 com TODOS os portoes automatizaveis fechados (REVIEW resolved, VERIFICATION human_needed sem gap de codigo, SECURITY auditada, VALIDATION validated) e bloqueadas num unico portao humano: a UAT fisica no iPhone, roteiro consolidado em .planning/UAT-FISICO-15-16-17.md contra o HEAD a46bea8. NAO auto-aprovar. Pendencias de decisao do dono: janela aberta #6 (LOCK-03 - reset() deixa card preso, correcao tem trade-off de orcamento da ActivityKit) e IN-01 do 16-REVIEW (contrato de ack da fila). Fase 14 e Complete pela ferramenta mas antecede o gauntlet atual: VALIDATION draft, sem SECURITY/REVIEW/UAT."
-last_updated: "2026-08-19T21:45:00.000Z"
+stopped_at: "36/36 planos executados no milestone. Fase 14 agora com o gauntlet COMPLETO (VERIFICATION passed, REVIEW 0 critical/4 warning/2 info, SECURITY verified com 17 ameacas e 0 abertas, VALIDATION validated) — os 3 warnings reais foram corrigidos com RED provado. Fase 17 completa. Fases 15 e 16 com todos os portoes automatizaveis fechados e bloqueadas num unico portao humano: a UAT fisica no iPhone, roteiro de 6 itens em .planning/UAT-FISICO-15-16-17.md contra o HEAD 9d9e04b. NAO auto-aprovar. Ledger de janelas ZERADO (open_count 0). Bloqueio operacional: o iPhone esta unavailable no devicectl — npm run resign compila mas nao instala ate o aparelho ser conectado, desbloqueado e confiado. Pendencia de decisao do dono: WR-02 da Fase 14 (icone do widget ainda aponta para https://github.com/expo.png, baixado a cada prebuild) e IN-01 do 16-REVIEW (contrato de ack da fila)."
+last_updated: "2026-08-19T23:00:00.000Z"
 last_activity: 2026-08-19
-last_activity_desc: "Fases 15 e 16 levadas ao limite do automatizavel; 5 fixes mesclados (a46bea8); bloqueio unico e a UAT fisica"
+last_activity_desc: "Fase 14 re-auditada e fechada; janela #6 corrigida; ledger zerado; bloqueio unico e a UAT fisica"
 progress:
   total_phases: 4
   completed_phases: 2
