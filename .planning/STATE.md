@@ -5,10 +5,10 @@ milestone_name: Treino de tela bloqueada (app nativo pessoal)
 current_phase: 17
 current_phase_name: tela-bloqueada-registrar-e-antecipar
 status: executing
-stopped_at: Phase 17 context gathered
+stopped_at: "Phase 17 paused after wave 4 — 6/7 plans done, 17-07 physical UAT deferred by owner"
 last_updated: "2026-08-19T01:04:29.508Z"
-last_activity: 2026-08-18
-last_activity_desc: Phase 17 execution started
+last_activity: 2026-08-19
+last_activity_desc: "Phase 17 waves 1-4 executed and merged; 17-07 (UAT no iPhone) pending"
 progress:
   total_phases: 4
   completed_phases: 2

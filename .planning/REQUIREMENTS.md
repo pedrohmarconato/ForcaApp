@@ -119,6 +119,20 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 Coverage: 10/10 v1.3 requirements mapped. No orphans.
 
+**Nota sobre REG-01/REG-02 (Fase 17, marcados Complete em 2026-08-19):** marcam
+entrega de CODIGO, nao verificacao em aparelho — mesma convencao de CMD-01/CMD-02.
+O UAT fisico da fase (`17-07-PLAN.md`) NAO foi executado: a fase parou em 6/7 planos
+por decisao do dono. Enquanto o 17-07 nao rodar:
+- REG-02 (ajuste na tela bloqueada) nao tem confirmacao de aparelho. O proprio
+  17-07-PLAN.md proibe fechar REG-02 por "compilou"/"prebuild passou"/"17-06 verde".
+- REG-01 tem a janela aberta #5 em `WINDOWS.md` (`unrun-verify`): a checagem do PWA
+  real (`expo start --web`, 390x844) nao pode ser executada no worktree sandboxed;
+  foi substituida por replica de box-model em Chromium, que nao e o app rodando.
+- PRED-01 segue `Pending` de proposito — so o 17-07 o fecha.
+Dois bugs que so o build Xcode completo revelou (ponte Expo sem os 11 campos novos do
+ContentState; lockfile sem o workspace `modules/live-activity`) foram corrigidos no
+Plano 17-06 — ver `17-06-SUMMARY.md`.
+
 **Nota sobre CMD-01/CMD-02 (Fase 16, marcados Complete em 2026-08-18):** os três
 Success Criteria da Fase 16 no `ROADMAP.md` têm UAT físico do dono — ver
 `.planning/phases/16-tela-bloqueada-comandar/16-UAT.md`. O critério 3 (force-quit
