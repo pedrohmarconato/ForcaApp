@@ -48,7 +48,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — registrar (REG)
 
-- [ ] **REG-01**: Ao registrar uma série no app, reps e carga vêm pré-preenchidos
+- [x] **REG-01**: Ao registrar uma série no app, reps e carga vêm pré-preenchidos
   do histórico do exercício (última sessão), ajustáveis só por botões +/− (passo
   de anilha por exercício; ex.: ±1 rep, ±2,5 kg) e confirmação em 1 toque —
   teclado deixa de ser necessário no fluxo padrão.
@@ -113,7 +113,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 | LOCK-03 | Phase 15 | Pending |
 | CMD-01 | Phase 16 | Complete |
 | CMD-02 | Phase 16 | Complete |
-| REG-01 | Phase 17 | Pending (falta ver no app do iPhone) |
+| REG-01 | Phase 17 | Complete |
 | REG-02 | Phase 17 | Complete |
 | PRED-01 | Phase 17 | Complete |
 
@@ -129,24 +129,20 @@ fisico do `17-07-PLAN.md`):**
   `Activity.update()`). Um achado de design foi registrado (card do Lock Screen
   pequeno para a densidade de informacao) — nao bloqueia REG-02, e escopo novo,
   ver `17-07-SUMMARY.md`.
-- **REG-01** continua `Pending`, com a janela #5 de `WINDOWS.md` (`unrun-verify`) ABERTA.
-  O UAT fisico do 17-07 nao cobriu este requisito: o Criterio 1 do ROADMAP nao carrega a
-  marcacao "(UAT do dono no aparelho fisico)", e o proprio `17-07-PLAN.md` declara no
-  objective que "o criterio 1, REG-01 no app, nao exige UAT fisico" — o roteiro da sessao
-  fisica nunca o incluiu.
-  O plano original era fechar REG-01 pelo PWA (`expo start --web`, 390x844). Esse caminho
-  esta INEXEQUIVEL: em 2026-08-19 o web foi executado de verdade e a aplicacao crasha no
-  mount com 'Cannot find native module LiveActivityModule' — `modules/live-activity/index.ts:49`
-  chama `requireNativeModule` no topo do modulo, sem guarda de `Platform.OS` (idem
-  `liveActivitySync.ts` e `liveActivityIntentBridge.ts`). Quebrado desde a Fase 16
-  (`3dabb0e`), nao e regressao da Fase 17. Por decisao do dono em 2026-08-19, o web/PWA
-  deixou de ser superficie suportada na v1.3 (o milestone virou app nativo pessoal), entao
-  esse crash e consequencia aceita e nao bug em aberto.
-  **O que fecha REG-01:** o dono abrir a tela de sessao ativa no APP DO IPHONE (nao a tela
-  bloqueada), num exercicio com historico, e confirmar pre-preenchimento vindo do historico,
-  ajuste apenas por +/-, marca de valor herdado, e ausencia de teclado ou overflow. A
-  evidencia atual (replica de CSS/box-model em Chromium via Playwright, 0 overflow em
-  390x844 e 360px) prova o layout, mas nao e o app rodando.
+- **REG-01** esta `Complete` e VERIFICADO EM SUPERFICIE REAL desde 2026-08-19. A janela #5
+  de `WINDOWS.md` (`unrun-verify`) foi fechada no mesmo dia: o dono abriu a tela de sessao
+  ativa no APP DO IPHONE (build assinado do HEAD, instalado as 10:12:33) e aprovou o
+  pre-preenchimento vindo do historico, o ajuste apenas por +/-, a marca de valor herdado e
+  a ausencia de teclado ou overflow.
+  Observacao de metodo: o plano original fechava REG-01 pelo PWA (`expo start --web`,
+  390x844). Esse caminho ficou INEXEQUIVEL — ao executar o web de verdade em 2026-08-19, a
+  aplicacao crashou no mount com 'Cannot find native module LiveActivityModule'
+  (`modules/live-activity/index.ts:49` chama `requireNativeModule` no topo do modulo, sem
+  guarda de `Platform.OS`; idem `liveActivitySync.ts` e `liveActivityIntentBridge.ts`).
+  Quebrado desde a Fase 16 (`3dabb0e`), nao e regressao da Fase 17. Por decisao do dono em
+  2026-08-19 o web/PWA deixou de ser superficie suportada na v1.3 (o milestone virou app
+  nativo pessoal), entao esse crash e consequencia aceita e nao bug em aberto, e a
+  verificacao de REG-01 migrou para o app do aparelho.
 Dois bugs que so o build Xcode completo revelou (ponte Expo sem os 11 campos novos do
 ContentState; lockfile sem o workspace `modules/live-activity`) foram corrigidos no
 Plano 17-06 — ver `17-06-SUMMARY.md`.
