@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 
 import { AuthProvider } from './src/contexts/AuthContext';
+import { ThemeProvider } from './src/theme/ThemeProvider';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import UpdateBanner from './src/components/UpdateBanner';
@@ -15,6 +16,7 @@ import PushInviteHost from './src/components/PushInviteHost';
 import {
   initLiveActivitySync,
   reconcileOrphanActivities,
+  setLiveActivityNeonColor,
 } from './src/native/liveActivitySync';
 import { registerLiveActivityIntentListener } from './src/native/liveActivityIntentBridge';
 import theme from './src/theme/theme';
@@ -58,16 +60,18 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <StatusBar style="light" />
-      <RootNavigator />
-      <UpdateBanner />
-      <ProvisioningBanner />
-      <LiveActivityUnavailableBanner />
-      <AlertHost />
-      {/* Depois de AlertHost: precisa que alertStore/AlertHost já estejam
-          prontos para receber o showAlert() do convite único de opt-in
-          (PUSH-01, Fase 13 Plano 05). */}
-      <PushInviteHost />
+      <ThemeProvider onThemeChange={setLiveActivityNeonColor}>
+        <StatusBar style="light" />
+        <RootNavigator />
+        <UpdateBanner />
+        <ProvisioningBanner />
+        <LiveActivityUnavailableBanner />
+        <AlertHost />
+        {/* Depois de AlertHost: precisa que alertStore/AlertHost já estejam
+            prontos para receber o showAlert() do convite único de opt-in
+            (PUSH-01, Fase 13 Plano 05). */}
+        <PushInviteHost />
+      </ThemeProvider>
     </AuthProvider>
   );
 }

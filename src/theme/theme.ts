@@ -21,8 +21,31 @@ const PRETO = '#0A0A0A'; // base principal
 const GRAFITE = '#171A1D'; // superfícies secundárias
 const CINZA = '#8B9098'; // informação auxiliar
 const BRANCO = '#FFFFFF'; // contraste e versão negativa
-const NEON = '#EBFF00'; // assinatura, ação e progresso concluído
+export const NEON_COLOR_KEYS = Object.freeze([
+  'yellow',
+  'blue',
+  'green',
+  'red',
+] as const);
+
+export type NeonColorKey = (typeof NEON_COLOR_KEYS)[number];
+
+export const NEON_COLORS: Readonly<Record<NeonColorKey, string>> =
+  Object.freeze({
+    yellow: '#EBFF00',
+    blue: '#00E5FF',
+    green: '#39FF14',
+    red: '#FF3131',
+  });
+
+const NEON = NEON_COLORS.yellow; // assinatura, ação e progresso concluído
 const AZUL_FUNCIONAL = '#0A66FF'; // estados digitais que não podem virar neon
+
+export const parseNeonColor = (value: unknown): NeonColorKey =>
+  typeof value === 'string' &&
+  Object.prototype.hasOwnProperty.call(NEON_COLORS, value)
+    ? (value as NeonColorKey)
+    : 'yellow';
 
 export const palette = {
   preto: PRETO,
@@ -212,18 +235,69 @@ export const hitTarget = {
   regular: 50,
 } as const;
 
-const theme = {
-  palette,
-  colors,
-  surfaces,
-  typography,
-  fonts,
-  spacing,
-  borderRadius,
-  elevation,
-  zIndex,
-  animation,
-  hitTarget,
+const rgbaFromHex = (hex: string, alpha: number) => {
+  const normalized = hex.replace('#', '');
+  const red = parseInt(normalized.slice(0, 2), 16);
+  const green = parseInt(normalized.slice(2, 4), 16);
+  const blue = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 };
+
+const deepFreeze = <T>(value: T): T => {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.values(value as Record<string, unknown>).forEach((nested) => {
+      deepFreeze(nested);
+    });
+    Object.freeze(value);
+  }
+  return value;
+};
+
+export const createTheme = (value: unknown = 'yellow') => {
+  const neonColor = parseNeonColor(value);
+  const main = NEON_COLORS[neonColor];
+  const soft = rgbaFromHex(main, 0.075);
+  const focus = rgbaFromHex(main, 0.45);
+
+  return deepFreeze({
+    palette: {
+      ...palette,
+      neon: main,
+    },
+    colors: {
+      ...colors,
+      accent: {
+        main,
+        soft,
+        border: focus,
+        on: PRETO,
+      },
+      text: {
+        ...colors.text,
+        accent: main,
+      },
+      border: {
+        ...colors.border,
+        focus,
+      },
+    },
+    surfaces,
+    typography,
+    fonts,
+    spacing,
+    borderRadius,
+    elevation,
+    zIndex,
+    animation,
+    hitTarget,
+  });
+};
+
+export type Theme = ReturnType<typeof createTheme>;
+
+// O singleton histórico continua amarelo para splash, pré-auth e consumidores
+// ainda não migrados. Ele e todos os seus descendentes são congelados: a troca
+// runtime sempre cria outro tema, nunca altera este fallback compartilhado.
+const theme = createTheme('yellow');
 
 export default theme;
