@@ -14,6 +14,9 @@ public struct LiveActivityContentStateRecord: Record {
   @Field var blockLabel: String? = nil
   @Field var blockIndex: Int? = nil
   @Field var blockTotal: Int? = nil
+  // D-10: acento neon da Live Activity (yellow|blue|green|red). Opcional com
+  // default nil para manter payloads legados (sem o campo) decodificáveis.
+  @Field var neonColor: String? = nil
 
   public init() {}
 }
@@ -63,7 +66,8 @@ public class LiveActivityModule: Module {
       restEndsAt: iso8601Date(from: record.restEndsAt),
       blockLabel: record.blockLabel,
       blockIndex: record.blockIndex,
-      blockTotal: record.blockTotal
+      blockTotal: record.blockTotal,
+      neonColor: record.neonColor
     )
   }
 

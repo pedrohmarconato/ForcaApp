@@ -4,8 +4,26 @@ import SwiftUI
 import WidgetKit
 
 private let activityBackground = Color(red: 0.039, green: 0.039, blue: 0.039)
-private let activityNeon = Color(red: 0.922, green: 1.0, blue: 0.0)
 private let activitySecondary = Color(red: 0.545, green: 0.565, blue: 0.596)
+
+/// Acento neon derivado do ContentState (D-01/D-10). Switch fechado sobre as
+/// quatro chaves com os canais RGB exatos dos hexes aprovados; `default`
+/// cobre nil e string desconhecida — Activities legadas ou valores fora do
+/// contrato convergem sempre para yellow, nunca para uma cor arbitrária.
+private func neonAccent(for state: SessionActivityAttributes.ContentState) -> Color {
+    switch state.neonColor {
+    case "yellow":
+        return Color(red: 235.0 / 255.0, green: 255.0 / 255.0, blue: 0.0 / 255.0)
+    case "blue":
+        return Color(red: 0.0 / 255.0, green: 229.0 / 255.0, blue: 255.0 / 255.0)
+    case "green":
+        return Color(red: 57.0 / 255.0, green: 255.0 / 255.0, blue: 20.0 / 255.0)
+    case "red":
+        return Color(red: 255.0 / 255.0, green: 49.0 / 255.0, blue: 49.0 / 255.0)
+    default:
+        return Color(red: 235.0 / 255.0, green: 255.0 / 255.0, blue: 0.0 / 255.0)
+    }
+}
 
 private func prescriptionText(_ state: SessionActivityAttributes.ContentState) -> String {
     if state.isBodyweight {
@@ -64,7 +82,7 @@ private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> so
                 .font(.title2)
                 .fontWeight(.bold)
                 .monospacedDigit()
-                .foregroundColor(activityNeon)
+                .foregroundColor(neonAccent(for: state))
                 .lineLimit(1)
         } else {
             Text("—")
@@ -85,7 +103,7 @@ private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> so
         Text("Pronto")
             .font(.title2)
             .fontWeight(.bold)
-            .foregroundColor(activityNeon)
+                .foregroundColor(neonAccent(for: state))
             .lineLimit(1)
     case .blockOnly:
         Text("\(state.blockLabel ?? "") \(state.blockIndex ?? 0)/\(state.blockTotal ?? 0)")
@@ -125,7 +143,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
                     Text("+30s")
                 }
             }
-            .tint(activityNeon)
+            .tint(neonAccent(for: state))
         }
     case .measuring:
         VStack(alignment: .leading, spacing: 4) {
@@ -134,7 +152,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
             Button(intent: CompleteSetIntent()) {
                 Text("Concluir série")
             }
-            .tint(activityNeon)
+            .tint(neonAccent(for: state))
         }
     case .readyOvertime:
         VStack(alignment: .leading, spacing: 4) {
@@ -214,9 +232,13 @@ struct WidgetLiveActivity: Widget {
                 compactValue(context.state)
             } minimal: {
                 Image(systemName: minimalSymbol(for: context.state))
-                    .foregroundColor(context.state.phase == .resting ? activityNeon : activitySecondary)
+                    .foregroundColor(
+                        context.state.phase == .resting
+                            ? neonAccent(for: context.state)
+                            : activitySecondary
+                    )
             }
-            .keylineTint(activityNeon)
+            .keylineTint(neonAccent(for: context.state))
         }
     }
 }

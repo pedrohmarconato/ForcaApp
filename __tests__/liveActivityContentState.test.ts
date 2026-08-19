@@ -1,6 +1,4 @@
-import {
-  buildLiveActivityContentState,
-} from '../src/engine/liveActivityContentState';
+import { buildLiveActivityContentState } from '../src/engine/liveActivityContentState';
 import type {
   DraftExercise,
   DraftSet,
@@ -45,7 +43,10 @@ const makeExercise = (
   ...overrides,
 });
 
-const makeDraft = (sets: DraftSet[], exercises?: DraftExercise[]): SessionDraft => ({
+const makeDraft = (
+  sets: DraftSet[],
+  exercises?: DraftExercise[],
+): SessionDraft => ({
   version: 1,
   plannedSessionId: 'session-1',
   sessionLogId: 'log-1',
@@ -62,13 +63,53 @@ const makeDraft = (sets: DraftSet[], exercises?: DraftExercise[]): SessionDraft 
 describe('buildLiveActivityContentState', () => {
   const now = new Date('2026-08-16T12:00:00.000Z');
 
+  it('inclui a chave neon validada em measuring, resting, readyOvertime e blockOnly', () => {
+    const measuring = makeDraft([makeSet(1, 'pending')]);
+    const resting = makeDraft([makeSet(1, 'done'), makeSet(2, 'pending')]);
+    resting.restEndsAt = '2026-08-16T12:01:30.000Z';
+    const readyOvertime = makeDraft([
+      makeSet(1, 'done'),
+      makeSet(2, 'pending'),
+    ]);
+    readyOvertime.restEndsAt = '2026-08-16T11:59:59.000Z';
+    const blockSets = [makeSet(1, 'active')];
+    const blockOnly = makeDraft(blockSets, [
+      makeExercise(blockSets, { metric: 'tempo', name: 'Alongamento' }),
+    ]);
+
+    expect([
+      buildLiveActivityContentState(measuring, now, 'blue'),
+      buildLiveActivityContentState(resting, now, 'blue'),
+      buildLiveActivityContentState(readyOvertime, now, 'blue'),
+      buildLiveActivityContentState(blockOnly, now, 'blue'),
+    ]).toEqual([
+      expect.objectContaining({ phase: 'measuring', neonColor: 'blue' }),
+      expect.objectContaining({ phase: 'resting', neonColor: 'blue' }),
+      expect.objectContaining({ phase: 'readyOvertime', neonColor: 'blue' }),
+      expect.objectContaining({ phase: 'blockOnly', neonColor: 'blue' }),
+    ]);
+  });
+
+  it('usa yellow quando a chave neon está ausente ou é inválida', () => {
+    const current = makeDraft([makeSet(1, 'pending')]);
+
+    expect(buildLiveActivityContentState(current, now)).toMatchObject({
+      neonColor: 'yellow',
+    });
+    expect(
+      buildLiveActivityContentState(current, now, 'ultraviolet'),
+    ).toMatchObject({ neonColor: 'yellow' });
+  });
+
   it('deriva measuring para a próxima série pendente quando não há série ativa nem descanso (sessão nova/retomada)', () => {
     // Regressão: bug live-activity-sessao-sumiu. `active` é estado de UI local
     // (só setado por activateSet()) e nunca é restaurado ao reconstruir o
     // rascunho a partir do servidor — uma sessão nova (série 1 'pending') ou
     // uma retomada (série em andamento volta a 'pending') não podem cair em
     // null aqui, senão o card nunca aparece (nem no início, nem na retomada).
-    expect(buildLiveActivityContentState(makeDraft([makeSet(1, 'pending')]), now)).toMatchObject({
+    expect(
+      buildLiveActivityContentState(makeDraft([makeSet(1, 'pending')]), now),
+    ).toMatchObject({
       phase: 'measuring',
       exerciseName: 'Supino reto',
       setIndex: 1,
@@ -78,7 +119,9 @@ describe('buildLiveActivityContentState', () => {
   });
 
   it('retorna null quando não há mais nenhuma série (ativa, pendente ou em descanso)', () => {
-    expect(buildLiveActivityContentState(makeDraft([makeSet(1, 'done')]), now)).toBeNull();
+    expect(
+      buildLiveActivityContentState(makeDraft([makeSet(1, 'done')]), now),
+    ).toBeNull();
   });
 
   it('propaga o exercício, a série seguinte e restEndsAt durante o descanso', () => {
@@ -88,6 +131,7 @@ describe('buildLiveActivityContentState', () => {
 
     expect(buildLiveActivityContentState(draft, now)).toEqual({
       phase: 'resting',
+      neonColor: 'yellow',
       exerciseName: 'Supino reto',
       setIndex: 2,
       setTotal: 2,
@@ -131,26 +175,31 @@ describe('buildLiveActivityContentState', () => {
       [makeSet(1, 'done'), makeSet(2, 'pending')],
       '2026-08-16T12:01:30.000Z',
     ],
-  ])('deriva blockOnly para exercício medido por tempo durante %s', (_, sets, restEndsAt) => {
-    const exercise = makeExercise(sets, {
-      metric: 'tempo',
-      name: 'Alongamento',
-    });
-    const draft = makeDraft(sets, [exercise]);
-    draft.restEndsAt = restEndsAt;
+  ])(
+    'deriva blockOnly para exercício medido por tempo durante %s',
+    (_, sets, restEndsAt) => {
+      const exercise = makeExercise(sets, {
+        metric: 'tempo',
+        name: 'Alongamento',
+      });
+      const draft = makeDraft(sets, [exercise]);
+      draft.restEndsAt = restEndsAt;
 
-    expect(buildLiveActivityContentState(draft, now)).toMatchObject({
-      phase: 'blockOnly',
-      exerciseName: 'Alongamento',
-      targetRepsMin: null,
-      targetRepsMax: null,
-      targetLoadKg: null,
-      blockLabel: 'Alongamento',
-      blockIndex: 1,
-      blockTotal: 1,
-    });
-    expect(buildLiveActivityContentState(draft, now)?.phase).not.toBe('measuring');
-  });
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'blockOnly',
+        exerciseName: 'Alongamento',
+        targetRepsMin: null,
+        targetRepsMax: null,
+        targetLoadKg: null,
+        blockLabel: 'Alongamento',
+        blockIndex: 1,
+        blockTotal: 1,
+      });
+      expect(buildLiveActivityContentState(draft, now)?.phase).not.toBe(
+        'measuring',
+      );
+    },
+  );
 
   it('deriva blockOnly para exercício medido por tempo e distância', () => {
     const sets = [makeSet(1, 'active')];
@@ -159,7 +208,9 @@ describe('buildLiveActivityContentState', () => {
       name: 'Corrida',
     });
 
-    expect(buildLiveActivityContentState(makeDraft(sets, [exercise]), now)).toMatchObject({
+    expect(
+      buildLiveActivityContentState(makeDraft(sets, [exercise]), now),
+    ).toMatchObject({
       phase: 'blockOnly',
       blockLabel: 'Corrida',
       targetRepsMin: null,
