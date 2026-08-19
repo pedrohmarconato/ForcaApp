@@ -459,5 +459,34 @@ describe('buildLiveActivityContentState', () => {
         nextIsBodyweight: null,
       });
     });
+
+    // REG-17 (review 2026-08-19): findPendingSetAfter ignorava só cutByReplan,
+    // não skippedByUser — um exercício que o aluno RECUSOU explicitamente
+    // continuava a ser anunciado como nextExerciseName na tela bloqueada.
+    it('exercício RECUSADO pelo aluno (skippedByUser) entre a atual e a próxima não vira nextExerciseName', () => {
+      const exA = makeExercise([makeSet(1, 'done'), makeSet(2, 'pending')], {
+        exerciseId: 'ex-a',
+        name: 'A',
+      });
+      const exRecusado = makeExercise([{ ...makeSet(1, 'pending'), targetRepsMin: 8, targetLoadKg: 40 }], {
+        exerciseId: 'ex-recusado',
+        name: 'Recusado',
+        skippedByUser: true,
+      });
+      const exC = makeExercise([{ ...makeSet(1, 'pending'), targetRepsMin: 8, targetLoadKg: 40 }], {
+        exerciseId: 'ex-c',
+        name: 'C',
+      });
+      const draft = makeDraft([], [exA, exRecusado, exC]);
+      draft.restEndsAt = '2026-08-16T12:01:30.000Z';
+
+      expect(buildLiveActivityContentState(draft, now)).toMatchObject({
+        phase: 'resting',
+        exerciseName: 'A',
+        nextExerciseName: 'C', // não "Recusado"
+        nextSetIndex: 1,
+        nextSetTotal: 1,
+      });
+    });
   });
 });

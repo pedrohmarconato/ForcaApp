@@ -336,6 +336,19 @@ describe('findPendingSetAfter — a série ESTRITAMENTE DEPOIS de uma referênci
     expect(findPendingSetAfter(draft, ref(ex1, 3))).toEqual({ exercise: ex2, set: ex2.sets[0] });
   });
 
+  // REG-17 (review 2026-08-19): findPendingSetAfter filtrava só `cutByReplan`,
+  // não a regra canônica `exercicioForaDeJogo` (cutByReplan || skippedByUser)
+  // que as duas vizinhas findActiveSet/findNextPendingSet já usam — um
+  // exercício RECUSADO pelo aluno continuava a ser anunciado como "A SEGUIR"
+  // na tela bloqueada (liveActivityContentState.ts:99).
+  it('exercício com skippedByUser entre a referência e a próxima série real é ignorado', () => {
+    const exRecusado = makeExercicio('ex-recusado', 'Agachamento', [{ setOrder: 1, status: 'pending' }], {
+      skippedByUser: true,
+    });
+    const draft = { exercises: [ex1, exRecusado, ex2] } as any;
+    expect(findPendingSetAfter(draft, ref(ex1, 3))).toEqual({ exercise: ex2, set: ex2.sets[0] });
+  });
+
   it('referência inexistente no draft (setOrder inválido) devolve null, nunca lança', () => {
     const exForaDoDraft = makeExercicio('ex-fantasma', 'Fantasma', [{ setOrder: 99, status: 'pending' }]);
     expect(() => findPendingSetAfter(draftBase, ref(exForaDoDraft, 99))).not.toThrow();
