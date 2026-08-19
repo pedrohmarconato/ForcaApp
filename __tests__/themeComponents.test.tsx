@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Platform,
   processColor,
   StyleSheet,
   TouchableOpacity,
@@ -118,6 +119,8 @@ import SessionSummary from '../src/components/session/SessionSummary';
 import AdaptationSheet from '../src/components/session/AdaptationSheet';
 import CheckInSheet from '../src/components/session/CheckInSheet';
 import ReplanBanner from '../src/components/session/ReplanBanner';
+import AlertHost from '../src/components/AlertHost';
+import UpdateBanner from '../src/components/UpdateBanner';
 import type { Recommendation } from '../src/engine/intraSessionAdaptation';
 import type {
   DraftExercise,
@@ -129,6 +132,8 @@ import type {
   WeeklyReplanProposal,
 } from '../src/engine/weeklyReplanner';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import { useAlertStore } from '../src/store/alertStore';
+import { useUpdateStore } from '../src/store/updateStore';
 import Button from '../src/components/ui/Button';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { createTheme } from '../src/theme/theme';
@@ -1038,5 +1043,186 @@ describe('sheets-replan', () => {
     expect(onConfirmReagendamento).not.toHaveBeenCalled();
     expect(onDecline).not.toHaveBeenCalled();
     expect(onDeclineReagendamento).not.toHaveBeenCalled();
+  });
+});
+
+type TestWindow = {
+  addEventListener: jest.Mock;
+  removeEventListener: jest.Mock;
+  dispatchEvent: jest.Mock;
+};
+
+const createTestWindow = (): TestWindow => {
+  const listeners = new Map<string, Set<(event: { type: string }) => void>>();
+  const testWindow: TestWindow = {
+    addEventListener: jest.fn((type: string, listener: (event: { type: string }) => void) => {
+      const entries = listeners.get(type) ?? new Set();
+      entries.add(listener);
+      listeners.set(type, entries);
+    }),
+    removeEventListener: jest.fn(
+      (type: string, listener: (event: { type: string }) => void) => {
+        listeners.get(type)?.delete(listener);
+      },
+    ),
+    dispatchEvent: jest.fn((event: { type: string }) => {
+      listeners.get(event.type)?.forEach((listener) => listener(event));
+      return true;
+    }),
+  };
+  return testWindow;
+};
+
+describe('hosts-globais', () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const customEventDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'CustomEvent');
+  let testWindow: TestWindow;
+
+  beforeAll(() => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    if (!customEventDescriptor) {
+      Object.defineProperty(globalThis, 'CustomEvent', {
+        configurable: true,
+        value: class TestCustomEvent {
+          type: string;
+
+          constructor(type: string) {
+            this.type = type;
+          }
+        },
+      });
+    }
+  });
+
+  afterAll(() => {
+    if (platformDescriptor) Object.defineProperty(Platform, 'OS', platformDescriptor);
+    if (windowDescriptor) {
+      Object.defineProperty(globalThis, 'window', windowDescriptor);
+    } else {
+      delete (globalThis as { window?: unknown }).window;
+    }
+    if (!customEventDescriptor) {
+      delete (globalThis as { CustomEvent?: unknown }).CustomEvent;
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setThemeColor('yellow');
+    useAlertStore.setState({ current: null });
+    useUpdateStore.setState({ waiting: false, dismissed: false });
+    testWindow = createTestWindow();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: testWindow,
+    });
+  });
+
+  it('AlertHost troca label accent sem alterar fila, prioridade, copy, acao ou callbacks', async () => {
+    const onCancel = jest.fn();
+    const onConfirm = jest.fn();
+    const onDelete = jest.fn();
+    const alert = {
+      title: 'Concluir treino?',
+      message: 'Ainda ha series nao registradas.',
+      buttons: [
+        { text: 'Continuar treino', style: 'cancel' as const, onPress: onCancel },
+        { text: 'Concluir', onPress: onConfirm },
+        { text: 'Excluir', style: 'destructive' as const, onPress: onDelete },
+      ],
+    };
+    useAlertStore.getState().show(alert);
+
+    const screen = renderThemed(<AlertHost />, 'yellow');
+    const yellowTheme = createTheme('yellow');
+    const blueTheme = createTheme('blue');
+    const confirmButton = screen.getByTestId('alert-host-button-1');
+    const confirmLabel = screen.getByText('Concluir');
+
+    expect(styleValue(confirmLabel, 'color')).toBe(yellowTheme.colors.text.accent);
+    expect(styleValue(screen.getByText('Excluir'), 'color')).toBe(
+      yellowTheme.colors.status.danger,
+    );
+    expect(useAlertStore.getState().current).toBe(alert);
+    expect(screen.getByRole('button', { name: 'Fechar' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Continuar treino' })).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: 'Concluir' })).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: 'Excluir' })).not.toHaveLength(0);
+
+    screen.rerenderWithTheme(<AlertHost />, 'blue');
+    await waitFor(() =>
+      expect(styleValue(screen.getByText('Concluir'), 'color')).toBe(
+        blueTheme.colors.text.accent,
+      ),
+    );
+
+    expect(styleValue(screen.getByText('Excluir'), 'color')).toBe(
+      blueTheme.colors.status.danger,
+    );
+    expect(screen.getByTestId('alert-host-button-1')).toBe(confirmButton);
+    expect(screen.getByText('Concluir')).toBe(confirmLabel);
+    expect(screen.getByText('Continuar treino')).toBeTruthy();
+    expect(screen.getByText('Excluir')).toBeTruthy();
+    expect(screen.getByText('Ainda ha series nao registradas.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Fechar' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Concluir' })).not.toHaveLength(0);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText('Concluir'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(useAlertStore.getState().current).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('UpdateBanner troca label primary/accent apos waiting e rerender sem duplicar listener nem mudar actions', async () => {
+    useUpdateStore.getState().setWaiting(true);
+    const screen = renderThemed(<UpdateBanner />, 'yellow');
+    const yellowTheme = createTheme('yellow');
+    const greenTheme = createTheme('green');
+    const updateButton = screen.getByText('Atualizar');
+    const dismissButton = screen.getByText('Depois');
+
+    expect(styleValue(updateButton, 'color')).toBe(yellowTheme.colors.text.accent);
+    expect(testWindow.addEventListener).toHaveBeenCalledTimes(1);
+    expect(testWindow.addEventListener.mock.calls[0][0]).toBe('sw-update-available');
+
+    screen.rerenderWithTheme(<UpdateBanner />, 'green');
+    await waitFor(() =>
+      expect(styleValue(screen.getByText('Atualizar'), 'color')).toBe(
+        greenTheme.colors.text.accent,
+      ),
+    );
+
+    expect(screen.getByText('Atualizar')).toBe(updateButton);
+    expect(screen.getByText('Depois')).toBe(dismissButton);
+    expect(testWindow.addEventListener).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Atualizar' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Depois' })).toBeTruthy();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Depois' }));
+    expect(screen.queryByText('Nova versão disponível')).toBeNull();
+    act(() => {
+      testWindow.dispatchEvent({ type: 'sw-update-available' });
+    });
+    expect(screen.getByText('Nova versão disponível')).toBeTruthy();
+    expect(testWindow.addEventListener).toHaveBeenCalledTimes(1);
+
+    testWindow.dispatchEvent.mockClear();
+    fireEvent.press(screen.getByText('Atualizar'));
+    expect(testWindow.dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(testWindow.dispatchEvent.mock.calls[0][0].type).toBe('sw-apply-update');
+
+    fireEvent.press(screen.getByText('Depois'));
+    expect(useUpdateStore.getState().waiting).toBe(false);
+    expect(useUpdateStore.getState().dismissed).toBe(true);
+
+    screen.unmount();
+    expect(testWindow.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(testWindow.removeEventListener.mock.calls[0][0]).toBe(
+      'sw-update-available',
+    );
   });
 });

@@ -11,12 +11,15 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import theme from '../theme/theme';
 import { useAlertStore, type AlertButton } from '../store/alertStore';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
+import type { Theme } from '../theme/theme';
 
 const DEFAULT_BUTTONS: AlertButton[] = [{ text: 'OK' }];
 
 const AlertHost = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const current = useAlertStore((s) => s.current);
   const dismiss = useAlertStore((s) => s.dismiss);
 
@@ -78,7 +81,7 @@ const AlertHost = () => {
                 <Text
                   style={[
                     styles.buttonLabel,
-                    b.style === 'destructive' && styles.buttonLabelDestructive,
+                    b.style === 'destructive' && { color: theme.colors.status.danger },
                   ]}
                 >
                   {b.text}
@@ -92,56 +95,54 @@ const AlertHost = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.overlay,
-    padding: theme.spacing.xl,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    padding: theme.spacing.xl,
-    borderRadius: theme.borderRadius.xxl,
-    backgroundColor: theme.colors.surface.card,
-    ...theme.elevation.floating,
-  },
-  title: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.lg,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  message: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
-  },
-  buttons: {
-    marginTop: theme.spacing.xl,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: theme.spacing.lg,
-  },
-  button: {
-    minHeight: theme.hitTarget.compact,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.md,
-  },
-  buttonLabel: {
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  buttonLabelDestructive: {
-    color: theme.colors.status.danger,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.overlay,
+      padding: theme.spacing.xl,
+    },
+    card: {
+      width: '100%',
+      maxWidth: 360,
+      padding: theme.spacing.xl,
+      borderRadius: theme.borderRadius.xxl,
+      backgroundColor: theme.colors.surface.card,
+      ...theme.elevation.floating,
+    },
+    title: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.lg,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    message: {
+      marginTop: theme.spacing.sm,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      lineHeight: theme.typography.fontSizes.base * theme.typography.lineHeights.normal,
+    },
+    buttons: {
+      marginTop: theme.spacing.xl,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: theme.spacing.lg,
+    },
+    button: {
+      minHeight: theme.hitTarget.compact,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.md,
+    },
+    buttonLabel: {
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+  });
 
 export default AlertHost;

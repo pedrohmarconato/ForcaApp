@@ -24,10 +24,13 @@
 import React, { useEffect } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import theme from '../theme/theme';
 import { useUpdateStore } from '../store/updateStore';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
+import type { Theme } from '../theme/theme';
 
 const UpdateBanner = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const waiting = useUpdateStore((s) => s.waiting);
   const dismissed = useUpdateStore((s) => s.dismissed);
   const setWaiting = useUpdateStore((s) => s.setWaiting);
@@ -98,63 +101,64 @@ const UpdateBanner = () => {
           accessibilityRole="button"
           accessibilityLabel="Atualizar"
         >
-          <Text style={styles.buttonPrimaryLabel}>Atualizar</Text>
+          <Text style={[styles.buttonPrimaryLabel, { color: theme.colors.text.accent }]}>Atualizar</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: theme.zIndex.toast,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface.card,
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    gap: theme.spacing.md,
-    ...theme.elevation.floating,
-  },
-  message: {
-    flex: 1,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.medium,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.lg,
-  },
-  buttonSecondary: {
-    minHeight: theme.hitTarget.compact,
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  buttonSecondaryLabel: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.medium,
-  },
-  buttonPrimary: {
-    minHeight: theme.hitTarget.compact,
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  buttonPrimaryLabel: {
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: theme.zIndex.toast,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: theme.colors.surface.card,
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.md,
+      gap: theme.spacing.md,
+      ...theme.elevation.floating,
+    },
+    message: {
+      flex: 1,
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.medium,
+    },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.lg,
+    },
+    buttonSecondary: {
+      minHeight: theme.hitTarget.compact,
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.sm,
+    },
+    buttonSecondaryLabel: {
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.medium,
+    },
+    buttonPrimary: {
+      minHeight: theme.hitTarget.compact,
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.sm,
+    },
+    buttonPrimaryLabel: {
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+  });
 
 export default UpdateBanner;
