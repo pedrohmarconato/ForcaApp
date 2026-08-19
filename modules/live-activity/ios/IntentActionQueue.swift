@@ -94,7 +94,34 @@ public enum IntentActionQueue {
   /// Lê SEM serializar — quem chama já está dentro de `queue.sync`.
   private static func rawReadAll() -> [QueuedIntentAction] {
     guard let data = defaults()?.data(forKey: key) else { return [] }
-    return (try? JSONDecoder().decode([QueuedIntentAction].self, from: data)) ?? []
+    // Caminho feliz: decode do array inteiro de uma vez (rápido, sem
+    // alocação extra por entrada).
+    if let actions = try? JSONDecoder().decode([QueuedIntentAction].self, from: data) {
+      return actions
+    }
+    // IN-03 (review 2026-08-19): o decode do array acima é atômico — uma
+    // ÚNICA entrada em formato antigo (anterior ao campo `id` da 16-05 ou ao
+    // `deltaValue` do CR-01, ambos SEM default por design: o comentário do
+    // struct exige omissão explícita, nunca mascarada) fazia a fila INTEIRA
+    // — inclusive entradas válidas novas — retornar vazia, perdendo toques
+    // pendentes em silêncio num upgrade de app. Fallback: decodifica
+    // elemento a elemento via wrapper tolerante e descarta só a inválida.
+    let seguras = (try? JSONDecoder().decode([EntradaSegura].self, from: data)) ?? []
+    return seguras.compactMap(\.acao)
+  }
+
+  /// Wrapper Decodable usado SÓ no fallback de `rawReadAll()` acima —
+  /// isola o decode de UMA entrada para que uma entrada corrompida não
+  /// derrube as demais. Não adiciona valor default a `QueuedIntentAction`
+  /// (contrato do struct); em vez disso, `try?` a falha por entrada e
+  /// `compactMap` descarta a `nil`.
+  private struct EntradaSegura: Decodable {
+    let acao: QueuedIntentAction?
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.singleValueContainer()
+      acao = try? container.decode(QueuedIntentAction.self)
+    }
   }
 
   /// Escreve SEM serializar — quem chama já está dentro de `queue.sync`.
