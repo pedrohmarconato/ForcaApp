@@ -23,7 +23,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 
 ### Tela bloqueada — ver (LOCK)
 
-- [x] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
+- [ ] **LOCK-01**: Durante a sessão ativa, a tela bloqueada mostra o exercício
   atual, a série X/Y e a prescrição (reps × carga) num card de Live Activity,
   sem desbloquear nem abrir o app.
 
@@ -35,6 +35,17 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 - [ ] **LOCK-03**: A Live Activity encerra sozinha quando a sessão termina ou é
   cancelada (nunca fica "presa" mostrando treino velho), inclusive no caso de
   force-quit do app (reconciliação na reabertura).
+
+> **Correcao de registro (2026-08-19).** LOCK-01 estava marcado `[x] Complete`.
+> A re-verificacao da Fase 15 desta data reclassificou-o como pendente: o codigo
+> e os testes fecham CR-01..CR-04, WR-01 e WR-02, mas a exibicao real na tela
+> bloqueada e a recriacao real da Activity nunca foram exercitadas fisicamente
+> depois dos planos de gap closure 15-07/15-08/15-09. A evidencia fisica que
+> existe e anterior a essas mudancas, logo nao prova o codigo atual. LOCK-02
+> permanece `Complete`: o timer nativo foi validado fisicamente e nenhum plano
+> de gap closure tocou esse mecanismo. Fonte: `15-VERIFICATION.md`
+> (status `human_needed`) e `15-SECURITY.md` (ameaca aberta T-15-09-02).
+> Ambos destravam com a mesma acao: a Task 2 do Plano 15-09 no iPhone.
 
 ### Tela bloqueada — comandar (CMD)
 
@@ -108,7 +119,7 @@ gratuito e processo do `perform()` de `LiveActivityIntent` no cold-launch.
 |-------------|-------|--------|
 | NAT-01 | Phase 14 | Complete |
 | NAT-02 | Phase 14 | Complete |
-| LOCK-01 | Phase 15 | Complete |
+| LOCK-01 | Phase 15 | Pending (falta UAT fisica do 15-09) |
 | LOCK-02 | Phase 15 | Complete |
 | LOCK-03 | Phase 15 | Pending |
 | CMD-01 | Phase 16 | Complete |
