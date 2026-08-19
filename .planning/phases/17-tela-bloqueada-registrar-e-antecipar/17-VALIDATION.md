@@ -2,11 +2,19 @@
 phase: 17
 slug: tela-bloqueada-registrar-e-antecipar
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-status: draft
+status: validated_partial
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-08-18
+validated: 2026-08-19
 ---
+
+> **Nota de auditoria (2026-08-19, gate Nyquist retroativo):** este arquivo ficou em
+> `draft`/`pending` desde o seed do plan-phase e nunca foi atualizado após a execução.
+> Auditoria abaixo confere cada linha da tabela contra o teste real (arquivo existe, caso
+> nomeado existe, suíte roda verde) — não contra a intenção do PLAN. `nyquist_compliant`
+> permanece `false` porque REG-01 tem lacuna real e conhecida (ver §REG-01 abaixo);
+> marcar `true` aqui seria o gate se auto-aprovando.
 
 # Phase 17 — Validation Strategy
 
@@ -56,41 +64,60 @@ das Fases 15/16, reafirmada pela pesquisa desta fase.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | REG-01 | — | N/A (single-tenant, sem superfície nova) | unit | `npx jest __tests__/sessionModel.test.ts -t "stepReps"` | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | REG-01 | — | N/A | unit | `npx jest __tests__/sessionModel.test.ts -t "reps"` (seed `lastRepsByExercise`) | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | REG-01 | — | N/A | unit | `npx jest __tests__/sessionModel.test.ts -t "canCompleteSet"` (D-06) | ✅ | ⬜ pending |
-| TBD | TBD | TBD | REG-01 | — | N/A | unit | `npx jest __tests__/activeSessionStore.test.ts` (seed + update em `completeSet()`) | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | REG-01 | — | N/A | component | `npx jest __tests__/sessionPlayerTransitions.test.tsx` (sem `TextInput` no fluxo padrão + marca de herdado) | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | REG-02 | T-17-01 | Delta aplicado só via ação existente da store; widget nunca escreve | integration | `npx jest __tests__/liveActivityIntentBridge.test.ts -t "adjust"` | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | REG-02 | T-17-01 | Payload de delta decodificado com peek não-destrutivo e ack condicionado | integration | `npx jest __tests__/liveActivityIntentQueue.test.ts` | ✅ arquivo / ❌ casos W0 | ⬜ pending |
-| TBD | TBD | TBD | PRED-01 | — | N/A | unit | `npx jest __tests__/liveActivityContentState.test.ts` (campos "A seguir", D-13..D-16) | ✅ arquivo / ❌ casos W0 | ⬜ pending |
+| 17-02 | 17-02-PLAN.md | W0 | REG-01 | — | N/A (single-tenant, sem superfície nova) | unit | `npx jest __tests__/sessionModel.test.ts -t "stepReps"` | ✅ arquivo / ✅ casos (`describe('stepReps')` L171) | ✅ green |
+| 17-02 | 17-02-PLAN.md | W0 | REG-01 | — | N/A | unit | `npx jest __tests__/sessionModel.test.ts -t "canCompleteSet"` (D-06) | ✅ arquivo / ✅ casos (L344-356) | ✅ green |
+| 17-02 | 17-02-PLAN.md | W0 | REG-01 | — | N/A | unit | `npx jest __tests__/activeSessionStore.test.ts -t "Fase 17"` (seed `lastRepsByExercise` + update em `completeSet()`) | ✅ arquivo / ✅ casos (`describe('Fase 17 (REG-01)...D-17')` L551) | ✅ green |
+| 17-04 | 17-04-PLAN.md | W0 | REG-01 | — | N/A | component (RTL/jsdom) | `npx jest __tests__/sessionPlayerTransitions.test.tsx -t "Fase 17"` (sem `TextInput` no fluxo padrão + marca de herdado + revelação direta D-06) | ✅ arquivo / ✅ casos, `describe('Fase 17 (REG-01)...')` L336, 5/5 (a)-(e) | ✅ green |
+| 17-04 | 17-04-PLAN.md | W0 | REG-01 | — | N/A | manual (PWA real) | `expo start --web`, viewport 390×844, navegador real | ❌ nunca executado neste worktree — substituído por réplica Chromium/Playwright do box-model, não é o app rodando | ❌ **red / gap real** (WINDOWS.md #5, open) |
+| 17-01/17-03 | 17-01/17-03-PLAN.md | W0 | REG-02 | T-17-01 | Delta aplicado só via ação existente da store; widget/intent nunca escreve em ActivityKit direto | integration | `npx jest __tests__/liveActivityIntentBridge.test.ts` | ✅ arquivo / ✅ casos (`adjustLoad`/`adjustReps` roteando p/ `stepLoad`/`stepReps`) | ✅ green |
+| 17-01/17-06 | 17-01/17-06-PLAN.md | W0 | REG-02 | T-17-01 | Payload de delta decodificado com peek não-destrutivo e ack condicionado; `deltaValue` propagado ponta a ponta na fila durável | integration | `npx jest __tests__/liveActivityIntentQueue.test.ts` | ✅ arquivo / ✅ casos — inclui regressão de CR-01 (`deltaValue` ausente no Record Expo, fechado em `b02041e`, +102 linhas de teste) | ✅ green |
+| 17-07 | 17-07-PLAN.md | — | REG-02 | — | Acumulação sob toque rápido; orçamento de `Activity.update()`; navegação "abrir para ajustar" | manual (UAT físico) | Roteiro `17-UAT.md` itens 25-27 | ✅ executado — iPhone 13, 2026-08-19, PASS | ✅ green |
+| 17-05 | 17-05-PLAN.md | W0 | PRED-01 | — | N/A | unit | `npx jest __tests__/liveActivityContentState.test.ts` (campos "A seguir", D-13..D-16) | ✅ arquivo / ✅ casos | ✅ green |
+| 17-07 | 17-07-PLAN.md | — | PRED-01 | — | Linha "A SEGUIR" visível já no 1º segundo do descanso, migração de `ContentState` sem Activity presa | manual (UAT físico) | Roteiro `17-UAT.md` item 24 (+ verificação de código) | ✅ executado — PASS | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Verificação executada nesta auditoria (2026-08-19):**
+`npx jest __tests__/sessionModel.test.ts __tests__/activeSessionStore.test.ts __tests__/liveActivityContentState.test.ts __tests__/sessionPlayerTransitions.test.tsx __tests__/liveActivityIntentBridge.test.ts __tests__/liveActivityIntentQueue.test.ts`
+→ **6 suítes / 190 testes, todos PASS.** Todos os arquivos do Wave 0 existem e contêm os
+casos nomeados que a tabela original marcava como "❌ casos W0" — essa marcação estava
+desatualizada, não a implementação.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `__tests__/sessionModel.test.ts` — casos novos: `stepReps()` (nunca abaixo de 0,
+- [x] `__tests__/sessionModel.test.ts` — casos novos: `stepReps()` (nunca abaixo de 0,
       incremento fixo), sugestão de reps a partir de `SessionDraft.lastRepsByExercise` com
       queda para `targetRepsMin` na estreia (D-01), `canCompleteSet()` no pré-preenchimento
-      que faz "Iniciar série" sumir (D-06).
-- [ ] `__tests__/activeSessionStore.test.ts` — casos novos: semeadura de
+      que faz "Iniciar série" sumir (D-06). **Confirmado presente e verde nesta auditoria.**
+- [x] `__tests__/activeSessionStore.test.ts` — casos novos: semeadura de
       `lastRepsByExercise` pelo mesmo caminho de `lastLoadByExercise` (mais recente por
       `completed_at`, chave `exerciseIdentity`) e atualização do mapa em `completeSet()`.
-- [ ] `__tests__/liveActivityContentState.test.ts` — casos novos: composição dos campos de
+      **Confirmado presente e verde** (`describe('Fase 17 (REG-01)...D-17')`, L551).
+- [x] `__tests__/liveActivityContentState.test.ts` — casos novos: composição dos campos de
       "A seguir" (próxima série/exercício + valor de `suggestLoad()`), rótulo único "A SEGUIR"
       com destaque na virada de exercício (D-15), ausência da linha dentro de bloco de
-      cardio/alongamento **com** anúncio da entrada no bloco (D-16).
-- [ ] `__tests__/liveActivityIntentBridge.test.ts` — casos novos `adjustReps`/`adjustLoad`
-      roteando para a ação existente da store, sem lógica de domínio na ponte.
-- [ ] `__tests__/liveActivityIntentQueue.test.ts` — casos novos para o campo de delta
-      genérico em `QueuedIntentAction` (a pesquisa registra que ele **não existe** hoje).
-- [ ] Nenhum framework de teste Swift a instalar — fora do escopo. Cobertura Swift = compilação
-      + UAT físico.
-- [ ] Nenhum teste automatizado de layout web para o stepper não-editável. Fica como verificação
-      manual explícita (o bug anterior de largura em `sessionPlayerLayout.ts:9-14` só foi pego
-      por medição manual), a menos que o planner introduza snapshot — fora do padrão atual do repo.
+      cardio/alongamento **com** anúncio da entrada no bloco (D-16). **Confirmado presente e
+      verde.**
+- [x] `__tests__/liveActivityIntentBridge.test.ts` — casos novos `adjustReps`/`adjustLoad`
+      roteando para a ação existente da store, sem lógica de domínio na ponte. **Confirmado
+      presente e verde.**
+- [x] `__tests__/liveActivityIntentQueue.test.ts` — casos novos para o campo de delta
+      genérico em `QueuedIntentAction`. **Confirmado presente e verde** — inclui a regressão
+      de CR-01 (`deltaValue` nunca chegava ao Record Expo `QueuedIntentActionRecord`,
+      achado CRITICAL do `17-REVIEW.md`, fechado no commit `b02041e` com +102 linhas de teste).
+- [x] Nenhum framework de teste Swift a instalar — fora do escopo. Cobertura Swift = compilação
+      (`verify-native-skeleton.sh`, exit 0) + UAT físico (`17-UAT.md`, 7/7 PASS).
+- [ ] **GAP REAL — não fechado.** Nenhum teste automatizado nem verificação manual real de
+      layout web foi executado. `17-04-PLAN.md` Task 2 previa `npx expo start --web` em
+      viewport 390×844 num navegador real; o worktree sandboxed não tinha `.env`/Supabase nem
+      MCP de browser, então foi substituído por uma réplica exata de CSS/box-model em
+      Chromium via Playwright (`17-04-pwa-check.png`) — real, mas não é o app rodando.
+      Registrado como `WINDOWS.md #5` (`unrun-verify`, `status: open`), reafirmado em
+      `REQUIREMENTS.md` (REG-01 = "Pending (falta PWA real)") e em `17-VERIFICATION.md`
+      (Critério 1 = `PRESENT_BEHAVIOR_UNVERIFIED`). Esta auditoria concorda com essa
+      classificação e não a fecha por conta própria.
 
 ---
 
@@ -111,12 +138,27 @@ das Fases 15/16, reafirmada pela pesquisa desta fase.
 
 ## Validation Sign-Off
 
-- [ ] Todas as tarefas têm `<verify>` automatizado ou dependência declarada de Wave 0
-- [ ] Continuidade de amostragem: nunca 3 tarefas consecutivas sem verify automatizado
-- [ ] Wave 0 cobre todas as referências MISSING acima
-- [ ] Nenhuma flag de watch-mode
-- [ ] Latência de feedback < 60 s
-- [ ] Roteiro físico das 8 verificações manual-only escrito, auto-contido, com PASS/FAIL por item
-- [ ] `nyquist_compliant: true` no frontmatter
+- [x] Todas as tarefas têm `<verify>` automatizado ou dependência declarada de Wave 0 —
+      exceto a linha REG-01/PWA-real, que é dependência de Wave 0 declarada mas **nunca
+      satisfeita** (ver gap acima).
+- [x] Continuidade de amostragem: nunca 3 tarefas consecutivas sem verify automatizado
+- [x] Wave 0 cobre todas as referências MISSING acima, **com uma exceção**: a verificação
+      manual de PWA real (REG-01) ficou substituída por réplica, não executada.
+- [x] Nenhuma flag de watch-mode
+- [x] Latência de feedback < 60 s (`npm test` completo ~1s para o subconjunto tocado nesta
+      auditoria; suíte completa 167/167, ver `17-06-SUMMARY.md`)
+- [x] Roteiro físico das 8 verificações manual-only escrito, auto-contido, com PASS/FAIL por
+      item — executado em `17-UAT.md`, 27/27 itens PASS (inclui os 7 do roteiro físico do
+      dono no iPhone 13, 2026-08-19)
+- [ ] `nyquist_compliant: true` no frontmatter — **NÃO marcado.** REG-02 e PRED-01 têm
+      cobertura completa (automatizada + UAT físico) e sustentam `true` isoladamente. REG-01
+      tem cobertura automatizada real e forte no nível de lógica/componente (unit +
+      RTL/jsdom, 100% dos casos do Wave 0 presentes e verdes), mas a verificação de
+      renderização na superfície real (PWA em navegador real, ou app no dispositivo físico)
+      nunca ocorreu — é lacuna deliberadamente não fechada pelo dono (`WINDOWS.md #5`,
+      `REQUIREMENTS.md` REG-01 = Pending). Gate não se auto-aprova sobre requisito que o
+      próprio projeto já reconhece como pendente.
 
-**Approval:** pending
+**Approval:** partial — REG-02 e PRED-01 aprovados; REG-01 aprovado só no nível de
+lógica/componente, pendente de verificação de superfície real (PWA/app) pelo dono antes do
+fechamento do v1.3.
