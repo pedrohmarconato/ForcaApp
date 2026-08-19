@@ -8,7 +8,8 @@ export type LiveActivityIntentActionEvent =
   | { id: string; kind: 'completeSet' }
   | { id: string; kind: 'skipRest' }
   | { id: string; kind: 'adjustRest'; deltaSeconds: number }
-  | { id: string; kind: 'adjustLoad'; deltaLoadKg: number };
+  | { id: string; kind: 'adjustLoad'; deltaLoadKg: number }
+  | { id: string; kind: 'adjustReps'; deltaReps: number };
 
 /**
  * Entrada drenada da fila durável do App Group (Fase 16 Plano 16-02) —
@@ -19,9 +20,9 @@ export type LiveActivityIntentActionEvent =
  * remoção seletiva via `ackIntentAction`.
  */
 export type QueuedLiveActivityIntent = {
-  kind: 'completeSet' | 'skipRest' | 'adjustRest' | 'adjustLoad';
+  kind: 'completeSet' | 'skipRest' | 'adjustRest' | 'adjustLoad' | 'adjustReps';
   deltaSeconds: number | null;
-  /** Mirror do Swift `deltaValue: Double?` — serve `.adjustLoad` (17-03 acrescenta `.adjustReps`). */
+  /** Mirror do Swift `deltaValue: Double?` — serve `.adjustLoad` e `.adjustReps`. */
   deltaValue: number | null;
   sessionLogId: string | null;
   queuedAt: string;

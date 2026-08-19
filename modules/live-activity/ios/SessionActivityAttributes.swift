@@ -20,6 +20,8 @@ public struct SessionActivityAttributes: ActivityAttributes {
         var currentLoadKg: Double?
         var isLoadInherited: Bool
         var loadIncrementKg: Double?
+        var currentReps: Int?
+        var isRepsInherited: Bool
         var isBodyweight: Bool
         var restEndsAt: Date?
         var blockLabel: String?

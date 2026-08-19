@@ -58,6 +58,18 @@ const handleIntentAction = (event: LiveActivityIntentActionEvent): void => {
       }
       return;
     }
+    case 'adjustReps': {
+      const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
+      if (alvo) {
+        // Mesmo padrão de adjustLoad: só o SINAL do delta importa, stepReps()
+        // aplica o passo fixo de 1 (reps não têm incremento configurável).
+        useActiveSessionStore
+          .getState()
+          .stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, event.deltaReps > 0 ? 1 : -1);
+        void ackQueuedLiveActivityIntent(event.id);
+      }
+      return;
+    }
   }
 };
 

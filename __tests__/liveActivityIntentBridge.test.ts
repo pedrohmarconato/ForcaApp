@@ -111,6 +111,7 @@ let completeSet: jest.Mock;
 let activateSet: jest.Mock;
 let adjustRest: jest.Mock;
 let stepLoad: jest.Mock;
+let stepReps: jest.Mock;
 
 const setDraft = (value: ReturnType<typeof draft> | null): void => {
   mockGetState.mockReturnValue({
@@ -119,6 +120,7 @@ const setDraft = (value: ReturnType<typeof draft> | null): void => {
     activateSet,
     adjustRest,
     stepLoad,
+    stepReps,
   });
 };
 
@@ -128,6 +130,7 @@ beforeEach(() => {
   activateSet = jest.fn();
   adjustRest = jest.fn();
   stepLoad = jest.fn();
+  stepReps = jest.fn();
 });
 
 const getHandler = (): ((event: unknown) => void) => {
@@ -260,6 +263,51 @@ describe('liveActivityIntentBridge', () => {
     handler({ kind: 'adjustLoad', deltaLoadKg: 2.5, id: 'evt-z' });
 
     expect(stepLoad).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('adjustReps com série ativa presente e delta positivo chama stepReps com direção +1 e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', deltaReps: 1, id: 'evt-r1' });
+
+    expect(stepReps).toHaveBeenCalledWith('ex-1', 1, 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-r1');
+  });
+
+  it('adjustReps com delta negativo chama stepReps com direção -1 e confirma o ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', deltaReps: -1, id: 'evt-r2' });
+
+    expect(stepReps).toHaveBeenCalledWith('ex-1', 1, -1);
+    expect(mockAck).toHaveBeenCalledWith('evt-r2');
+  });
+
+  it('adjustReps sem série ativa mas com série pendente aplica sobre a próxima pendente e confirma o ack', () => {
+    const semAtiva = draft();
+    semAtiva.exercises[0]!.sets[0]!.status = 'done';
+    setDraft(semAtiva);
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', deltaReps: 1, id: 'evt-r3' });
+
+    expect(stepReps).toHaveBeenCalledWith('ex-2', 1, 1);
+    expect(mockAck).toHaveBeenCalledWith('evt-r3');
+  });
+
+  it('adjustReps sem série ativa nem pendente não chama stepReps nem ack', () => {
+    const semAlvo = draft();
+    semAlvo.exercises[0]!.sets[0]!.status = 'done';
+    semAlvo.exercises[1]!.sets[0]!.status = 'done';
+    setDraft(semAlvo);
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', deltaReps: 1, id: 'evt-r4' });
+
+    expect(stepReps).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
   });
 
