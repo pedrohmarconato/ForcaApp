@@ -36,6 +36,11 @@ public struct LiveActivityContentStateRecord: Record {
 public struct QueuedIntentActionRecord: Record {
   @Field var kind: String = ""
   @Field var deltaSeconds: Int? = nil
+  /// Delta genérico de `.adjustReps`/`.adjustLoad` — espelho de
+  /// `QueuedIntentAction.deltaValue` (Double?, IntentActionQueue.swift).
+  /// CR-01: sem este @Field a ponte Expo não serializava o campo e o ajuste
+  /// enfileirado na Lock Screen morria no cold-launch sem erro nem log.
+  @Field var deltaValue: Double? = nil
   @Field var sessionLogId: String? = nil
   @Field var queuedAt: String = ""
   @Field var id: String = ""
@@ -160,6 +165,7 @@ public class LiveActivityModule: Module {
         var record = QueuedIntentActionRecord()
         record.kind = action.kind.rawValue
         record.deltaSeconds = action.deltaSeconds
+        record.deltaValue = action.deltaValue
         record.sessionLogId = action.sessionLogId
         record.queuedAt = action.queuedAt
         record.id = action.id

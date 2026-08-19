@@ -87,6 +87,7 @@ import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import type { SessionDraft } from '../src/engine/sessionModel';
 import { saveSetLog } from '../src/services/sessionExecutionRepository';
 import { saveDraft } from '../src/services/sessionDraftStorage';
+import type { QueuedLiveActivityIntent } from '../modules/live-activity';
 
 const draft = (overrides: Partial<SessionDraft> = {}): SessionDraft => ({
   version: 1,
@@ -281,6 +282,11 @@ const realActivateSet = useActiveSessionStore.getState().activateSet;
 const realAdjustRest = useActiveSessionStore.getState().adjustRest;
 const realSetReps = useActiveSessionStore.getState().setReps;
 const realSetLoad = useActiveSessionStore.getState().setLoad;
+// CR-01: stepLoad/stepReps reais também precisam ser restaurados pelo
+// withRealActions (o teste de cold-launch abaixo aplica o ajuste DE VERDADE
+// no draft e lê o valor resultante no store).
+const realStepLoad = useActiveSessionStore.getState().stepLoad;
+const realStepReps = useActiveSessionStore.getState().stepReps;
 // Plano 16-11: setDuration é o único caminho que fecha canCompleteSet() de
 // exercício de métrica tempo/tempo_distancia (sessionModel.ts:272-273) — sem
 // restaurá-lo aqui, os testes de cardio abaixo herdariam um mock e provariam nada.
@@ -297,6 +303,8 @@ const withRealActions = (draftValue: SessionDraft | null): void => {
     setReps: realSetReps,
     setLoad: realSetLoad,
     setDuration: realSetDuration,
+    stepLoad: realStepLoad,
+    stepReps: realStepReps,
     draft: draftValue,
   });
 };
@@ -310,6 +318,28 @@ beforeEach(() => {
     actualRir: params.actualRir,
     outcome: params.outcome,
   }));
+});
+
+/**
+ * CR-01: fonte única para o mock da ponte — o conjunto de campos aqui é o
+ * espelho do que `QueuedIntentActionRecord` (Swift) REALMENTE declara. Os
+ * testes antigos injetavam `deltaValue` direto no literal do mock e passavam
+ * sobre dado fictício: o Record não declarava `@Field deltaValue`, a ponte
+ * nunca entregava o campo, e o ajuste morria sem erro nem log. O gate IN-02
+ * (scripts/verify-native-skeleton.sh) falha se o par Swift
+ * QueuedIntentAction/QueuedIntentActionRecord divergir — esta factory é o
+ * ponto único a atualizar no lado JS quando o contrato mudar.
+ */
+const entradaFila = (
+  overrides: Partial<QueuedLiveActivityIntent>,
+): QueuedLiveActivityIntent => ({
+  kind: 'completeSet',
+  deltaSeconds: null,
+  deltaValue: null,
+  sessionLogId: null,
+  queuedAt: 'T1',
+  id: `evt-${Math.random().toString(36).slice(2, 10)}`,
+  ...overrides,
 });
 
 describe('reconcileLiveActivityIntents', () => {
@@ -455,7 +485,7 @@ describe('reconcileLiveActivityIntents', () => {
   it('adjustReps com deltaValue: 1 chama stepReps com direção +1 no alvo resolvido e confirma o ack', async () => {
     withMockedActions(draft());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
-      { id: 'evt-reps-1', kind: 'adjustReps', deltaSeconds: null, deltaValue: 1, sessionLogId: 'log-1', queuedAt: 'T1' },
+      entradaFila({ id: 'evt-reps-1', kind: 'adjustReps', deltaValue: 1, sessionLogId: 'log-1' }),
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -468,7 +498,7 @@ describe('reconcileLiveActivityIntents', () => {
   it('adjustLoad com deltaValue: -2.5 chama stepLoad com direção -1 no alvo resolvido e confirma o ack', async () => {
     withMockedActions(draft());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
-      { id: 'evt-load-1', kind: 'adjustLoad', deltaSeconds: null, deltaValue: -2.5, sessionLogId: 'log-1', queuedAt: 'T1' },
+      entradaFila({ id: 'evt-load-1', kind: 'adjustLoad', deltaValue: -2.5, sessionLogId: 'log-1' }),
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -481,7 +511,7 @@ describe('reconcileLiveActivityIntents', () => {
   it('adjustReps com sessionLogId divergente do draft atual não chama stepReps, mas confirma o ack (descarte definitivo)', async () => {
     withMockedActions(draft());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
-      { id: 'evt-reps-2', kind: 'adjustReps', deltaSeconds: null, deltaValue: 1, sessionLogId: 'log-DIFERENTE', queuedAt: 'T1' },
+      entradaFila({ id: 'evt-reps-2', kind: 'adjustReps', deltaValue: 1, sessionLogId: 'log-DIFERENTE' }),
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -493,7 +523,7 @@ describe('reconcileLiveActivityIntents', () => {
   it('adjustLoad com sessionLogId divergente do draft atual não chama stepLoad, mas confirma o ack (descarte definitivo)', async () => {
     withMockedActions(draft());
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
-      { id: 'evt-load-2', kind: 'adjustLoad', deltaSeconds: null, deltaValue: -2.5, sessionLogId: 'log-DIFERENTE', queuedAt: 'T1' },
+      entradaFila({ id: 'evt-load-2', kind: 'adjustLoad', deltaValue: -2.5, sessionLogId: 'log-DIFERENTE' }),
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -505,8 +535,8 @@ describe('reconcileLiveActivityIntents', () => {
   it('sem draft ativo (status finished), adjustReps/adjustLoad não chamam stepReps/stepLoad nem ack — fila ignorada até haver draft', async () => {
     withMockedActions(draft({ status: 'finished' }));
     mockPeekQueuedLiveActivityIntents.mockResolvedValue([
-      { id: 'evt-reps-3', kind: 'adjustReps', deltaSeconds: null, deltaValue: 1, sessionLogId: 'log-1', queuedAt: 'T1' },
-      { id: 'evt-load-3', kind: 'adjustLoad', deltaSeconds: null, deltaValue: 2.5, sessionLogId: 'log-1', queuedAt: 'T1' },
+      entradaFila({ id: 'evt-reps-3', kind: 'adjustReps', deltaValue: 1, sessionLogId: 'log-1' }),
+      entradaFila({ id: 'evt-load-3', kind: 'adjustLoad', deltaValue: 2.5, sessionLogId: 'log-1' }),
     ]);
 
     await useActiveSessionStore.getState().reconcileLiveActivityIntents();
@@ -711,5 +741,65 @@ describe('16-12: intent órfã (sessionLogId nulo) não pode ser destruída em s
 
     expect(completeSet).not.toHaveBeenCalled();
     expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-orfa-6');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CR-01 (review 2026-08-19) — deltaValue não atravessava a ponte nativa.
+//
+// SINTOMA REAL: sessão ativa + app FORÇADO A FECHAR (cold-launch); toque +/−
+// na Lock Screen enfileira adjustReps/adjustLoad com deltaValue no App Group;
+// ao reabrir, peekIntentQueue() devolvia o registro SEM deltaValue —
+// QueuedIntentActionRecord não declarava @Field deltaValue (LiveActivityModule.swift)
+// — logo `entry.deltaValue != null` era falso, stepLoad/stepReps nunca eram
+// chamados, e o ack incondicional removia a entrada da fila. O ajuste sumia
+// permanentemente, sem erro, sem log.
+//
+// Os mocks abaixo seguem o contrato do Record: pré-fix a ponte NÃO entrega o
+// campo (literal sem deltaValue), pós-fix entrega (via entradaFila). O gate
+// IN-02 (verify-native-skeleton.sh) falha se o par Swift divergir de novo.
+// ---------------------------------------------------------------------------
+describe('CR-01: deltaValue atravessa a ponte e sobrevive ao cold-launch', () => {
+  it('adjustLoad enfileirado sobrevive ao cold-launch e altera a carga no store', async () => {
+    withRealActions(draft());
+    mock(saveDraft).mockClear();
+    useActiveSessionStore.getState().setLoad('ex-1', 1, 40);
+
+    // Simula o force-quit: descarta o estado em memória e reidrata APENAS a
+    // partir do que saveDraft gravou (mesmo padrão do teste evt-dur-3).
+    const persistido = mock(saveDraft).mock.calls.at(-1)![0] as SessionDraft;
+    useActiveSessionStore.setState({ draft: null });
+    withRealActions(JSON.parse(JSON.stringify(persistido)) as SessionDraft);
+
+    // Pós-fix o Record declara @Field deltaValue — o mock entrega o campo
+    // exatamente como a ponte passa a entregar (fonte única: entradaFila).
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      entradaFila({ id: 'evt-cr01-load', kind: 'adjustLoad', deltaValue: 2.5, sessionLogId: 'log-1', queuedAt: '2026-08-17T12:00:00Z' }),
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    // targetLoadKg 40 + loadIncrementKg 2.5 na direção +1 → 42.5 (stepLoad real).
+    expect(useActiveSessionStore.getState().draft?.exercises[0].sets[0].actualLoadKg).toBe(42.5);
+    expect(mockAckQueuedLiveActivityIntent).toHaveBeenCalledWith('evt-cr01-load');
+  });
+
+  it('ajuste com deltaValue ausente não é acked e loga (decisão do dono, CR-01)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    withMockedActions(draft());
+    mockPeekQueuedLiveActivityIntents.mockResolvedValue([
+      entradaFila({ id: 'evt-cr01-ausente', kind: 'adjustLoad', deltaValue: null, sessionLogId: 'log-1' }),
+    ]);
+
+    await useActiveSessionStore.getState().reconcileLiveActivityIntents();
+
+    // Decisão do dono: deltaValue ausente em adjustReps/adjustLoad é estado
+    // inválido (pós-fix o Record sempre preenche) — NÃO ackar preserva o
+    // ajuste para a próxima reconciliação; ackar aqui destruiria o toque
+    // legítimo da Lock Screen em silêncio (o próprio bug CR-01).
+    expect(stepLoad).not.toHaveBeenCalled();
+    expect(mockAckQueuedLiveActivityIntent).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

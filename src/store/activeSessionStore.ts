@@ -1891,7 +1891,19 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         }
         case 'adjustReps': {
           const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
-          if (alvo && entry.deltaValue != null) {
+          // CR-01 (decisão do dono, 2026-08-19): deltaValue ausente numa
+          // entrada adjustReps/adjustLoad é estado inválido — pós-fix o
+          // Record nativo sempre preenche; ausência = entrada de formato
+          // antigo/corrompida. NÃO ackar preserva o ajuste para a próxima
+          // reconciliação; ackar aqui destruiria, sem erro nem log, um toque
+          // legítimo da Lock Screen (o próprio bug CR-01 fazia isso).
+          if (entry.deltaValue == null) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) ignorado: deltaValue ausente — mantido na fila`,
+            );
+            break;
+          }
+          if (alvo) {
             get().stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
           }
           // Ack incondicional (mesmo padrão de adjustRest, diferente de
@@ -1902,7 +1914,13 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
         }
         case 'adjustLoad': {
           const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
-          if (alvo && entry.deltaValue != null) {
+          if (entry.deltaValue == null) {
+            console.warn(
+              `[activeSession] intent ${entry.id} (${entry.kind}) ignorado: deltaValue ausente — mantido na fila`,
+            );
+            break;
+          }
+          if (alvo) {
             get().stepLoad(alvo.exercise.exerciseId, alvo.set.setOrder, entry.deltaValue > 0 ? 1 : -1);
           }
           void ackQueuedLiveActivityIntent(entry.id);
