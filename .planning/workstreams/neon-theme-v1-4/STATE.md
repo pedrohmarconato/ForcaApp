@@ -31,6 +31,7 @@ status: in_progress
 ## Recent Evidence
 
 - `af51b18`, `cb03927`, `c3b3a3b`, and `86c3fbc` contain the completed 18-07 implementation and authorized test-harness fixes.
+- SUMMARYs 18-01 through 18-10 are now present; they retain unknown/ human-gate markers where build, device, remote, or UAT evidence is absent.
 - The focused matrix for Plans 18-01 through 18-07 passed 11 suites and 107 tests; `npx tsc --noEmit` passed.
 - Full Jest is not a release pass yet: 126 suites passed and 48 failed, mostly because legacy suites still lack provider/env harness setup.
 - No staging, production, database, web build, native build, merge, or deploy action has been performed for this workstream.
