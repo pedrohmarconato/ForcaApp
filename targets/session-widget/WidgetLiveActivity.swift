@@ -73,14 +73,15 @@ private func nextUpLine(_ state: SessionActivityAttributes.ContentState) -> some
     }
 }
 
-private func overtimeText(_ state: SessionActivityAttributes.ContentState) -> String {
-    guard let restEndsAt = state.restEndsAt else {
-        return "+0:00"
-    }
-
-    let elapsedSeconds = Int(Date.now.timeIntervalSince(restEndsAt))
-    let clampedSeconds = min(59 * 60 + 59, max(0, elapsedSeconds))
-    return String(format: "+%d:%02d", clampedSeconds / 60, clampedSeconds % 60)
+/// D-04 (Fase 15, Plano 15-07): `now` vem de `timeline.date` de um
+/// `TimelineView` periódico no Lock Screen, para que o overtime reavalie a
+/// cada tick do WidgetKit em vez de congelar no instante do último
+/// `Activity.update`. No Dynamic Island (fora do escopo físico do dono, sem
+/// hardware compatível), `now` continua vindo de `Date.now` no ponto de
+/// chamada — comportamento inalterado ali.
+private func overtimeText(_ state: SessionActivityAttributes.ContentState, now: Date) -> String {
+    let elapsedSeconds = RestPhaseResolver.overtimeSeconds(restEndsAt: state.restEndsAt, now: now)
+    return OvertimeFormatter.format(elapsedSeconds: elapsedSeconds)
 }
 
 @ViewBuilder
@@ -147,8 +148,8 @@ private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> so
 }
 
 @ViewBuilder
-private func overtimeValue(_ state: SessionActivityAttributes.ContentState) -> some View {
-    Text(overtimeText(state))
+private func overtimeValue(_ state: SessionActivityAttributes.ContentState, now: Date) -> some View {
+    Text(overtimeText(state, now: now))
         .font(.caption2)
         .fontWeight(.regular)
         .monospacedDigit()
@@ -156,8 +157,12 @@ private func overtimeValue(_ state: SessionActivityAttributes.ContentState) -> s
         .lineLimit(1)
 }
 
+/// D-04 (Fase 15, Plano 15-07): `state.phase` já foi resolvido pelo chamador
+/// via `RestPhaseResolver.effectivePhase` a partir de `timeline.date` — este
+/// switch nunca vê `.resting` sobrevivendo além de `restEndsAt`, mesmo com o
+/// processo JS suspenso.
 @ViewBuilder
-private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> some View {
+private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now: Date) -> some View {
     switch state.phase {
     case .resting:
         VStack(alignment: .leading, spacing: 4) {
@@ -234,12 +239,30 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState) -> 
         VStack(alignment: .leading, spacing: 4) {
             primaryValue(state)
             secondaryLine(state)
-            overtimeValue(state)
+            overtimeValue(state, now: now)
             nextUpLine(state)
         }
     case .blockOnly:
         primaryValue(state)
     }
+}
+
+/// D-04 (Fase 15, Plano 15-07): retorna uma cópia de `state` com `phase`
+/// substituída pela fase efetiva resolvida por `RestPhaseResolver` a partir
+/// de `restEndsAt` e `now`. Os demais campos (reps, carga, próxima série)
+/// não são tocados — apenas a apresentação temporal muda sozinha com o
+/// tempo, nunca por mutação do draft.
+private func effectiveState(
+    _ state: SessionActivityAttributes.ContentState,
+    now: Date
+) -> SessionActivityAttributes.ContentState {
+    var resolved = state
+    resolved.phase = RestPhaseResolver.effectivePhase(
+        receivedPhase: state.phase,
+        restEndsAt: state.restEndsAt,
+        now: now
+    )
+    return resolved
 }
 
 @ViewBuilder
@@ -275,11 +298,18 @@ private func minimalSymbol(for state: SessionActivityAttributes.ContentState) ->
 struct WidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SessionActivityAttributes.self) { context in
-            lockScreenBody(context.state)
-                .padding()
-                .activityBackgroundTint(activityBackground)
-                .activitySystemActionForegroundColor(Color.white)
-                .widgetURL(URL(string: "forcaapp://home/active-session/\(context.attributes.sessionLogId)"))
+            // D-04 (Fase 15, Plano 15-07): TimelineView periódico reavalia a
+            // fase efetiva e o overtime a cada tick do WidgetKit a partir de
+            // timeline.date — o card sai sozinho de resting para
+            // readyOvertime/Pronto ao vencer restEndsAt, mesmo com o
+            // processo JS suspenso, sem update de Activity nem timeout JS.
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                lockScreenBody(effectiveState(context.state, now: timeline.date), now: timeline.date)
+            }
+            .padding()
+            .activityBackgroundTint(activityBackground)
+            .activitySystemActionForegroundColor(Color.white)
+            .widgetURL(URL(string: "forcaapp://home/active-session/\(context.attributes.sessionLogId)"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -291,7 +321,7 @@ struct WidgetLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     switch context.state.phase {
                     case .readyOvertime:
-                        overtimeValue(context.state)
+                        overtimeValue(context.state, now: .now)
                     case .blockOnly:
                         Text("\(context.state.blockLabel ?? "") \(context.state.blockIndex ?? 0)/\(context.state.blockTotal ?? 0)")
                             .font(.caption2)
