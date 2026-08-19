@@ -93,6 +93,7 @@ import {
   ackQueuedLiveActivityIntent,
   type QueuedLiveActivityIntent,
 } from '../../modules/live-activity';
+import { wasHotIntentDelivered } from '../native/intentDeliveryRegistry';
 
 type Status = 'idle' | 'loading' | 'awaiting_checkin' | 'active' | 'finished' | 'error';
 
@@ -1856,6 +1857,14 @@ export const useActiveSessionStore = create<ActiveSessionState>((set, get) => ({
       return;
     }
     for (const entry of entries) {
+      // WR-04 (review 2026-08-19): dedupe contra o caminho quente — um toque
+      // no boot pode ter a entrada NESTE snapshot (peek anterior ao ack) E
+      // ter sido aplicado pelo bridge (mesmo id, evento onIntentAction). Sem
+      // este salto, o loop reaplicaria a entrada sobre o draft já atualizado:
+      // "Pular descanso" ativaria N+2 em vez de N+1 — um toque, dois
+      // descansos pulados. O bridge marca o id logo após aplicar; o ack já
+      // foi feito por ele.
+      if (wasHotIntentDelivered(entry.id)) continue;
       try {
         const draft = get().draft;
         if (!draft || draft.status !== 'active') {

@@ -112,6 +112,10 @@ import { loadOutbox } from '../src/services/sessionOutboxStorage';
 // mockado explicitamente neste arquivo, resolve para o mock global inerte
 // via moduleNameMapper (package.json), o mesmo usado por outras 13 suítes.
 import { peekQueuedLiveActivityIntents, ackQueuedLiveActivityIntent } from '../modules/live-activity';
+import {
+  markHotIntentDelivered,
+  resetHotIntentDelivered,
+} from '../src/native/intentDeliveryRegistry';
 
 
 // Check-in obrigatório (22/07/2026): sessão NOVA para em awaiting_checkin; os
@@ -272,6 +276,7 @@ const store = () => useActiveSessionStore.getState();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  resetHotIntentDelivered();
   useActiveSessionStore.setState({
     draft: null,
     status: 'idle',
@@ -1598,6 +1603,28 @@ describe('Fase 16 — reconcileLiveActivityIntents: falha de UM item não aborta
     expect(mock(ackQueuedLiveActivityIntent)).not.toHaveBeenCalledWith('entry-falha');
     expect(mock(ackQueuedLiveActivityIntent)).toHaveBeenCalledWith('entry-ok');
     spy.mockRestore();
+  });
+
+  it('WR-04: entrada já aplicada pelo caminho quente (mesmo id marcado) não é reaplicada pelo loop', async () => {
+    await iniciarDraftAtivo();
+    // O bridge aplicou o toque quente e marcou o id no registro compartilhado.
+    markHotIntentDelivered('hot-1');
+    mock(peekQueuedLiveActivityIntents).mockResolvedValue([
+      {
+        kind: 'skipRest',
+        deltaSeconds: null,
+        deltaValue: null,
+        sessionLogId: 'sl-1',
+        queuedAt: '2026-08-16T11:00:00.000Z',
+        id: 'hot-1',
+      },
+    ]);
+
+    await store().reconcileLiveActivityIntents();
+
+    // Nada aplicado (sem ativação de série) e sem ack — o bridge já cuidou.
+    expect(store().draft?.exercises[0]!.sets[0]!.status).not.toBe('active');
+    expect(mock(ackQueuedLiveActivityIntent)).not.toHaveBeenCalledWith('hot-1');
   });
 });
 

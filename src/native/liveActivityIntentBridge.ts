@@ -5,6 +5,10 @@ import {
 } from '../../modules/live-activity';
 import { findActiveSet, findNextPendingSet } from '../engine/sessionModel';
 import { useActiveSessionStore } from '../store/activeSessionStore';
+import {
+  markHotIntentDelivered,
+  wasHotIntentDelivered,
+} from './intentDeliveryRegistry';
 
 /**
  * Único despacho evento→ação da store para os toques da tela bloqueada
@@ -30,6 +34,11 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
   const draft = useActiveSessionStore.getState().draft;
   if (!draft) return;
 
+  // WR-04 (review 2026-08-19): dedupe defensivo — este id já foi entregue e
+  // aplicado por este mesmo bridge neste processo; uma reentrega (mesmo
+  // toque, listener duplicado) não pode aplicar de novo.
+  if (wasHotIntentDelivered(event.id)) return;
+
   switch (event.kind) {
     case 'completeSet': {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
@@ -47,7 +56,10 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
           const ok = await useActiveSessionStore
             .getState()
             .completeSet(alvo.exercise.exerciseId, alvo.set.setOrder);
-          if (ok) void ackQueuedLiveActivityIntent(event.id);
+          if (ok) {
+            markHotIntentDelivered(event.id);
+            void ackQueuedLiveActivityIntent(event.id);
+          }
         } catch (error) {
           console.warn(
             `[liveActivity] completeSet do intent ${event.id} falhou (mantido na fila):`,
@@ -64,6 +76,7 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
         useActiveSessionStore
           .getState()
           .activateSet(proxima.exercise.exerciseId, proxima.set.setOrder);
+        markHotIntentDelivered(event.id);
         void ackQueuedLiveActivityIntent(event.id);
       }
       return;
@@ -71,6 +84,7 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
     case 'adjustRest': {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
       useActiveSessionStore.getState().adjustRest(event.deltaSeconds);
+      markHotIntentDelivered(event.id);
       void ackQueuedLiveActivityIntent(event.id);
       return;
     }
@@ -84,6 +98,7 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
         useActiveSessionStore
           .getState()
           .stepLoad(alvo.exercise.exerciseId, alvo.set.setOrder, event.deltaLoadKg > 0 ? 1 : -1);
+        markHotIntentDelivered(event.id);
         void ackQueuedLiveActivityIntent(event.id);
       }
       return;
@@ -97,6 +112,7 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
         useActiveSessionStore
           .getState()
           .stepReps(alvo.exercise.exerciseId, alvo.set.setOrder, event.deltaReps > 0 ? 1 : -1);
+        markHotIntentDelivered(event.id);
         void ackQueuedLiveActivityIntent(event.id);
       }
       return;

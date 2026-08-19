@@ -6,6 +6,7 @@ import {
   registerLiveActivityIntentListener,
 } from '../src/native/liveActivityIntentBridge';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
+import { resetHotIntentDelivered } from '../src/native/intentDeliveryRegistry';
 import type { SessionDraft } from '../src/engine/sessionModel';
 
 // A subscription real do módulo nativo (`subscribeLiveActivityIntentAction`) só
@@ -126,6 +127,7 @@ const setDraft = (value: ReturnType<typeof draft> | null): void => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  resetHotIntentDelivered();
   completeSet = jest.fn().mockResolvedValue(true);
   activateSet = jest.fn();
   adjustRest = jest.fn();
@@ -258,16 +260,27 @@ describe('liveActivityIntentBridge', () => {
     expect(mockAck).toHaveBeenCalledWith('evt-3');
   });
 
-  it('skipRest sem série pendente não chama activateSet nem ack', () => {
+  it('skipRest sem série pendente não chama activateSet nem ack', async () => {
     const semPendente = draft();
     semPendente.exercises[1]!.sets[0]!.status = 'done';
     setDraft(semPendente);
     const handler = getHandler();
 
-    handler({ kind: 'skipRest', id: 'evt-y' });
+    await handler({ kind: 'skipRest', id: 'evt-y' });
 
     expect(activateSet).not.toHaveBeenCalled();
     expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('WR-04: reentrega do MESMO id (listener duplicado) não aplica nem ack de novo', async () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    await handler({ kind: 'skipRest', id: 'evt-dup' });
+    await handler({ kind: 'skipRest', id: 'evt-dup' });
+
+    expect(activateSet).toHaveBeenCalledTimes(1);
+    expect(mockAck).toHaveBeenCalledTimes(1);
   });
 
   it('adjustRest chama adjustRest com o deltaSeconds exato e confirma o ack', () => {
