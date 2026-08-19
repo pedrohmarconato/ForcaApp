@@ -15,6 +15,9 @@ jest.mock('../src/services/api/apiClient', () => ({
     PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
   },
 }));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
 
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -153,6 +156,7 @@ import {
 } from '../src/services/weeklyReplanRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 
@@ -224,7 +228,11 @@ beforeEach(() => {
 });
 
 const renderScreen = () =>
-  render(<ActiveSessionScreen route={{ params: { sessionId: 'sess-1' } }} />);
+  render(
+    <ThemeProvider>
+      <ActiveSessionScreen route={{ params: { sessionId: 'sess-1' } }} />
+    </ThemeProvider>,
+  );
 
 it('abrir não propõe nada (COMMIT B); recusar mantém tudo; menos tempo corta; aplicar reflete na tela', async () => {
   const screen = renderScreen();
