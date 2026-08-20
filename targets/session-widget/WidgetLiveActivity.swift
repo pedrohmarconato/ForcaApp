@@ -153,7 +153,7 @@ private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> so
         Text("Pronto")
             .font(.title2)
             .fontWeight(.bold)
-                .foregroundColor(neonAccent(for: state))
+            .foregroundColor(neonAccent(for: state))
             .lineLimit(1)
     case .blockOnly:
         Text("\(state.blockLabel ?? "") \(state.blockIndex ?? 0)/\(state.blockTotal ?? 0)")
