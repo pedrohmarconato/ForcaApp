@@ -230,11 +230,16 @@ em staging/produção nem UAT do dono para nenhum requisito abaixo.
   `profiles.neon_color` (`supabase/migrations/0040_profiles_neon_color.sql`)
   como `text NOT NULL DEFAULT 'yellow'` com `CHECK` fechado nas quatro
   chaves, sem recriar policy, `GRANT` ou `REVOKE` (RLS e privilégios
-  existentes preservados). **Status remoto: não verificado** — a migration
-  nunca foi aplicada a um banco Supabase real (nem staging, nem produção);
-  só há prova estrutural local (`backend/tests/test_migration_neon_color.py`,
-  `18-02-SUMMARY.md`) e smoke de RLS com clientes falsos, sem acesso remoto
-  (`18-03-SUMMARY.md`). Isso depende do plano 18-14 (não executado).
+  existentes preservados). **Status remoto (atualizado em 2026-08-20):** a
+  migration foi aplicada ao banco LOCAL (`supabase migration up`, junto com
+  0038/0039) e à PRODUÇÃO (`supabase db push`, com preflight, validações e
+  histórico coerente — 0038/0039 já estavam em produção desde 15/08) nesta
+  data, com as asserções estruturais passando
+  (`backend/tests/test_migration_neon_color.py`, `18-02-SUMMARY.md`). A
+  prova comportamental de RLS (smoke com clientes reais) segue pendente: é
+  staging-only por desenho (`18-03-SUMMARY.md`) e depende de decisão do
+  dono — aplicar 0040 ao staging e rodar, variante local, ou dispensar
+  (waive). Isso depende do plano 18-14 (não executado).
 
 - [ ] **PREF-02**: `ThemeProvider` hidrata a preferência pela identidade da
   conta corrente (`profile.id === user.id`) e persiste exclusivamente via um
@@ -298,7 +303,7 @@ em staging/produção nem UAT do dono para nenhum requisito abaixo.
 | THEME-01 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
 | THEME-02 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
 | THEME-03 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
-| PREF-01 | Phase 18 | Merged em `42f1e58`; migration NUNCA aplicada a banco real (staging ou produção) |
+| PREF-01 | Phase 18 | Merged em `42f1e58`; migration aplicada a local e produção em 20/08/2026 (asserções estruturais OK); staging/RLS comportamental pendente de decisão do dono |
 | PREF-02 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem prova de persistência remota |
 | PREF-03 | Phase 18 | Merged em `42f1e58`; divergência aberta do duplo toque (decisão do dono) |
 | SET-01 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT de browser/leitor de tela/device físico |
