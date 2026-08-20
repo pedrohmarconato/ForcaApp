@@ -177,3 +177,142 @@ ter esse tipo de exercício no programa. Cobertura só automatizada (`91ec4b4`),
 cujo limite está declarado no `16-UAT.md`. Não é Success Criteria do ROADMAP.
 Outros resíduos abertos (causa raiz do `nil` em `CompleteSetIntent.swift:12`,
 `reconcileOrphans`, WR-01..WR-04) estão listados no `16-UAT.md`.
+
+---
+
+# Requirements — Milestone v1.4 "Personalização do neon"
+
+Escopo (extraído de `.planning/workstreams/neon-theme-v1-4/ROADMAP.md`, agora
+incorporado aqui — ver commit `fbee521`): cada conta escolhe um entre quatro
+acentos neon (amarelo, azul, verde, vermelho) e a escolha aparece de forma
+reativa em todo o app/PWA e na Live Activity, com amarelo como fallback. O
+desenvolvimento ocorreu em branch paralela (`feature/v1.4-neon-theme`) e foi
+mesclado ao `main` no merge `42f1e58` (2026-08-19), por cima da Fase 17 do
+v1.3. Os planos 18-01 a 18-10 (núcleo, migration, harness de RLS/UAT, telas,
+design system, consumidores runtime, Live Activity JS, ponte Swift/widget,
+gráfico de evolução) foram executados; os planos 18-11 a 18-15 (decisão
+bloqueante de integração, integração/renumeração da migration, decisão
+bloqueante para staging, push em staging com prova comportamental de RLS, e o
+gate agregado com UAT web/iPhone) **não foram executados** — não há aplicação
+em staging/produção nem UAT do dono para nenhum requisito abaixo.
+
+## v1.4 Requirements
+
+### Tema neon (THEME)
+
+- [ ] **THEME-01**: Paleta de acento fechada em quatro chaves — `yellow`
+  (`#EBFF00`), `blue` (`#00E5FF`), `green` (`#39FF14`) e `red` (`#FF3131`) —
+  com derivados de acento (`soft`, `border`, `focus`) calculados do RGB de
+  `accent.main`, contraste WCAG AA, cores de status funcionais (info,
+  success, warning, danger) mantidas invariantes em relação ao acento
+  escolhido, e fallback para `yellow` diante de chave ausente ou desconhecida
+  (inclusive no resolver do widget nativo, sem constante neon global). Fonte:
+  `18-01-SUMMARY.md` (fábrica de tema, `theme.ts`), `18-09-SUMMARY.md`
+  (resolver Swift `neonAccent(for:)`).
+
+- [ ] **THEME-02**: A troca de acento em runtime propaga para todos os
+  consumidores da árvore (navegação raiz, telas, componentes de sessão,
+  hosts globais e o gráfico de evolução de cardio) sem remount e sem perda de
+  estado local, draft, busca ou dados em carregamento — 31 consumidores
+  cobertos por uma guarda estática recursiva (`themeRuntimeCoverage.test.ts`,
+  `18-07-SUMMARY.md`) que impede regressão silenciosa para o amarelo
+  canônico. Fonte: `18-04` a `18-10-SUMMARY.md`.
+
+- [ ] **THEME-03**: Os primitivos do design system compartilhado (Button,
+  Controls, Surface, Feedback, FModules, Logo, TextField) seguem o acento
+  configurável nos elementos estéticos, mas mantêm os tokens de status
+  funcionais (`colors.status`) independentes da cor escolhida — inclusive
+  `danger` quando o acento selecionado é `red`. Fonte: `18-05-SUMMARY.md`.
+
+### Preferência por conta (PREF)
+
+- [ ] **PREF-01**: Contrato de persistência local — coluna
+  `profiles.neon_color` (`supabase/migrations/0040_profiles_neon_color.sql`)
+  como `text NOT NULL DEFAULT 'yellow'` com `CHECK` fechado nas quatro
+  chaves, sem recriar policy, `GRANT` ou `REVOKE` (RLS e privilégios
+  existentes preservados). **Status remoto: não verificado** — a migration
+  nunca foi aplicada a um banco Supabase real (nem staging, nem produção);
+  só há prova estrutural local (`backend/tests/test_migration_neon_color.py`,
+  `18-02-SUMMARY.md`) e smoke de RLS com clientes falsos, sem acesso remoto
+  (`18-03-SUMMARY.md`). Isso depende do plano 18-14 (não executado).
+
+- [ ] **PREF-02**: `ThemeProvider` hidrata a preferência pela identidade da
+  conta corrente (`profile.id === user.id`) e persiste exclusivamente via um
+  repository Supabase dedicado (`src/services/neonPreferenceRepository.ts`,
+  update restrito a `profiles.neon_color`), sem usar
+  `AuthContext.updateProfile` nem `AsyncStorage` adicional, e sem vazar a
+  escolha entre contas. Fonte: `18-01-SUMMARY.md`, `18-04-SUMMARY.md`
+  (`SettingsScreen` delega todo o estado ao provider).
+
+- [ ] **PREF-03**: Preview otimista, confirmação, rollback em erro e retry na
+  troca de cor, com a última intenção de um duplo toque serializada sem
+  overlap entre respostas obsoletas de contas diferentes; a mesma garantia
+  se propaga à Live Activity ativa (reverte para a cor confirmada em falha).
+  Fonte: `18-01-SUMMARY.md`, `18-08-SUMMARY.md`. **Divergência aberta,
+  decisão do dono:** o critério de aceite do Plano 18-01 previa uma única
+  chamada ao repository em duplo toque durante `saving`; a implementação
+  atual serializa uma segunda chamada após a primeira terminar (evita writes
+  sobrepostos e preserva a última intenção, mas não é "uma única chamada
+  total"). Ver `18-01-SUMMARY.md`, seção "Deviations from Plan".
+
+### Tela de Ajustes (SET)
+
+- [ ] **SET-01**: A partir de Perfil, uma seção "Preferências" abre a tela de
+  Ajustes (`ProfileStack`, rota autenticada `profile/settings`) com as
+  quatro opções de acento em radios fixos e em ordem fechada, layout
+  responsivo (uma coluna abaixo de 360px, duas colunas a partir de 360px,
+  `maxWidth` 420px), swatches, semântica de rádio acessível e roving focus
+  por teclado (Tab, setas, wrap; Espaço/Enter selecionam). Fonte:
+  `18-04-SUMMARY.md`.
+
+- [ ] **SET-02**: A seleção de uma opção delega inteiramente ao
+  `ThemeProvider` (a tela não mantém estado paralelo de seleção): bloqueia
+  todos os cards durante o salvamento, anuncia sucesso uma única vez mesmo
+  com renders adicionais, expõe erro via `Notice` de perigo mantendo a cor
+  confirmada anterior, e permite retry. Fonte: `18-04-SUMMARY.md`.
+
+### Live Activity (LIVE)
+
+- [ ] **LIVE-01**: Uma Live Activity ativa recebe a troca de tema
+  imediatamente, mesmo sem mudança no `SessionDraft`; atualização repetida
+  com a mesma chave não duplica `update()`, e a ordem de preview/rollback é
+  preservada por uma fila serial. A ligação real
+  `ThemeProvider.onThemeChange → setLiveActivityNeonColor` existe em
+  `App.tsx` (linhas 62-74 na verificação do Plano 18-08) mas **não tem teste
+  de montagem da árvore real** — confirmada só por inspeção de código, não
+  por suíte automatizada. Fonte: `18-08-SUMMARY.md` (coverage D2 pass, D3
+  `human_judgment: true`/`unknown`).
+
+- [ ] **LIVE-02**: O contrato `ContentState` (JS e as duas cópias Swift em
+  `modules/live-activity/ios/` e `targets/session-widget/`) inclui
+  `neonColor` como campo opcional ao final da struct — preservando o decode
+  de payload legado sem o campo, que cai em `yellow` — validado nas quatro
+  fases (`measuring`, `resting`, `readyOvertime`, `blockOnly`); as duas
+  cópias Swift do `SessionActivityAttributes.ContentState` permanecem byte a
+  byte idênticas. Fonte: `18-08-SUMMARY.md`, `18-09-SUMMARY.md`.
+
+## v1.4 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| THEME-01 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
+| THEME-02 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
+| THEME-03 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT visual/staging |
+| PREF-01 | Phase 18 | Merged em `42f1e58`; migration NUNCA aplicada a banco real (staging ou produção) |
+| PREF-02 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem prova de persistência remota |
+| PREF-03 | Phase 18 | Merged em `42f1e58`; divergência aberta do duplo toque (decisão do dono) |
+| SET-01 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT de browser/leitor de tela/device físico |
+| SET-02 | Phase 18 | Merged em `42f1e58`, testes locais verdes; sem UAT de browser/leitor de tela/device físico |
+| LIVE-01 | Phase 18 | Merged em `42f1e58`; ligação real de `App.tsx` sem teste de montagem, só inspeção de código |
+| LIVE-02 | Phase 18 | Merged em `42f1e58`, contrato Swift testado estruturalmente; sem `xcodebuild` Release real nem device físico |
+
+Coverage: 10/10 requisitos v1.4 mapeados a partir dos documentos do workstream
+(nenhum requisito ficou sem definição nos SUMMARYs/ROADMAP de origem). Nenhum
+está `Complete`: os planos 18-11 a 18-15 (decisão de integração, staging, gate
+agregado com UAT do dono) não foram executados, e por isso nenhuma linha
+acima é marcada como resolvida.
+
+**Nota sobre a integração com o v1.3:** o merge `42f1e58` também trouxe
+correções WR-01/WR-03/WR-04 e o fechamento da janela #6 (LOCK-03) do v1.3,
+listadas no `ROADMAP.md`/`STATE.md` do main — não fazem parte do escopo de
+requisitos do v1.4 e não estão listadas nesta seção.

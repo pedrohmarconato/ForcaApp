@@ -6,6 +6,7 @@
 - ✅ **v1.1 Release em produção** — Phases 5-8 (shipped 2026-08-14) — [archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 App de iPhone instalável via site (PWA)** — Phases 9-13 (shipped 2026-08-15) — [archive](milestones/v1.2-ROADMAP.md)
 - 🚧 **v1.3 Treino de tela bloqueada (app nativo pessoal)** — Phases 14-17 (in progress)
+- 🚧 **v1.4 Personalização do neon** — Phase 18 (in progress; mesclado ao main em `42f1e58`, gates de integração/staging/UAT pendentes)
 
 ## Phases
 
@@ -59,6 +60,7 @@ deployados). Sem audit formal de milestone.
 - [ ] **Phase 15: Tela bloqueada — ver e cronometrar** - Live Activity mostra a sessão ao vivo no Lock Screen e o timer de descanso nativo, com ciclo de vida correto
 - [ ] **Phase 16: Tela bloqueada — comandar** - Concluir série e ajustar descanso direto na tela bloqueada, via App Intents, sem abrir o app
 - [x] **Phase 17: Tela bloqueada — registrar e antecipar** - Registro de reps/carga sem teclado (app + tela bloqueada) e antecipação da próxima ação antes do descanso zerar
+- [ ] **Phase 18: Neon configurável** - Trocar o acento neon global em runtime entre amarelo, azul, verde e vermelho a partir de Ajustes, com persistência por conta e propagação para a Live Activity ativa
 
 ## Phase Details
 
@@ -313,6 +315,89 @@ Plans:
 
 - [x] 17-07-PLAN.md — Sessão física: UAT dos Critérios 2/3/4 + toque rápido + orçamento de update + migração de ContentState
 
+### 🚧 v1.4 Personalização do neon (In Progress)
+
+**Milestone Goal:** Cada conta escolhe um entre quatro acentos neon (amarelo,
+azul, verde, vermelho) e a escolha aparece de forma reativa em todo o app/PWA
+e na Live Activity, com amarelo como fallback.
+
+Desenvolvido em branch paralela (`feature/v1.4-neon-theme`) enquanto o v1.3
+seguia seu próprio caminho; mesclado ao `main` no merge `42f1e58`
+(2026-08-19), por cima da Fase 17. Documentação de origem incorporada nesta
+seção a partir de `.planning/workstreams/neon-theme-v1-4/ROADMAP.md` e
+`STATE.md` (removidos do repositório neste commit — ver `fbee521`).
+
+#### Phase 18: Neon configurável
+
+**Goal**: trocar o acento neon global em runtime entre amarelo, azul, verde e
+vermelho a partir de Ajustes, com persistência por conta e propagação para a
+Live Activity ativa.
+**Depends on**: v1.3 apenas para integração final dos arquivos de sessão e
+widget; o desenvolvimento ocorreu em branch paralela.
+**Requirements**: THEME-01, THEME-02, THEME-03, PREF-01, PREF-02, PREF-03,
+SET-01, SET-02, LIVE-01, LIVE-02
+**Success Criteria** (what must be TRUE):
+
+  1. As quatro opções trocam todos os tokens de acento em runtime sem
+     restart e sem alterar cores funcionais.
+
+  2. A escolha persiste na conta e não vaza entre contas.
+
+  3. Falha de persistência reverte UI e Live Activity para a cor confirmada.
+
+  4. Uma Live Activity ativa muda imediatamente e estado legado cai em
+     amarelo.
+
+  5. TypeScript, Jest, build web e verificação nativa passam.
+
+**Status real em `42f1e58` (2026-08-19):** implementação mesclada e
+verificada em CI local — `tsc --noEmit` limpo, Jest 179/179 suítes e
+2152/2152 testes verdes, e os 4 harnesses de verificação nativa
+(`verify-native-skeleton.sh`, `verify-live-activity-overtime.sh`,
+`verify-intent-action-queue-race.sh`, `verify-resign-name-escaping.sh`) todos
+com exit 0. **Nenhum dos 5 Success Criteria acima está fisicamente validado**
+— não houve `xcodebuild` Release real, instalação em device, UAT do dono,
+push da migration a staging/produção, nem gate agregado. Ver
+`.planning/REQUIREMENTS.md` (seção v1.4) para o detalhe por requisito.
+
+**Plans**: 10/15 executados (18-01 a 18-10); 18-11 a 18-15 pendentes
+
+Plans:
+
+- [x] 18-01-PLAN.md — Núcleo reativo, provider e repository por conta
+- [x] 18-02-PLAN.md — Migration local de `profiles.neon_color`
+- [x] 18-03-PLAN.md — Harness RLS e tooling seguro de contas/env para UAT staging
+- [x] 18-04-PLAN.md — Ajustes, navegação e estados acessíveis
+- [x] 18-05-PLAN.md — Design system reativo ao acento
+- [x] 18-06-PLAN.md — Telas e navegadores runtime restantes
+- [x] 18-07-PLAN.md — Componentes runtime e guarda integral de 31 consumidores
+- [x] 18-08-PLAN.md — Propagação JS para Live Activity ativa
+- [x] 18-09-PLAN.md — Contrato Swift/widget e Release preso ao DerivedData da execução
+- [x] 18-10-PLAN.md — CardioEvolucaoChart reativo e teste de rerender
+- [ ] 18-11-PLAN.md — Decisão bloqueante de integração com main final
+- [ ] 18-12-PLAN.md — Integração e renumeração definitiva da migration
+- [ ] 18-13-PLAN.md — Decisão bloqueante para staging
+- [ ] 18-14-PLAN.md — Push staging e prova comportamental RLS
+- [ ] 18-15-PLAN.md — Gate agregado, UAT web/iPhone staging com A/B+cleanup e produção bloqueada
+
+**Pendências conhecidas, decisão do dono:**
+
+- Migration `supabase/migrations/0040_profiles_neon_color.sql` nunca aplicada
+  a um banco Supabase real (staging ou produção) — PREF-01 remoto
+  permanece unknown.
+- Divergência do duplo toque em `saving` (PREF-03): o acceptance criterion do
+  Plano 18-01 previa uma única chamada ao repository; a implementação atual
+  serializa duas chamadas. Ver `18-01-SUMMARY.md`.
+- Ligação real `App.tsx` → `ThemeProvider.onThemeChange` →
+  `setLiveActivityNeonColor` (LIVE-01) confirmada só por inspeção de código,
+  sem teste de montagem da árvore real. Ver `18-08-SUMMARY.md`.
+- Achado cosmético fora de escopo registrado no ledger (`WINDOWS.md`):
+  indentação anômala em `targets/session-widget/WidgetLiveActivity.swift:156`
+  (`.foregroundColor`, 4 espaços a mais), pré-existente do diff da branch
+  neon, sem efeito de compilação.
+
+**UI hint**: yes
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -334,6 +419,7 @@ Plans:
 | 15. Tela bloqueada — ver e cronometrar | v1.3 | 4/6 | In Progress|  |
 | 16. Tela bloqueada — comandar | v1.3 | 10/11 | In Progress|  |
 | 17. Tela bloqueada — registrar e antecipar | v1.3 | 7/7 | Complete    | 2026-08-19 |
+| 18. Neon configurável | v1.4 | 10/15 | In Progress (merged, gates pendentes) |  |
 
 ## Backlog
 
