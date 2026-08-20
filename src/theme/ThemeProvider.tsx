@@ -10,14 +10,29 @@ import React, {
   type ReactNode,
 } from 'react';
 
-import { useAuth } from '../contexts/AuthContext';
-import { neonPreferenceRepository } from '../services/neonPreferenceRepository';
 import {
   createTheme,
   parseNeonColor,
   type NeonColorKey,
   type Theme,
 } from './theme';
+
+// Tema é apresentação; não pode depender de configuração de rede. Este
+// módulo NUNCA importa AuthContext/supabaseClient no topo do arquivo — a
+// guarda estática em __tests__/themeModuleGraphSentinel.test.ts prova que o
+// grafo de src/theme/ nunca os alcança, e a regressão em
+// __tests__/themeProviderSupabaseEnvRegression.test.tsx prova que renderizar
+// sem as env vars do Supabase não lança. Identidade (userId/profile) chega
+// por prop, injetada de fora de src/theme/ (App.tsx). O acesso a
+// neonPreferenceRepository (que importa supabaseClient) é adiado para
+// dentro de runSaveToken via require em call-time — mesmo idioma já usado em
+// src/navigation/linking.ts para não poluir o grafo estático.
+type NeonPreferenceRepository = {
+  saveNeonColor: (
+    ownerId: string,
+    requested: NeonColorKey,
+  ) => Promise<{ id: string; neon_color: unknown }>;
+};
 
 export type ThemeSaveStatus = 'idle' | 'saving' | 'success' | 'error';
 
@@ -31,9 +46,16 @@ export type ThemeContextValue = {
   retryNeonColor: () => Promise<void>;
 };
 
+// Formato mínimo que ThemeProvider consome de `profile` — o mesmo shape que
+// antes vinha de useAuth(), agora injetado por prop pelo componente-ponte em
+// App.tsx (fora de src/theme/).
+type ThemeProfileInput = { id?: unknown; neon_color?: unknown } | null | undefined;
+
 type ThemeProviderProps = {
   children: ReactNode;
   onThemeChange?: (key: NeonColorKey) => void;
+  userId?: string | null;
+  profile?: ThemeProfileInput;
 };
 
 type ThemeState = {
@@ -97,9 +119,10 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export const ThemeProvider = ({
   children,
   onThemeChange,
+  userId: userIdProp = null,
+  profile = null,
 }: ThemeProviderProps) => {
-  const { user, profile } = useAuth();
-  const userId = typeof user?.id === 'string' ? user.id : null;
+  const userId = typeof userIdProp === 'string' ? userIdProp : null;
   const profileId = typeof profile?.id === 'string' ? profile.id : null;
   const profileColor = profile?.neon_color;
   const profileMatchesUser = Boolean(userId && profileId === userId);
@@ -203,6 +226,16 @@ export const ThemeProvider = ({
       let succeeded = false;
 
       try {
+        // require em call-time (mesmo idioma de src/navigation/linking.ts):
+        // só carrega neonPreferenceRepository — e o supabaseClient que ele
+        // importa — quando um save realmente acontece, nunca na carga do
+        // módulo. Import dinâmico (`import()`) foi descartado de propósito:
+        // no bundle web o Metro emitiria um segundo chunk, vetado por
+        // scripts/verify-web-bundle.mjs.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { neonPreferenceRepository } = require('../services/neonPreferenceRepository') as {
+          neonPreferenceRepository: NeonPreferenceRepository;
+        };
         const saved = await neonPreferenceRepository.saveNeonColor(
           token.ownerId,
           requested,

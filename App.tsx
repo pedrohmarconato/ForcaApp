@@ -1,11 +1,11 @@
 // Na RAIZ do projeto: ForcaApp/App.tsx
 import 'react-native-gesture-handler';
-import React, { useEffect } from 'react';
+import React, { useEffect, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 
-import { AuthProvider } from './src/contexts/AuthContext';
+import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/theme/ThemeProvider';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
@@ -20,6 +20,28 @@ import {
 } from './src/native/liveActivitySync';
 import { registerLiveActivityIntentListener } from './src/native/liveActivityIntentBridge';
 import theme from './src/theme/theme';
+
+// Ponte fora de src/theme/: só aqui o app cruza auth -> tema. ThemeProvider
+// nunca importa AuthContext/supabaseClient (guarda estática em
+// __tests__/themeModuleGraphSentinel.test.ts) — userId/profile chegam por
+// prop, lidos aqui via useAuth() e repassados adiante.
+type ThemedRootProps = {
+  children: ReactNode;
+};
+
+const ThemedRoot = ({ children }: ThemedRootProps) => {
+  const { user, profile } = useAuth();
+  const userId = typeof user?.id === 'string' ? user.id : null;
+  return (
+    <ThemeProvider
+      userId={userId}
+      profile={profile}
+      onThemeChange={setLiveActivityNeonColor}
+    >
+      {children}
+    </ThemeProvider>
+  );
+};
 
 export default function App() {
   // Fontes da identidade, empacotadas com o app (nunca via rede).
@@ -60,7 +82,7 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <ThemeProvider onThemeChange={setLiveActivityNeonColor}>
+      <ThemedRoot>
         <StatusBar style="light" />
         <RootNavigator />
         <UpdateBanner />
@@ -71,7 +93,7 @@ export default function App() {
             prontos para receber o showAlert() do convite único de opt-in
             (PUSH-01, Fase 13 Plano 05). */}
         <PushInviteHost />
-      </ThemeProvider>
+      </ThemedRoot>
     </AuthProvider>
   );
 }
