@@ -41,12 +41,15 @@ Phase: 18 — implementação mesclada e verificada em CI local; planos 18-11 a
 16 do v1.3 continuam BLOQUEADAS no portão humano anterior (UAT física).
 Plan: 10 of 15 na Fase 18 (v1.4); os 36 planos do v1.3 permanecem no mesmo
 estado registrado antes do merge — não reauditados por esta reorganização
-Status: aguarda `.planning/UAT-FISICO-15-16-17.md` (head_alvo agora `42f1e58`)
-e as três decisões do dono: PREF-01 (migration 0040 nunca aplicada a banco
-real), WR-02 (ícone do widget via rede) e IN-01 (ack de `adjustRest` sem
-`deltaSeconds`)
-Last activity: 2026-08-19 — merge 42f1e58 (Fase 18 do v1.4) seguido da
-reorganização do planejamento para layout plano
+Status: aguarda `.planning/UAT-FISICO-15-16-17.md` (head_alvo agora `42f1e58`),
+a UAT física do v1.4 (`18-UAT.md`, itens 1-4) e as decisões do dono: staging/
+prova comportamental de RLS (a migration 0040 FOI aplicada a local e produção
+em 20/08; staging pendente de decisão), PREF-03 (duplo toque em `saving`),
+WR-02 (ícone do widget via rede), IN-01 (ack de `adjustRest` sem
+`deltaSeconds`) e o destino dos 3 warnings do `18-REVIEW.md`
+Last activity: 2026-08-20 — cinco portões da Fase 18 fechados (REVIEW/
+SECURITY/VERIFICATION/VALIDATION/UAT-roteiro), janela #7 baixada, migration
+0040 em local+produção, app do device apontando produção
 
 Progress: [██████░░░░] 67% dos planos da Fase 18 (10/15) — nenhum Success
 Criteria da Fase 18 fisicamente validado; Fases 15/16 do v1.3 seguem retidas
