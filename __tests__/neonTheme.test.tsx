@@ -874,15 +874,40 @@ describe('ThemeProvider por conta', () => {
 });
 
 describe('hooks de tema', () => {
-  it('useTheme recusa uso fora do provider', () => {
+  // Mudança de contrato (era: "useTheme recusa uso fora do provider" —
+  // lançava). Tema é apresentação: um componente compartilhado precisa
+  // renderizar sozinho mesmo sem <ThemeProvider> na árvore (ex.: suítes
+  // legadas que nunca envolveram seus componentes nele). useTheme() agora
+  // degrada graciosamente para o tema neon padrão canônico
+  // (createTheme('yellow'), o mesmo singleton de src/theme/theme.ts) em vez
+  // de lançar. Cobertura complementar, com consumidores reais (Logo,
+  // Feedback), em __tests__/themeFallbackWithoutProvider.test.tsx.
+  it('useTheme fora do provider não lança e devolve o tema neon padrão', () => {
+    let captured: ReturnType<typeof useTheme> | undefined;
     const OutsideProvider = () => {
-      useTheme();
+      captured = useTheme();
       return null;
     };
 
-    expect(() => render(<OutsideProvider />)).toThrow(
-      'useTheme deve ser usado dentro de um ThemeProvider',
-    );
+    expect(() => render(<OutsideProvider />)).not.toThrow();
+
+    expect(captured?.neonColor).toBe('yellow');
+    expect(captured?.confirmedNeonColor).toBe('yellow');
+    expect(captured?.status).toBe('idle');
+    expect(captured?.message).toBeNull();
+    expect(captured?.theme).toEqual(defaultTheme);
+  });
+
+  it('selectNeonColor/retryNeonColor fora do provider são no-ops resolvidos, sem lançar', async () => {
+    let captured: ReturnType<typeof useTheme> | undefined;
+    const OutsideProvider = () => {
+      captured = useTheme();
+      return null;
+    };
+    render(<OutsideProvider />);
+
+    await expect(captured!.selectNeonColor('blue')).resolves.toBeUndefined();
+    await expect(captured!.retryNeonColor()).resolves.toBeUndefined();
   });
 });
 
