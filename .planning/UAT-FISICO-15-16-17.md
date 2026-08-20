@@ -2,7 +2,7 @@
 tipo: roteiro-uat-fisico-consolidado
 criado: 2026-08-19
 fases: [14, 15, 16, 17]
-head_alvo: 9d9e04b
+head_alvo: 42f1e58
 status: aguarda-dono
 bloqueia:
   - LOCK-01 (Fase 15)
@@ -16,6 +16,13 @@ bloqueia:
 Um `resign` só. Este roteiro junta o checkpoint pendente da Fase 15, a
 reconfirmação que a Fase 16 passou a exigir e o comportamento novo que entrou
 hoje no `main`.
+
+**Atualização de alvo (2026-08-19):** `head_alvo` avançou de `9d9e04b` para
+`42f1e58` — o merge da Fase 18 (v1.4, tema neon) tematizou `SessionPlayer` e a
+Live Activity por cima do código exercitado por este roteiro. Nenhum item foi
+reescrito: o comportamento coberto por eles (Live Activity, timer, App
+Intents, "A SEGUIR") é o mesmo, apenas envolto pelo `useTheme()`/
+`useThemeStyles()` do novo provider de tema.
 
 **Por que consolidado:** a evidência física que existe hoje é anterior às
 mudanças de código de 19/08. Evidência anterior à mudança não prova o código

@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Treino de tela bloqueada (app nativo pessoal)
-current_phase: 16
-current_phase_name: tela-bloqueada-comandar
+milestone: v1.4
+milestone_name: Personalização do neon
+current_phase: 18
+current_phase_name: neon-configuravel
 status: blocked-human
-stopped_at: "36/36 planos executados no milestone. Fase 14 agora com o gauntlet COMPLETO (VERIFICATION passed, REVIEW 0 critical/4 warning/2 info, SECURITY verified com 17 ameacas e 0 abertas, VALIDATION validated) — os 3 warnings reais foram corrigidos com RED provado. Fase 17 completa. Fases 15 e 16 com todos os portoes automatizaveis fechados e bloqueadas num unico portao humano: a UAT fisica no iPhone, roteiro de 6 itens em .planning/UAT-FISICO-15-16-17.md contra o HEAD 9d9e04b. NAO auto-aprovar. Ledger de janelas ZERADO (open_count 0). Bloqueio operacional: o iPhone esta unavailable no devicectl — npm run resign compila mas nao instala ate o aparelho ser conectado, desbloqueado e confiado. Pendencia de decisao do dono: WR-02 da Fase 14 (icone do widget ainda aponta para https://github.com/expo.png, baixado a cada prebuild) e IN-01 do 16-REVIEW (contrato de ack da fila)."
-last_updated: "2026-08-19T23:00:00.000Z"
+stopped_at: "Milestone avancou para v1.4 (Personalizacao do neon) apos o merge 42f1e58 (2026-08-19), que uniu feature/v1.4-neon-theme (Fase 18, planos 18-01 a 18-10) por cima da Fase 17 do v1.3. Implementacao mesclada e validada em CI local no proprio 42f1e58: tsc --noEmit limpo, Jest 179/179 suites e 2152/2152 testes verdes, e os 4 harnesses de verificacao nativa (verify-native-skeleton.sh, verify-live-activity-overtime.sh, verify-intent-action-queue-race.sh, verify-resign-name-escaping.sh) todos com exit 0. NENHUM Success Criteria da Fase 18 esta fisicamente validado — os planos 18-11 a 18-15 (decisao de integracao, integracao/renumeracao da migration, decisao para staging, push em staging com prova de RLS, gate agregado de UAT) nao foram executados. Tres pendencias permanecem como decisao do dono, NENHUMA marcada como resolvida: (1) UAT fisica do v1.3, roteiro de 6 itens em .planning/UAT-FISICO-15-16-17.md, agora contra o HEAD 42f1e58 (Fases 15/16 do v1.3 seguem bloqueadas nesse mesmo portao humano); (2) migration supabase/migrations/0040_profiles_neon_color.sql (PREF-01) nunca aplicada a um banco Supabase real, nem staging nem producao; (3) WR-02 da Fase 14 (icone do widget ainda aponta para https://github.com/expo.png, baixado a cada prebuild) e IN-01 do 16-REVIEW (adjustRest sem deltaSeconds e acked silenciosamente na fila — contrato assimetrico com adjustReps/adjustLoad, src/store/activeSessionStore.ts:1913-1916). NAO auto-aprovar nenhum destes itens."
+last_updated: "2026-08-20T01:43:43.000Z"
 last_activity: 2026-08-19
-last_activity_desc: "Fase 14 re-auditada e fechada; janela #6 corrigida; ledger zerado; bloqueio unico e a UAT fisica"
+last_activity_desc: "Merge 42f1e58 traz a Fase 18 (v1.4) para o main; reorganizacao do planejamento para layout plano (SUMMARYs relocados, REQUIREMENTS/ROADMAP/STATE/UAT atualizados) — nenhuma pendencia fisica resolvida por esta reorganizacao"
 progress:
-  total_phases: 4
-  completed_phases: 2
-  total_plans: 36
-  completed_plans: 36
-  percent: 100
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 15
+  completed_plans: 10
+  percent: 67
 ---
 
 # Project State
@@ -26,17 +26,31 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 **Core value:** O dono faz a sessão de treino INTEIRA com o iPhone bloqueado — vê,
 comanda e registra o treino pela tela bloqueada, como o Spotify
 opera música — via app nativo pessoal por sideload gratuito (sem Apple Developer
-pago, sem distribuição a terceiros).
-**Current focus:** Phase 16 — tela-bloqueada-comandar
+pago, sem distribuição a terceiros). A partir do v1.4, a personalização do
+acento neon (amarelo/azul/verde/vermelho por conta, propagado à Live
+Activity) se soma a esse núcleo.
+**Current focus:** Phase 18 — neon-configuravel (v1.4); Fases 15 e 16 do v1.3
+seguem bloqueadas no mesmo portão humano (UAT física)
 
 ## Current Position
 
-Phase: 15 e 16 — BLOQUEADAS em portao humano (UAT fisica)
-Plan: 36 of 36 (execucao completa no milestone)
-Status: aguarda .planning/UAT-FISICO-15-16-17.md ser respondido pelo dono
-Last activity: 2026-08-19 — gauntlet de fechamento das Fases 15 e 16
+Milestone: v1.4 — Personalização do neon (Phase 18), mesclada ao main em
+`42f1e58` (2026-08-19) por cima da Fase 17 do v1.3
+Phase: 18 — implementação mesclada e verificada em CI local; planos 18-11 a
+18-15 (integração, staging, gate agregado de UAT) NÃO executados. Fases 15 e
+16 do v1.3 continuam BLOQUEADAS no portão humano anterior (UAT física).
+Plan: 10 of 15 na Fase 18 (v1.4); os 36 planos do v1.3 permanecem no mesmo
+estado registrado antes do merge — não reauditados por esta reorganização
+Status: aguarda `.planning/UAT-FISICO-15-16-17.md` (head_alvo agora `42f1e58`)
+e as três decisões do dono: PREF-01 (migration 0040 nunca aplicada a banco
+real), WR-02 (ícone do widget via rede) e IN-01 (ack de `adjustRest` sem
+`deltaSeconds`)
+Last activity: 2026-08-19 — merge 42f1e58 (Fase 18 do v1.4) seguido da
+reorganização do planejamento para layout plano
 
-Progress: [██████████] 100% dos planos — fechamento retido no portao humano
+Progress: [██████░░░░] 67% dos planos da Fase 18 (10/15) — nenhum Success
+Criteria da Fase 18 fisicamente validado; Fases 15/16 do v1.3 seguem retidas
+no portão humano anterior
 
 ## Performance Metrics
 
@@ -126,6 +140,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 15]: Dynamic Island compact/minimal/expanded foi deferida para feature futura; implementação permanece, mas não bloqueia v1.3 porque o aparelho do dono é um iPhone 13 sem esse hardware.
 - [Phase 15]: A UAT física completa do Plano 15-06 passou no iPhone 13, mas a verificação independente encontrou cinco gaps de implementação; LOCK-03 permanece pendente até o fechamento desses gaps.
 - [Phase ?]: 16-09: resposta agregada do dono ('todas foram pass agora') interpretada, com ressalva explícita, como sem_duplicacao=PASS, force_quit_toque=PASS-A, regressao_geral=PASS — os dois FAILs de 16-06 revertem; CMD-01/CMD-02 permanecem Gaps Found até a próxima /gsd-verify-work
+- [Phase 18, merge 2026-08-19]: Milestone v1.4 (Personalização do neon) foi desenvolvido em branch paralela (`feature/v1.4-neon-theme`) enquanto o v1.3 seguia seu próprio caminho, e mesclado ao main no commit `42f1e58` por cima da Fase 17. O dono decidiu layout PLANO para o planejamento (sem diretório de workstream dedicado): os 10 SUMMARYs da Fase 18 foram relocados para `.planning/phases/18-neon-configuravel/` e `.planning/workstreams/` foi removido inteiro; REQUIREMENTS.md e ROADMAP.md ganharam as seções do v1.4 sem alterar nenhum conteúdo do v1.0-v1.3.
 
 ### Pending Todos
 
@@ -159,6 +174,21 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Dois projetos Supabase (staging `mjdjtiujhwklchalquhc`, produção
   `zanqygwsgxkyjiuhrzju`) — conferir `supabase/.temp/project-ref` antes de
   qualquer comando linkado (v1.3 não deve mexer em schema, mas o hábito vale).
+
+- **v1.4/Fase 18 — três pendências que são decisão do dono, nenhuma resolvida:**
+  (1) migration `supabase/migrations/0040_profiles_neon_color.sql` (PREF-01)
+  nunca foi aplicada a um banco Supabase real, nem staging nem produção — só
+  há prova estrutural local; (2) WR-02 da Fase 14 (ícone do widget ainda
+  aponta para `https://github.com/expo.png`, baixado a cada `prebuild`);
+  (3) IN-01 do `16-REVIEW.md` (`adjustRest` sem `deltaSeconds` é acked
+  silenciosamente na fila, tratamento assimétrico com `adjustReps`/
+  `adjustLoad` — `src/store/activeSessionStore.ts:1913-1916`).
+
+- **UAT física do v1.3 permanece pendente** — roteiro de 6 itens em
+  `.planning/UAT-FISICO-15-16-17.md`, agora contra o HEAD `42f1e58` (o merge
+  tematizou `SessionPlayer` e a Live Activity, comportamento coberto pelos
+  itens do roteiro). Fases 15 e 16 continuam bloqueadas nesse portão humano;
+  nada deste item foi auto-aprovado.
 
 ## Deferred Items
 
