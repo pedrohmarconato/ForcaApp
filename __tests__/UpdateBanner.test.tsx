@@ -41,6 +41,14 @@ jest.mock('../src/services/neonPreferenceRepository', () => ({
   neonPreferenceRepository: { saveNeonColor: jest.fn() },
 }));
 
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto precisa repassar
+// userId/profile por prop, lidos do mesmo mockAuthState.
+const authThemeProps = () => ({
+  userId: mockAuthState.user?.id ?? null,
+  profile: mockAuthState.profile,
+});
+
 const setThemeColor = (neonColor: string) => {
   mockAuthState = {
     user: { id: 'update-banner-web-user' },
@@ -50,13 +58,17 @@ const setThemeColor = (neonColor: string) => {
 
 const renderThemed = (element: React.ReactElement, neonColor = 'yellow') => {
   setThemeColor(neonColor);
-  const result = render(<ThemeProvider>{element}</ThemeProvider>);
+  const result = render(
+    <ThemeProvider {...authThemeProps()}>{element}</ThemeProvider>,
+  );
 
   return {
     ...result,
     rerenderWithTheme: (nextElement: React.ReactElement, nextColor: string) => {
       setThemeColor(nextColor);
-      result.rerender(<ThemeProvider>{nextElement}</ThemeProvider>);
+      result.rerender(
+        <ThemeProvider {...authThemeProps()}>{nextElement}</ThemeProvider>,
+      );
     },
   };
 };

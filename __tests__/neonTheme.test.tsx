@@ -9,6 +9,16 @@ let mockAuthState: {
 let mockRequireAuthBoundary = false;
 let mockRootMounts = 0;
 
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto neste arquivo precisa
+// repassar userId/profile por prop, lidos do mesmo mockAuthState que antes
+// alimentava o useAuth() mockado. `<App />` (describe "integração da árvore
+// raiz") continua sem isso: o bridge fica em App.tsx.
+const authThemeProps = () => ({
+  userId: mockAuthState.user?.id ?? null,
+  profile: mockAuthState.profile,
+});
+
 const mockSingle = jest.fn();
 const mockSelect = jest.fn(() => ({ single: mockSingle }));
 const mockEq = jest.fn(() => ({ select: mockSelect }));
@@ -150,7 +160,7 @@ const context = () => {
 
 const renderProvider = (onThemeChange?: (key: NeonColorKey) => void) =>
   render(
-    <ThemeProvider onThemeChange={onThemeChange}>
+    <ThemeProvider onThemeChange={onThemeChange} {...authThemeProps()}>
       <ThemeProbe />
     </ThemeProvider>,
   );
@@ -293,7 +303,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-a', neon_color: 'yellow' },
     };
     screen.rerender(
-      <ThemeProvider onThemeChange={onThemeChange}>
+      <ThemeProvider onThemeChange={onThemeChange} {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -326,7 +336,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-a', neon_color: 'red' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -338,7 +348,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-b', neon_color: 'green' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -359,7 +369,7 @@ describe('ThemeProvider por conta', () => {
       return <Text testID="history-color">{value.neonColor}</Text>;
     };
     const screen = render(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <RenderHistoryProbe />
       </ThemeProvider>,
     );
@@ -368,7 +378,7 @@ describe('ThemeProvider por conta', () => {
     renderedColors.length = 0;
     mockAuthState = { user: { id: 'user-a' }, profile: null };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <RenderHistoryProbe />
       </ThemeProvider>,
     );
@@ -398,7 +408,7 @@ describe('ThemeProvider por conta', () => {
     };
     const tree = (suspend: boolean) => (
       <Suspense fallback={<Text testID="suspended-render">suspenso</Text>}>
-        <ThemeProvider>
+        <ThemeProvider {...authThemeProps()}>
           <MaybeSuspend suspend={suspend} />
         </ThemeProvider>
       </Suspense>
@@ -459,7 +469,7 @@ describe('ThemeProvider por conta', () => {
         profile: { id: 'user-a', neon_color: 'red' },
       };
       screen.rerender(
-        <ThemeProvider onThemeChange={onThemeChange}>
+        <ThemeProvider onThemeChange={onThemeChange} {...authThemeProps()}>
           <ThemeProbe />
         </ThemeProvider>,
       );
@@ -503,7 +513,7 @@ describe('ThemeProvider por conta', () => {
 
     mockAuthState = { user: { id: 'user-a' }, profile: null };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -512,7 +522,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-a', neon_color: 'yellow' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -552,7 +562,7 @@ describe('ThemeProvider por conta', () => {
 
     mockAuthState = { user: { id: 'user-a' }, profile: null };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -568,7 +578,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-a', neon_color: 'yellow' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -611,7 +621,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-b', neon_color: 'red' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -623,7 +633,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-a', neon_color: 'yellow' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -686,7 +696,7 @@ describe('ThemeProvider por conta', () => {
       profile: { id: 'user-b', neon_color: 'yellow' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ThemeProbe />
       </ThemeProvider>,
     );
@@ -842,7 +852,7 @@ describe('ThemeProvider por conta', () => {
       return <Text testID="style-color">{styles.color}</Text>;
     };
     const screen = render(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <StyleProbe />
       </ThemeProvider>,
     );

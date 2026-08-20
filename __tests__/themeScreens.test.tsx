@@ -58,6 +58,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto precisa repassar
+// userId/profile por prop, lidos do mesmo mockAuthState.
+const authThemeProps = () => ({
+  userId: mockAuthState?.user?.id ?? null,
+  profile: mockAuthState?.profile ?? null,
+});
+
 jest.mock('../src/services/neonPreferenceRepository', () => ({
   neonPreferenceRepository: { saveNeonColor: jest.fn() },
 }));
@@ -288,7 +296,7 @@ const readSource = (path: string) =>
   readFileSync(require.resolve(`../${path}`), 'utf8');
 
 const renderWithTheme = (child: React.ReactElement) =>
-  render(<ThemeProvider>{child}</ThemeProvider>);
+  render(<ThemeProvider {...authThemeProps()}>{child}</ThemeProvider>);
 
 const expectHookFactory = (path: string) => {
   const source = readSource(path);
@@ -393,7 +401,7 @@ describe('raiz-home-progresso-historico', () => {
 
     mockAuthState = { ...loggedIn('blue'), loadingProfile: true };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <RootNavigator />
       </ThemeProvider>,
     );
@@ -410,7 +418,7 @@ describe('raiz-home-progresso-historico', () => {
 
     mockAuthState = loggedIn('green');
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <HomeScreen />
       </ThemeProvider>,
     );
@@ -425,7 +433,7 @@ describe('raiz-home-progresso-historico', () => {
 
     mockAuthState = loggedIn('green');
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ProgressScreen />
       </ThemeProvider>,
     );
@@ -494,7 +502,7 @@ describe('detalhes-install-picker', () => {
 
     mockAuthState = loggedIn('green');
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <InstallScreen homeRoute="Home" />
       </ThemeProvider>,
     );
@@ -511,7 +519,7 @@ describe('detalhes-install-picker', () => {
 
     mockAuthState = loggedIn('green');
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ExercisePickerScreen />
       </ThemeProvider>,
     );
@@ -593,7 +601,7 @@ describe('questionario-chat-editor-sessao', () => {
       profile: { ...mockAuthState.profile, neon_color: 'green' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <QuestionnaireScreen />
       </ThemeProvider>,
     );
@@ -639,7 +647,7 @@ describe('questionario-chat-editor-sessao', () => {
       profile: { ...mockAuthState.profile, neon_color: 'green' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <PostQuestionnaireChat />
       </ThemeProvider>,
     );
@@ -679,7 +687,7 @@ describe('questionario-chat-editor-sessao', () => {
       profile: { ...mockAuthState.profile, neon_color: 'green' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ManualPlanEditorScreen />
       </ThemeProvider>,
     );
@@ -703,7 +711,7 @@ describe('questionario-chat-editor-sessao', () => {
       profile: { ...mockAuthState.profile, neon_color: 'red' },
     };
     screen.rerender(
-      <ThemeProvider>
+      <ThemeProvider {...authThemeProps()}>
         <ActiveSessionScreen route={{ params: { sessionId: 'session-1' } }} />
       </ThemeProvider>,
     );

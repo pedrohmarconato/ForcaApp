@@ -20,6 +20,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto precisa repassar
+// userId/profile por prop, lidos do mesmo mockAuthState.
+const authThemeProps = () => ({
+  userId: mockAuthState.user?.id ?? null,
+  profile: mockAuthState.profile,
+});
+
 jest.mock('../src/services/cardioGoalRepository', () => ({
   getCardioLogs: (userId: string) => mockGetCardioLogs(userId),
 }));
@@ -90,7 +98,7 @@ const logs: CardioLog[] = [
 ];
 
 const tree = () => (
-  <ThemeProvider>
+  <ThemeProvider {...authThemeProps()}>
     <CardioEvolucaoChart />
   </ThemeProvider>
 );

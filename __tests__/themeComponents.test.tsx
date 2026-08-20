@@ -99,6 +99,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto precisa repassar
+// userId/profile por prop, lidos do mesmo mockAuthState.
+const authThemeProps = () => ({
+  userId: mockAuthState.user?.id ?? null,
+  profile: mockAuthState.profile,
+});
+
 jest.mock('@expo/vector-icons', () => {
   const ReactLib = require('react');
   const { Text: IconText } = require('react-native');
@@ -206,13 +214,17 @@ const setThemeColor = (neonColor: string) => {
 
 const renderThemed = (element: React.ReactElement, neonColor: string) => {
   setThemeColor(neonColor);
-  const result = render(<ThemeProvider>{element}</ThemeProvider>);
+  const result = render(
+    <ThemeProvider {...authThemeProps()}>{element}</ThemeProvider>,
+  );
 
   return {
     ...result,
     rerenderWithTheme: (nextElement: React.ReactElement, nextColor: string) => {
       setThemeColor(nextColor);
-      result.rerender(<ThemeProvider>{nextElement}</ThemeProvider>);
+      result.rerender(
+        <ThemeProvider {...authThemeProps()}>{nextElement}</ThemeProvider>,
+      );
     },
   };
 };
@@ -260,7 +272,7 @@ const PlayerWithStore = () => {
 };
 
 const playerTree = () => (
-  <ThemeProvider>
+  <ThemeProvider {...authThemeProps()}>
     <PlayerWithStore />
   </ThemeProvider>
 );
