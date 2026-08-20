@@ -5,7 +5,7 @@ milestone_name: Personalização do neon
 current_phase: 18
 current_phase_name: neon-configuravel
 status: blocked-human
-stopped_at: "Milestone avancou para v1.4 (Personalizacao do neon) apos o merge 42f1e58 (2026-08-19), que uniu feature/v1.4-neon-theme (Fase 18, planos 18-01 a 18-10) por cima da Fase 17 do v1.3. Implementacao mesclada e validada em CI local no proprio 42f1e58: tsc --noEmit limpo, Jest 179/179 suites e 2152/2152 testes verdes, e os 4 harnesses de verificacao nativa (verify-native-skeleton.sh, verify-live-activity-overtime.sh, verify-intent-action-queue-race.sh, verify-resign-name-escaping.sh) todos com exit 0. NENHUM Success Criteria da Fase 18 esta fisicamente validado — os planos 18-11 a 18-15 (decisao de integracao, integracao/renumeracao da migration, decisao para staging, push em staging com prova de RLS, gate agregado de UAT) nao foram executados. Tres pendencias permanecem como decisao do dono, NENHUMA marcada como resolvida: (1) UAT fisica do v1.3, roteiro de 6 itens em .planning/UAT-FISICO-15-16-17.md, agora contra o HEAD 42f1e58 (Fases 15/16 do v1.3 seguem bloqueadas nesse mesmo portao humano); (2) migration supabase/migrations/0040_profiles_neon_color.sql (PREF-01) nunca aplicada a um banco Supabase real, nem staging nem producao; (3) WR-02 da Fase 14 (icone do widget ainda aponta para https://github.com/expo.png, baixado a cada prebuild) e IN-01 do 16-REVIEW (adjustRest sem deltaSeconds e acked silenciosamente na fila — contrato assimetrico com adjustReps/adjustLoad, src/store/activeSessionStore.ts:1913-1916). NAO auto-aprovar nenhum destes itens."
+stopped_at: "Fase 18 (v1.4, neon-configuravel) ganhou em 2026-08-20 os cinco artefatos formais de portao, todos commitados: 18-REVIEW.md (9795722, 0 criticos / 3 warnings — WR-01 race de writers na Live Activity, WR-02 mutacao in-place de SaveToken, WR-03 resync de foco no Settings — / 2 infos); 18-SECURITY.md (a5ba043, status verified, threats_open 0, 6/6 ameacas mitigadas — IDOR-01, DISC-01, INJ-01, SECRET-01, CMDI-01, ENV-01); 18-VERIFICATION.md (51a0bb6, status human_needed, score 1/5 must-haves — implementacao verificada em codigo e teste, os 4 criterios fisicos do ROADMAP seguem sem device ou navegador real); 18-VALIDATION.md (2cb5390, status validated, nyquist_compliant false — fisicos permanecem Manual-Only); 18-UAT.md (95a7e47, roteiro fisico com 5 itens — item 5 automatizado PASS, tsc limpo, Jest 179/179 suites e 2152/2152 testes, 4 harnesses nativos exit 0, npm run build:web exit 0 com verify-web-bundle OK, e itens 1-4 fisicos pending). Janela #7 do ledger (indentacao cosmetica em WidgetLiveActivity.swift:156) foi fechada nos commits 0a336d5+24c116e — ledger em 0 open / 7 fixed. A migration 0040 foi aplicada em 2026-08-20 ao banco LOCAL (supabase migration up, junto com 0038/0039) e a PRODUCAO (supabase db push pela outra IA do dono, com preflight, validacoes e historico coerente — 0038/0039 ja estavam em producao desde 15/08); a prova comportamental de RLS (smoke) segue pendente, staging-only por desenho, decisao do dono. O app do iPhone do dono aponta desde 2026-08-20 para PRODUCAO (.env trocado, bundle provado com URLs de producao, instalado) — voltar ao substrato local exige reverter o .env e refazer o build. Oito pendencias restam, TODAS decisao/acao do dono, NENHUMA resolvida: (1) UAT fisica do v1.4 — 4 itens de 18-UAT.md; (2) UAT fisica do v1.3 — roteiro de 6 itens em .planning/UAT-FISICO-15-16-17.md, head_alvo 42f1e58; (3) decisao staging/RLS comportamental (PREF-02/IDOR-01) — rodar o smoke contra staging ou aceitar waive formal; (4) PREF-03 — divergencia aberta do duplo toque em saving (serializa uma segunda chamada em vez de uma unica); (5) WR-02 da Fase 14 — icone do widget aponta para https://github.com/expo.png, baixado a cada prebuild; (6) IN-01 da Fase 16 — adjustRest sem deltaSeconds e acked silenciosamente na fila, contrato assimetrico com adjustReps/adjustLoad, src/store/activeSessionStore.ts:1913-1916; (7) decisao sobre os 3 warnings do 18-REVIEW.md (WR-01 race de writers na Live Activity, WR-02 mutacao in-place de SaveToken, WR-03 resync de foco no Settings) — corrigir ou aceitar; (8) arquivamento do milestone apos tudo resolvido (gsd-audit-milestone -> gsd-complete-milestone). NAO auto-aprovar nenhum destes itens."
 last_updated: "2026-08-20T01:43:43.000Z"
 last_activity: 2026-08-19
 last_activity_desc: "Merge 42f1e58 traz a Fase 18 (v1.4) para o main; reorganizacao do planejamento para layout plano (SUMMARYs relocados, REQUIREMENTS/ROADMAP/STATE/UAT atualizados) — nenhuma pendencia fisica resolvida por esta reorganizacao"
@@ -175,20 +175,38 @@ Decisions are logged in PROJECT.md Key Decisions table.
   `zanqygwsgxkyjiuhrzju`) — conferir `supabase/.temp/project-ref` antes de
   qualquer comando linkado (v1.3 não deve mexer em schema, mas o hábito vale).
 
-- **v1.4/Fase 18 — três pendências que são decisão do dono, nenhuma resolvida:**
-  (1) migration `supabase/migrations/0040_profiles_neon_color.sql` (PREF-01)
-  nunca foi aplicada a um banco Supabase real, nem staging nem produção — só
-  há prova estrutural local; (2) WR-02 da Fase 14 (ícone do widget ainda
-  aponta para `https://github.com/expo.png`, baixado a cada `prebuild`);
-  (3) IN-01 do `16-REVIEW.md` (`adjustRest` sem `deltaSeconds` é acked
+- **v1.4/Fase 18 — cinco artefatos formais de portão criados em 2026-08-20,
+  oito pendências restam, TODAS decisão/ação do dono, NENHUMA resolvida:**
+  `18-REVIEW.md` (`9795722`, 0 críticos / 3 warnings / 2 infos),
+  `18-SECURITY.md` (`a5ba043`, SECURED 6/6, `threats_open: 0`),
+  `18-VERIFICATION.md` (`51a0bb6`, `human_needed`, score 1/5 must-haves),
+  `18-VALIDATION.md` (`2cb5390`, `validated`, `nyquist_compliant: false`) e
+  `18-UAT.md` (`95a7e47`, item 5 automatizado PASS, itens 1-4 físicos
+  `pending`). Pendências:
+  (1) UAT física do v1.4 — 4 itens de `18-UAT.md`;
+  (2) UAT física do v1.3 — roteiro de 6 itens em
+  `.planning/UAT-FISICO-15-16-17.md`, `head_alvo` `42f1e58` (Fases 15 e 16
+  continuam bloqueadas nesse portão humano; nada deste item foi
+  auto-aprovado);
+  (3) decisão staging/RLS comportamental (PREF-02/IDOR-01) — rodar
+  `scripts/neon-rls-smoke.mjs` contra staging ou aceitar waive formal;
+  (4) PREF-03 — divergência aberta do duplo toque em `saving` (a
+  implementação serializa uma segunda chamada em vez de uma única);
+  (5) WR-02 da Fase 14 (ícone do widget ainda aponta para
+  `https://github.com/expo.png`, baixado a cada `prebuild`);
+  (6) IN-01 do `16-REVIEW.md` (`adjustRest` sem `deltaSeconds` é acked
   silenciosamente na fila, tratamento assimétrico com `adjustReps`/
-  `adjustLoad` — `src/store/activeSessionStore.ts:1913-1916`).
+  `adjustLoad` — `src/store/activeSessionStore.ts:1913-1916`);
+  (7) decisão sobre os 3 warnings do `18-REVIEW.md` (WR-01 race de writers
+  na Live Activity, WR-02 mutação in-place de `SaveToken`, WR-03 resync de
+  foco no Settings) — corrigir ou aceitar;
+  (8) arquivamento do milestone após tudo resolvido
+  (`gsd-audit-milestone` → `gsd-complete-milestone`).
 
-- **UAT física do v1.3 permanece pendente** — roteiro de 6 itens em
-  `.planning/UAT-FISICO-15-16-17.md`, agora contra o HEAD `42f1e58` (o merge
-  tematizou `SessionPlayer` e a Live Activity, comportamento coberto pelos
-  itens do roteiro). Fases 15 e 16 continuam bloqueadas nesse portão humano;
-  nada deste item foi auto-aprovado.
+- **Substrato de UAT mudou em 2026-08-20:** o app instalado no iPhone do
+  dono aponta hoje para PRODUÇÃO (`.env` trocado, bundle provado com URLs de
+  produção, instalado). Voltar ao substrato local exige reverter o `.env` e
+  refazer o build.
 
 ## Deferred Items
 
