@@ -38,6 +38,10 @@ jest.mock('expo-font', () => ({ useFonts: () => [true, undefined] }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('../src/contexts/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+  // ThemedRoot (App.tsx) lê useAuth() para repassar userId/profile ao
+  // ThemeProvider — este teste não exercita tematização, só o guard de
+  // Platform.OS no efeito root, então um dono anônimo (sem sessão) basta.
+  useAuth: () => ({ user: null, profile: null }),
 }));
 jest.mock('../src/navigation/RootNavigator', () => ({
   __esModule: true,

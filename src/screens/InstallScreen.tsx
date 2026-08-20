@@ -25,7 +25,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { ForcaLockup } from '../components/ui/Logo';
 import Button from '../components/ui/Button';
 import { Chip, Notice } from '../components/ui/Feedback';
@@ -44,22 +45,27 @@ type StepRowProps = {
   isLast?: boolean;
 };
 
-const StepRow = ({ number, icon, title, description, isLast = false }: StepRowProps) => (
-  <View style={[styles.stepRow, isLast && styles.stepRowLast]}>
-    <View style={styles.stepBadge}>
-      <Text style={styles.stepBadgeNumber}>{number}</Text>
-    </View>
-    <View style={styles.stepText}>
-      <View style={styles.stepTitleRow}>
-        <Feather name={icon} size={18} color={theme.colors.text.primary} />
-        <Text style={styles.stepTitle}>{title}</Text>
+const StepRow = ({ number, icon, title, description, isLast = false }: StepRowProps) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+  return (
+    <View style={[styles.stepRow, isLast && styles.stepRowLast]}>
+      <View style={styles.stepBadge}>
+        <Text style={styles.stepBadgeNumber}>{number}</Text>
       </View>
-      <Text style={styles.stepDescription}>{description}</Text>
+      <View style={styles.stepText}>
+        <View style={styles.stepTitleRow}>
+          <Feather name={icon} size={18} color={theme.colors.text.primary} />
+          <Text style={styles.stepTitle}>{title}</Text>
+        </View>
+        <Text style={styles.stepDescription}>{description}</Text>
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const InstallScreen = ({ homeRoute }: InstallScreenProps) => {
+  const styles = useThemeStyles(createStyles);
   // Hook primeiro — Rules of Hooks (WR-01, 12-REVIEW.md): nunca condicionar
   // a chamada de um hook a um early return. `any`: InstallScreen monta em 3
   // árvores tipadas de forma diferente (AuthNavigator sem generic,
@@ -99,8 +105,9 @@ const InstallScreen = ({ homeRoute }: InstallScreenProps) => {
 
 // --- Estado 1: iOS + Safari (caminho feliz) --------------------------------
 
-const InstallScreenIOSSafari = () => (
-  <>
+const InstallScreenIOSSafari = () => {
+  const styles = useThemeStyles(createStyles);
+  return <>
     <Text style={styles.eyebrow}>INSTALAÇÃO</Text>
     <Text style={styles.headline} accessibilityRole="header">
       Instale o ForçaApp no seu iPhone
@@ -133,13 +140,14 @@ const InstallScreenIOSSafari = () => (
       Pronto! O ícone do ForçaApp vai aparecer na sua Tela de Início, igual a um aplicativo de
       verdade.
     </Text>
-  </>
-);
+  </>;
+};
 
 // --- Estado 2: iOS + outro navegador ---------------------------------------
 
-const InstallScreenIOSOtherBrowser = () => (
-  <>
+const InstallScreenIOSOtherBrowser = () => {
+  const styles = useThemeStyles(createStyles);
+  return <>
     <Text style={styles.headline} accessibilityRole="header">
       Abra este link no Safari
     </Text>
@@ -149,12 +157,13 @@ const InstallScreenIOSOtherBrowser = () => (
       description='Toque e segure este link, escolha "Copiar" e cole na barra de endereço do Safari. Ou toque no menu do seu navegador e escolha "Abrir no Safari", se essa opção aparecer.'
       style={styles.notice}
     />
-  </>
-);
+  </>;
+};
 
 // --- Estado 3: desktop/Android + UA não reconhecida ------------------------
 
 const InstallScreenFallback = () => {
+  const styles = useThemeStyles(createStyles);
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   return (
@@ -185,8 +194,10 @@ const InstallScreenStandalone = ({
 }: {
   homeRoute: string;
   navigation: StandaloneNav;
-}) => (
-  <>
+}) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+  return <>
     <View style={styles.successBadge}>
       <Feather name="check-circle" size={22} color={theme.colors.accent.main} />
     </View>
@@ -204,10 +215,10 @@ const InstallScreenStandalone = ({
       onPress={() => navigation.navigate(homeRoute)}
       style={styles.cta}
     />
-  </>
-);
+  </>;
+};
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.colors.surface.canvas,

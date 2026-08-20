@@ -1,11 +1,13 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { stackCardStyle, stackTransition } from './navigationStyles';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigatorScreenParams } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
-import theme from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
+import type { Theme } from '../theme/theme';
 
 // Tipo dos nomes de ícone válidos do Feather (evita string genérica)
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
@@ -15,6 +17,7 @@ import HomeScreen from '../screens/HomeScreen';
 import TrainingSessionScreen from '../screens/TrainingSessionScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import WorkoutDetailScreen from '../screens/WorkoutDetailScreen';
 import ActiveSessionScreen from '../screens/ActiveSessionScreen';
 import SessionHistoryScreen from '../screens/SessionHistoryScreen';
@@ -75,6 +78,7 @@ export type ProgressStackParamList = {
 
 export type ProfileStackParamList = {
   ProfileMain: undefined;
+  Settings: undefined;
 };
 
 /**
@@ -140,11 +144,33 @@ function ProfileStackNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false, cardStyle: stackCardStyle, ...stackTransition }}>
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStack.Screen name="Settings" component={SettingsScreen} />
     </ProfileStack.Navigator>
   );
 }
 
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    tabBar: {
+      height: 64,
+      paddingTop: theme.spacing.sm,
+      paddingBottom: theme.spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border.subtle,
+      backgroundColor: theme.colors.surface.canvas,
+      elevation: 0,
+    },
+    tabBarLabel: {
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+  });
+
 const MainNavigator = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+
   return (
     <BottomTab.Navigator
       screenOptions={({ route }) => ({
@@ -174,20 +200,8 @@ const MainNavigator = () => {
         // A aba ativa é um dos poucos lugares onde o neon aparece no chrome.
         tabBarActiveTintColor: theme.colors.accent.main,
         tabBarInactiveTintColor: theme.colors.text.quiet,
-        tabBarStyle: {
-          height: 64,
-          paddingTop: theme.spacing.sm,
-          paddingBottom: theme.spacing.sm,
-          borderTopWidth: 1,
-          borderTopColor: theme.colors.border.subtle,
-          backgroundColor: theme.colors.surface.canvas,
-          elevation: 0,
-        },
-        tabBarLabelStyle: {
-          fontFamily: theme.fonts.ui,
-          fontSize: theme.typography.fontSizes.micro,
-          fontWeight: theme.typography.fontWeights.semiBold,
-        },
+        tabBarStyle: styles.tabBar,
+        tabBarLabelStyle: styles.tabBarLabel,
       })}
     >
       {/* Os nomes de rota seguem os mesmos; só os rótulos visíveis mudam. */}

@@ -21,7 +21,8 @@ import {
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Feather } from '@expo/vector-icons';
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import {
   canCompleteSet,
   exerciseIdentity,
@@ -91,7 +92,8 @@ export const repsAlvo = (set: DraftSet): string =>
 export const alvoDaSerie = (exercise: DraftExercise, set: DraftSet): string => {
   if (!isTimeBased(metricOf(exercise))) return `${repsAlvo(set)} REPS`;
   const partes: string[] = [];
-  if (set.targetDurationSeconds) partes.push(formatDuration(set.targetDurationSeconds));
+  if (set.targetDurationSeconds)
+    partes.push(formatDuration(set.targetDurationSeconds));
   if (set.targetDistanceM) partes.push(formatDistance(set.targetDistanceM));
   return partes.length > 0 ? partes.join(' · ') : 'LIVRE';
 };
@@ -119,6 +121,8 @@ type Props = {
 };
 
 const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const activateSet = useActiveSessionStore((s) => s.activateSet);
   const setLoad = useActiveSessionStore((s) => s.setLoad);
   const stepLoad = useActiveSessionStore((s) => s.stepLoad);
@@ -173,7 +177,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     )
       ? next
       : null);
-  const restEndsAtMs = draft.restEndsAt ? new Date(draft.restEndsAt).getTime() : Number.NaN;
+  const restEndsAtMs = draft.restEndsAt
+    ? new Date(draft.restEndsAt).getTime()
+    : Number.NaN;
   const restRemainingDisplay = Number.isFinite(restEndsAtMs)
     ? Math.round((restEndsAtMs - Date.now()) / 1000)
     : 0;
@@ -224,7 +230,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
 
   // Pulso discreto do relógio nos 5 segundos finais.
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const emReta = emDescanso && restRemainingDisplay <= 5 && restRemainingDisplay > 0;
+  const emReta =
+    emDescanso && restRemainingDisplay <= 5 && restRemainingDisplay > 0;
   useEffect(() => {
     if (!emReta) {
       pulseAnim.setValue(1);
@@ -232,8 +239,16 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.06, duration: 420, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+        Animated.timing(pulseAnim, {
+          toValue: 1.06,
+          duration: 420,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 420,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -268,7 +283,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
   useEffect(() => {
     if (!exercicioAtivoId) return;
     const trocou =
-      exercicioAnterior.current !== null && exercicioAnterior.current !== exercicioAtivoId;
+      exercicioAnterior.current !== null &&
+      exercicioAnterior.current !== exercicioAtivoId;
     exercicioAnterior.current = exercicioAtivoId;
     if (!trocou) return undefined;
     entrada.setValue(0);
@@ -290,11 +306,18 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
 
   const estiloDeEntrada = {
     transform: [
-      { translateY: entrada.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+      {
+        translateY: entrada.interpolate({
+          inputRange: [0, 1],
+          outputRange: [14, 0],
+        }),
+      },
     ],
   };
 
-  const posicao = exercicioAtivoId ? posicaoDoExercicio(draft, exercicioAtivoId) : null;
+  const posicao = exercicioAtivoId
+    ? posicaoDoExercicio(draft, exercicioAtivoId)
+    : null;
 
   // Trocou de série → o texto em edição não pertence mais a ela. Usa
   // `readyToMeasure` (não só `active`): D-06 revela o card de medição sem
@@ -348,7 +371,11 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           (e) => e.exerciseId === exercise.exerciseId,
         );
         const fechouExercicio = depois ? exercicioConcluido(depois) : false;
-        if (proxima && exercise.restSeconds != null && exercise.restSeconds > 0) {
+        if (
+          proxima &&
+          exercise.restSeconds != null &&
+          exercise.restSeconds > 0
+        ) {
           setRest({
             next: proxima,
             fechouExercicio,
@@ -368,7 +395,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
       <View style={[styles.card, styles.cardRest]} accessibilityRole="timer">
         {/* Fechar o exercício é um marco — merece nome próprio, não "série
             registrada" outra vez. */}
-        <View style={[styles.restDone, descanso.fechouExercicio && styles.restDoneMarco]}>
+        <View
+          style={[
+            styles.restDone,
+            descanso.fechouExercicio && styles.restDoneMarco,
+          ]}
+        >
           <Feather
             name={descanso.fechouExercicio ? 'check-circle' : 'check'}
             size={descanso.fechouExercicio ? 15 : 13}
@@ -389,7 +421,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
 
         {/* Anel: o traço neon drena com o tempo — descanso se esgota. */}
         <View style={styles.ringWrap}>
-          <Svg width={188} height={188} viewBox="0 0 176 176" style={styles.ringSvg}>
+          <Svg
+            width={188}
+            height={188}
+            viewBox="0 0 176 176"
+            style={styles.ringSvg}
+          >
             <Circle
               cx="88"
               cy="88"
@@ -417,7 +454,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
             style={[styles.restClock, { transform: [{ scale: pulseAnim }] }]}
             accessibilityLabel={`Descanso: ${restRemainingDisplay < 0 ? '+' : ''}${formatarTempo(restRemainingDisplay)}`}
           >
-            {restRemainingDisplay < 0 ? '+' : ''}{formatarTempo(restRemainingDisplay)}
+            {restRemainingDisplay < 0 ? '+' : ''}
+            {formatarTempo(restRemainingDisplay)}
           </Animated.Text>
         </View>
 
@@ -449,7 +487,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
               <Text style={styles.proximoKicker}>
                 A SEGUIR
                 {(() => {
-                  const p = posicaoDoExercicio(draft, proxima.exercise.exerciseId);
+                  const p = posicaoDoExercicio(
+                    draft,
+                    proxima.exercise.exerciseId,
+                  );
                   return p ? ` · EXERCÍCIO ${p.indice} DE ${p.total}` : '';
                 })()}
               </Text>
@@ -462,8 +503,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
             </View>
           ) : (
             <Text style={styles.restNext}>
-              Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} · alvo{' '}
-              {alvoDaSerie(proxima.exercise, proxima.set)}
+              Próxima: {proxima.exercise.name} — Série {proxima.set.setOrder} ·
+              alvo {alvoDaSerie(proxima.exercise, proxima.set)}
             </Text>
           )
         ) : null}
@@ -494,7 +535,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     const segundos =
       set.actualDurationSeconds != null ? set.actualDurationSeconds % 60 : null;
     // Pace ao vivo: derivado do que já foi digitado. Sem distância, "—".
-    const pace = paceSecondsPerKm(set.actualDurationSeconds, set.actualDistanceM);
+    const pace = paceSecondsPerKm(
+      set.actualDurationSeconds,
+      set.actualDistanceM,
+    );
 
     const aplicarTempo = (novoMin: number | null, novoSeg: number | null) => {
       const m = novoMin ?? minutos ?? 0;
@@ -511,7 +555,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           </Text>
         ) : null}
         <Text style={styles.kicker}>
-          SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
+          SÉRIE {set.setOrder} DE {totalSeries} · ALVO{' '}
+          {alvoDaSerie(exercise, set)}
         </Text>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
 
@@ -572,7 +617,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
                   );
                 }}
                 placeholder={
-                  set.targetDistanceM ? String(set.targetDistanceM / 1000) : 'km'
+                  set.targetDistanceM
+                    ? String(set.targetDistanceM / 1000)
+                    : 'km'
                 }
                 placeholderTextColor={theme.colors.text.quiet}
                 accessibilityLabel={`Distância da série ${set.setOrder} em quilômetros`}
@@ -584,7 +631,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
         {temDistancia ? (
           <View style={styles.paceRow}>
             <Text style={styles.paceLabel}>Pace</Text>
-            <Text style={styles.paceValue} accessibilityLabel={`Pace ${formatPace(pace)}`}>
+            <Text
+              style={styles.paceValue}
+              accessibilityLabel={`Pace ${formatPace(pace)}`}
+            >
               {formatPace(pace)}
             </Text>
           </View>
@@ -620,7 +670,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
                 }
               >
                 <Text
-                  style={[styles.rirChipText, selected && styles.rirChipTextSelected]}
+                  style={[
+                    styles.rirChipText,
+                    selected && styles.rirChipTextSelected,
+                  ]}
                 >
                   {rotulo}
                 </Text>
@@ -630,7 +683,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
         </View>
 
         <TouchableOpacity
-          style={[styles.completeBtn, (!podeConcluir || saving) && styles.controlDisabled]}
+          style={[
+            styles.completeBtn,
+            (!podeConcluir || saving) && styles.controlDisabled,
+          ]}
           onPress={onConcluir}
           disabled={!podeConcluir || saving}
         >
@@ -688,12 +744,17 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           </Text>
         ) : null}
         <Text style={styles.kicker}>
-          SÉRIE {set.setOrder} DE {totalSeries} · ALVO {alvoDaSerie(exercise, set)}
+          SÉRIE {set.setOrder} DE {totalSeries} · ALVO{' '}
+          {alvoDaSerie(exercise, set)}
         </Text>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
         {!exercise.isBodyweight && ultimaCarga != null ? (
           <View style={styles.lastLine}>
-            <Feather name="rotate-ccw" size={12} color={theme.colors.text.quiet} />
+            <Feather
+              name="rotate-ccw"
+              size={12}
+              color={theme.colors.text.quiet}
+            />
             <Text style={styles.lastLineText}>
               Última carga: {String(ultimaCarga).replace('.', ',')} kg
             </Text>
@@ -819,7 +880,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
         </View>
 
         {/* F10: a sugestão só vira valor gravado quando o aluno ACEITA ou digita. */}
-        {!exercise.isBodyweight && suggestedLoad != null && set.actualLoadKg == null ? (
+        {!exercise.isBodyweight &&
+        suggestedLoad != null &&
+        set.actualLoadKg == null ? (
           <TouchableOpacity
             style={[styles.suggestBtn, saving && styles.controlDisabled]}
             onPress={() => {
@@ -828,7 +891,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
             }}
             disabled={saving}
           >
-            <Text style={styles.suggestText}>Usar sugestão: {suggestedLoad} kg</Text>
+            <Text style={styles.suggestText}>
+              Usar sugestão: {suggestedLoad} kg
+            </Text>
           </TouchableOpacity>
         ) : null}
 
@@ -840,7 +905,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
 
         {/* RIR sem jargão: fôlego que sobrou, em UM toque. Opcional. */}
         <Text style={styles.rirLabel}>
-          Quantas ainda aguentaria? <Text style={styles.rirOptional}>(opcional)</Text>
+          Quantas ainda aguentaria?{' '}
+          <Text style={styles.rirOptional}>(opcional)</Text>
         </Text>
         <View style={styles.rirRow}>
           {RIR_CHOICES.map((n) => {
@@ -857,7 +923,12 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
                   setRir(exercise.exerciseId, set.setOrder, selected ? null : n)
                 }
               >
-                <Text style={[styles.rirChipText, selected && styles.rirChipTextSelected]}>
+                <Text
+                  style={[
+                    styles.rirChipText,
+                    selected && styles.rirChipTextSelected,
+                  ]}
+                >
                   {n === 4 ? '4+' : n}
                 </Text>
               </TouchableOpacity>
@@ -866,7 +937,10 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
         </View>
 
         <TouchableOpacity
-          style={[styles.completeBtn, (!podeConcluir || saving) && styles.controlDisabled]}
+          style={[
+            styles.completeBtn,
+            (!podeConcluir || saving) && styles.controlDisabled,
+          ]}
           onPress={onConcluir}
           disabled={!podeConcluir || saving}
         >
@@ -890,8 +964,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           </Text>
         ) : null}
         <Text style={styles.kicker}>
-          PRÓXIMA · SÉRIE {next.set.setOrder} DE {next.exercise.sets.length} · ALVO{' '}
-          {alvoDaSerie(next.exercise, next.set)}
+          PRÓXIMA · SÉRIE {next.set.setOrder} DE {next.exercise.sets.length} ·
+          ALVO {alvoDaSerie(next.exercise, next.set)}
         </Text>
         <Text style={styles.exerciseName}>{next.exercise.name}</Text>
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
@@ -899,7 +973,9 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           style={styles.completeBtn}
           accessibilityRole="button"
           accessibilityLabel="Iniciar série"
-          onPress={() => activateSet(next.exercise.exerciseId, next.set.setOrder)}
+          onPress={() =>
+            activateSet(next.exercise.exerciseId, next.set.setOrder)
+          }
         >
           <Text style={styles.completeBtnText}>Iniciar série</Text>
         </TouchableOpacity>
@@ -917,341 +993,346 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
   );
 };
 
-const styles = StyleSheet.create({
-  card: {
-    marginBottom: theme.spacing.lg,
-    padding: theme.spacing.xl,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.xl,
-    backgroundColor: theme.colors.surface.card,
-  },
-  cardActive: { borderColor: theme.colors.border.focus },
-  paceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: theme.spacing.md,
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border.subtle,
-  },
-  paceLabel: {
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: theme.colors.text.quiet,
-  },
-  paceValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-  },
-  effortChip: {
-    flex: 1,
-    paddingVertical: theme.spacing.sm,
-    marginRight: theme.spacing.xs,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.md,
-  },
-  cardRest: { alignItems: 'center' },
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    card: {
+      marginBottom: theme.spacing.lg,
+      padding: theme.spacing.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.xl,
+      backgroundColor: theme.colors.surface.card,
+    },
+    cardActive: { borderColor: theme.colors.border.focus },
+    paceRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      marginTop: theme.spacing.md,
+      paddingTop: theme.spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border.subtle,
+    },
+    paceLabel: {
+      fontSize: 12,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      color: theme.colors.text.quiet,
+    },
+    paceValue: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: theme.colors.text.primary,
+    },
+    effortChip: {
+      flex: 1,
+      paddingVertical: theme.spacing.sm,
+      marginRight: theme.spacing.xs,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.md,
+    },
+    cardRest: { alignItems: 'center' },
 
-  restDone: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-    marginBottom: theme.spacing.md,
-  },
-  restDoneText: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  // Fim de exercício é marco: ganha pílula e cor de acento para não se
-  // confundir com o "série registrada" de sempre.
-  restDoneMarco: {
-    paddingVertical: theme.spacing.xxs,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.pill,
-    backgroundColor: theme.colors.accent.soft,
-  },
-  restDoneTextMarco: {
-    color: theme.colors.text.accent,
-    fontSize: theme.typography.fontSizes.base,
-  },
-  proximoExercicio: {
-    marginTop: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border.subtle,
-    alignItems: 'center',
-    alignSelf: 'stretch',
-  },
-  proximoKicker: {
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    fontWeight: theme.typography.fontWeights.bold,
-    letterSpacing: theme.typography.letterSpacing.wide,
-    textTransform: 'uppercase',
-  },
-  proximoNome: {
-    marginTop: theme.spacing.xxs,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.display,
-    fontSize: theme.typography.fontSizes.xl,
-    textAlign: 'center',
-  },
-  // Onde o aluno está no treino — some no ruído até precisar, e é o que
-  // ancora a sensação de progresso entre um exercício e outro.
-  exercisePos: {
-    marginBottom: theme.spacing.xxs,
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    fontWeight: theme.typography.fontWeights.bold,
-    letterSpacing: theme.typography.letterSpacing.wide,
-  },
-  ringWrap: {
-    width: 188,
-    height: 188,
-    marginTop: theme.spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ringSvg: { position: 'absolute', transform: [{ rotate: '-90deg' }] },
-  restAdjust: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.lg,
-  },
-  adjustChip: {
-    minHeight: theme.hitTarget.compact,
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.pill,
-    backgroundColor: theme.colors.surface.elevated,
-  },
-  adjustChipText: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  lastLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-    marginTop: theme.spacing.xs,
-  },
-  lastLineText: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-  },
+    restDone: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+      marginBottom: theme.spacing.md,
+    },
+    restDoneText: {
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    // Fim de exercício é marco: ganha pílula e cor de acento para não se
+    // confundir com o "série registrada" de sempre.
+    restDoneMarco: {
+      paddingVertical: theme.spacing.xxs,
+      paddingHorizontal: theme.spacing.md,
+      borderRadius: theme.borderRadius.pill,
+      backgroundColor: theme.colors.accent.soft,
+    },
+    restDoneTextMarco: {
+      color: theme.colors.text.accent,
+      fontSize: theme.typography.fontSizes.base,
+    },
+    proximoExercicio: {
+      marginTop: theme.spacing.lg,
+      paddingTop: theme.spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border.subtle,
+      alignItems: 'center',
+      alignSelf: 'stretch',
+    },
+    proximoKicker: {
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      fontWeight: theme.typography.fontWeights.bold,
+      letterSpacing: theme.typography.letterSpacing.wide,
+      textTransform: 'uppercase',
+    },
+    proximoNome: {
+      marginTop: theme.spacing.xxs,
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.display,
+      fontSize: theme.typography.fontSizes.xl,
+      textAlign: 'center',
+    },
+    // Onde o aluno está no treino — some no ruído até precisar, e é o que
+    // ancora a sensação de progresso entre um exercício e outro.
+    exercisePos: {
+      marginBottom: theme.spacing.xxs,
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      fontWeight: theme.typography.fontWeights.bold,
+      letterSpacing: theme.typography.letterSpacing.wide,
+    },
+    ringWrap: {
+      width: 188,
+      height: 188,
+      marginTop: theme.spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    ringSvg: { position: 'absolute', transform: [{ rotate: '-90deg' }] },
+    restAdjust: {
+      flexDirection: 'row',
+      gap: theme.spacing.sm,
+      marginTop: theme.spacing.lg,
+    },
+    adjustChip: {
+      minHeight: theme.hitTarget.compact,
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.pill,
+      backgroundColor: theme.colors.surface.elevated,
+    },
+    adjustChipText: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    lastLine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+      marginTop: theme.spacing.xs,
+    },
+    lastLineText: {
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+    },
 
-  kicker: {
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    letterSpacing: theme.typography.letterSpacing.wide,
-    textTransform: 'uppercase',
-  },
-  exerciseName: {
-    marginTop: theme.spacing.xxs,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.display,
-    fontSize: theme.typography.fontSizes.xl,
-  },
+    kicker: {
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      letterSpacing: theme.typography.letterSpacing.wide,
+      textTransform: 'uppercase',
+    },
+    exerciseName: {
+      marginTop: theme.spacing.xxs,
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.display,
+      fontSize: theme.typography.fontSizes.xl,
+    },
 
-  restClock: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.display,
-    fontSize: 44,
-    lineHeight: 50,
-  },
-  restNext: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    textAlign: 'center',
-  },
+    restClock: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.display,
+      fontSize: 44,
+      lineHeight: 50,
+    },
+    restNext: {
+      marginTop: theme.spacing.sm,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      textAlign: 'center',
+    },
 
-  inputsRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: theme.spacing.md,
-    marginTop: theme.spacing.lg,
-  },
-  field: { flex: FIELD_FLEX },
-  fieldLabel: {
-    marginBottom: theme.spacing.xxs,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-  },
-  bigInput: {
-    minHeight: theme.hitTarget.regular,
-    paddingHorizontal: theme.spacing.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface.elevated,
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.display,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    textAlign: 'center',
-  },
-  loadInput: LOAD_INPUT_STYLE,
-  repsInput: REPS_INPUT_STYLE,
-  // D-03: marca do valor herdado (ainda não tocado) — mesma cor discreta de
-  // `lastLineText` ("Última carga"), sem paleta nova. Some assim que o aluno
-  // toca +/− pela primeira vez.
-  inheritedValue: {
-    color: theme.colors.text.quiet,
-  },
-  // Reps e carga empilhados no card measuring (D-05): cada campo ocupa a
-  // largura inteira do card — os dois agora têm o mesmo formato de stepper
-  // (2 botões de 50pt + valor), e side-by-side (o antigo inputsRow) não
-  // sobra espaço nem para os botões do próprio stepper de reps a 390pt.
-  measureFields: {
-    marginTop: theme.spacing.lg,
-    gap: theme.spacing.md,
-  },
-  measureField: {},
-  // "kg" em corpo menor que o número: no mesmo tamanho de fonte do valor
-  // (bigInput/loadInput), o sufixo sozinho já apertava a folga de largura
-  // medida em loadInputLayoutWeb.test.ts (8,3pt) a negativo em 390pt.
-  loadUnitSuffix: {
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.medium,
-    color: theme.colors.text.quiet,
-  },
-  bodyweightTag: {
-    paddingVertical: theme.spacing.md,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    textAlign: 'center',
-  },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
-  stepBtn: {
-    width: theme.hitTarget.regular,
-    height: theme.hitTarget.regular,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface.elevated,
-  },
-  stepBtnText: {
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xl,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
+    inputsRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: theme.spacing.md,
+      marginTop: theme.spacing.lg,
+    },
+    field: { flex: FIELD_FLEX },
+    fieldLabel: {
+      marginBottom: theme.spacing.xxs,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+    },
+    bigInput: {
+      minHeight: theme.hitTarget.regular,
+      paddingHorizontal: theme.spacing.sm,
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.lg,
+      backgroundColor: theme.colors.surface.elevated,
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.display,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      textAlign: 'center',
+    },
+    loadInput: LOAD_INPUT_STYLE,
+    repsInput: REPS_INPUT_STYLE,
+    // D-03: marca do valor herdado (ainda não tocado) — mesma cor discreta de
+    // `lastLineText` ("Última carga"), sem paleta nova. Some assim que o aluno
+    // toca +/− pela primeira vez.
+    inheritedValue: {
+      color: theme.colors.text.quiet,
+    },
+    // Reps e carga empilhados no card measuring (D-05): cada campo ocupa a
+    // largura inteira do card — os dois agora têm o mesmo formato de stepper
+    // (2 botões de 50pt + valor), e side-by-side (o antigo inputsRow) não
+    // sobra espaço nem para os botões do próprio stepper de reps a 390pt.
+    measureFields: {
+      marginTop: theme.spacing.lg,
+      gap: theme.spacing.md,
+    },
+    measureField: {},
+    // "kg" em corpo menor que o número: no mesmo tamanho de fonte do valor
+    // (bigInput/loadInput), o sufixo sozinho já apertava a folga de largura
+    // medida em loadInputLayoutWeb.test.ts (8,3pt) a negativo em 390pt.
+    loadUnitSuffix: {
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.medium,
+      color: theme.colors.text.quiet,
+    },
+    bodyweightTag: {
+      paddingVertical: theme.spacing.md,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      textAlign: 'center',
+    },
+    stepper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+    },
+    stepBtn: {
+      width: theme.hitTarget.regular,
+      height: theme.hitTarget.regular,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.lg,
+      backgroundColor: theme.colors.surface.elevated,
+    },
+    stepBtnText: {
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xl,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
 
-  suggestBtn: {
-    alignSelf: 'flex-start',
-    marginTop: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.accent.border,
-    borderRadius: theme.borderRadius.md,
-  },
-  suggestText: {
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  hint: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.status.warning,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-  },
+    suggestBtn: {
+      alignSelf: 'flex-start',
+      marginTop: theme.spacing.md,
+      paddingVertical: theme.spacing.xs,
+      paddingHorizontal: theme.spacing.md,
+      borderWidth: 1,
+      borderColor: theme.colors.accent.border,
+      borderRadius: theme.borderRadius.md,
+    },
+    suggestText: {
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    hint: {
+      marginTop: theme.spacing.sm,
+      color: theme.colors.status.warning,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+    },
 
-  rirLabel: {
-    marginTop: theme.spacing.lg,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-  },
-  rirOptional: { color: theme.colors.text.quiet },
-  rirRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.sm,
-  },
-  rirChip: {
-    minWidth: theme.hitTarget.compact,
-    minHeight: theme.hitTarget.compact,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border.subtle,
-    borderRadius: theme.borderRadius.pill,
-    backgroundColor: theme.colors.surface.elevated,
-  },
-  rirChipSelected: {
-    borderColor: theme.colors.accent.border,
-    backgroundColor: theme.colors.accent.soft,
-  },
-  rirChipText: {
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  rirChipTextSelected: { color: theme.colors.text.accent },
+    rirLabel: {
+      marginTop: theme.spacing.lg,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+    },
+    rirOptional: { color: theme.colors.text.quiet },
+    rirRow: {
+      flexDirection: 'row',
+      gap: theme.spacing.sm,
+      marginTop: theme.spacing.sm,
+    },
+    rirChip: {
+      minWidth: theme.hitTarget.compact,
+      minHeight: theme.hitTarget.compact,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border.subtle,
+      borderRadius: theme.borderRadius.pill,
+      backgroundColor: theme.colors.surface.elevated,
+    },
+    rirChipSelected: {
+      borderColor: theme.colors.accent.border,
+      backgroundColor: theme.colors.accent.soft,
+    },
+    rirChipText: {
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    rirChipTextSelected: { color: theme.colors.text.accent },
 
-  autoNote: {
-    marginTop: theme.spacing.md,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    textAlign: 'center',
-  },
-  secondaryBtn: {
-    marginTop: theme.spacing.lg,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.xl,
-    borderWidth: 1,
-    borderColor: theme.colors.border.strong,
-    borderRadius: theme.borderRadius.md,
-  },
-  secondaryBtnText: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.base,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
+    autoNote: {
+      marginTop: theme.spacing.md,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      textAlign: 'center',
+    },
+    secondaryBtn: {
+      marginTop: theme.spacing.lg,
+      paddingVertical: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.border.strong,
+      borderRadius: theme.borderRadius.md,
+    },
+    secondaryBtnText: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
 
-  completeBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: theme.hitTarget.regular,
-    marginTop: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.accent.main,
-  },
-  controlDisabled: { opacity: 0.45 },
-  completeBtnText: {
-    color: theme.colors.accent.on,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.md,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-});
+    completeBtn: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: theme.hitTarget.regular,
+      marginTop: theme.spacing.lg,
+      borderRadius: theme.borderRadius.lg,
+      backgroundColor: theme.colors.accent.main,
+    },
+    controlDisabled: { opacity: 0.45 },
+    completeBtnText: {
+      color: theme.colors.accent.on,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.md,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+  });
 
 export default SessionPlayer;

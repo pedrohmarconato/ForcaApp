@@ -33,6 +33,9 @@ public struct SessionActivityAttributes: ActivityAttributes {
         var nextSuggestedReps: Int?
         var nextSuggestedLoadKg: Double?
         var nextIsBodyweight: Bool?
+        // D-10: opcional ao fim — Activities publicadas pelo binário legado
+        // (sem o campo) continuam decodificáveis; nil cai no fallback yellow.
+        var neonColor: String?
     }
 
     var sessionLogId: String

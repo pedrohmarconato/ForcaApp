@@ -23,7 +23,8 @@ import {
   type CatalogMetric,
 } from '../services/exerciseCatalogService';
 import { useManualPlanStore } from '../store/manualPlanStore';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import {
   formatWorkDuration,
   isValidExercise,
@@ -68,6 +69,8 @@ const numberOrNull = (value: string): number | null => {
 };
 
 const ExercisePickerScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const workoutIndex = route.params?.workoutIndex ?? 0;
@@ -445,7 +448,7 @@ const ExercisePickerScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   hint: {
     color: theme.colors.text.secondary,
     fontSize: theme.typography.fontSizes.sm,

@@ -4,7 +4,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { linkingInterceptor, linkingMain } from './linking';
 import { consumirConvitePendente } from '../services/jointInvitePending';
 import { ActivityIndicator, View, StyleSheet, Text } from 'react-native';
-import theme from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import AuthNavigator from './AuthNavigator';
@@ -27,6 +27,8 @@ const despacharConvite = (codigo) => {
 };
 
 const RootNavigator = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   // ... (estados e useEffect permanecem os mesmos da versão anterior) ...
   const { session, profile, loadingSession, loadingProfile, errorProfile } = useAuth();
   const [shouldStayLoggedIn, setShouldStayLoggedIn] = useState(false);
@@ -177,7 +179,7 @@ const RootNavigator = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

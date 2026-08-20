@@ -25,6 +25,9 @@ public struct LiveActivityContentStateRecord: Record {
   @Field var nextSuggestedReps: Int? = nil
   @Field var nextSuggestedLoadKg: Double? = nil
   @Field var nextIsBodyweight: Bool? = nil
+  // D-10: acento neon da Live Activity (yellow|blue|green|red). Opcional com
+  // default nil para manter payloads legados (sem o campo) decodificáveis.
+  @Field var neonColor: String? = nil
 
   public init() {}
 }
@@ -90,7 +93,8 @@ public class LiveActivityModule: Module {
       nextSetTotal: record.nextSetTotal,
       nextSuggestedReps: record.nextSuggestedReps,
       nextSuggestedLoadKg: record.nextSuggestedLoadKg,
-      nextIsBodyweight: record.nextIsBodyweight
+      nextIsBodyweight: record.nextIsBodyweight,
+      neonColor: record.neonColor
     )
   }
 

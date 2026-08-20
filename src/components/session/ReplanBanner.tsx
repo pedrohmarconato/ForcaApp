@@ -12,7 +12,8 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import FModules from '../ui/FModules';
 import {
   montarMudancas,
@@ -52,6 +53,9 @@ const plural = (n: number, singular: string, pluralForm: string): string =>
 
 /** Um cartão por mudança: ícone dá a natureza, o corpo dá o antes → depois. */
 const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+
   switch (mudanca.tipo) {
     case 'corte_de_tempo':
       return (
@@ -99,6 +103,9 @@ const CartaoDeMudanca = ({ mudanca }: { mudanca: MudancaDoReplan }) => {
 };
 
 const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onConfirmReagendamento, onDecline, onDeclineReagendamento }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+
   // Se há reencaixe, mostra o cartão de reencaixe.
   if (reagendamento && reagendamento.movidas.length > 0) {
     return (
@@ -309,7 +316,7 @@ const ReplanBanner = ({ proposal, reagendamento, sessions, busy, onConfirm, onCo
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   coachRow: {
     flexDirection: 'row',
     alignItems: 'center',

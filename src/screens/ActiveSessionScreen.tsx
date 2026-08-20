@@ -20,7 +20,8 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { showAlert } from '../utils/alertShim';
 import type { HomeStackParamList } from '../navigation/MainNavigator';
 import { useAuth } from '../contexts/AuthContext';
@@ -68,6 +69,8 @@ type Props = { route: { params: { sessionId: string } } };
 const WAKE_LOCK_TAG = 'active-session';
 
 const ActiveSessionScreen = ({ route }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const { sessionId } = route.params;
   // ActiveSession existe na Home e no Training stack; o ParamList da Home basta
   // para tipar popToTop/canGoBack (não dependem de params específicos).
@@ -759,7 +762,7 @@ const ActiveSessionScreen = ({ route }: Props) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   centered: {
     flex: 1,

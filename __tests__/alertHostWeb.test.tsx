@@ -5,12 +5,49 @@
 // AlertHost usa Modal/Pressable/Text/TouchableOpacity de verdade.
 
 import React from 'react';
-import { Modal, Platform } from 'react-native';
-import { render, fireEvent, act } from '@testing-library/react-native';
+import { Modal, Platform, StyleSheet } from 'react-native';
+import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
 
 import AlertHost from '../src/components/AlertHost';
 import { showAlert } from '../src/utils/alertShim';
 import { useAlertStore } from '../src/store/alertStore';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { createTheme } from '../src/theme/theme';
+
+let mockAuthState: {
+  user: { id: string } | null;
+  profile: { id: string; neon_color: string } | null;
+} = { user: null, profile: null };
+
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => mockAuthState,
+}));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+
+const setThemeColor = (neonColor: string) => {
+  mockAuthState = {
+    user: { id: 'alert-host-web-user' },
+    profile: { id: 'alert-host-web-user', neon_color: neonColor },
+  };
+};
+
+const renderThemed = (element: React.ReactElement, neonColor = 'yellow') => {
+  setThemeColor(neonColor);
+  const result = render(<ThemeProvider>{element}</ThemeProvider>);
+
+  return {
+    ...result,
+    rerenderWithTheme: (nextElement: React.ReactElement, nextColor: string) => {
+      setThemeColor(nextColor);
+      result.rerender(<ThemeProvider>{nextElement}</ThemeProvider>);
+    },
+  };
+};
+
+const styleValue = (node: any, property: string) =>
+  StyleSheet.flatten(node.props.style)?.[property];
 
 // Platform.OS mockado para 'web' via Object.defineProperty (não via
 // jest.mock('react-native', ...) — esse molde reimporta o módulo nativo
@@ -33,12 +70,37 @@ describe('AlertHost (web)', () => {
   });
 
   it('sem alerta ativo não renderiza Modal (retorna null)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     expect(screen.queryByTestId('alert-host-backdrop')).toBeNull();
   });
 
+  it('preserva ThemeProvider no rerender e troca acento e danger sem perder roles/labels', async () => {
+    const alert = {
+      title: 'Excluir treino?',
+      message: 'Esta ação não pode ser desfeita.',
+      buttons: [{ text: 'Excluir', style: 'destructive' as const }],
+    };
+    useAlertStore.getState().show(alert);
+
+    const screen = renderThemed(<AlertHost />, 'yellow');
+    expect(styleValue(screen.getByText('Excluir'), 'color')).toBe(
+      createTheme('yellow').colors.status.danger,
+    );
+
+    screen.rerenderWithTheme(<AlertHost />, 'blue');
+    await waitFor(() =>
+      expect(styleValue(screen.getByText('Excluir'), 'color')).toBe(
+        createTheme('blue').colors.status.danger,
+      ),
+    );
+
+    expect(screen.getByRole('button', { name: 'Fechar' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Excluir' })).not.toHaveLength(0);
+    screen.unmount();
+  });
+
   it('showAlert("Concluir treino?", ...) faz o texto aparecer na árvore renderizada', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPress = jest.fn();
     act(() => {
       showAlert(
@@ -54,7 +116,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('pressionar "Concluir" chama o onPress 1 vez e fecha o alerta (current volta a null)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPress = jest.fn();
     act(() => {
       showAlert(
@@ -72,7 +134,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('showAlert(..., []) (buttons vazio) cai para o botão padrão "OK" em vez de renderizar zero botões (WR-01)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     act(() => {
       showAlert('Aviso', 'Mensagem informativa', []);
     });
@@ -81,7 +143,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('alerta de botão único (ex.: "Cadastro realizado!" do SignUpScreen): pressionar o backdrop NÃO fecha o alerta nem dispara o onPress (WR-03, mirror do bloqueio nativo de single-button alert no iOS)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPress = jest.fn();
     act(() => {
       showAlert(
@@ -101,7 +163,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('alerta de múltiplos botões (ex.: "Concluir treino?" do ActiveSessionScreen): pressionar o backdrop fecha o alerta e dispara o onPress do botão style="cancel" (mirror do back-dismiss nativo do Android)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPressCancelar = jest.fn();
     const onPressConcluir = jest.fn();
     act(() => {
@@ -121,7 +183,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('alerta de múltiplos botões sem nenhum style="cancel": pressionar o backdrop fecha o alerta sem disparar nenhum onPress', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPress1 = jest.fn();
     const onPress2 = jest.fn();
     act(() => {
@@ -137,7 +199,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('WR-02: alerta de botão único — onRequestClose do Modal (Escape no web) NÃO fecha o alerta nem dispara o onPress, mirror do bloqueio do backdrop (WR-03)', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPress = jest.fn();
     act(() => {
       showAlert(
@@ -162,7 +224,7 @@ describe('AlertHost (web)', () => {
   });
 
   it('WR-02: alerta de múltiplos botões — onRequestClose do Modal fecha o alerta e dispara o onPress do botão style="cancel", igual ao backdrop', () => {
-    const screen = render(<AlertHost />);
+    const screen = renderThemed(<AlertHost />);
     const onPressCancelar = jest.fn();
     const onPressConcluir = jest.fn();
     act(() => {

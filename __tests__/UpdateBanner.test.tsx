@@ -21,11 +21,60 @@
 // `location.reload` provar ausência de chamada.
 
 import React from 'react';
-import { Platform } from 'react-native';
-import { render, fireEvent, act } from '@testing-library/react-native';
+import { Platform, StyleSheet } from 'react-native';
+import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
 
 import UpdateBanner from '../src/components/UpdateBanner';
 import { useUpdateStore } from '../src/store/updateStore';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { createTheme } from '../src/theme/theme';
+
+let mockAuthState: {
+  user: { id: string } | null;
+  profile: { id: string; neon_color: string } | null;
+} = { user: null, profile: null };
+
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => mockAuthState,
+}));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+
+// ThemeProvider não chama mais useAuth() internamente (fix da coesão
+// tema/auth) — quem instancia <ThemeProvider> direto precisa repassar
+// userId/profile por prop, lidos do mesmo mockAuthState.
+const authThemeProps = () => ({
+  userId: mockAuthState.user?.id ?? null,
+  profile: mockAuthState.profile,
+});
+
+const setThemeColor = (neonColor: string) => {
+  mockAuthState = {
+    user: { id: 'update-banner-web-user' },
+    profile: { id: 'update-banner-web-user', neon_color: neonColor },
+  };
+};
+
+const renderThemed = (element: React.ReactElement, neonColor = 'yellow') => {
+  setThemeColor(neonColor);
+  const result = render(
+    <ThemeProvider {...authThemeProps()}>{element}</ThemeProvider>,
+  );
+
+  return {
+    ...result,
+    rerenderWithTheme: (nextElement: React.ReactElement, nextColor: string) => {
+      setThemeColor(nextColor);
+      result.rerender(
+        <ThemeProvider {...authThemeProps()}>{nextElement}</ThemeProvider>,
+      );
+    },
+  };
+};
+
+const styleValue = (node: any, property: string) =>
+  StyleSheet.flatten(node.props.style)?.[property];
 
 // WR-01 (iteração 3): espelha o contrato real de register-sw.js, que SEMPRE
 // grava `window.__swUpdateAvailable = true` imediatamente antes de despachar
@@ -65,14 +114,33 @@ describe('UpdateBanner (web)', () => {
   });
 
   it('sem nenhum evento sw-update-available disparado, não renderiza nada (retorna null)', () => {
-    const screen = render(<UpdateBanner />);
+    const screen = renderThemed(<UpdateBanner />);
     expect(screen.queryByText('Nova versão disponível')).toBeNull();
     expect(screen.queryByText('Atualizar')).toBeNull();
     expect(screen.queryByText('Depois')).toBeNull();
   });
 
+  it('preserva ThemeProvider no rerender e troca o label primary sem duplicar listener', async () => {
+    useUpdateStore.getState().setWaiting(true);
+    const screen = renderThemed(<UpdateBanner />, 'yellow');
+    expect(styleValue(screen.getByText('Atualizar'), 'color')).toBe(
+      createTheme('yellow').colors.text.accent,
+    );
+
+    screen.rerenderWithTheme(<UpdateBanner />, 'green');
+    await waitFor(() =>
+      expect(styleValue(screen.getByText('Atualizar'), 'color')).toBe(
+        createTheme('green').colors.text.accent,
+      ),
+    );
+
+    expect(screen.getByRole('button', { name: 'Atualizar' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Depois' })).toBeTruthy();
+    screen.unmount();
+  });
+
   it('depois do CustomEvent sw-update-available, mostra "Nova versão disponível" e os botões Atualizar/Depois', () => {
-    const screen = render(<UpdateBanner />);
+    const screen = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });
@@ -82,7 +150,7 @@ describe('UpdateBanner (web)', () => {
   });
 
   it('tocar em Atualizar despacha sw-apply-update exatamente uma vez e nunca chama reload diretamente', () => {
-    const screen = render(<UpdateBanner />);
+    const screen = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });
@@ -99,7 +167,7 @@ describe('UpdateBanner (web)', () => {
   });
 
   it('tocar em Depois esconde o banner e NÃO despacha sw-apply-update', () => {
-    const screen = render(<UpdateBanner />);
+    const screen = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });
@@ -119,7 +187,7 @@ describe('UpdateBanner (web)', () => {
   it('Platform.OS !== "web" (ex.: ios): retorna null mesmo depois do evento, nunca escuta a window', () => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
     try {
-      const screen = render(<UpdateBanner />);
+      const screen = renderThemed(<UpdateBanner />);
       act(() => {
         dispatchSwUpdateAvailable();
       });
@@ -132,7 +200,7 @@ describe('UpdateBanner (web)', () => {
   it('window.__swUpdateAvailable=true ANTES do mount faz o banner aparecer no primeiro render, sem novo dispatchEvent (WR-02: replay de evento perdido)', () => {
     (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable = true;
     try {
-      const screen = render(<UpdateBanner />);
+      const screen = renderThemed(<UpdateBanner />);
       expect(screen.getByText('Nova versão disponível')).toBeTruthy();
     } finally {
       delete (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable;
@@ -140,7 +208,7 @@ describe('UpdateBanner (web)', () => {
   });
 
   it('depois de "Depois", um NOVO sw-update-available faz o banner reaparecer (CR-01: dismissed nao pode grudar entre atualizacoes)', () => {
-    const screen = render(<UpdateBanner />);
+    const screen = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });
@@ -158,7 +226,7 @@ describe('UpdateBanner (web)', () => {
   it('window.__swUpdateAvailable consumida no mount: um remount sem novo dispatch/flag NÃO reabre o banner depois de "Depois" (WR-01: flag write-only)', () => {
     (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable = true;
     try {
-      const primeiraMontagem = render(<UpdateBanner />);
+      const primeiraMontagem = renderThemed(<UpdateBanner />);
       expect(primeiraMontagem.getByText('Nova versão disponível')).toBeTruthy();
       fireEvent.press(primeiraMontagem.getByText('Depois'));
       expect(primeiraMontagem.queryByText('Nova versão disponível')).toBeNull();
@@ -168,7 +236,7 @@ describe('UpdateBanner (web)', () => {
       // fix, o remount abaixo releria __swUpdateAvailable ainda `true` e
       // sobrescreveria silenciosamente a escolha "Depois" do usuário.
       useUpdateStore.setState({ waiting: false, dismissed: false });
-      const segundaMontagem = render(<UpdateBanner />);
+      const segundaMontagem = renderThemed(<UpdateBanner />);
       expect(segundaMontagem.queryByText('Nova versão disponível')).toBeNull();
     } finally {
       delete (window as unknown as { __swUpdateAvailable?: boolean }).__swUpdateAvailable;
@@ -183,7 +251,7 @@ describe('UpdateBanner (web)', () => {
     // register-sw.js), então este teste reproduz exatamente o caminho real:
     // update chega minutos/horas depois do mount, quando só o listener ao
     // vivo está ativo.
-    const primeiraMontagem = render(<UpdateBanner />);
+    const primeiraMontagem = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });
@@ -197,12 +265,12 @@ describe('UpdateBanner (web)', () => {
     // próximo mount releria a flag ainda `true` e reabriria o banner,
     // contornando a escolha "Depois" do usuário.
     useUpdateStore.setState({ waiting: false, dismissed: false });
-    const segundaMontagem = render(<UpdateBanner />);
+    const segundaMontagem = renderThemed(<UpdateBanner />);
     expect(segundaMontagem.queryByText('Nova versão disponível')).toBeNull();
   });
 
   it('múltiplas montagens/desmontagens e disparos repetidos do evento nunca produzem chamada a reload (guarda contra auto-reload)', () => {
-    const primeiraMontagem = render(<UpdateBanner />);
+    const primeiraMontagem = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
       dispatchSwUpdateAvailable();
@@ -211,7 +279,7 @@ describe('UpdateBanner (web)', () => {
     primeiraMontagem.unmount();
 
     useUpdateStore.setState({ waiting: false, dismissed: false });
-    const segundaMontagem = render(<UpdateBanner />);
+    const segundaMontagem = renderThemed(<UpdateBanner />);
     act(() => {
       dispatchSwUpdateAvailable();
     });

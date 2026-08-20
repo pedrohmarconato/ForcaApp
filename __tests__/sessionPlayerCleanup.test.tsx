@@ -65,6 +65,15 @@ jest.mock('../src/services/api/apiClient', () => ({
     PUSH: { NOTIFY_REPLAN: '/push/notify-replan-applied' },
   },
 }));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { id: 'user-1', neon_color: 'yellow' },
+  }),
+}));
 
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import React from 'react';
@@ -72,7 +81,12 @@ import { Animated } from 'react-native';
 import { saveSetLog } from '../src/services/sessionExecutionRepository';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
 import SessionPlayer from '../src/components/session/SessionPlayer';
-import type { SessionDraft, DraftExercise, DraftSet } from '../src/engine/sessionModel';
+import type {
+  SessionDraft,
+  DraftExercise,
+  DraftSet,
+} from '../src/engine/sessionModel';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
 
 const mock = <T,>(fn: T) => fn as unknown as jest.Mock;
 
@@ -143,7 +157,9 @@ const PlayerComStore = () => {
   const draft = useActiveSessionStore((s) => s.draft);
   if (!draft) return null;
   return (
-    <SessionPlayer draft={draft} suggestedLoadFor={() => 40} suggestedRepsFor={() => 8} />
+    <ThemeProvider>
+      <SessionPlayer draft={draft} suggestedLoadFor={() => 40} suggestedRepsFor={() => 8} />
+    </ThemeProvider>
   );
 };
 
@@ -151,7 +167,10 @@ describe('cleanup de timers e animações no unmount', () => {
   it('desmontar com descanso ativo limpa o intervalo e para as animações', async () => {
     jest.useFakeTimers();
     const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
-    const stopAnimationSpy = jest.spyOn(Animated.Value.prototype, 'stopAnimation');
+    const stopAnimationSpy = jest.spyOn(
+      Animated.Value.prototype,
+      'stopAnimation',
+    );
 
     useActiveSessionStore.setState({ draft: draftCom(), status: 'active' });
     mock(saveSetLog).mockResolvedValue({

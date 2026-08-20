@@ -11,10 +11,17 @@
 //  - o wordmark é sempre "FORÇA", com cedilha.
 
 import React from 'react';
-import { StyleSheet, View, Text, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 
 // Caminhos dos três módulos, extraídos da prancha sem alteração.
 const MODULE_TOP = 'M14 14H84L76 34H6Z';
@@ -37,18 +44,30 @@ type ForcaMarkProps = {
 /** Símbolo isolado — também é a base do ícone do aplicativo. */
 export const ForcaMark = ({
   size = 48,
-  color = theme.colors.text.primary,
+  color,
   accentTop = false,
   style,
-}: ForcaMarkProps) => (
-  <View style={style} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-    <Svg width={size} height={size} viewBox="0 0 96 96">
-      <Path d={MODULE_TOP} fill={accentTop ? theme.colors.accent.main : color} />
-      <Path d={MODULE_MID} fill={color} />
-      <Path d={MODULE_BASE} fill={color} />
-    </Svg>
-  </View>
-);
+}: ForcaMarkProps) => {
+  const { theme } = useTheme();
+  const resolvedColor = color ?? theme.colors.text.primary;
+
+  return (
+    <View
+      style={style}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Svg width={size} height={size} viewBox="0 0 96 96">
+        <Path
+          d={MODULE_TOP}
+          fill={accentTop ? theme.colors.accent.main : resolvedColor}
+        />
+        <Path d={MODULE_MID} fill={resolvedColor} />
+        <Path d={MODULE_BASE} fill={resolvedColor} />
+      </Svg>
+    </View>
+  );
+};
 
 type ForcaLockupProps = {
   /** Corpo do wordmark em px. O símbolo acompanha proporcionalmente. */
@@ -64,51 +83,58 @@ type ForcaLockupProps = {
  * Mínimo recomendado no digital: 96 px de largura.
  */
 export const ForcaLockup = ({
-  size = theme.typography.fontSizes.hero,
+  size,
   withApp = true,
   accentTop = true,
   style,
-}: ForcaLockupProps) => (
-  <View
-    style={[styles.lockup, style]}
-    accessible
-    accessibilityRole="image"
-    accessibilityLabel={withApp ? 'FORÇA App' : 'FORÇA'}
-  >
-    <ForcaMark size={size * 1.35} accentTop={accentTop} />
-    <View style={styles.wordmarkRow}>
-      <Text style={[styles.wordmark, { fontSize: size }]}>FORÇA</Text>
-      {withApp ? <Text style={styles.app}>APP</Text> : null}
-    </View>
-  </View>
-);
+}: ForcaLockupProps) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
+  const resolvedSize = size ?? theme.typography.fontSizes.hero;
 
-const styles = StyleSheet.create({
-  lockup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-  },
-  wordmarkRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  wordmark: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.display,
-    // Postura vertical, caixa alta e espaçamento ótico (brandbook).
-    letterSpacing: 0.3,
-    includeFontPadding: false,
-  },
-  app: {
-    marginLeft: theme.spacing.xxs,
-    marginTop: 2,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.micro,
-    fontWeight: theme.typography.fontWeights.bold,
-    letterSpacing: theme.typography.letterSpacing.wider,
-  },
-});
+  return (
+    <View
+      style={[styles.lockup, style]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={withApp ? 'FORÇA App' : 'FORÇA'}
+    >
+      <ForcaMark size={resolvedSize * 1.35} accentTop={accentTop} />
+      <View style={styles.wordmarkRow}>
+        <Text style={[styles.wordmark, { fontSize: resolvedSize }]}>FORÇA</Text>
+        {withApp ? <Text style={styles.app}>APP</Text> : null}
+      </View>
+    </View>
+  );
+};
+
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    lockup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.md,
+    },
+    wordmarkRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+    },
+    wordmark: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.display,
+      // Postura vertical, caixa alta e espaçamento ótico (brandbook).
+      letterSpacing: 0.3,
+      includeFontPadding: false,
+    },
+    app: {
+      marginLeft: theme.spacing.xxs,
+      marginTop: 2,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.micro,
+      fontWeight: theme.typography.fontWeights.bold,
+      letterSpacing: theme.typography.letterSpacing.wider,
+    },
+  });
 
 export default ForcaMark;

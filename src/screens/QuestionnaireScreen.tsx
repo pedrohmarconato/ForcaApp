@@ -39,7 +39,8 @@ import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
 import { CARDIO_MODALIDADES } from '../constants/cardioModalidades';
 import { resetPostQuestionnaireChatState } from '../services/postQuestionnaireChatStorage';
-import theme from '../theme/theme';
+import type { Theme } from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { easeImpulso } from '../utils/motion';
 import Button from '../components/ui/Button';
 import TextField from '../components/ui/TextField';
@@ -99,6 +100,8 @@ const TOTAL_STEPS = 11;
 // re-submissão ATUALIZAR a linha em vez de descartar as respostas novas.
 
 const QuestionnaireScreen = () => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const navigation = useNavigation<QuestionnaireNavigationProp>();
 
   // --- Estados ---
@@ -993,7 +996,7 @@ const QuestionnaireScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.surface.canvas },
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },

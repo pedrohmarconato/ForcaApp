@@ -5,11 +5,31 @@
 // fechamento honesto de Nível 2 quando nada é reencaixável.
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
-import ReplanBanner from '../src/components/session/ReplanBanner';import type {
+import { render as renderNative, fireEvent } from '@testing-library/react-native';
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { id: 'user-1', neon_color: 'yellow' },
+  }),
+}));
+jest.mock('../src/services/neonPreferenceRepository', () => ({
+  neonPreferenceRepository: { saveNeonColor: jest.fn() },
+}));
+import ReplanBanner from '../src/components/session/ReplanBanner';
+import type {
   WeeklyReplanProposal,
   ReplanSession,
 } from '../src/engine/weeklyReplanner';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
+
+const render = (element: React.ReactElement) => {
+  const utils = renderNative(<ThemeProvider>{element}</ThemeProvider>);
+  return {
+    ...utils,
+    rerender: (nextElement: React.ReactElement) =>
+      utils.rerender(<ThemeProvider>{nextElement}</ThemeProvider>),
+  };
+};
 
 const sessao = (
   id: string,

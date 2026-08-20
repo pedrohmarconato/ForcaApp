@@ -7,7 +7,8 @@
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import theme from '../../theme/theme';
+import { useTheme, useThemeStyles } from '../../theme/ThemeProvider';
+import type { Theme } from '../../theme/theme';
 import {
   metricOf,
   isTimeBased,
@@ -54,6 +55,8 @@ const SessionQueue = ({
   onActivateSet,
   onUnskipExercise,
 }: Props) => {
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
   const storeActivateSet = useActiveSessionStore((s) => s.activateSet);
   const storeUnskipExercise = useActiveSessionStore((s) => s.unskipExercise);
   const activateSet = onActivateSet ?? storeActivateSet;
@@ -66,27 +69,36 @@ const SessionQueue = ({
         const foraDeJogo = exercicioForaDeJogo(ex);
         // Fora de jogo mostra só o que foi realmente feito: listar séries que
         // não serão executadas convida a tocá-las e reabrir o exercício.
-        const series = foraDeJogo ? ex.sets.filter((s) => s.status === 'done') : ex.sets;
+        const series = foraDeJogo
+          ? ex.sets.filter((s) => s.status === 'done')
+          : ex.sets;
         const meta = metaFor(ex);
         return (
           <View key={ex.exerciseId} style={styles.block}>
             <View style={styles.headerRow}>
-              <Text style={styles.order}>{String(idxEx + 1).padStart(2, '0')}</Text>
+              <Text style={styles.order}>
+                {String(idxEx + 1).padStart(2, '0')}
+              </Text>
               <View style={styles.headerText}>
-                <Text style={[styles.name, foraDeJogo && styles.nameCut]}>{ex.name}</Text>
+                <Text style={[styles.name, foraDeJogo && styles.nameCut]}>
+                  {ex.name}
+                </Text>
                 {recusado ? (
                   <Text style={styles.cutNote}>
-                    {`Você não vai fazer hoje — ${(
-                      ex.skipReason ? SKIP_REASON_LABELS[ex.skipReason] : 'motivo não registrado'
+                    {`Você não vai fazer hoje — ${(ex.skipReason
+                      ? SKIP_REASON_LABELS[ex.skipReason]
+                      : 'motivo não registrado'
                     ).toLowerCase()}. O exercício segue nas próximas semanas.`}
                   </Text>
                 ) : ex.cutByReplan === true ? (
                   <Text style={styles.cutNote}>
-                    Cortado por tempo — confirmado por você. As séries não feitas não
-                    contam hoje.
+                    Cortado por tempo — confirmado por você. As séries não
+                    feitas não contam hoje.
                   </Text>
                 ) : ex.swappedFrom ? (
-                  <Text style={styles.cutNote}>{`Trocado de ${ex.swappedFrom}.`}</Text>
+                  <Text
+                    style={styles.cutNote}
+                  >{`Trocado de ${ex.swappedFrom}.`}</Text>
                 ) : meta ? (
                   <Text style={styles.meta}>{meta}</Text>
                 ) : null}
@@ -138,11 +150,21 @@ const SessionQueue = ({
                     <Text style={styles.rowLabel}>S{s.setOrder}</Text>
                     <Text style={styles.rowDone}>{doneLine(ex, s)}</Text>
                     {s.outcome === 'under' ? (
-                      <Text style={[styles.outcome, { color: theme.colors.status.warning }]}>
+                      <Text
+                        style={[
+                          styles.outcome,
+                          { color: theme.colors.status.warning },
+                        ]}
+                      >
                         abaixo
                       </Text>
                     ) : s.outcome === 'over' ? (
-                      <Text style={[styles.outcome, { color: theme.colors.status.info }]}>
+                      <Text
+                        style={[
+                          styles.outcome,
+                          { color: theme.colors.status.info },
+                        ]}
+                      >
                         acima
                       </Text>
                     ) : null}
@@ -151,10 +173,17 @@ const SessionQueue = ({
               }
               if (s.status === 'active') {
                 return (
-                  <View key={s.plannedSetId} style={[styles.row, styles.rowActive]}>
+                  <View
+                    key={s.plannedSetId}
+                    style={[styles.row, styles.rowActive]}
+                  >
                     <Text style={[styles.mark, styles.markActive]}>→</Text>
-                    <Text style={[styles.rowLabel, styles.rowLabelActive]}>S{s.setOrder}</Text>
-                    <Text style={styles.rowActiveText}>agora, no card acima</Text>
+                    <Text style={[styles.rowLabel, styles.rowLabelActive]}>
+                      S{s.setOrder}
+                    </Text>
+                    <Text style={styles.rowActiveText}>
+                      agora, no card acima
+                    </Text>
                   </View>
                 );
               }
@@ -168,7 +197,9 @@ const SessionQueue = ({
                 >
                   <Text style={styles.markPending}>·</Text>
                   <Text style={styles.rowLabel}>S{s.setOrder}</Text>
-                  <Text style={styles.rowPending}>alvo {alvoDaSerie(ex, s)}</Text>
+                  <Text style={styles.rowPending}>
+                    alvo {alvoDaSerie(ex, s)}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
@@ -179,103 +210,111 @@ const SessionQueue = ({
   );
 };
 
-const styles = StyleSheet.create({
-  block: { marginBottom: theme.spacing.xl },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  order: {
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    lineHeight: theme.typography.fontSizes.md * 1.35,
-  },
-  headerText: { flex: 1 },
-  name: {
-    color: theme.colors.text.primary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.md,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  nameCut: { color: theme.colors.text.quiet, textDecorationLine: 'line-through' },
-  meta: {
-    marginTop: 2,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-  },
-  cutNote: {
-    marginTop: 2,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-    fontStyle: 'italic',
-  },
-  acao: {
-    minHeight: theme.hitTarget.compact,
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  acaoLabel: {
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-    fontWeight: theme.typography.fontWeights.semiBold,
-    textDecorationLine: 'underline',
-  },
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    block: { marginBottom: theme.spacing.xl },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+    },
+    order: {
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      lineHeight: theme.typography.fontSizes.md * 1.35,
+    },
+    headerText: { flex: 1 },
+    name: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.md,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    nameCut: {
+      color: theme.colors.text.quiet,
+      textDecorationLine: 'line-through',
+    },
+    meta: {
+      marginTop: 2,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+    },
+    cutNote: {
+      marginTop: 2,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+      fontStyle: 'italic',
+    },
+    acao: {
+      minHeight: theme.hitTarget.compact,
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.sm,
+    },
+    acaoLabel: {
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+      fontWeight: theme.typography.fontWeights.semiBold,
+      textDecorationLine: 'underline',
+    },
 
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-    minHeight: theme.hitTarget.compact,
-    paddingHorizontal: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
-  },
-  rowActive: { backgroundColor: theme.colors.accent.soft },
-  mark: { width: 16, textAlign: 'center', color: theme.colors.status.success },
-  markActive: { color: theme.colors.text.accent },
-  markPending: {
-    width: 16,
-    textAlign: 'center',
-    color: theme.colors.text.quiet,
-    fontSize: theme.typography.fontSizes.lg,
-  },
-  rowLabel: {
-    width: 28,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  rowLabelActive: { color: theme.colors.text.accent },
-  rowDone: {
-    flex: 1,
-    color: theme.colors.text.secondary,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-  },
-  rowActiveText: {
-    flex: 1,
-    color: theme.colors.text.accent,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-  rowPending: {
-    flex: 1,
-    color: theme.colors.text.quiet,
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.sm,
-  },
-  outcome: {
-    fontFamily: theme.fonts.ui,
-    fontSize: theme.typography.fontSizes.xs,
-    fontWeight: theme.typography.fontWeights.semiBold,
-  },
-});
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+      minHeight: theme.hitTarget.compact,
+      paddingHorizontal: theme.spacing.sm,
+      borderRadius: theme.borderRadius.md,
+    },
+    rowActive: { backgroundColor: theme.colors.accent.soft },
+    mark: {
+      width: 16,
+      textAlign: 'center',
+      color: theme.colors.status.success,
+    },
+    markActive: { color: theme.colors.text.accent },
+    markPending: {
+      width: 16,
+      textAlign: 'center',
+      color: theme.colors.text.quiet,
+      fontSize: theme.typography.fontSizes.lg,
+    },
+    rowLabel: {
+      width: 28,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    rowLabelActive: { color: theme.colors.text.accent },
+    rowDone: {
+      flex: 1,
+      color: theme.colors.text.secondary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+    },
+    rowActiveText: {
+      flex: 1,
+      color: theme.colors.text.accent,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+    rowPending: {
+      flex: 1,
+      color: theme.colors.text.quiet,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.sm,
+    },
+    outcome: {
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.xs,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+  });
 
 export default SessionQueue;

@@ -9,14 +9,19 @@ import {
   type LiveActivityContentState,
 } from '../engine/liveActivityContentState';
 import { useActiveSessionStore } from '../store/activeSessionStore';
+import { parseNeonColor, type NeonColorKey } from '../theme/theme';
 
 const FINISHED_DISMISSAL_AFTER_SECONDS = 180;
 export const INACTIVITY_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
-type ActiveDraft = NonNullable<ReturnType<typeof useActiveSessionStore.getState>['draft']>;
+type ActiveDraft = NonNullable<
+  ReturnType<typeof useActiveSessionStore.getState>['draft']
+>;
 
 let inactivityTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastStartFailed = false;
+let currentNeonColor: NeonColorKey = 'yellow';
+let themeUpdateQueue: Promise<void> = Promise.resolve();
 const startFailureListeners = new Set<() => void>();
 
 const clearInactivityTimeout = (): void => {
@@ -30,7 +35,10 @@ const resetInactivityTimeout = (): void => {
   inactivityTimeout = setTimeout(() => {
     inactivityTimeout = null;
     void endLiveActivity('immediate').catch((error) => {
-      console.warn('[liveActivity] não foi possível encerrar por inatividade:', error);
+      console.warn(
+        '[liveActivity] não foi possível encerrar por inatividade:',
+        error,
+      );
     });
   }, INACTIVITY_TIMEOUT_MS);
 };
@@ -73,9 +81,13 @@ const hasNewlyDoneSet = (previous: ActiveDraft, current: ActiveDraft): boolean =
   return false;
 };
 
-const publishStart = (draft: NonNullable<ReturnType<typeof useActiveSessionStore.getState>['draft']>) => {
+const publishStart = (draft: ActiveDraft) => {
   if (!draft.sessionLogId) return;
-  const contentState = buildLiveActivityContentState(draft);
+  const contentState = buildLiveActivityContentState(
+    draft,
+    undefined,
+    currentNeonColor,
+  );
   if (!contentState) return;
   void startLiveActivity(contentState, draft.sessionLogId)
     .then((started) => {
@@ -87,7 +99,10 @@ const publishStart = (draft: NonNullable<ReturnType<typeof useActiveSessionStore
     .catch((error) => {
       clearInactivityTimeout();
       recordStartFailure(true);
-      console.warn('[liveActivity] não foi possível iniciar a Activity:', error);
+      console.warn(
+        '[liveActivity] não foi possível iniciar a Activity:',
+        error,
+      );
     });
 };
 
@@ -108,7 +123,11 @@ const recoverAfterFailedUpdate = (originSessionLogId: string): void => {
   ) {
     return;
   }
-  const contentState = buildLiveActivityContentState(current.draft);
+  const contentState = buildLiveActivityContentState(
+    current.draft,
+    undefined,
+    currentNeonColor,
+  );
   if (!contentState) return;
   void startLiveActivity(contentState, originSessionLogId).catch((error) => {
     console.warn(
@@ -118,21 +137,49 @@ const recoverAfterFailedUpdate = (originSessionLogId: string): void => {
   });
 };
 
-const publishUpdate = (draft: NonNullable<ReturnType<typeof useActiveSessionStore.getState>['draft']>) => {
-  const contentState = buildLiveActivityContentState(draft);
+const publishUpdate = async (
+  draft: ActiveDraft,
+  neonColor: NeonColorKey = currentNeonColor,
+): Promise<void> => {
+  const contentState = buildLiveActivityContentState(
+    draft,
+    undefined,
+    neonColor,
+  );
   if (!contentState) return;
   const sessionLogId = draft.sessionLogId;
-  void updateLiveActivity(contentState)
-    .then((updated) => {
-      if (updated || !sessionLogId) return;
+  try {
+    const updated = await updateLiveActivity(contentState);
+    if (!updated && sessionLogId) {
       recoverAfterFailedUpdate(sessionLogId);
-    })
-    .catch((error) => {
-      console.warn('[liveActivity] não foi possível atualizar a Activity:', error);
-    });
+    }
+  } catch (error) {
+    console.warn(
+      '[liveActivity] não foi possível atualizar a Activity:',
+      error,
+    );
+  }
 };
 
-const buildFinishedContentState = (draft: ActiveDraft): LiveActivityContentState | null => {
+/** Atualiza o tema da Activity ativa sem criar um segundo escritor nativo. */
+export const setLiveActivityNeonColor = (value: unknown): Promise<void> => {
+  const nextNeonColor = parseNeonColor(value);
+  if (nextNeonColor === currentNeonColor) return themeUpdateQueue;
+
+  currentNeonColor = nextNeonColor;
+  const state = useActiveSessionStore.getState();
+  if (state.status !== 'active' || !state.draft) return themeUpdateQueue;
+
+  const draft = state.draft;
+  themeUpdateQueue = themeUpdateQueue.then(() =>
+    publishUpdate(draft, nextNeonColor),
+  );
+  return themeUpdateQueue;
+};
+
+const buildFinishedContentState = (
+  draft: ActiveDraft,
+): LiveActivityContentState | null => {
   const exercise = [...draft.exercises]
     .reverse()
     .find((candidate) => candidate.sets.length > 0);
@@ -141,6 +188,7 @@ const buildFinishedContentState = (draft: ActiveDraft): LiveActivityContentState
 
   return {
     phase: 'measuring',
+    neonColor: currentNeonColor,
     exerciseName: exercise.name,
     setIndex: set.setOrder,
     setTotal: exercise.sets.length,
@@ -173,14 +221,20 @@ const publishFinished = async (draft: ActiveDraft | null): Promise<void> => {
       try {
         await updateLiveActivity(summary);
       } catch (error) {
-        console.warn('[liveActivity] não foi possível publicar o resumo:', error);
+        console.warn(
+          '[liveActivity] não foi possível publicar o resumo:',
+          error,
+        );
       }
     }
 
     try {
       await endLiveActivity('afterDate', FINISHED_DISMISSAL_AFTER_SECONDS);
     } catch (error) {
-      console.warn('[liveActivity] não foi possível encerrar após terminar:', error);
+      console.warn(
+        '[liveActivity] não foi possível encerrar após terminar:',
+        error,
+      );
     }
     return;
   }
@@ -188,7 +242,10 @@ const publishFinished = async (draft: ActiveDraft | null): Promise<void> => {
   try {
     await endLiveActivity('immediate');
   } catch (error) {
-    console.warn('[liveActivity] não foi possível encerrar após cancelar:', error);
+    console.warn(
+      '[liveActivity] não foi possível encerrar após cancelar:',
+      error,
+    );
   }
 };
 
@@ -218,13 +275,18 @@ export const reconcileOrphanActivities = async (): Promise<void> => {
   const initialState = useActiveSessionStore.getState();
   const initialDraft = initialState.draft;
   const stillActiveSessionLogId =
-    initialState.status === 'active' && initialDraft ? initialDraft.sessionLogId : null;
+    initialState.status === 'active' && initialDraft
+      ? initialDraft.sessionLogId
+      : null;
 
   let shouldRestart = false;
   try {
     shouldRestart = await reconcileLiveActivityOrphans(stillActiveSessionLogId);
   } catch (error) {
-    console.warn('[liveActivity] não foi possível reconciliar Activities órfãs:', error);
+    console.warn(
+      '[liveActivity] não foi possível reconciliar Activities órfãs:',
+      error,
+    );
     return;
   }
 
@@ -245,30 +307,38 @@ export const reconcileOrphanActivities = async (): Promise<void> => {
 /** Único escritor JS→ActivityKit; reage somente a mudanças reais do store. */
 export const initLiveActivitySync = (): (() => void) =>
   (() => {
-    const unsubscribe = useActiveSessionStore.subscribe((state, previousState) => {
-      if (previousState.status === 'active' && state.status !== 'active') {
-        clearInactivityTimeout();
-      }
-
-      if (state.status === 'finished' && previousState.status !== 'finished') {
-        void publishFinished(state.draft);
-        return;
-      }
-
-      if (state.status !== 'active' || !state.draft) return;
-
-      if (previousState.status !== 'active') {
-        publishStart(state.draft);
-        return;
-      }
-
-      if (state.draft !== previousState.draft) {
-        if (previousState.draft && hasNewlyDoneSet(previousState.draft, state.draft)) {
-          resetInactivityTimeout();
+    const unsubscribe = useActiveSessionStore.subscribe(
+      (state, previousState) => {
+        if (previousState.status === 'active' && state.status !== 'active') {
+          clearInactivityTimeout();
         }
-        publishUpdate(state.draft);
-      }
-    });
+
+        if (
+          state.status === 'finished' &&
+          previousState.status !== 'finished'
+        ) {
+          void publishFinished(state.draft);
+          return;
+        }
+
+        if (state.status !== 'active' || !state.draft) return;
+
+        if (previousState.status !== 'active') {
+          publishStart(state.draft);
+          return;
+        }
+
+        if (state.draft !== previousState.draft) {
+          if (
+            previousState.draft &&
+            hasNewlyDoneSet(previousState.draft, state.draft)
+          ) {
+            resetInactivityTimeout();
+          }
+          void publishUpdate(state.draft);
+        }
+      },
+    );
 
     return () => {
       unsubscribe();

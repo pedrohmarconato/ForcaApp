@@ -29,6 +29,7 @@ import {
   INACTIVITY_TIMEOUT_MS,
   initLiveActivitySync,
   reconcileOrphanActivities,
+  setLiveActivityNeonColor,
   subscribeLiveActivityStartFailure,
 } from '../src/native/liveActivitySync';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
@@ -110,7 +111,7 @@ const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   useActiveSessionStore.setState({ draft: null, status: 'idle' });
@@ -118,6 +119,7 @@ beforeEach(() => {
   mockUpdate.mockResolvedValue(true);
   mockEnd.mockResolvedValue(true);
   mockReconcile.mockResolvedValue(false);
+  await setLiveActivityNeonColor('yellow');
 });
 
 afterEach(() => {
@@ -156,6 +158,123 @@ describe('endLiveActivityForAbandonedSession', () => {
 });
 
 describe('initLiveActivitySync', () => {
+  it('usa a chave corrente no start, update e resumo finished', async () => {
+    await setLiveActivityNeonColor('blue');
+    const stop = initLiveActivitySync();
+    const current = draft();
+
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ neonColor: 'blue' }),
+      'log-1',
+    );
+
+    useActiveSessionStore.setState({
+      status: 'active',
+      draft: {
+        ...current,
+        restEndsAt: new Date(Date.now() + 90_000).toISOString(),
+      },
+    });
+    expect(mockUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ neonColor: 'blue' }),
+    );
+
+    useActiveSessionStore.setState({
+      status: 'finished',
+      draft: { ...current, status: 'finished' },
+    });
+    await flushPromises();
+    expect(mockUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ neonColor: 'blue' }),
+    );
+
+    stop();
+  });
+
+  it('atualiza a Activity ativa ao trocar tema mesmo com o mesmo draft', async () => {
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+
+    await setLiveActivityNeonColor('red');
+
+    expect(useActiveSessionStore.getState().draft).toBe(current);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ neonColor: 'red' }),
+    );
+  });
+
+  it('não duplica update quando a mesma chave neon é repetida', async () => {
+    useActiveSessionStore.setState({ status: 'active', draft: draft() });
+
+    await setLiveActivityNeonColor('red');
+    await setLiveActivityNeonColor('red');
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializa preview e rollback na ordem green -> yellow', async () => {
+    let resolveGreen: ((updated: boolean) => void) | undefined;
+    mockUpdate
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveGreen = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(true);
+    useActiveSessionStore.setState({ status: 'active', draft: draft() });
+
+    const preview = setLiveActivityNeonColor('green');
+    const rollback = setLiveActivityNeonColor('yellow');
+    await flushPromises();
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ neonColor: 'green' }),
+    );
+
+    resolveGreen?.(true);
+    await Promise.all([preview, rollback]);
+
+    expect(mockUpdate).toHaveBeenCalledTimes(2);
+    expect(mockUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ neonColor: 'yellow' }),
+    );
+  });
+
+  it('sem Activity ativa guarda a chave para o próximo start sem publicar update', async () => {
+    await setLiveActivityNeonColor('green');
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    const stop = initLiveActivitySync();
+    useActiveSessionStore.setState({ status: 'active', draft: draft() });
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ neonColor: 'green' }),
+      'log-1',
+    );
+    stop();
+  });
+
+  it('usa a chave corrente ao reiniciar após reconciliar órfãos', async () => {
+    await setLiveActivityNeonColor('red');
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    mockReconcile.mockResolvedValue(true);
+
+    await reconcileOrphanActivities();
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ neonColor: 'red' }),
+      'log-1',
+    );
+  });
+
   it('inicia uma única Activity quando o status transiciona para active', () => {
     const stop = initLiveActivitySync();
 
@@ -163,7 +282,10 @@ describe('initLiveActivitySync', () => {
 
     expect(mockStart).toHaveBeenCalledTimes(1);
     expect(mockStart).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: 'measuring', exerciseName: 'Supino reto' }),
+      expect.objectContaining({
+        phase: 'measuring',
+        exerciseName: 'Supino reto',
+      }),
       'log-1',
     );
 
@@ -181,11 +303,18 @@ describe('initLiveActivitySync', () => {
     const draftReconstruido = draft();
     draftReconstruido.exercises[0]!.sets[0]!.status = 'pending';
 
-    useActiveSessionStore.setState({ status: 'active', draft: draftReconstruido });
+    useActiveSessionStore.setState({
+      status: 'active',
+      draft: draftReconstruido,
+    });
 
     expect(mockStart).toHaveBeenCalledTimes(1);
     expect(mockStart).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: 'measuring', exerciseName: 'Supino reto', setIndex: 1 }),
+      expect.objectContaining({
+        phase: 'measuring',
+        exerciseName: 'Supino reto',
+        setIndex: 1,
+      }),
       'log-1',
     );
 
@@ -226,10 +355,7 @@ describe('initLiveActivitySync', () => {
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ restEndsAt: null }),
     );
-    expect(mockEnd).toHaveBeenCalledWith(
-      'afterDate',
-      expect.any(Number),
-    );
+    expect(mockEnd).toHaveBeenCalledWith('afterDate', expect.any(Number));
     expect(mockEnd.mock.calls[0][1]).toBeGreaterThanOrEqual(120);
     expect(mockEnd.mock.calls[0][1]).toBeLessThanOrEqual(300);
 
@@ -284,7 +410,10 @@ describe('initLiveActivitySync', () => {
     await reconcileOrphanActivities();
 
     expect(mockStart).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: 'measuring', exerciseName: 'Supino reto' }),
+      expect.objectContaining({
+        phase: 'measuring',
+        exerciseName: 'Supino reto',
+      }),
       'log-1',
     );
   });
@@ -292,9 +421,10 @@ describe('initLiveActivitySync', () => {
   it('não publica a sessão antiga se o sessionLogId mudar durante a reconciliação', async () => {
     let resolveReconcile: ((value: boolean) => void) | undefined;
     mockReconcile.mockImplementation(
-      () => new Promise<boolean>((resolve) => {
-        resolveReconcile = resolve;
-      }),
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveReconcile = resolve;
+        }),
     );
     const current = draft();
     useActiveSessionStore.setState({ status: 'active', draft: current });

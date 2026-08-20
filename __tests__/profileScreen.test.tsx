@@ -5,6 +5,7 @@
 // virar "0 sessões". Sem amostra confiável, a tela mostra "—".
 
 import React from 'react';
+import { Text } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
@@ -79,7 +80,16 @@ jest.mock('../src/services/trainingRepository', () => ({
 }));
 
 import ProfileScreen from '../src/screens/ProfileScreen';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { NO_DATA } from '../src/components/ui/Feedback';
+import { LINKING_CONFIG } from '../src/navigation/linkingConfig';
+
+const renderProfile = () =>
+  render(
+    <ThemeProvider>
+      <ProfileScreen />
+    </ThemeProvider>,
+  );
 
 /** Sessão concluída há `diasAtras` dias, com tempo efetivo conhecido. */
 const concluida = (id: string, duracaoMin: number, diasAtras = 0) => {
@@ -107,14 +117,14 @@ describe('ProfileScreen — identidade e navegação', () => {
   });
 
   it('mostra nome e e-mail vindos do contexto de auth', async () => {
-    const { getByText } = render(<ProfileScreen />);
+    const { getByText } = renderProfile();
 
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
     expect(getByText('pedro@exemplo.com')).toBeTruthy();
   });
 
   it('não expõe mais a linha de histórico — ela migrou para a aba Progresso (Direção 03)', async () => {
-    const { getByText, queryByText } = render(<ProfileScreen />);
+    const { getByText, queryByText } = renderProfile();
 
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
     // Regressão da migração: uma linha de histórico reaparecendo aqui viraria
@@ -123,12 +133,36 @@ describe('ProfileScreen — identidade e navegação', () => {
   });
 
   it('encerra a sessão pelo botão Sair', async () => {
-    const { getByLabelText } = render(<ProfileScreen />);
+    const { getByLabelText } = renderProfile();
 
     await waitFor(() => expect(getByLabelText('Sair')).toBeTruthy());
     fireEvent.press(getByLabelText('Sair'));
 
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('mostra Preferencias antes de Refazer treino e abre Ajustes', async () => {
+    const screen = renderProfile();
+
+    await waitFor(() => expect(screen.getByText('Preferencias')).toBeTruthy());
+
+    const labels = screen
+      .UNSAFE_getAllByType(Text)
+      .flatMap((node) => (Array.isArray(node.props.children) ? node.props.children : [node.props.children]))
+      .filter((child): child is string => typeof child === 'string');
+
+    expect(labels.indexOf('Preferencias')).toBeLessThan(labels.indexOf('Refazer treino'));
+    expect(screen.getByText('Ajustes')).toBeTruthy();
+    expect(screen.getByText('Aparencia')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Ajustes. Aparencia'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('Settings');
+  });
+
+  it('registra Settings no ProfileStack e no linking autenticado', () => {
+    expect(LINKING_CONFIG.screens.Profile.initialRouteName).toBe('ProfileMain');
+    expect(LINKING_CONFIG.screens.Profile.screens.Settings).toBe('settings');
   });
 });
 
@@ -142,7 +176,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
   it('falha ao carregar o histórico mostra "—", NUNCA zero', async () => {
     mockFalha = new Error('rede caiu');
 
-    const { getAllByText, getByText, queryByText } = render(<ProfileScreen />);
+    const { getAllByText, getByText, queryByText } = renderProfile();
 
     await waitFor(() => expect(getByText('Não foi possível carregar seus números')).toBeTruthy());
     // As três métricas ficam sem dado
@@ -153,7 +187,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
   it('sem nenhum treino concluído, o zero é real e aparece como zero', async () => {
     mockConcluidas = [];
 
-    const { getAllByText, queryByText } = render(<ProfileScreen />);
+    const { getAllByText, queryByText } = renderProfile();
 
     // Sessões = 0 e Nesta semana = 0 são fatos; só o tempo total fica sem dado
     await waitFor(() => expect(getAllByText('0')).toHaveLength(2));
@@ -166,7 +200,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
   it('ganhar foco de novo recarrega o histórico (achado #6)', async () => {
     mockConcluidas = [concluida('log-1', 45)];
 
-    const { getByText, getAllByText } = render(<ProfileScreen />);
+    const { getByText, getAllByText } = renderProfile();
     await waitFor(() => expect(getByText('45 min')).toBeTruthy());
 
     // Usuário conclui outro treino em outra tela e volta via popToTop
@@ -180,7 +214,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
   it('com execuções reais, soma sessões e tempo total', async () => {
     mockConcluidas = [concluida('log-1', 50), concluida('log-2', 40)];
 
-    const { getAllByText, getByText } = render(<ProfileScreen />);
+    const { getAllByText, getByText } = renderProfile();
 
     // Ambas as sessões são de hoje: "Sessões" e "Nesta semana" valem 2
     await waitFor(() => expect(getAllByText('2')).toHaveLength(2));
@@ -191,7 +225,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
     // Uma nesta semana, outra há três semanas
     mockConcluidas = [concluida('log-1', 45), concluida('log-2', 45, 21)];
 
-    const { getByText, getAllByText } = render(<ProfileScreen />);
+    const { getByText, getAllByText } = renderProfile();
 
     await waitFor(() => expect(getByText('2')).toBeTruthy()); // total de sessões
     expect(getAllByText('1')).toHaveLength(1); // só uma nesta semana
@@ -212,7 +246,7 @@ describe('ProfileScreen — métricas nunca inventam número', () => {
       },
     ];
 
-    const { getByText } = render(<ProfileScreen />);
+    const { getByText } = renderProfile();
 
     // Duas linhas no histórico, mas só uma tem duração conhecida
     await waitFor(() => expect(getByText('45 min')).toBeTruthy());
@@ -228,7 +262,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
   });
 
   it('guard livre: o sheet abre no estado normal de confirmação', async () => {
-    const { getByLabelText, getByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     fireEvent.press(getByLabelText('Refazer treino'));
@@ -240,7 +274,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
   });
 
   it('confirmar no sheet navega para o questionário e fecha o sheet', async () => {
-    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText, queryByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     fireEvent.press(getByLabelText('Refazer treino'));
@@ -257,7 +291,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
 
   it('guard bloqueado: sheet em estado de aviso, sem CTA, sem navegação', async () => {
     mockHasSessionInProgress.mockResolvedValue(true);
-    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText, queryByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     fireEvent.press(getByLabelText('Refazer treino'));
@@ -272,7 +306,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
 
   it('guard com erro: Notice com retry, sem navegação, e retry libera', async () => {
     mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu'));
-    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText, queryByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     fireEvent.press(getByLabelText('Refazer treino'));
@@ -289,7 +323,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
   });
 
   it('reabrir o sheet não herda o veredito bloqueado da rodada anterior', async () => {
-    const { getByLabelText, getByText, queryByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText, queryByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     // Rodada 1: guard bloqueado → aviso; usuário fecha.
@@ -312,7 +346,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
   it('métricas e guard falhando mostram dois retries com labels distintos', async () => {
     mockFalha = new Error('rede caiu nas métricas');
     mockHasSessionInProgress.mockRejectedValue(new Error('rede caiu no guard'));
-    const { getByLabelText, getByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText } = renderProfile();
 
     await waitFor(() => expect(getByText('Não foi possível carregar seus números')).toBeTruthy());
 
@@ -331,7 +365,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
     mockHasSessionInProgress.mockImplementationOnce(
       () => new Promise((resolve) => { resolver = resolve; }),
     );
-    const { getByLabelText, getByText } = render(<ProfileScreen />);
+    const { getByLabelText, getByText } = renderProfile();
     await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
     const botao = getByLabelText('Refazer treino');
@@ -350,7 +384,7 @@ describe('ProfileScreen — Refazer treino (regeneração pelo Perfil)', () => {
       mockHasSessionInProgress.mockImplementationOnce(
         () => new Promise((resolve) => { resolver = resolve; }),
       );
-      const { getByLabelText, getByText } = render(<ProfileScreen />);
+      const { getByLabelText, getByText } = renderProfile();
       await waitFor(() => expect(getByText('Pedro Marconato')).toBeTruthy());
 
       fireEvent.press(getByLabelText('Refazer treino'));

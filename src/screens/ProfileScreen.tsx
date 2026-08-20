@@ -14,7 +14,8 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useDiaLocal } from '../hooks/useDiaLocal';
-import theme from '../theme/theme';
+import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
+import type { Theme } from '../theme/theme';
 import {
   getCompletedSessions,
   type CompletedSessionSummary,
@@ -22,7 +23,13 @@ import {
 import { hasSessionInProgress } from '../services/trainingRepository';
 import { resumirSemana, minutosTotais, formatarDuracao } from '../utils/weekSummary';
 import { comTimeout, GUARD_TIMEOUT_MS } from '../utils/comTimeout';
-import { Screen, ScreenTitle, Card } from '../components/ui/Surface';
+import {
+  Screen,
+  ScreenTitle,
+  Card,
+  ListRow,
+  SectionHeader,
+} from '../components/ui/Surface';
 import Button from '../components/ui/Button';
 import { Metric, MetricGroup, Notice } from '../components/ui/Feedback';
 import RefazerTreinoSheet from '../components/profile/RefazerTreinoSheet';
@@ -63,6 +70,8 @@ type ProfileScreenNavigationProp = CompositeNavigationProp<
 const ProfileScreen = () => {
   const { user, profile, signOut } = useAuth();
   const navigation = useNavigation<ProfileScreenNavigationProp>();
+  const { theme } = useTheme();
+  const styles = useThemeStyles(createStyles);
 
   const [completed, setCompleted] = useState<CompletedSessionSummary[] | null>(null);
   const [statsError, setStatsError] = useState(false);
@@ -139,6 +148,10 @@ const ProfileScreen = () => {
     // regeneração pousa em TrainingOverview — o back durante o questionário
     // pode voltar a uma rota do stack de Treino, não ao Perfil.
     navigation.navigate('Training', { screen: 'Questionnaire', initial: false });
+  }, [navigation]);
+
+  const abrirAjustes = useCallback(() => {
+    navigation.navigate('Settings');
   }, [navigation]);
 
   const fecharRefazer = useCallback(() => setSheetVisivel(false), []);
@@ -223,8 +236,10 @@ const ProfileScreen = () => {
       <ScreenTitle kicker="Conta" title="Seu perfil." />
 
       <Card style={styles.identity}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{iniciais(nome)}</Text>
+        <View style={[styles.avatar, { backgroundColor: theme.colors.accent.soft }]}>
+          <Text style={[styles.avatarText, { color: theme.colors.text.accent }]}>
+            {iniciais(nome)}
+          </Text>
         </View>
         <View style={styles.identityCopy}>
           <Text style={styles.name}>{profile?.full_name || user?.email}</Text>
@@ -247,6 +262,16 @@ const ProfileScreen = () => {
         <Metric value={metricas.tempo} label="Tempo total" />
         <Metric value={metricas.semana} label="Nesta semana" />
       </MetricGroup>
+
+      <SectionHeader title="Preferencias" style={styles.preferencesHeader} />
+      <ListRow
+        title="Ajustes"
+        subtitle="Aparencia"
+        showChevron
+        onPress={abrirAjustes}
+        testID="profile-settings-row"
+        style={styles.preferencesRow}
+      />
 
       {/* Regeneração do plano a partir do Perfil (acesso fixo, não só no Nível 4).
           outline para não competir com o tonal do sheet nem com o danger do Sair. */}
@@ -325,7 +350,7 @@ const ProfileScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) => StyleSheet.create({
   identity: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -338,10 +363,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.accent.soft,
   },
   avatarText: {
-    color: theme.colors.text.accent,
     fontFamily: theme.fonts.ui,
     fontSize: theme.typography.fontSizes.md,
     fontWeight: theme.typography.fontWeights.bold,
@@ -362,6 +385,8 @@ const styles = StyleSheet.create({
 
   notice: { marginBottom: theme.spacing.lg },
   metrics: { marginBottom: theme.spacing.xxl },
+  preferencesHeader: { marginBottom: theme.spacing.sm },
+  preferencesRow: { marginBottom: theme.spacing.lg },
 
   refazer: { marginBottom: theme.spacing.md },
   guardError: { marginBottom: theme.spacing.lg },
