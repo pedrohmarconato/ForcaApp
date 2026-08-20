@@ -10,7 +10,7 @@ import React, {
   type ReactNode,
 } from 'react';
 
-import {
+import defaultTheme, {
   createTheme,
   parseNeonColor,
   type NeonColorKey,
@@ -114,7 +114,22 @@ const stateForPendingSave = (token: SaveToken): ThemeState => {
   };
 };
 
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+// Valor usado quando useTheme() é chamado fora de um <ThemeProvider> — ver
+// comentário em useTheme() abaixo para o racional. Reutiliza o singleton
+// canônico de src/theme/theme.ts (createTheme('yellow')), já congelado; não
+// duplica paleta. selectNeonColor/retryNeonColor viram no-ops resolvidos: sem
+// provider não há dono (ownerId) para persistir uma escolha.
+const defaultThemeContextValue: ThemeContextValue = {
+  theme: defaultTheme,
+  neonColor: 'yellow',
+  confirmedNeonColor: 'yellow',
+  status: 'idle',
+  message: null,
+  selectNeonColor: () => Promise.resolve(),
+  retryNeonColor: () => Promise.resolve(),
+};
+
+const ThemeContext = createContext<ThemeContextValue>(defaultThemeContextValue);
 
 export const ThemeProvider = ({
   children,
@@ -396,13 +411,15 @@ export const ThemeProvider = ({
   );
 };
 
-export const useTheme = () => {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme deve ser usado dentro de um ThemeProvider');
-  }
-  return context;
-};
+// Decisão: useTheme() degrada graciosamente para o tema neon padrão quando
+// chamado fora de um <ThemeProvider>, em vez de lançar. Tema é apresentação —
+// um componente compartilhado (Logo, Feedback, ...) tem de conseguir
+// renderizar sozinho, inclusive em suítes de teste legadas que nunca
+// envolveram seus componentes em ThemeProvider. Em produção, o provider na
+// raiz do App (ThemedRoot, ver App.tsx) sempre está montado, então este
+// fallback nunca é observado fora de teste. Ver
+// __tests__/themeFallbackWithoutProvider.test.tsx.
+export const useTheme = () => useContext(ThemeContext);
 
 export const useThemeStyles = <T,>(factory: (theme: Theme) => T): T => {
   const { theme } = useTheme();
