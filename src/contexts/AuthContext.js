@@ -46,6 +46,11 @@ export const AuthProvider = ({ children }) => {
     const userRef = useRef(user);
     const initialAuthDoneRef = useRef(initialAuthDone);
     const sessionRef = useRef(session);
+    // profileRef: usado só pela guarda de onboarding em fetchProfile
+    // (preserveOnboardingView). Não pode virar dependência do useCallback de
+    // fetchProfile — isso o recriaria a cada mudança de perfil e reassinaria
+    // o listener onAuthStateChange (useEffect #1 depende de fetchProfile).
+    const profileRef = useRef(profile);
 
     // Atualiza as refs sempre que o estado mudar
     useEffect(() => {
@@ -59,6 +64,10 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         sessionRef.current = session;
     }, [session]);
+
+    useEffect(() => {
+        profileRef.current = profile;
+    }, [profile]);
 
     // --- Função handleSessionExpiration ---
     const handleSessionExpiration = useCallback(async () => {
@@ -173,7 +182,11 @@ export const AuthProvider = ({ children }) => {
     }, []); // Dependências vazias
 
     // --- Função fetchProfile ---
-    const fetchProfile = useCallback(async (userId, isInitialFetch = false) => {
+    // preserveOnboardingView: só `true` no refetch same-user disparado por
+    // TOKEN_REFRESHED/USER_UPDATED (useEffect #1, abaixo). Cold start, troca
+    // de usuário e chamadas explícitas (refreshProfile, fallback de
+    // updateProfile) continuam lendo o banco como está.
+    const fetchProfile = useCallback(async (userId, isInitialFetch = false, preserveOnboardingView = false) => {
         if (!userId) {
             console.log("[AuthContext] fetchProfile chamado sem userId.");
             setProfile(null);
@@ -230,8 +243,29 @@ export const AuthProvider = ({ children }) => {
             }
 
             console.log("[AuthContext] Perfil encontrado:", data ? data.id : 'null');
-            setProfile(data);
-            return data;
+
+            // Invariante: flip de onboarding em runtime só via updateProfile
+            // (fim do chat) ou cold start — refetch de token não pode
+            // arrancar o usuário do onboarding. O questionário grava
+            // onboarding_completed=true direto no banco (onboardingRepository)
+            // sem tocar neste estado local; se um TOKEN_REFRESHED/USER_UPDATED
+            // no meio do chat relesse o banco puro aqui, o RootNavigator
+            // (gate em profile.onboarding_completed) trocaria de árvore.
+            const previousProfile = profileRef.current;
+            const devePreservarVisaoDeOnboarding =
+                preserveOnboardingView &&
+                previousProfile?.onboarding_completed === false &&
+                data?.onboarding_completed === true;
+            const proximoPerfil = devePreservarVisaoDeOnboarding
+                ? { ...data, onboarding_completed: false }
+                : data;
+
+            if (devePreservarVisaoDeOnboarding) {
+                console.log("[AuthContext] Preservando onboarding_completed=false local durante refetch de sessão (evento de token).");
+            }
+
+            setProfile(proximoPerfil);
+            return proximoPerfil;
 
         } catch (error) {
             console.error("[AuthContext] Erro na execução de fetchProfile:", error);
@@ -363,7 +397,9 @@ export const AuthProvider = ({ children }) => {
                     // Revalida o token antes de buscar, por segurança
                     const tokenValido = await verifyTokenValidity(currentSession);
                     if (tokenValido) {
-                        await fetchProfile(currentUserId, false); // Não é inicial
+                        // Não é inicial; preserva a visão de onboarding em
+                        // progresso (ver comentário/invariante em fetchProfile).
+                        await fetchProfile(currentUserId, false, true);
                     } else {
                         console.log(`[AuthContext] Token inválido detectado no evento ${_event}`);
                         await handleSessionExpiration();

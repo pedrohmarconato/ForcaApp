@@ -11,6 +11,11 @@ import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 const mockAddListener = jest.fn(() => jest.fn());
+// updateProfile continua existindo no AuthContext (usado em outras telas),
+// mas a submissão do questionário NÃO pode mais chamá-lo — ver teste-guarda
+// "não reintroduz o flip do RootNavigator" abaixo.
+const mockUpdateProfile = jest.fn(async () => ({}));
+const mockMarkOnboardingCompleted = jest.fn(async (_userId: string) => ({ id: 'user-123' }));
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate, addListener: mockAddListener }),
@@ -20,10 +25,14 @@ jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'user-123' },
     session: { access_token: 'token-abc' },
-    updateProfile: jest.fn(async () => ({})),
+    updateProfile: mockUpdateProfile,
     signOut: jest.fn(async () => ({})),
     loadingSession: false,
   }),
+}));
+
+jest.mock('../src/services/onboardingRepository', () => ({
+  onboardingRepository: { markOnboardingCompleted: (userId: string) => mockMarkOnboardingCompleted(userId) },
 }));
 
 jest.mock('../src/services/auth/secureStorage', () => ({
@@ -437,6 +446,67 @@ describe('QuestionnaireScreen — submissão', () => {
         expect.objectContaining({ formData: expect.objectContaining({ nome: 'Pedro Marconato' }) }),
       ),
     );
+  });
+
+  // Fase 1 (caminho A): tolerância a fechar o app entre a submissão do
+  // questionário e o fim do chat. `onboarding_completed` já vira true aqui —
+  // não só no toque em "Começar" do fim do chat (PostQuestionnaireChat) — para
+  // o RootNavigator não deixar a conta presa no OnboardingNavigator se o app
+  // fechar antes da revelação do plano. A gravação do fim do chat continua
+  // existindo como retaguarda (grava de novo, já com o plano pronto).
+  //
+  // Achado CRÍTICO corrigido aqui: a gravação NÃO pode mais passar por
+  // updateProfile/setProfile (mesmo estado `profile` que o RootNavigator lê
+  // no gate) — isso trocava de árvore NA HORA e o usuário nunca chegava ao
+  // PostQuestionnaireChat. A gravação vai direto no Supabase via
+  // onboardingRepository; o estado local do AuthContext só vê o flip no
+  // próximo cold start (fetchProfile).
+  it('grava onboarding_completed=true via onboardingRepository (não mais updateProfile) durante a submissão', async () => {
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    await waitFor(() =>
+      expect(mockMarkOnboardingCompleted).toHaveBeenCalledWith('user-123'),
+    );
+  });
+
+  // Teste-guarda anti-reintrodução: updateProfile faz setProfile no MESMO
+  // estado que o RootNavigator usa para decidir MainNavigator vs.
+  // OnboardingNavigator — chamá-lo aqui desmontaria o OnboardingNavigator no
+  // meio do onboarding, antes do chat/geração de plano. Ver
+  // src/contexts/AuthContext.js:257-298 e src/navigation/RootNavigator.js:41,148-160.
+  it('NÃO chama updateProfile durante a submissão (anti-reintrodução do flip do RootNavigator)', async () => {
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    await waitFor(() =>
+      expect(mockMarkOnboardingCompleted).toHaveBeenCalledWith('user-123'),
+    );
+    expect(mockUpdateProfile).not.toHaveBeenCalled();
+  });
+
+  it('segue para o chat mesmo se a gravação de onboarding_completed falhar (retaguarda no fim do chat cobre)', async () => {
+    mockMarkOnboardingCompleted.mockRejectedValueOnce(new Error('rede indisponível'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const utils = await renderQuestionario();
+    await preencherTudo(utils);
+
+    fireEvent.press(utils.getByLabelText('Conversar com IA'));
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        'PostQuestionnaireChat',
+        expect.objectContaining({ formData: expect.objectContaining({ nome: 'Pedro Marconato' }) }),
+      ),
+    );
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+
+    consoleErrorSpy.mockRestore();
   });
 
   it('uma submissão nova apaga o chat persistido da rodada anterior antes de navegar', async () => {

@@ -39,6 +39,15 @@ import { OnboardingStackParamList } from '../navigation/OnboardingNavigator';
 import { saveQuestionnaireDataAPI } from '../services/api/questionnaireService';
 import { CARDIO_MODALIDADES } from '../constants/cardioModalidades';
 import { resetPostQuestionnaireChatState } from '../services/postQuestionnaireChatStorage';
+// onboardingRepository (que importa supabaseClient) NÃO entra no import
+// estático — mesmo idioma de src/theme/ThemeProvider.tsx (runSaveToken) e
+// src/navigation/linking.ts: várias suítes existentes renderizam
+// QuestionnaireScreen mockando só questionnaireService/AuthContext, sem
+// EXPO_PUBLIC_SUPABASE_URL definida — um import estático aqui derrubaria
+// essas suítes na carga do módulo. O require() em handleSubmit adia o custo
+// para o momento real da gravação; este type-only import não gera código.
+import type { onboardingRepository as OnboardingRepositoryValue } from '../services/onboardingRepository';
+type OnboardingRepository = typeof OnboardingRepositoryValue;
 import type { Theme } from '../theme/theme';
 import { useTheme, useThemeStyles } from '../theme/ThemeProvider';
 import { easeImpulso } from '../utils/motion';
@@ -498,6 +507,39 @@ const QuestionnaireScreen = () => {
         // Outros erros da API, lança para o catch externo tratar
         throw apiError;
       }
+    }
+
+    // 2.5. Marca onboarding_completed=true JÁ AQUI — tolerância a fechar o app
+    // entre a submissão e o fim do chat (achado da Fase 1): sem isso, essa
+    // conta ficava presa no OnboardingNavigator (RootNavigator só troca com
+    // onboarding_completed=true) até reabrir o chat e tocar em "Começar". Não
+    // bloqueia a navegação: falha aqui só loga — a gravação de retaguarda em
+    // handleEnterApp (fim do chat, PostQuestionnaireChat.tsx) continua sendo a
+    // fonte de verdade e roda de novo, já com o plano pronto.
+    //
+    // Achado CRÍTICO (revisor): updateProfile() do AuthContext faz setProfile()
+    // no MESMO estado `profile` que o RootNavigator lê no gate — chamar
+    // updateProfile aqui trocava de árvore NA HORA e o usuário nunca chegava
+    // ao PostQuestionnaireChat (só existe na árvore de onboarding). Por isso a
+    // gravação vai DIRETO no Supabase via onboardingRepository, sem tocar no
+    // estado local do AuthContext: `profile` continua desatualizado durante
+    // esta sessão (chat + geração de plano seguem normais) e o flip real do
+    // RootNavigator só acontece no próximo cold start (fetchProfile) ou no
+    // fim do chat, como antes.
+    try {
+      // require em call-time (mesmo idioma de ThemeProvider.tsx/runSaveToken):
+      // só carrega onboardingRepository — e o supabaseClient que ele importa —
+      // no momento real da gravação, nunca na carga estática do módulo.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { onboardingRepository } = require('../services/onboardingRepository') as {
+        onboardingRepository: OnboardingRepository;
+      };
+      await onboardingRepository.markOnboardingCompleted(userId);
+    } catch (onboardingError) {
+      console.error(
+        '[QuestionnaireScreen] Falha ao marcar onboarding_completed=true (não-fatal, retaguarda no fim do chat cobre):',
+        onboardingError,
+      );
     }
 
     // 3. Rodada nova de questionário: a conversa da rodada anterior (inclusive
