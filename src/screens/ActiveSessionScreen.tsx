@@ -62,6 +62,22 @@ import type { Adjustment } from '../engine/intraSessionAdaptation';
 
 type Props = { route: { params: { sessionId: string } } };
 
+/**
+ * Sessão inexistente NESTA base — `.single()` de getSessionDetail devolveu
+ * 0 linhas (PGRST116; cobre id de outra base e RLS negando). Distingue de
+ * falha TRANSITÓRIA (rede, timeout, 5xx do servidor): só o caso "não
+ * existe" é órfão de verdade e justifica encerrar a Live Activity em
+ * iniciar() — matar o card por um erro passageiro daria a impressão de
+ * treino concluído para uma sessão real em andamento. Ver
+ * endLiveActivityForAbandonedSession (liveActivitySync.ts) — a guarda
+ * interna dela não protege aqui porque reset() já zerou o store antes do
+ * catch de iniciar() rodar.
+ */
+export const isSessionNotFoundError = (err: unknown): boolean =>
+  typeof err === 'object' &&
+  err !== null &&
+  (err as { code?: unknown }).code === 'PGRST116';
+
 // Tag fixa fora do componente (D-05/D-06): ao contrário de useKeepAwake() sem
 // tag (que gera um ID novo por montagem e não pode ser desligado
 // condicionalmente — Pitfall 2 do RESEARCH.md), esta tag identifica UMA lock
@@ -293,9 +309,14 @@ const ActiveSessionScreen = ({ route }: Props) => {
       if (!isCurrent()) return;
       console.error('Erro ao iniciar sessão:', err);
       setDetailError(true);
-      // Janela #6 (WINDOWS.md): mesma lógica do ramo acima — a abertura
-      // falhou depois de reset() zerar o store, então encerra o card órfão.
-      void endLiveActivityForAbandonedSession();
+      // Janela #6 (WINDOWS.md) + correção retroativa: a abertura falhou
+      // depois de reset() zerar o store, mas só encerra o card órfão quando
+      // a sessão É genuinamente inexistente nesta base (PGRST116). Falha
+      // transitória (rede, timeout, 5xx) mantém a Live Activity viva — o
+      // aluno vê o erro acima e tenta de novo pelo botão "Tentar de novo".
+      if (isSessionNotFoundError(err)) {
+        void endLiveActivityForAbandonedSession();
+      }
     } finally {
       if (isCurrent()) setDetailLoading(false);
     }

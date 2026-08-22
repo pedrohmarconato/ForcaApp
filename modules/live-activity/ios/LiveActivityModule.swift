@@ -107,8 +107,30 @@ public class LiveActivityModule: Module {
 
     Events("onIntentAction")
 
-    AsyncFunction("startActivity") { (record: LiveActivityContentStateRecord, sessionLogId: String) -> Bool in
+    AsyncFunction("startActivity") { (record: LiveActivityContentStateRecord, sessionLogId: String) async -> Bool in
       guard #available(iOS 16.2, *) else { return false }
+      // Item A (revisão 2026-08-22, WINDOWS.md #6): o caminho de ERRO de
+      // iniciar() agora só encerra a Activity quando a sessão está
+      // genuinamente ausente (PGRST116) — falha transitória preserva o card
+      // de uma sessão real por desenho. Consequência: um card órfão de
+      // OUTRA sessão pode sobreviver até o próximo cold boot (reconcileOrphans
+      // é o backstop final). O caminho de SUCESSO passa a recolher esse
+      // órfão sem esperar o cold boot: mesmo mecanismo de encerramento do
+      // reconcileOrphans (abaixo), aqui filtrado — só Activities de
+      // sessionLogId DIFERENTE do novo são encerradas neste laço.
+      for activity in Activity<SessionActivityAttributes>.activities
+      where activity.attributes.sessionLogId != sessionLogId {
+        await activity.end(nil, dismissalPolicy: .immediate)
+      }
+      // Activity da MESMA sessão: antes desta correção o código apenas
+      // sobrescrevia `currentActivity` sem encerrar a anterior, deixando-a
+      // órfã e duplicada na tela bloqueada caso startActivity fosse chamado
+      // duas vezes para a mesma sessão. Encerra essa antiga também, antes
+      // de recriar.
+      for activity in Activity<SessionActivityAttributes>.activities
+      where activity.attributes.sessionLogId == sessionLogId {
+        await activity.end(nil, dismissalPolicy: .immediate)
+      }
       let attributes = SessionActivityAttributes(sessionLogId: sessionLogId)
       let state = contentState(from: record)
       do {

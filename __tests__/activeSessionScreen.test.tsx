@@ -200,7 +200,7 @@ import {
 } from '../src/services/sessionExecutionRepository';
 import { clearDraft } from '../src/services/sessionDraftStorage';
 import { useActiveSessionStore } from '../src/store/activeSessionStore';
-import ActiveSessionScreen from '../src/screens/ActiveSessionScreen';
+import ActiveSessionScreen, { isSessionNotFoundError } from '../src/screens/ActiveSessionScreen';
 import { getSessionDetail } from '../src/services/trainingRepository';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 // Janela #6 (WINDOWS.md): 'modules/live-activity' é substituído globalmente
@@ -397,12 +397,24 @@ it('erro ao carregar o detalhe mostra erro (não sessão vazia)', async () => {
 // da correção, o catch de iniciar() chama
 // endLiveActivityForAbandonedSession(), que encerra o card porque o store
 // já não está mais 'active' com draft (reset() zerou antes do catch rodar).
-it('sessão anterior tinha card ativo; abertura de nova sessão falha por rede e o card É encerrado (Janela #6 fechada)', async () => {
+//
+// Auditoria retroativa (BUG confirmado): esta reprodução original usava
+// `new Error('rede')` — ou seja, testava um erro TRANSITÓRIO, não uma
+// sessão genuinamente inexistente. Isso fazia o card cair até em falha
+// passageira de rede/timeout, dando a impressão de treino concluído para
+// uma sessão REAL em andamento. O cenário correto para "card É encerrado"
+// é a sessão inexistente NESTA base (PGRST116 do `.single()` — 0 linhas,
+// cobre id de outra base e RLS negando). O cenário de rede transitória
+// virou o teste seguinte, com a asserção invertida.
+it('sessão anterior tinha card ativo; nova sessão não existe nesta base (PGRST116) e o card É encerrado (Janela #6 fechada)', async () => {
   useActiveSessionStore.setState({
     status: 'active',
     draft: { sessionLogId: 'log-sessao-anterior', exercises: [] } as any,
   });
-  (getSessionDetail as jest.Mock).mockRejectedValueOnce(new Error('rede'));
+  (getSessionDetail as jest.Mock).mockRejectedValueOnce({
+    code: 'PGRST116',
+    message: 'JSON object requested, multiple (or no) rows returned',
+  });
 
   const screen = renderScreen();
   await waitFor(() =>
@@ -410,6 +422,56 @@ it('sessão anterior tinha card ativo; abertura de nova sessão falha por rede e
   );
 
   expect(endLiveActivity).toHaveBeenCalledWith('immediate');
+});
+
+// Correção deste ticket: falha TRANSITÓRIA (rede, timeout, 5xx) na abertura
+// de uma nova sessão não pode derrubar o card de uma sessão anterior REAL
+// em andamento — só a sessão genuinamente inexistente (teste acima)
+// justifica encerrar. A guarda interna de endLiveActivityForAbandonedSession
+// (`status === 'active' && draft`) não protege aqui porque reset() já
+// zerou o store ANTES do catch rodar — por isso a classificação precisa
+// acontecer em iniciar(), antes de decidir se chama a função.
+it('abertura de nova sessão falha por erro transitório de rede: o card NÃO é encerrado', async () => {
+  useActiveSessionStore.setState({
+    status: 'active',
+    draft: { sessionLogId: 'log-sessao-anterior', exercises: [] } as any,
+  });
+  (getSessionDetail as jest.Mock).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+  const screen = renderScreen();
+  await waitFor(() =>
+    expect(screen.getByText(/Não foi possível abrir o treino/)).toBeTruthy(),
+  );
+
+  expect(endLiveActivity).not.toHaveBeenCalled();
+});
+
+describe('isSessionNotFoundError (classificação de erro em iniciar())', () => {
+  it('PGRST116 (0 linhas do .single()) é sessão inexistente', () => {
+    expect(
+      isSessionNotFoundError({ code: 'PGRST116', message: 'not found' }),
+    ).toBe(true);
+  });
+
+  it('TypeError de rede (fetch failed) NÃO é sessão inexistente', () => {
+    expect(isSessionNotFoundError(new TypeError('Failed to fetch'))).toBe(false);
+  });
+
+  it('erro 5xx do servidor NÃO é sessão inexistente', () => {
+    expect(
+      isSessionNotFoundError({
+        code: '500',
+        message: 'Internal Server Error',
+        status: 500,
+      }),
+    ).toBe(false);
+  });
+
+  it('valores sem forma de erro (null/string/objeto sem code) NÃO são sessão inexistente', () => {
+    expect(isSessionNotFoundError(null)).toBe(false);
+    expect(isSessionNotFoundError('erro qualquer')).toBe(false);
+    expect(isSessionNotFoundError({ message: 'sem code' })).toBe(false);
+  });
 });
 
 it('achado 2 (painel 05-02): quarentena da fila fica VISÍVEL na tela, não some em silêncio', async () => {
