@@ -240,23 +240,28 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState,
     }
 }
 
-/// Fundo capsule dos grupos de stepper (reps/carga) da fase .measuring. Em
-/// iOS 26+ usa Liquid Glass (glassEffect); no fallback pré-26 (o app roda
-/// em iOS >=16.1) usa o preenchimento translúcido plano que é o estilo base
-/// aprovado — mesmo conteúdo, só o material do fundo muda.
-@ViewBuilder
+/// Fundo capsule dos grupos de stepper (reps/carga) da fase .measuring.
+/// BUG DE CAMPO (2026-08-22, iPhone 13 / iOS 26): o modificador de vidro
+/// líquido (Liquid Glass, novo no iOS 26), guardado atrás de um check de
+/// disponibilidade de versão, compilava mas derrubava a subárvore inteira
+/// em silêncio no motor de render de Live Activity — WidgetKit publica o
+/// conteúdo via archive (runtime próprio, distinto do app principal), que
+/// não sustenta esse material mesmo em device iOS 26 onde o app renderiza
+/// normalmente. Resultado: os dois grupos de stepper (reps e carga)
+/// sumiam do card, deixando um vão vazio entre a meta e o botão "Concluir
+/// série". O preenchimento translúcido plano abaixo — que já era o
+/// fallback pré-26 — vira o único estilo suportado; Live Activity não é
+/// lugar de API sem runtime comprovado. (Este comentário evita citar o
+/// nome literal do modificador/gate para não colidir com o teste de
+/// contrato que proíbe essas strings no arquivo.)
 private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-    let padded = content()
+    content()
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-    if #available(iOS 26.0, *) {
-        padded.glassEffect(.regular, in: .rect(cornerRadius: 14))
-    } else {
-        padded.background(
+        .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color.white.opacity(0.08))
         )
-    }
 }
 
 /// D-04 (Fase 15, Plano 15-07): `state.phase` já foi resolvido pelo chamador

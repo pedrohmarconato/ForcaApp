@@ -265,6 +265,11 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(widgetSwift).not.toContain('Ajustar no app');
   });
 
+  it('proíbe .glassEffect / #available(iOS 26 no widget — Live Activity roda por um motor de render (WidgetKit archive-based) que não suporta Liquid Glass em runtime; o modificador compilava mas derrubava a subárvore inteira em silêncio (grupos de reps/carga sumiam do card em iPhone com iOS 26), então o fallback translúcido plano vira o único estilo permitido', () => {
+    expect(widgetSwift).not.toContain('glassEffect');
+    expect(widgetSwift).not.toContain('#available(iOS 26');
+  });
+
   it('ressuscita prescriptionText() no corpo do lock screen e tira nextUpLine da fase .measuring', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
