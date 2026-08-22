@@ -1,14 +1,16 @@
 // Na RAIZ do projeto: ForcaApp/App.tsx
 import 'react-native-gesture-handler';
-import React, { useEffect, type ReactNode } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/theme/ThemeProvider';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
+import AppOpening from './src/components/AppOpening';
 import UpdateBanner from './src/components/UpdateBanner';
 import ProvisioningBanner from './src/components/ProvisioningBanner';
 import LiveActivityUnavailableBanner from './src/components/LiveActivityUnavailableBanner';
@@ -20,6 +22,15 @@ import {
 } from './src/native/liveActivitySync';
 import { registerLiveActivityIntentListener } from './src/native/liveActivityIntentBridge';
 import theme from './src/theme/theme';
+
+// Fase 3 (abertura animada): mantém a splash nativa visível até chamarmos
+// hideAsync() explicitamente (ver useEffect de fontsLoaded/fontError
+// abaixo) — sem isso o SO some com ela assim que o primeiro frame é
+// desenhado, antes do overlay AppOpening ter algo para substituir. Chamado
+// no escopo do módulo (recomendação da própria lib), sem await — e com
+// catch silencioso: no web é no-op e pode rejeitar; falhar aqui não pode
+// derrubar o boot do app.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Ponte fora de src/theme/: só aqui o app cruza auth -> tema. ThemeProvider
 // nunca importa AuthContext/supabaseClient (guarda estática em
@@ -50,6 +61,20 @@ export default function App() {
     'BarlowSemiCondensed-ExtraBold': require('./assets/fonts/BarlowSemiCondensed-ExtraBold.ttf'),
     Inter: require('./assets/fonts/Inter-Variable.ttf'),
   });
+
+  // Abertura animada (Fase 3): só existe entre o mount do App e o primeiro
+  // onFinish do overlay — inicializado uma única vez aqui, nunca observa
+  // AppState/foreground. React Native não remonta o componente raiz ao
+  // voltar de background, então este estado nunca é "reativado" fora de um
+  // cold start de verdade.
+  const [openingFinished, setOpeningFinished] = useState(false);
+
+  useEffect(() => {
+    if (!fontsLoaded && !fontError) return;
+    // Catch silencioso pelo mesmo motivo de preventAutoHideAsync() acima:
+    // web é no-op/pode rejeitar, e isso não pode travar o boot.
+    SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
 
   useEffect(() => {
     // Fase 15 Plano 15-09 (CR-03, 15-VERIFICATION.md gap 4): Live Activity é
@@ -103,6 +128,12 @@ export default function App() {
             prontos para receber o showAlert() do convite único de opt-in
             (PUSH-01, Fase 13 Plano 05). */}
         <PushInviteHost />
+        {/* Fase 3: por último, para pintar por cima de tudo acima — o app
+            real já montou atrás, a abertura só decora os primeiros
+            instantes e se desmonta sozinha via onFinish. */}
+        {!openingFinished && (
+          <AppOpening onFinish={() => setOpeningFinished(true)} />
+        )}
       </ThemedRoot>
     </AuthProvider>
   );

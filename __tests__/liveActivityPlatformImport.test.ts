@@ -48,6 +48,18 @@ jest.mock('../src/navigation/RootNavigator', () => ({
   default: () => null,
 }));
 jest.mock('../src/components/AlertHost', () => ({ __esModule: true, default: () => null }));
+// Fase 3 (abertura animada): mais um dependente hoistado alheio ao guard
+// testado aqui. Sem este mock, `<AppOpening>` seria a PRIMEIRA coisa nesta
+// suíte a renderizar um componente nativo com hooks (Pressable) via JSX
+// DEPOIS dos `jest.resetModules()` dos describes anteriores (bridge
+// android/web/iOS) — o registro de módulos do Jest fica com uma cópia de
+// `react` desacoplada da instância que `react-test-renderer` já capturou,
+// e `Pressable` (que só é resolvido no primeiro acesso, via getter
+// preguiçoso do barrel de `react-native`) quebra com "Cannot read
+// properties of null (reading 'useRef')" ao tentar usar essa cópia nova.
+// `View`/`ActivityIndicator`, os únicos nativos que este arquivo já tocava,
+// nunca expuseram o problema por não chamarem hook nenhum internamente.
+jest.mock('../src/components/AppOpening', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/components/UpdateBanner', () => ({ __esModule: true, default: () => null }));
 jest.mock('../src/components/ProvisioningBanner', () => ({
   __esModule: true,

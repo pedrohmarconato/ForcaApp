@@ -6,7 +6,7 @@ const PROJECT_ROOT = join(__dirname, '..');
 const SRC_ROOT = join(PROJECT_ROOT, 'src');
 const APP_FILE = join(PROJECT_ROOT, 'App.tsx');
 const RUNTIME_EXTENSION = /\.(?:js|jsx|ts|tsx)$/;
-const EXPECTED_CONSUMER_COUNT = 31;
+const EXPECTED_CONSUMER_COUNT = 32;
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   'assets',
   'history',
@@ -50,6 +50,9 @@ const CONSUMIDORES_ORIGINAIS = [
   { path: 'src/components/session/CheckInSheet.tsx', owner: '18-07 Task 2' },
   { path: 'src/components/session/ReplanBanner.tsx', owner: '18-07 Task 2' },
   { path: 'src/components/AlertHost.tsx', owner: '18-07 Task 3' },
+  // Halo neon pulsando atrás de ForcaMark na abertura de cold start — cor
+  // vem de useTheme() (dinâmico), não de import estático de theme.ts.
+  { path: 'src/components/AppOpening.tsx', owner: 'Fase 3 (abertura animada)' },
   { path: 'src/components/UpdateBanner.tsx', owner: '18-07 Task 3' },
   {
     path: 'src/components/progress/CardioEvolucaoChart.tsx',
