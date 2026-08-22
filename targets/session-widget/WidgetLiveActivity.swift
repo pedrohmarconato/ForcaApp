@@ -123,12 +123,23 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
     }
 }
 
+/// Bloco de contagem regressiva compartilhado entre a Dynamic Island (via
+/// primaryValue, região trailing — 331-367, NÃO TOCAR) e o herói do Lock
+/// Screen redesenhado (lockScreenRestHero). Existe para que a chamada de
+/// timer countsDown continue aparecendo exatamente 2 vezes no arquivo
+/// (aqui + compactValue), mesmo com o Lock Screen ganhando uma apresentação
+/// (44pt, rounded, glow) diferente da Dynamic Island (.title2 inalterado) —
+/// só os modificadores mudam por chamador, a chamada em si nunca duplica.
+private func restCountdownText(restEndsAt: Date) -> Text {
+    Text(timerInterval: Date.now...restEndsAt, countsDown: true)
+}
+
 @ViewBuilder
 private func primaryValue(_ state: SessionActivityAttributes.ContentState) -> some View {
     switch state.phase {
     case .resting:
         if let restEndsAt = state.restEndsAt {
-            Text(timerInterval: Date.now...restEndsAt, countsDown: true)
+            restCountdownText(restEndsAt: restEndsAt)
                 .font(.title2)
                 .fontWeight(.bold)
                 .monospacedDigit()
@@ -175,93 +186,228 @@ private func overtimeValue(_ state: SessionActivityAttributes.ContentState, now:
         .lineLimit(1)
 }
 
+// MARK: - Redesenho do Lock Screen (design aprovado, agosto/2026)
+//
+// As funções abaixo são NOVAS e exclusivas do Lock Screen. Não reaproveitam
+// primaryValue()/secondaryLine()/overtimeValue() nas fases em que o estilo
+// mudou de tamanho/fonte — só reaproveitam os helpers que continuam
+// produzindo o MESMO valor/String (neonAccent, seriesText, prescriptionText,
+// overtimeText, nextUpLine, restCountdownText). Isso garante que a Dynamic
+// Island (331-367, intocada) continue renderizando exatamente como antes,
+// já que primaryValue/secondaryLine/overtimeValue são os helpers que ela usa.
+
+/// Barra vertical de acento neon — identidade visual comum às quatro fases
+/// do Lock Screen redesenhado. Glow sutil via shadow, cor derivada do mesmo
+/// neonAccent(for:) usado no resto do widget.
+private func lockScreenAccentBar(_ neon: Color) -> some View {
+    RoundedRectangle(cornerRadius: 1.5)
+        .fill(neon)
+        .frame(width: 3)
+        .shadow(color: neon.opacity(0.5), radius: 6)
+}
+
+/// Cabeçalho comum "exercício · Série X/Y" das fases .resting/.measuring/
+/// .readyOvertime. Na fase .measuring o nome do exercício HOJE não aparecia
+/// no lock screen (secondaryLine só mostrava a série) — o redesenho junta
+/// os dois na mesma linha, como já acontecia em .resting.
+private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentState) -> some View {
+    Text("\(state.exerciseName) · \(seriesText(state))")
+        .font(.caption)
+        .fontWeight(.regular)
+        .foregroundColor(activitySecondary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+}
+
+/// Herói do timer de descanso: mesmo Text(timerInterval:) de sempre
+/// (restCountdownText), com a apresentação nova — 44pt, .rounded, glow —
+/// que não poderia entrar em primaryValue() sem também mudar a Dynamic Island.
+@ViewBuilder
+private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
+    if let restEndsAt = state.restEndsAt {
+        restCountdownText(restEndsAt: restEndsAt)
+            .font(.system(size: 44, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundColor(neon)
+            .contentTransition(.numericText())
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+    } else {
+        Text("—")
+            .font(.system(size: 44, weight: .heavy, design: .rounded))
+            .foregroundColor(.white)
+            .lineLimit(1)
+    }
+}
+
+/// Fundo capsule dos grupos de stepper (reps/carga) da fase .measuring. Em
+/// iOS 26+ usa Liquid Glass (glassEffect); no fallback pré-26 (o app roda
+/// em iOS >=16.1) usa o preenchimento translúcido plano que é o estilo base
+/// aprovado — mesmo conteúdo, só o material do fundo muda.
+@ViewBuilder
+private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    let padded = content()
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    if #available(iOS 26.0, *) {
+        padded.glassEffect(.regular, in: .rect(cornerRadius: 14))
+    } else {
+        padded.background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white.opacity(0.08))
+        )
+    }
+}
+
 /// D-04 (Fase 15, Plano 15-07): `state.phase` já foi resolvido pelo chamador
 /// via `RestPhaseResolver.effectivePhase` a partir de `timeline.date` — este
 /// switch nunca vê `.resting` sobrevivendo além de `restEndsAt`, mesmo com o
 /// processo JS suspenso.
+///
+/// Redesenho do Lock Screen (design aprovado, agosto/2026): as quatro fases
+/// ganham barra de acento neon no leading (lockScreenAccentBar) e cabeçalho
+/// "exercício · Série X/Y" comum (lockScreenHeaderLine, exceto .blockOnly,
+/// que não tem semântica de série). `neon` é resolvido uma única vez para a
+/// função inteira e reaproveitado nas quatro fases — mesma cor que o
+/// resolvedor de acento sempre devolveria para este state, só evita
+/// recomputar o switch fechado a cada uso dentro do mesmo case.
 @ViewBuilder
 private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now: Date) -> some View {
+    let neon = neonAccent(for: state)
     switch state.phase {
     case .resting:
-        VStack(alignment: .leading, spacing: 4) {
-            primaryValue(state)
-            secondaryLine(state)
-            HStack {
-                Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
-                    Text("-30s")
+        HStack(alignment: .top, spacing: 10) {
+            lockScreenAccentBar(neon)
+            VStack(alignment: .leading, spacing: 4) {
+                lockScreenHeaderLine(state)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    lockScreenRestHero(state, neon: neon)
+                    Spacer(minLength: 8)
+                    Button(intent: SkipRestIntent()) {
+                        Text("Pular")
+                            .fontWeight(.bold)
+                            .foregroundColor(.black)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(neon)
                 }
-                Button(intent: SkipRestIntent()) {
-                    Text("Pular")
+                if let restEndsAt = state.restEndsAt {
+                    ProgressView(timerInterval: Date.now...restEndsAt, countsDown: true)
+                        .progressViewStyle(.linear)
+                        .tint(neon)
                 }
-                Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
-                    Text("+30s")
+                HStack(spacing: 8) {
+                    Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
+                        Text("-30s")
+                    }
+                    Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
+                        Text("+30s")
+                    }
                 }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .tint(neon)
+                nextUpLine(state)
             }
-            .tint(neonAccent(for: state))
-            nextUpLine(state)
         }
     case .measuring:
-        VStack(alignment: .leading, spacing: 4) {
-            secondaryLine(state)
-            // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
-            // omitida para bodyweight, nunca as reps.
-            HStack {
-                Button(intent: AdjustRepsIntent(deltaReps: -1)) {
-                    Text("−")
-                }
-                Text(state.currentReps.map(String.init) ?? "—")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .monospacedDigit()
-                    .foregroundColor(.white)
-                    .opacity(state.isRepsInherited ? 0.6 : 1.0)
-                    .minimumScaleFactor(0.8)
+        HStack(alignment: .top, spacing: 10) {
+            lockScreenAccentBar(neon)
+            VStack(alignment: .leading, spacing: 4) {
+                lockScreenHeaderLine(state)
+                Text(prescriptionText(state))
+                    .font(.caption)
+                    .fontWeight(.regular)
+                    .foregroundColor(activitySecondary)
                     .lineLimit(1)
-                Button(intent: AdjustRepsIntent(deltaReps: 1)) {
-                    Text("+")
-                }
-            }
-            .tint(neonAccent(for: state))
-            if !state.isBodyweight {
-                HStack {
-                    Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
-                        Text("−")
+                // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
+                // omitida para bodyweight, nunca as reps. Os dois grupos ficam
+                // lado a lado na mesma linha (design aprovado).
+                HStack(spacing: 8) {
+                    lockScreenStepperGroup {
+                        HStack(spacing: 6) {
+                            Button(intent: AdjustRepsIntent(deltaReps: -1)) {
+                                Text("−")
+                            }
+                            Text(state.currentReps.map(String.init) ?? "—")
+                                .font(.system(.title3, design: .rounded))
+                                .fontWeight(.bold)
+                                .monospacedDigit()
+                                .foregroundColor(.white)
+                                .opacity(state.isRepsInherited ? 0.6 : 1.0)
+                                .contentTransition(.numericText())
+                                .minimumScaleFactor(0.8)
+                                .lineLimit(1)
+                            Button(intent: AdjustRepsIntent(deltaReps: 1)) {
+                                Text("+")
+                            }
+                        }
                     }
-                    Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
-                        .font(.title2)
+                    .tint(neon)
+                    if !state.isBodyweight {
+                        lockScreenStepperGroup {
+                            HStack(spacing: 6) {
+                                Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
+                                    Text("−")
+                                }
+                                Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
+                                    .font(.system(.title3, design: .rounded))
+                                    .fontWeight(.bold)
+                                    .monospacedDigit()
+                                    .foregroundColor(.white)
+                                    .opacity(state.isLoadInherited ? 0.6 : 1.0)
+                                    .contentTransition(.numericText())
+                                    .minimumScaleFactor(0.8)
+                                    .lineLimit(1)
+                                Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
+                                    Text("+")
+                                }
+                            }
+                        }
+                        .tint(neon)
+                    }
+                }
+                // Decisão aprovada: a dica de abrir o app para ajustar valores e
+                // nextUpLine() saem desta fase — a ação principal é concluir a
+                // série, sem distrações.
+                Button(intent: CompleteSetIntent()) {
+                    Text("Concluir série")
                         .fontWeight(.bold)
-                        .monospacedDigit()
-                        .foregroundColor(.white)
-                        .opacity(state.isLoadInherited ? 0.6 : 1.0)
-                        .minimumScaleFactor(0.8)
-                        .lineLimit(1)
-                    Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
-                        Text("+")
-                    }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
                 }
-                .tint(neonAccent(for: state))
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(neon)
             }
-            Button(intent: CompleteSetIntent()) {
-                Text("Concluir série")
-            }
-            .tint(neonAccent(for: state))
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.forward.app")
-                Text("Ajustar no app")
-            }
-            .font(.caption2)
-            .foregroundColor(activitySecondary)
-            nextUpLine(state)
         }
     case .readyOvertime:
-        VStack(alignment: .leading, spacing: 4) {
-            primaryValue(state)
-            secondaryLine(state)
-            overtimeValue(state, now: now)
-            nextUpLine(state)
+        HStack(alignment: .top, spacing: 10) {
+            lockScreenAccentBar(neon)
+            VStack(alignment: .leading, spacing: 4) {
+                lockScreenHeaderLine(state)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("PRONTO")
+                        .font(.system(size: 34, weight: .heavy, design: .rounded))
+                        .foregroundColor(neon)
+                        .shadow(color: neon.opacity(0.5), radius: 6)
+                        .lineLimit(1)
+                    Text(overtimeText(state, now: now))
+                        .font(.system(.title3, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(activitySecondary)
+                        .lineLimit(1)
+                }
+                nextUpLine(state)
+            }
         }
     case .blockOnly:
-        primaryValue(state)
+        HStack(alignment: .top, spacing: 10) {
+            lockScreenAccentBar(neon)
+            primaryValue(state)
+        }
     }
 }
 

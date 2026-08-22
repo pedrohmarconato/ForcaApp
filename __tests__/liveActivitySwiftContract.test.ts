@@ -203,11 +203,13 @@ describe('widget consome a cor derivada do ContentState', () => {
     expect(widgetSwift).not.toMatch(/activityNeon/);
   });
 
-  it('primaryValue e tint dos botões usam a cor do state recebido', () => {
-    // resting timer + "Pronto" no primaryValue; HStack de descanso + botão
-    // "Concluir série" no lockScreenBody.
+  it('primaryValue e tint dos botões/barra de acento usam a cor do state recebido', () => {
+    // resting timer + "Pronto" no primaryValue (usados pela Dynamic Island);
+    // 2× dentro de nextUpLine; 1× "let neon = neonAccent(for: state)" no
+    // topo do lockScreenBody redesenhado, reaproveitado nas quatro fases —
+    // 5 no total.
     const usos = widgetSwift.match(/neonAccent\(for: state\)/g) ?? [];
-    expect(usos.length).toBeGreaterThanOrEqual(4);
+    expect(usos.length).toBe(5);
   });
 
   it('símbolo minimal e keylineTint usam a cor de context.state', () => {
@@ -221,16 +223,20 @@ describe('widget consome a cor derivada do ContentState', () => {
 });
 
 describe('layout, tipografia e demais elementos preservados', () => {
-  it('mantém cores estruturais e tipografia', () => {
+  it('mantém cores estruturais e adota a tipografia rounded/numericText do redesenho', () => {
     expect(widgetSwift).toMatch(
       /private let activityBackground = Color\(red: 0\.039, green: 0\.039, blue: 0\.039\)/,
     );
     expect(widgetSwift).toMatch(
       /private let activitySecondary = Color\(red: 0\.545, green: 0\.565, blue: 0\.596\)/,
     );
-    for (const fonte of ['.title2', '.subheadline', '.caption2', '.caption']) {
-      expect(widgetSwift).toContain(fonte);
-    }
+    // Redesenho do Lock Screen (design aprovado, agosto/2026): tipografia
+    // display em .rounded e números com transição numérica — substituem a
+    // checagem antiga de .title2/.subheadline soltos no arquivo inteiro,
+    // que não discriminava onde a fonte era usada.
+    expect(widgetSwift).toContain('design: .rounded');
+    expect(widgetSwift).toContain('.contentTransition(.numericText())');
+    expect(widgetSwift).toContain('.monospacedDigit()');
   });
 
   it('mantém timers, intents e decoração da Activity', () => {
@@ -248,5 +254,34 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(widgetSwift).toMatch(
       /Image\(systemName: minimalSymbol\(for: context\.state\)\)/,
     );
+  });
+
+  it('adota o redesenho do Lock Screen aprovado (progress bar, botões prominence, sem "Ajustar no app")', () => {
+    expect(widgetSwift).toContain('ProgressView(timerInterval:');
+    expect(widgetSwift).toContain('.buttonStyle(.borderedProminent)');
+    expect(widgetSwift).toContain('.buttonBorderShape(.capsule)');
+    // Decisão aprovada (D-redesenho Lock Screen 2026-08): a dica "Ajustar no
+    // app" sai da fase .measuring — não sobra em lugar nenhum do arquivo.
+    expect(widgetSwift).not.toContain('Ajustar no app');
+  });
+
+  it('ressuscita prescriptionText() no corpo do lock screen e tira nextUpLine da fase .measuring', () => {
+    const corpoLockScreen = widgetSwift.match(
+      /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
+    );
+    expect(corpoLockScreen).not.toBeNull();
+    const corpo = corpoLockScreen![1];
+
+    // prescriptionText() já existia no arquivo (usada por primaryValue, que
+    // só a Dynamic Island chama) mas era código morto dentro do lock
+    // screen — o redesenho ressuscita a meta prescrita na fase .measuring.
+    expect(corpo).toContain('prescriptionText(state)');
+
+    const casoMeasuring = corpo.match(/case \.measuring:([\s\S]*?)case \.readyOvertime:/);
+    expect(casoMeasuring).not.toBeNull();
+    expect(casoMeasuring![1]).toContain('prescriptionText(state)');
+    // Decisão aprovada: nextUpLine() (rodapé "A SEGUIR") não aparece mais
+    // na fase .measuring — só em .resting e .readyOvertime.
+    expect(casoMeasuring![1]).not.toContain('nextUpLine(state)');
   });
 });
