@@ -5,12 +5,24 @@ import type { LiveActivityContentState } from '../../src/engine/liveActivityCont
 
 export type { LiveActivityContentState } from '../../src/engine/liveActivityContentState';
 
+/**
+ * `deltaSeconds`/`deltaLoadKg`/`deltaReps` são OPCIONAIS aqui — não porque o
+ * design queira isso, mas porque o runtime já mentiu: antes do fix de
+ * `AdjustRepsIntent.swift`/`AdjustLoadIntent.swift`/`AdjustRestIntent.swift`
+ * (e em qualquer binário de device que ainda não recebeu o rebuild), o
+ * evento quente `onIntentAction` chega SEM o campo de delta — só o enqueue
+ * na fila durável o carrega. Declarar como obrigatório aqui era a mentira
+ * de tipo que mascarava o bug: `event.deltaReps > 0 ? 1 : -1` com
+ * `undefined` sempre caía em `-1`. Opcional força quem consome o evento
+ * (`liveActivityIntentBridge.ts`) a checar `Number.isFinite(...)` antes de
+ * aplicar, em vez de confiar cegamente no contrato.
+ */
 export type LiveActivityIntentActionEvent =
   | { id: string; kind: 'completeSet'; sessionLogId?: string }
   | { id: string; kind: 'skipRest'; sessionLogId?: string }
-  | { id: string; kind: 'adjustRest'; deltaSeconds: number; sessionLogId?: string }
-  | { id: string; kind: 'adjustLoad'; deltaLoadKg: number; sessionLogId?: string }
-  | { id: string; kind: 'adjustReps'; deltaReps: number; sessionLogId?: string };
+  | { id: string; kind: 'adjustRest'; deltaSeconds?: number; sessionLogId?: string }
+  | { id: string; kind: 'adjustLoad'; deltaLoadKg?: number; sessionLogId?: string }
+  | { id: string; kind: 'adjustReps'; deltaReps?: number; sessionLogId?: string };
 
 /**
  * Entrada drenada da fila durável do App Group (Fase 16 Plano 16-02) —

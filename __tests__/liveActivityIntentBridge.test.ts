@@ -395,6 +395,87 @@ describe('liveActivityIntentBridge', () => {
     expect(mockAck).not.toHaveBeenCalled();
   });
 
+  // Payload REAL emitido hoje pelo Swift (AdjustRepsIntent.swift:45 /
+  // AdjustLoadIntent.swift:44 / AdjustRestIntent.swift:42): o evento quente
+  // `onIntentAction` NÃO carrega o campo de delta — só o enqueue (fila
+  // durável) o carrega. Os testes acima fabricavam o evento já com o campo
+  // presente, mascarando o bug: `event.deltaReps > 0 ? 1 : -1` com
+  // `undefined` avalia `undefined > 0` como `false` e aplica -1 SEMPRE,
+  // decrementando reps/carga a cada toque, incluindo toques de "+".
+  it('IN-01/campo ausente: adjustReps SEM deltaReps no payload (evento quente real de hoje) não chama stepReps nem ack — nunca aplica -1 por padrão', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', id: 'evt-r-missing' });
+
+    expect(stepReps).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo não numérico: adjustReps com deltaReps não finito (NaN) não chama stepReps nem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustReps', deltaReps: NaN, id: 'evt-r-nan' });
+
+    expect(stepReps).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo ausente: adjustLoad SEM deltaLoadKg no payload (evento quente real de hoje) não chama stepLoad nem ack — nunca aplica -1 por padrão', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', id: 'evt-l-missing' });
+
+    expect(stepLoad).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo não numérico: adjustLoad com deltaLoadKg não finito (NaN) não chama stepLoad nem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustLoad', deltaLoadKg: NaN, id: 'evt-l-nan' });
+
+    expect(stepLoad).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo ausente: adjustRest SEM deltaSeconds no payload (evento quente real de hoje) não chama adjustRest nem ack — a fila durável reconcilia com o valor certo', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustRest', id: 'evt-rest-missing' });
+
+    expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo não numérico: adjustRest com deltaSeconds não finito (NaN) não chama adjustRest nem ack', () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    handler({ kind: 'adjustRest', deltaSeconds: NaN, id: 'evt-rest-nan' });
+
+    expect(adjustRest).not.toHaveBeenCalled();
+    expect(mockAck).not.toHaveBeenCalled();
+  });
+
+  it('campo ausente: adjustReps/adjustLoad/adjustRest sem delta NÃO marca o id como entregue pelo caminho quente (a reconciliação de cold-launch continua livre para aplicar a partir da fila durável)', async () => {
+    setDraft(draft());
+    const handler = getHandler();
+
+    await handler({ kind: 'adjustReps', id: 'evt-hot-1' });
+    await handler({ kind: 'adjustLoad', id: 'evt-hot-2' });
+    await handler({ kind: 'adjustRest', id: 'evt-hot-3' });
+
+    const { wasHotIntentDelivered } = jest.requireActual('../src/native/intentDeliveryRegistry');
+    expect(wasHotIntentDelivered('evt-hot-1')).toBe(false);
+    expect(wasHotIntentDelivered('evt-hot-2')).toBe(false);
+    expect(wasHotIntentDelivered('evt-hot-3')).toBe(false);
+  });
+
   it('registerLiveActivityIntentListener chama subscribeLiveActivityIntentAction exatamente uma vez', () => {
     setDraft(draft());
     registerLiveActivityIntentListener();

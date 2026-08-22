@@ -42,7 +42,7 @@ struct AdjustRepsIntent: LiveActivityIntent {
     // a bridge recusa sem aplicar o evento cujo id divirja do draft atual.
     // `?? ""` preserva a ausência (atributo irresolvível) como "origem
     // desconhecida" — o CAS da reconciliação decide.
-    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustReps", "sessionLogId": sessionLogId ?? "", "id": actionId])
+    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustReps", "deltaReps": deltaReps, "sessionLogId": sessionLogId ?? "", "id": actionId])
 
     return .result()
   }

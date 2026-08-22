@@ -11,6 +11,18 @@ import {
 } from './intentDeliveryRegistry';
 
 /**
+ * Guarda contra o campo de delta ausente/inválido no evento quente
+ * `onIntentAction` — o bug confirmado em `AdjustRepsIntent.swift:45`,
+ * `AdjustLoadIntent.swift:44` e `AdjustRestIntent.swift:42` (evento quente
+ * omitia o campo; só o enqueue da fila durável o carregava). `Number
+ * .isFinite` recusa `undefined`, `null`, `NaN` e qualquer não-número sem
+ * coagir — nenhum palpite (jamais `-1` por padrão) é aplicado quando o
+ * campo não é um número finito de verdade.
+ */
+const isFiniteDelta = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+/**
  * Único despacho evento→ação da store para os toques da tela bloqueada
  * (Fase 16, CMD-01/CMD-02). Nenhuma lógica de domínio nova: cada `case`
  * apenas resolve a série alvo (`findActiveSet`/`findNextPendingSet`, os
@@ -83,6 +95,22 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
     }
     case 'adjustRest': {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
+      // Mesma guarda de adjustLoad/adjustReps abaixo: sem um deltaSeconds
+      // numérico finito, não há nada seguro para aplicar aqui. A entrada
+      // correspondente na fila durável (enqueue já grava deltaSeconds
+      // certo) NÃO é acked — fica disponível para a reconciliação de
+      // cold-launch (`activeSessionStore.reconcileLiveActivityIntents`,
+      // case 'adjustRest') aplicar depois com o valor real.
+      if (!isFiniteDelta(event.deltaSeconds)) {
+        // B (revisão 2026-08-22): console.warn, não logger.warn — logger.ts é
+        // dev-gated e suprime em produção; esta guarda precisa deixar rastro
+        // em campo quando um toque é ignorado. Mensagem + kind + id só, sem o
+        // payload completo do evento (pode carregar ids sensíveis).
+        console.warn(
+          `[liveActivity] adjustRest do intent ${event.id} ignorado: deltaSeconds ausente/inválido no evento quente — mantido na fila durável`,
+        );
+        return;
+      }
       useActiveSessionStore.getState().adjustRest(event.deltaSeconds);
       markHotIntentDelivered(event.id);
       void ackQueuedLiveActivityIntent(event.id);
@@ -90,6 +118,20 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
     }
     case 'adjustLoad': {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
+      // Bug confirmado (AdjustLoadIntent.swift:44, evento quente sem o
+      // campo): `event.deltaLoadKg > 0 ? 1 : -1` com `undefined` avalia
+      // `undefined > 0` como `false` e SEMPRE decrementava a carga, mesmo em
+      // toques de "+". Sem um número finito não aplicamos palpite nenhum —
+      // a entrada correspondente na fila durável (enqueue grava o valor
+      // certo) não é acked aqui, ficando disponível para a reconciliação de
+      // cold-launch aplicar com o deltaValue real.
+      if (!isFiniteDelta(event.deltaLoadKg)) {
+        // B (revisão 2026-08-22): console.warn — ver comentário em adjustRest.
+        console.warn(
+          `[liveActivity] adjustLoad do intent ${event.id} ignorado: deltaLoadKg ausente/inválido no evento quente — mantido na fila durável`,
+        );
+        return;
+      }
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
         // O widget sempre envia ±loadIncrementKg como delta, mas stepLoad()
@@ -105,6 +147,17 @@ const handleIntentAction = async (event: LiveActivityIntentActionEvent): Promise
     }
     case 'adjustReps': {
       if (event.sessionLogId && event.sessionLogId !== draft.sessionLogId) return;
+      // Mesmo bug e mesma guarda de adjustLoad acima (AdjustRepsIntent
+      // .swift:45): sem deltaReps numérico finito, nenhum palpite (-1 por
+      // padrão) é aplicado — a entrada correspondente na fila durável fica
+      // intacta para a reconciliação de cold-launch.
+      if (!isFiniteDelta(event.deltaReps)) {
+        // B (revisão 2026-08-22): console.warn — ver comentário em adjustRest.
+        console.warn(
+          `[liveActivity] adjustReps do intent ${event.id} ignorado: deltaReps ausente/inválido no evento quente — mantido na fila durável`,
+        );
+        return;
+      }
       const alvo = findActiveSet(draft) ?? findNextPendingSet(draft);
       if (alvo) {
         // Mesmo padrão de adjustLoad: só o SINAL do delta importa, stepReps()

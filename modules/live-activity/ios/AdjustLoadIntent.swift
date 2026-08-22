@@ -41,7 +41,7 @@ struct AdjustLoadIntent: LiveActivityIntent {
     // a bridge recusa sem aplicar o evento cujo id divirja do draft atual.
     // `?? ""` preserva a ausência (atributo irresolvível) como "origem
     // desconhecida" — o CAS da reconciliação decide.
-    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustLoad", "sessionLogId": sessionLogId ?? "", "id": actionId])
+    LiveActivityModule.shared?.sendEvent("onIntentAction", ["kind": "adjustLoad", "deltaLoadKg": deltaLoadKg, "sessionLogId": sessionLogId ?? "", "id": actionId])
 
     return .result()
   }
