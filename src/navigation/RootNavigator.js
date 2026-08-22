@@ -30,7 +30,7 @@ const RootNavigator = () => {
   const { theme } = useTheme();
   const styles = useThemeStyles(createStyles);
   // ... (estados e useEffect permanecem os mesmos da versão anterior) ...
-  const { session, profile, loadingSession, loadingProfile, errorProfile } = useAuth();
+  const { session, profile, loadingSession, loadingProfile, errorProfile, profileResolved } = useAuth();
   const [shouldStayLoggedIn, setShouldStayLoggedIn] = useState(false);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
 
@@ -122,7 +122,13 @@ const RootNavigator = () => {
 
   console.log('[RootNavigator] Sessão ativa detectada. Verificando perfil...');
 
-  if (loadingProfile) {
+  // profile===null antes de profileResolved===true não é confiável: pode
+  // ser a retentativa de PGRST116 (RLS negando a linha por token vencido)
+  // ainda em andamento no AuthContext, não uma conta genuinamente sem
+  // perfil — cair direto no OnboardingNavigator aqui é o bug do
+  // questionário piscando no cold boot (ver AuthContext.js:fetchProfile).
+  // Reaproveita a MESMA tela de loading já usada para loadingProfile.
+  if (loadingProfile || (profile === null && !profileResolved)) {
      console.log('[RootNavigator] Sessão ativa, perfil carregando...');
     return (
       <View style={styles.loadingContainer}>

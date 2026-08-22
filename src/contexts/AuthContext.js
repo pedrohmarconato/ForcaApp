@@ -41,6 +41,17 @@ export const AuthProvider = ({ children }) => {
     const [loadingProfile, setLoadingProfile] = useState(false);
     const [errorProfile, setErrorProfile] = useState(null);
     const [initialAuthDone, setInitialAuthDone] = useState(false);
+    // profileResolved: false enquanto a primeira resolução de perfil do
+    // usuário ATUAL (fetchProfile inicial + a retentativa de PGRST116, se
+    // houver — ver fetchProfile) ainda não terminou. O RootNavigator só
+    // pode tratar profile===null como "sem perfil -> onboarding" quando
+    // este flag está true; do contrário mostra o loading que já existe.
+    // Bug que isso fecha: PGRST116 por RLS negando a linha no cold boot com
+    // token vencido (verifyTokenValidity não detecta porque sua sonda não
+    // filtra por usuário) fazia o app piscar o questionário antes do
+    // TOKEN_REFRESHED corrigir o estado segundos depois. Troca de usuário
+    // reseta para false (useEffect #1, abaixo).
+    const [profileResolved, setProfileResolved] = useState(false);
 
     // Refs para acessar estado atual dentro do listener sem causar re-run do useEffect
     const userRef = useRef(user);
@@ -186,10 +197,14 @@ export const AuthProvider = ({ children }) => {
     // TOKEN_REFRESHED/USER_UPDATED (useEffect #1, abaixo). Cold start, troca
     // de usuário e chamadas explícitas (refreshProfile, fallback de
     // updateProfile) continuam lendo o banco como está.
-    const fetchProfile = useCallback(async (userId, isInitialFetch = false, preserveOnboardingView = false) => {
+    // isRetryAttempt: uso interno — só a própria fetchProfile se chama de
+    // novo com `true`, na retentativa de PGRST116 (ver branch abaixo).
+    // Nenhum chamador externo deve passar este argumento.
+    const fetchProfile = useCallback(async (userId, isInitialFetch = false, preserveOnboardingView = false, isRetryAttempt = false) => {
         if (!userId) {
             console.log("[AuthContext] fetchProfile chamado sem userId.");
             setProfile(null);
+            setProfileResolved(true);
             if (isInitialFetch) setLoadingSession(false);
             setLoadingProfile(false);
             return null;
@@ -237,7 +252,47 @@ export const AuthProvider = ({ children }) => {
                     throw error; // Re-lança outros erros
                 } else {
                     console.log("[AuthContext] Perfil não encontrado (PGRST116), retornando null.");
-                    setProfile(null); // Garante que o perfil está nulo
+
+                    // PGRST116 aqui pode ser a RLS negando a linha por token
+                    // vencido no cold boot — verifyTokenValidity (acima) usa
+                    // uma sonda sem .eq('id', userId) e não detecta isso
+                    // (achado da auditoria de 19/08). O trigger
+                    // on_auth_user_created garante que todo usuário
+                    // autenticado TEM uma linha em profiles: PGRST116 aqui
+                    // nunca é "conta nova" de verdade. Antes de aceitar a
+                    // ausência (que o RootNavigator trata como onboarding),
+                    // tenta renovar a sessão UMA vez e refazer o fetch.
+                    // isRetryAttempt evita loop — a chamada recursiva já
+                    // entra com isRetryAttempt=true e não tenta de novo.
+                    if (!isRetryAttempt) {
+                        try {
+                            const { error: refreshError } = await supabase.auth.refreshSession();
+                            if (refreshError) {
+                                throw refreshError;
+                            }
+                            console.log("[AuthContext] Sessão renovada após PGRST116 — refazendo fetch do perfil.");
+                            // refreshSession() bem-sucedido emite TOKEN_REFRESHED,
+                            // que também dispara o refetch same-user do
+                            // listener (useEffect #1, evento TOKEN_REFRESHED
+                            // abaixo). É seguro tolerar essa duplicata: as
+                            // duas chamadas leem o MESMO estado atual do
+                            // banco para o MESMO usuário e convergem para o
+                            // mesmo resultado (idempotente) — a pior
+                            // consequência é uma leitura a mais, nunca um
+                            // estado inconsistente.
+                            return await fetchProfile(userId, isInitialFetch, preserveOnboardingView, true);
+                        } catch (refreshException) {
+                            // Falha do PRÓPRIO refreshSession (rede ou
+                            // refresh token inválido) — erro genérico, não
+                            // "sem perfil" (não pode virar onboarding).
+                            console.warn("[AuthContext] Falha ao renovar sessão após PGRST116:", refreshException?.message ?? refreshException);
+                            setErrorProfile("Não foi possível carregar os dados do perfil.");
+                            return null;
+                        }
+                    }
+
+                    console.log("[AuthContext] Perfil não encontrado (PGRST116) após retentativa, aceitando ausência.");
+                    setProfile(null); // Garante que o perfil está nulo (fallback assentado)
                     return null;
                 }
             }
@@ -283,6 +338,13 @@ export const AuthProvider = ({ children }) => {
             setLoadingProfile(false);
             // Só desativa o loading geral se for a busca inicial
             if (isInitialFetch) setLoadingSession(false);
+            // A resolução (incluindo a retentativa de PGRST116 acima, se
+            // houve) terminou para este usuário — só a partir daqui
+            // profile===null pode ser lido como "sem perfil" pelo
+            // RootNavigator. Roda tanto na chamada de retentativa quanto na
+            // original (que a aguarda antes de chegar aqui), então não
+            // marca resolvido cedo demais.
+            setProfileResolved(true);
             console.log("[AuthContext] fetchProfile finalizado para:", userId);
         }
     }, [handleSessionExpiration, verifyTokenValidity]); // Depende das funções memoizadas
@@ -373,6 +435,10 @@ export const AuthProvider = ({ children }) => {
 
                 // Lógica principal movida para cá, usando refs quando necessário
                 if (currentUserId !== previousUserId) {
+                    // Nova resolução começando (login, troca de usuário ou
+                    // primeiro evento) — a resolução do usuário anterior não
+                    // vale para este.
+                    setProfileResolved(false);
                     if (currentUser) {
                         console.log(`[AuthContext] Usuário mudou para ${currentUserId} ou evento inicial. Buscando perfil.`);
                         // Verificar se o token é válido antes de buscar o perfil
@@ -484,6 +550,7 @@ export const AuthProvider = ({ children }) => {
         session,
         user,
         profile,
+        profileResolved,
         // Combina os loadings: está carregando se a auth inicial não terminou OU o perfil está carregando
         loading: !initialAuthDone || loadingProfile,
         loadingSession: !initialAuthDone, // Loading específico da sessão/auth inicial
@@ -525,7 +592,7 @@ export const AuthProvider = ({ children }) => {
         updateProfile, // Já usa useCallback
     }), [
         // Lista de dependências para o useMemo
-        session, user, profile, initialAuthDone, loadingProfile, errorProfile,
+        session, user, profile, profileResolved, initialAuthDone, loadingProfile, errorProfile,
         signOut, fetchProfile, updateProfile // Inclui as funções que são parte do valor e podem mudar (embora usem useCallback)
         // signIn, signUp, resetPassword, refreshProfile não precisam estar aqui se suas definições (useCallback) não mudam
     ]);

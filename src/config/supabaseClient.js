@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { AppState, Platform } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseSecureStorage, migrateLegacySupabaseSession } from '../services/auth/secureStorage';
 
@@ -30,3 +31,26 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
   },
 });
+
+// Wiring recomendado pela própria doc do GoTrueClient para React Native
+// (GoTrueClient.startAutoRefresh): autoRefreshToken acima só evita ficar
+// preso renovando à toa em segundo plano quando o app avisa o client sobre
+// foreground/background — no browser o client já resolve isso sozinho pelo
+// evento de visibilidade da aba, por isso a guarda de Platform.OS. Mesmo
+// padrão de AppState de src/hooks/useDiaLocal.ts e
+// src/hooks/useSessionOutboxDrain.ts. Fica aqui (módulo carregado uma vez
+// por processo) e não em App.tsx/componente para "registrar isso só uma
+// vez", como a doc recomenda, sem depender de nenhum componente estar
+// montado.
+if (Platform.OS !== 'web') {
+  if (AppState.currentState === 'active') {
+    void supabase.auth.startAutoRefresh();
+  }
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      void supabase.auth.startAutoRefresh();
+    } else {
+      void supabase.auth.stopAutoRefresh();
+    }
+  });
+}
