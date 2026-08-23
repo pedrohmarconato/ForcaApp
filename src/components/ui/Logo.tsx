@@ -28,6 +28,15 @@ const MODULE_TOP = 'M14 14H84L76 34H6Z';
 const MODULE_MID = 'M14 39H68L60 59H6Z';
 const MODULE_BASE = 'M14 64H50L42 84H6Z';
 
+// Exportados para composição animada fora deste arquivo (ex.: a abertura de
+// cold start em AppOpening.tsx, que anima cada módulo em camada própria).
+// Geometria idêntica à usada por ForcaMark abaixo — nunca diverge dela.
+export const FORCA_MARK_MODULE_PATHS = {
+  top: MODULE_TOP,
+  mid: MODULE_MID,
+  base: MODULE_BASE,
+} as const;
+
 type ForcaMarkProps = {
   /** Lado do símbolo em px. Mínimo recomendado pelo brandbook: 16. */
   size?: number;
