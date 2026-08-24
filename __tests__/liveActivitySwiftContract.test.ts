@@ -14,7 +14,12 @@
 // 2026-08-24 — o ORÇAMENTO DE ALTURA do card de Lock Screen: soma as
 // constantes CGFloat nomeadas que o widget declara e falha se algum dos 3
 // estados passar do teto apurado na pesquisa (160pt, HIG) com a margem de
-// segurança de 10% exigida.
+// segurança de 10% exigida; (g) — desde 2026-08-24 (correção de chrome de
+// botão) — nenhum botão da apresentação de Lock Screen usa
+// .bordered/.borderedProminent/.controlSize/.buttonBorderShape (chrome e
+// padding do host real de Live Activity, diferente do que um app comum
+// renderiza — o bug de campo que comprimia reps/carga a zero no aparelho do
+// dono); todos usam .buttonStyle(.plain) com fundo desenhado à mão.
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -246,17 +251,20 @@ describe('layout, tipografia e demais elementos preservados', () => {
   });
 
   it('usa .width(.condensed) largamente nos heróis, cabeçalhos e rótulos do redesenho', () => {
-    // Cabeçalho (3x), DESCANSO, timer de descanso (2 ramos), ±30s (2),
-    // PULAR DESCANSO, CONCLUIR SÉRIE, valor+rótulo do stepper (2, definidos
-    // uma única vez em lockScreenStepperMetric e reaproveitados nas duas
-    // chamadas — reps e carga — pela correção de 2026-08-24 que unificou os
-    // dois blocos duplicados numa função só), PRONTO, tempo extra dentro do
-    // bloco, A SEGUIR (rótulo+detalhe). Piso ajustado de >=16 para >=14 na
-    // correção de 2026-08-24: a DRY-ficação do stepper (lockScreenStepperMetric
-    // chamado 2×) reduz a contagem de OCORRÊNCIAS NO CÓDIGO-FONTE sem reduzir
-    // o uso real (a função ainda roda 2×, só o texto-fonte não duplica mais).
+    // Cabeçalho (3x), DESCANSO, timer de descanso (2 ramos), ±30s (1, ver
+    // abaixo), PULAR DESCANSO, CONCLUIR SÉRIE, valor+rótulo do stepper (2,
+    // definidos uma única vez em lockScreenStepperMetric e reaproveitados
+    // nas duas chamadas — reps e carga — pela correção de 2026-08-24 que
+    // unificou os dois blocos duplicados numa função só), PRONTO, tempo
+    // extra dentro do bloco, A SEGUIR (rótulo+detalhe). Piso ajustado de
+    // >=16 para >=14 na correção de 2026-08-24 (DRY-ficação do stepper) e de
+    // >=14 para >=13 na correção de chrome de botão do mesmo dia: os chips
+    // ±30s (`-30s`/`+30s`) agora chamam `lockScreenAdjustChipLabel` — uma
+    // função só, chamada 2× — em vez de declarar o mesmo `.font(...)`
+    // inline nos dois Button (reduz a contagem de OCORRÊNCIAS NO
+    // CÓDIGO-FONTE sem reduzir o uso real: a função ainda roda 2×).
     const usos = widgetSwift.match(/\.width\(\.condensed\)/g) ?? [];
-    expect(usos.length).toBeGreaterThanOrEqual(14);
+    expect(usos.length).toBeGreaterThanOrEqual(13);
   });
 
   it('mantém timers, intents e decoração da Activity', () => {
@@ -341,21 +349,30 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(bloco![1]).toContain('.padding(.vertical, stepperRowVerticalPadding)');
   });
 
-  it('glifo −/+ do stepper usa stepperGlyphSize (>= 44pt, piso de acessibilidade) e trava com .fixedSize() — 4 ocorrências (reps e carga)', () => {
+  it('glifo −/+ do stepper usa stepperGlyphSize (>= 44pt, piso de acessibilidade), desenha o próprio fundo e trava com .fixedSize() — 4 ocorrências (reps e carga)', () => {
     const glifo = widgetSwift.match(
-      /private func lockScreenStepperGlyph\(_ symbol: String\) -> some View \{([\s\S]*?)\n\}/,
+      /private func lockScreenStepperGlyph\(_ symbol: String, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
     );
     expect(glifo).not.toBeNull();
     expect(glifo![1]).toContain('.frame(width: stepperGlyphSize, height: stepperGlyphSize)');
+    // CORREÇÃO DE CAUSA RAIZ (2026-08-24): estes botões nunca tinham
+    // `.buttonStyle()` explícito — o estilo padrão do sistema, dentro do
+    // host real de Live Activity, recebe o MESMO chrome/padding do
+    // `.bordered` (o `.tint(neon)` que o chamador aplicava só tingia esse
+    // chrome). Agora o glifo desenha o próprio fundo e cor — nunca mais
+    // delega tamanho/aparência ao sistema.
+    expect(glifo![1]).toContain('.foregroundColor(neon)');
+    expect(glifo![1]).toContain('.fill(Color.white.opacity(0.10))');
 
-    // Os quatro botões (reps −/+, carga −/+) chamam o glifo e travam o
-    // próprio tamanho com `.fixedSize()` — sem isso, o Button aceita a
-    // proposta flexível do HStack e cresce além do seu conteúdo (BUG DE
-    // CAMPO 2026-08-22/24: sem fixedSize, os botões cresciam e comprimiam o
-    // número a zero — quatro elipses de neon, nenhum número, no aparelho).
-    const chamadasGlifo = widgetSwift.match(/lockScreenStepperGlyph\("[−+]"\)/g) ?? [];
+    // Os quatro botões (reps −/+, carga −/+) chamam o glifo passando `neon`
+    // e travam o próprio tamanho com `.fixedSize()` — sem isso, o Button
+    // aceita a proposta flexível do HStack e cresce além do seu conteúdo
+    // (BUG DE CAMPO 2026-08-22/24: sem fixedSize, os botões cresciam e
+    // comprimiam o número a zero — quatro elipses de neon, nenhum número,
+    // no aparelho).
+    const chamadasGlifo = widgetSwift.match(/lockScreenStepperGlyph\("[−+]", neon: neon\)/g) ?? [];
     expect(chamadasGlifo.length).toBe(4);
-    const travados = widgetSwift.match(/lockScreenStepperGlyph\("[−+]"\)\s*\n\s*\}\s*\n\s*\.fixedSize\(\)/g) ?? [];
+    const travados = widgetSwift.match(/lockScreenStepperGlyph\("[−+]", neon: neon\)\s*\n\s*\}\s*\n\s*\.fixedSize\(\)/g) ?? [];
     expect(travados.length).toBe(4);
   });
 
@@ -462,11 +479,12 @@ describe('layout, tipografia e demais elementos preservados', () => {
     const corpoSemComentarios = modificadoresAplicados.join('\n');
     expect(corpoSemComentarios).not.toContain('.controlSize(.large)');
     expect(corpoSemComentarios).not.toContain('.buttonStyle(.borderedProminent)');
-    expect(widgetSwift).toContain('.buttonBorderShape(.roundedRectangle(radius: 12))'); // só os botões ±30s
-    expect(widgetSwift).not.toContain('.buttonBorderShape(.roundedRectangle(radius: 14))');
-    // .capsule saiu de vez — os dois botões de largura total do redesenho
-    // usam cantos arredondados explícitos, não mais cápsula.
-    expect(widgetSwift).not.toContain('.buttonBorderShape(.capsule)');
+    // Correção de causa raiz (2026-08-24, chrome de botão do host real de
+    // Live Activity): `.buttonBorderShape` saiu de vez do arquivo — inclusive
+    // dos chips ±30s, que agora desenham uma Capsule própria em vez de pedir
+    // ao sistema um `.roundedRectangle(radius: 12)` (ver describe "nenhum
+    // botão... usa estilo/controle do sistema" abaixo).
+    expect(widgetSwift).not.toContain('.buttonBorderShape(');
   });
 
   it('proíbe .glassEffect / #available(iOS 26 no widget — Live Activity roda por um motor de render (WidgetKit archive-based) que não suporta Liquid Glass em runtime; o modificador compilava mas derrubava a subárvore inteira em silêncio (grupos de reps/carga sumiam do card em iPhone com iOS 26), então o fallback plano/contornado vira o único estilo permitido', () => {
@@ -510,7 +528,7 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(casoMeasuring![1]).toContain('lockScreenAccentBar(neon)');
   });
 
-  it('mantém os intents de ±30s de descanso como botões contornados ao lado do bloco neon (controlSize .small, borda branca sutil)', () => {
+  it('mantém os intents de ±30s de descanso como chips desenhados à mão ao lado do bloco neon (cápsula, .buttonStyle(.plain), altura 30, padding horizontal 12)', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
     );
@@ -524,12 +542,58 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(bloco).not.toBeNull();
     expect(bloco![1]).toContain('AdjustRestIntent(deltaSeconds: -30)');
     expect(bloco![1]).toContain('AdjustRestIntent(deltaSeconds: 30)');
-    expect(bloco![1]).toContain('.buttonStyle(.bordered)');
-    expect(bloco![1]).toContain('.buttonBorderShape(.roundedRectangle(radius: 12))');
-    expect(bloco![1]).toContain('.controlSize(.small)');
+    // Correção de causa raiz (2026-08-24): `.bordered` + `.controlSize(.small)`
+    // + `.buttonBorderShape` saíram — dentro do host real de Live Activity
+    // esse trio recebia chrome e padding PRÓPRIOS do sistema (viravam
+    // cápsulas enormes que comprimiam os números da linha .measuring a
+    // zero no aparelho do dono; o mesmo estilo aqui teria o mesmo risco).
+    // `.buttonStyle(.plain)` + a cápsula desenhada em `lockScreenAdjustChipLabel`
+    // garantem que o tamanho do controle é exatamente o declarado.
+    expect(bloco![1]).toContain('.buttonStyle(.plain)');
+    expect(bloco![1]).not.toContain('.buttonStyle(.bordered)');
+    expect(bloco![1]).not.toContain('.controlSize(');
+    expect(bloco![1]).not.toContain('.buttonBorderShape(');
+    expect(bloco![1]).not.toContain('.tint(');
     // O chip .mini da rodada "card mais alto" anterior não sobrevive — os
     // botões voltam a ter uma área de toque maior ao lado do bloco neon.
     expect(widgetSwift).not.toContain('.controlSize(.mini)');
+
+    const rotulo = widgetSwift.match(
+      /private func lockScreenAdjustChipLabel\(_ text: String\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(rotulo).not.toBeNull();
+    expect(rotulo![1]).toContain('.padding(.horizontal, 12)');
+    expect(rotulo![1]).toContain('.frame(height: 30)');
+    expect(rotulo![1]).toContain('Capsule()');
+    expect(rotulo![1]).toContain('.fill(Color.white.opacity(0.12))');
+    expect(rotulo![1]).toContain('.foregroundColor(.white)');
+    expect(rotulo![1]).toContain('.font(.system(size: 15, weight: .semibold).width(.condensed))');
+  });
+
+  it('nenhum botão da apresentação de Lock Screen usa .bordered/.borderedProminent/.controlSize/.buttonBorderShape — bug de campo: esse chrome do sistema virava cápsulas/círculos gigantes que comprimiam os números a zero no host real de Live Activity, embora renderizassem certo num app comum', () => {
+    const semComentarios = widgetSwift
+      .split('\n')
+      .filter((linha) => !linha.trim().startsWith('//'))
+      .join('\n');
+    expect(semComentarios).not.toMatch(/\.buttonStyle\(\s*\.bordered\s*\)/);
+    expect(semComentarios).not.toMatch(/\.buttonStyle\(\s*\.borderedProminent\s*\)/);
+    expect(semComentarios).not.toContain('.controlSize(');
+    expect(semComentarios).not.toContain('.buttonBorderShape(');
+  });
+
+  it('todo botão da Lock Screen usa .buttonStyle(.plain) — aplicado no próprio Button ou herdado do container (VStack/HStack) que o agrupa — exatamente 4 MODIFICADORES aplicados no arquivo (skip, concluir, grupo ±30s, fileira de steppers; comentários que citam a string ao explicar a correção não contam)', () => {
+    const semComentarios = widgetSwift
+      .split('\n')
+      .filter((linha) => !linha.trim().startsWith('//'))
+      .join('\n');
+    const usosPlain = semComentarios.match(/\.buttonStyle\(\.plain\)/g) ?? [];
+    expect(usosPlain.length).toBe(4);
+  });
+
+  it('lockScreenAccentBar não fica mais como filha de HStack ao lado do conteúdo — o Shape sem altura própria aceitava a altura OFERECIDA pelo host de widget (até o envelope de 160pt) em vez da altura RESOLVIDA pelo texto ao lado, virando um risco neon comprido e desalinhado; agora é `.background(alignment: .leading)` do bloco de conteúdo, que propõe o tamanho já resolvido da view base', () => {
+    expect(widgetSwift).not.toMatch(/HStack\(alignment: \.top, spacing: 10\) \{\s*\n\s*lockScreenAccentBar\(neon\)/);
+    const usosBackground = widgetSwift.match(/\.background\(alignment: \.leading\) \{\s*\n\s*lockScreenAccentBar\(neon\)/g) ?? [];
+    expect(usosBackground.length).toBe(2); // .measuring e .blockOnly
   });
 });
 

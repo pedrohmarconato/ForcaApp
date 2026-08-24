@@ -62,6 +62,12 @@ private let stepperValueFontSize: CGFloat = 28
 private let stepperLabelFontSize: CGFloat = 10
 private let actionButtonFontSize: CGFloat = 16
 private let actionButtonVerticalPadding: CGFloat = 7
+/// Recuo à esquerda do conteúdo nas fases que ainda usam `lockScreenAccentBar`
+/// (.measuring/.blockOnly) — 3pt da própria barra + 10pt do vão que antes
+/// vinha do `spacing` do HStack que a continha. Ver o comentário de
+/// `lockScreenAccentBar` (correção de 2026-08-24) para o porquê da barra ter
+/// migrado de irmã-no-HStack para `.background(alignment: .leading)`.
+private let accentBarLeadingInset: CGFloat = 13
 
 /// Acento neon derivado do ContentState (D-01/D-10). Switch fechado sobre as
 /// quatro chaves com os canais RGB exatos dos hexes aprovados; `default`
@@ -264,9 +270,24 @@ private func overtimeValue(_ state: SessionActivityAttributes.ContentState, now:
 // renderizando exatamente como antes,
 // já que primaryValue/secondaryLine/overtimeValue são os helpers que ela usa.
 
-/// Barra vertical de acento neon — identidade visual comum às quatro fases
-/// do Lock Screen redesenhado. Glow sutil via shadow, cor derivada do mesmo
-/// neonAccent(for:) usado no resto do widget.
+/// Barra vertical de acento neon — identidade visual comum às fases do Lock
+/// Screen redesenhado que ainda a usam. Glow sutil via shadow, cor derivada
+/// do mesmo neonAccent(for:) usado no resto do widget.
+///
+/// BUG DE RENDER (achado 2026-08-24 comparando app comum × host real de
+/// Live Activity): sem `.frame(height:)` própria, este `RoundedRectangle`
+/// não tem tamanho intrínseco no eixo vertical — quando era filho direto de
+/// um `HStack` ao lado do conteúdo, ele aceitava a altura OFERECIDA pelo
+/// ancestral (que o host de widget propõe como o envelope inteiro, até
+/// 160pt), em vez da altura RESOLVIDA pelo conteúdo textual ao lado (que
+/// nunca cresce além do que precisa). Resultado: um risco neon comprido,
+/// esticado até o fim do envelope, desalinhado do texto. Correção: os
+/// chamadores (`lockScreenBody`, casos `.measuring`/`.blockOnly`) não usam
+/// mais esta barra como IRMÃ do conteúdo dentro de um HStack — ela vira
+/// `.background(alignment: .leading)` do bloco de conteúdo. `.background`
+/// propõe ao seu conteúdo o tamanho já RESOLVIDO da view base (que não
+/// cresce com a oferta do ancestral), então a barra passa a ficar
+/// exatamente do tamanho do texto ao lado, nunca do envelope do sistema.
 private func lockScreenAccentBar(_ neon: Color) -> some View {
     RoundedRectangle(cornerRadius: 1.5)
         .fill(neon)
@@ -366,32 +387,48 @@ private func lockScreenRestNeonBlock(_ state: SessionActivityAttributes.ContentS
     )
 }
 
+/// Rótulo em forma de cápsula desenhada à mão para os chips ±30s — extraído
+/// porque os dois botões abaixo compartilham exatamente a mesma receita
+/// (DRY, mesmo padrão já usado em `lockScreenStepperMetric`).
+///
+/// CORREÇÃO DE CAUSA RAIZ (2026-08-24, achado comparando app comum × foto do
+/// aparelho do dono dentro de uma Live Activity real): `.bordered`/
+/// `.borderedProminent` recebem chrome e padding PRÓPRIOS do host de widget
+/// — diferentes do que renderizam num app comum — e no aparelho viravam
+/// cápsulas enormes que comprimiam os números da linha a zero. `.frame` no
+/// LABEL nunca controlou o tamanho do CONTROLE; o sistema decidia por fora.
+/// Fundo desenhado por nós (Capsule com fill explícito) sob
+/// `.buttonStyle(.plain)` (aplicado no VStack chamador) garante que o
+/// tamanho do controle é exatamente o declarado aqui — altura 30, padding
+/// horizontal 12 — nunca decidido pelo sistema.
+private func lockScreenAdjustChipLabel(_ text: String) -> some View {
+    Text(text)
+        .font(.system(size: 15, weight: .semibold).width(.condensed))
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+        )
+}
+
 /// Botões ±30s de descanso (AdjustRestIntent) — mesmos intents de sempre,
-/// ao lado do bloco neon. `.bordered` + tint branco translúcido = "borda
-/// branca sutil" (D-especificação do redesenho "Identidade Forte"); o texto
-/// recebe `.foregroundColor(.white)` explícito para não herdar a cor do
-/// tint no rótulo do botão. Não entra no orçamento de altura por constante
-/// própria: sua altura (dois botões `.controlSize(.small)` empilhados) fica
-/// sempre abaixo da altura do bloco neon ao lado (restBlock), então nunca é
-/// o termo que decide a altura da linha — ver comentário do bloco de
-/// constantes no topo do arquivo.
+/// ao lado do bloco neon. Não entra no orçamento de altura por constante
+/// própria: sua altura (dois chips de 30pt empilhados com 6pt de espaço)
+/// fica sempre abaixo da altura do bloco neon ao lado (restBlock), então
+/// nunca é o termo que decide a altura da linha — ver comentário do bloco
+/// de constantes no topo do arquivo.
 private func lockScreenRestAdjustButtons() -> some View {
     VStack(spacing: 6) {
         Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
-            Text("-30s")
-                .font(.system(size: 15, weight: .semibold).width(.condensed))
-                .foregroundColor(.white)
+            lockScreenAdjustChipLabel("-30s")
         }
         Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
-            Text("+30s")
-                .font(.system(size: 15, weight: .semibold).width(.condensed))
-                .foregroundColor(.white)
+            lockScreenAdjustChipLabel("+30s")
         }
     }
-    .buttonStyle(.bordered)
-    .buttonBorderShape(.roundedRectangle(radius: 12))
-    .controlSize(.small)
-    .tint(Color.white.opacity(0.3))
+    .buttonStyle(.plain)
 }
 
 /// Botão "PULAR DESCANSO" (SkipRestIntent) — largura total, fundo branco
@@ -519,19 +556,34 @@ private func lockScreenStepperMetric(
 }
 
 /// Glifo −/+ do stepper (AdjustRepsIntent/AdjustLoadIntent). `.fixedSize()`
-/// trava o tamanho relatado do Button no do label (stepperGlyphSize ×
-/// stepperGlyphSize) — BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26): sem
-/// isso, o HStack tratava o Button como flexível e ele crescia além do seu
-/// conteúdo, comprimindo o valor numérico e o rótulo a largura zero (quatro
-/// elipses de neon no aparelho, nenhum número). `stepperGlyphSize` = 44pt —
-/// piso de acessibilidade geral da HIG, preservado sem regressão nesta
-/// correção de orçamento de altura (só os elementos NÃO interativos do
-/// card encolheram).
-private func lockScreenStepperGlyph(_ symbol: String) -> some View {
+/// (aplicado pelo chamador) trava o tamanho relatado do Button no do label
+/// (stepperGlyphSize × stepperGlyphSize) — BUG DE CAMPO (2026-08-22/24,
+/// iPhone 13 / iOS 26): sem isso, o HStack tratava o Button como flexível e
+/// ele crescia além do seu conteúdo, comprimindo o valor numérico e o
+/// rótulo a largura zero (quatro elipses de neon no aparelho, nenhum
+/// número). `stepperGlyphSize` = 44pt — piso de acessibilidade geral da
+/// HIG, preservado sem regressão nesta correção de orçamento de altura (só
+/// os elementos NÃO interativos do card encolheram).
+///
+/// CORREÇÃO DE CAUSA RAIZ (2026-08-24): estes botões nunca tinham
+/// `.buttonStyle()` explícito — usavam o estilo padrão do sistema, que
+/// dentro do host real de Live Activity aplica o MESMO chrome/padding
+/// próprios do `.bordered` (o `.tint(neon)` que o chamador aplicava no
+/// HStack só tingia esse chrome de sistema). Fundo e cor do glifo agora são
+/// desenhados por nós — `.foregroundColor(neon)` explícito e um
+/// `RoundedRectangle` preenchido, dentro de `.buttonStyle(.plain)` (aplicado
+/// pelo chamador no HStack inteiro) — para que o tamanho do controle seja
+/// exatamente `stepperGlyphSize`, nunca o que o sistema decidir.
+private func lockScreenStepperGlyph(_ symbol: String, neon: Color) -> some View {
     Text(symbol)
         .font(.title3)
         .fontWeight(.bold)
+        .foregroundColor(neon)
         .frame(width: stepperGlyphSize, height: stepperGlyphSize)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.10))
+        )
 }
 
 /// Fileira ÚNICA de steppers da fase .measuring — reps e carga voltam a
@@ -559,7 +611,7 @@ private func lockScreenStepperRow(_ state: SessionActivityAttributes.ContentStat
     lockScreenStepperGroup {
         HStack(spacing: 6) {
             Button(intent: AdjustRepsIntent(deltaReps: -1)) {
-                lockScreenStepperGlyph("−")
+                lockScreenStepperGlyph("−", neon: neon)
             }
             .fixedSize()
             lockScreenStepperMetric(
@@ -568,14 +620,14 @@ private func lockScreenStepperRow(_ state: SessionActivityAttributes.ContentStat
                 isInherited: state.isRepsInherited
             )
             Button(intent: AdjustRepsIntent(deltaReps: 1)) {
-                lockScreenStepperGlyph("+")
+                lockScreenStepperGlyph("+", neon: neon)
             }
             .fixedSize()
 
             if !state.isBodyweight {
                 Spacer(minLength: 4)
                 Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
-                    lockScreenStepperGlyph("−")
+                    lockScreenStepperGlyph("−", neon: neon)
                 }
                 .fixedSize()
                 lockScreenStepperMetric(
@@ -584,14 +636,14 @@ private func lockScreenStepperRow(_ state: SessionActivityAttributes.ContentStat
                     isInherited: state.isLoadInherited
                 )
                 Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
-                    lockScreenStepperGlyph("+")
+                    lockScreenStepperGlyph("+", neon: neon)
                 }
                 .fixedSize()
             }
 
             Spacer(minLength: 0)
         }
-        .tint(neon)
+        .buttonStyle(.plain)
     }
 }
 
@@ -679,19 +731,20 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
         // de `.controlSize(.large)` para a mesma faixa desenhada à mão do
         // botão "PULAR DESCANSO" (lockScreenCompleteSetButton) — altura
         // provável por aritmética em vez de delegada ao sistema.
-        HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: bodySpacing) {
+            lockScreenHeaderLine(state, neon: neon)
+            // Reps sempre existem, inclusive bodyweight (D-09) — só a
+            // carga é omitida para bodyweight, nunca as reps (ver
+            // `if !state.isBodyweight` dentro de lockScreenStepperRow).
+            lockScreenStepperRow(state, neon: neon)
+            // Decisão aprovada: a dica de abrir o app para ajustar valores e
+            // nextUpLine() saem desta fase — a ação principal é concluir a
+            // série, sem distrações.
+            lockScreenCompleteSetButton(neon: neon)
+        }
+        .padding(.leading, accentBarLeadingInset)
+        .background(alignment: .leading) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: bodySpacing) {
-                lockScreenHeaderLine(state, neon: neon)
-                // Reps sempre existem, inclusive bodyweight (D-09) — só a
-                // carga é omitida para bodyweight, nunca as reps (ver
-                // `if !state.isBodyweight` dentro de lockScreenStepperRow).
-                lockScreenStepperRow(state, neon: neon)
-                // Decisão aprovada: a dica de abrir o app para ajustar valores e
-                // nextUpLine() saem desta fase — a ação principal é concluir a
-                // série, sem distrações.
-                lockScreenCompleteSetButton(neon: neon)
-            }
         }
     case .readyOvertime:
         // Redesenho "Identidade Forte": mesmo bloco neon preenchido do
@@ -705,10 +758,11 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
             nextUpLine(state)
         }
     case .blockOnly:
-        HStack(alignment: .top, spacing: 10) {
-            lockScreenAccentBar(neon)
-            primaryValue(state)
-        }
+        primaryValue(state)
+            .padding(.leading, accentBarLeadingInset)
+            .background(alignment: .leading) {
+                lockScreenAccentBar(neon)
+            }
     }
 }
 
