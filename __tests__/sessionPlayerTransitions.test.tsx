@@ -527,3 +527,189 @@ describe('Fase 17 (REG-01): steppers sem teclado, marca de herdado, revelação 
     expect(screen.queryByLabelText('Repetições da série 1')).toBeNull();
   });
 });
+
+// Cronômetro de isometria (prancha e afins): tempo + grupo fora de
+// Mobilidade/Cardio. Mecânica local por timestamp absoluto (Date.now()),
+// espelhando o padrão do timer de descanso já testado acima.
+describe('cronômetro de isometria (prancha e afins)', () => {
+  /** Sobe a árvore até o nó que de fato tem o onPress (TouchableOpacity). */
+  const encontrarBotao = (node: any): any => {
+    let atual = node;
+    while (atual && typeof atual.props?.onPress !== 'function') atual = atual.parent;
+    return atual;
+  };
+
+  it('(i) prancha (tempo+Abdômen) mostra o cronômetro 00:00 e os 3 botões', () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Prancha',
+        [serie('st-1', 1, { status: 'active', targetDurationSeconds: 30 })],
+        { metric: 'tempo', muscleGroup: 'Abdômen' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    expect(screen.getByText('00:00')).toBeTruthy();
+    expect(screen.getByLabelText('Iniciar cronômetro')).toBeTruthy();
+    expect(screen.getByLabelText('Parar cronômetro')).toBeTruthy();
+    expect(screen.getByLabelText('Zerar cronômetro')).toBeTruthy();
+  });
+
+  it('(ii) alongamento (tempo+Mobilidade) NÃO mostra o cronômetro', () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Alongamento de Panturrilha',
+        [serie('st-1', 1, { status: 'active' })],
+        { metric: 'tempo', muscleGroup: 'Mobilidade' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    expect(screen.queryByLabelText('Iniciar cronômetro')).toBeNull();
+    expect(screen.queryByLabelText('Parar cronômetro')).toBeNull();
+    expect(screen.queryByLabelText('Zerar cronômetro')).toBeNull();
+  });
+
+  it('(ii) cardio (tempo+Cardio) NÃO mostra o cronômetro', () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Pular Corda',
+        [serie('st-1', 1, { status: 'active' })],
+        { metric: 'tempo', muscleGroup: 'Cardio' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    expect(screen.queryByLabelText('Iniciar cronômetro')).toBeNull();
+  });
+
+  it('(iii) Iniciar → avança 65s → Parar grava actualDurationSeconds=65 e mostra 01:05', async () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Prancha',
+        [serie('st-1', 1, { status: 'active' })],
+        { metric: 'tempo', muscleGroup: 'Abdômen' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByLabelText('Iniciar cronômetro'));
+    await act(async () => {
+      jest.advanceTimersByTime(65000);
+    });
+    fireEvent.press(screen.getByLabelText('Parar cronômetro'));
+
+    expect(
+      useActiveSessionStore.getState().draft?.exercises[0].sets[0]
+        .actualDurationSeconds,
+    ).toBe(65);
+    expect(screen.getByText('01:05')).toBeTruthy();
+  });
+
+  it('(iv) Zerar volta o display a 00:00 sem alterar a duração já gravada', async () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Prancha',
+        [serie('st-1', 1, { status: 'active' })],
+        { metric: 'tempo', muscleGroup: 'Abdômen' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByLabelText('Iniciar cronômetro'));
+    await act(async () => {
+      jest.advanceTimersByTime(65000);
+    });
+    fireEvent.press(screen.getByLabelText('Parar cronômetro'));
+    expect(screen.getByText('01:05')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Zerar cronômetro'));
+
+    expect(screen.getByText('00:00')).toBeTruthy();
+    expect(
+      useActiveSessionStore.getState().draft?.exercises[0].sets[0]
+        .actualDurationSeconds,
+    ).toBe(65);
+  });
+
+  it('(v) concluir série continua exigindo só duração > 0 (fluxo existente intacto)', async () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Prancha',
+        [serie('st-1', 1, { status: 'active' })],
+        { metric: 'tempo', muscleGroup: 'Abdômen' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    const botaoAntes = encontrarBotao(screen.getByText('Concluir série'));
+    expect(botaoAntes.props.disabled).toBe(true);
+
+    fireEvent.press(screen.getByLabelText('Iniciar cronômetro'));
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    fireEvent.press(screen.getByLabelText('Parar cronômetro'));
+
+    const botaoDepois = encontrarBotao(screen.getByText('Concluir série'));
+    expect(botaoDepois.props.disabled).toBe(false);
+
+    fireEvent.press(screen.getByText('Concluir série'));
+    await waitFor(() =>
+      expect(
+        useActiveSessionStore.getState().draft?.exercises[0].sets[0].status,
+      ).toBe('done'),
+    );
+  });
+
+  it('troca de série ativa zera o cronômetro (sem herdar o decorrido do card anterior)', async () => {
+    const draft = draftCom([
+      exercicio(
+        'ex-1',
+        'Prancha',
+        [
+          serie('st-1', 1, { status: 'active' }),
+          serie('st-2', 2, { status: 'pending' }),
+        ],
+        { metric: 'tempo', muscleGroup: 'Abdômen' },
+      ),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByLabelText('Iniciar cronômetro'));
+    await act(async () => {
+      jest.advanceTimersByTime(20000);
+    });
+    fireEvent.press(screen.getByLabelText('Parar cronômetro'));
+    expect(screen.getByText('00:20')).toBeTruthy();
+
+    // Troca a série ativa DIRETO no store (mesmo padrão de setState direto já
+    // usado nos casos D-03/D-04 acima) — sem depender do fluxo de descanso,
+    // que não é o que este teste verifica.
+    const draftAtual = useActiveSessionStore.getState().draft!;
+    const draftComSerie2Ativa: SessionDraft = {
+      ...draftAtual,
+      exercises: [
+        {
+          ...draftAtual.exercises[0],
+          sets: [
+            { ...draftAtual.exercises[0].sets[0], status: 'done' },
+            { ...draftAtual.exercises[0].sets[1], status: 'active' },
+          ],
+        },
+      ],
+    };
+    act(() => {
+      useActiveSessionStore.setState({ draft: draftComSerie2Ativa });
+    });
+
+    await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
+    expect(screen.getByText('00:00')).toBeTruthy();
+  });
+});

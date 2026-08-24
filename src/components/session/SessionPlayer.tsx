@@ -31,6 +31,7 @@ import {
   formatPace,
   findActiveSet,
   findNextPendingSet,
+  isIsometricHold,
   isTimeBased,
   metricOf,
   resolveInheritedSet,
@@ -83,6 +84,16 @@ const formatarTempo = (s: number): string => {
   const m = Math.floor(absoluto / 60);
   const seg = absoluto % 60;
   return `${m}:${String(seg).padStart(2, '0')}`;
+};
+
+// Cronômetro de isometria: mm:ss com os DOIS dígitos dos minutos sempre
+// visíveis (diferente de formatarTempo, do descanso, que não os enche) —
+// formato pedido pelo dono para o relógio grande de Iniciar/Parar/Zerar.
+const formatarCronometroIsometria = (segundos: number): string => {
+  const total = Math.max(0, Math.round(segundos));
+  const m = Math.floor(total / 60);
+  const seg = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
 };
 
 export const repsAlvo = (set: DraftSet): string =>
@@ -158,8 +169,22 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
   // Anel: drena continuamente — a cada segundo anima até a fração seguinte.
   const ringAnim = useRef(new Animated.Value(1)).current;
 
+  // Cronômetro de isometria (prancha e afins): mecânica 100% LOCAL, timestamp
+  // absoluto como fonte de verdade — mesmo padrão do relógio de descanso
+  // acima. Nada disto é persistido: só "Parar" grava (via setDuration, o
+  // MESMO caminho dos campos Minutos/Segundos).
+  const [isometricRunning, setIsometricRunning] = useState(false);
+  const [isometricFrozenSeconds, setIsometricFrozenSeconds] = useState(0);
+  const isometricStartRef = useRef<number | null>(null);
+  const [, setIsometricTick] = useState(0);
+
   const active = findActiveSet(draft);
   const next = findNextPendingSet(draft);
+  // Identidade da série ativa: dispara o reset do cronômetro quando muda
+  // (troca de série ou de exercício) — null quando não há série ativa.
+  const isometricActiveKey = active
+    ? `${active.exercise.exerciseId}:${active.set.setOrder}`
+    : null;
   // D-06: quando não há série ativa, uma série `next` cujo pré-preenchimento
   // (histórico/alvo, D-17) já passa em canCompleteSet() revela o card de
   // medição direto — sem depender de `active`, que a Fase 15 já registrou
@@ -214,6 +239,24 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     const tick = setInterval(() => setRestTick((value) => value + 1), 1000);
     return () => clearInterval(tick);
   }, [draft.restEndsAt]);
+
+  // Troca de série/exercício ativo zera o cronômetro de isometria — nunca
+  // herda o decorrido do card anterior. Dispara também quando a série ativa
+  // deixa de existir (null), o que já cobre concluir/pular/recusar.
+  useEffect(() => {
+    setIsometricRunning(false);
+    setIsometricFrozenSeconds(0);
+    isometricStartRef.current = null;
+  }, [isometricActiveKey]);
+
+  // Repintura de 1s SÓ enquanto o cronômetro está rodando — mesmo padrão do
+  // relógio de descanso acima. Limpo no cleanup: sem timer órfão ao parar,
+  // trocar de série ou desmontar.
+  useEffect(() => {
+    if (!isometricRunning) return undefined;
+    const tick = setInterval(() => setIsometricTick((value) => value + 1), 1000);
+    return () => clearInterval(tick);
+  }, [isometricRunning]);
 
   // O denominador do anel é cosmético. O valor inicial vem do exercício que
   // aguarda e não participa da decisão de avançar a série.
@@ -577,6 +620,39 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
       setDuration(exercise.exerciseId, set.setOrder, total > 0 ? total : null);
     };
 
+    // Cronômetro de isometria: SÓ para tempo fora de Mobilidade (alongamento)
+    // e Cardio (Pular Corda, HIIT) — decisão do dono. Cardio/alongamento
+    // seguem só com os campos manuais acima, como já era.
+    const mostrarCronometroIsometria = isIsometricHold(exercise);
+    const isometricElapsedSeconds =
+      isometricRunning && isometricStartRef.current != null
+        ? Math.max(0, Math.floor((Date.now() - isometricStartRef.current) / 1000))
+        : isometricFrozenSeconds;
+
+    const iniciarCronometroIsometria = () => {
+      isometricStartRef.current = Date.now();
+      setIsometricRunning(true);
+    };
+    const pararCronometroIsometria = () => {
+      if (!isometricRunning || isometricStartRef.current == null) return;
+      const decorrido = Math.max(
+        0,
+        Math.round((Date.now() - isometricStartRef.current) / 1000),
+      );
+      setIsometricRunning(false);
+      isometricStartRef.current = null;
+      setIsometricFrozenSeconds(decorrido);
+      // MESMO caminho dos campos Minutos/Segundos (aplicarTempo acima): grava
+      // via setDuration, que os inputs continuam lendo — fallback manual intacto.
+      setDuration(exercise.exerciseId, set.setOrder, decorrido > 0 ? decorrido : null);
+    };
+    const zerarCronometroIsometria = () => {
+      // Só zera o CRONÔMETRO — nunca toca no que já foi digitado/gravado.
+      setIsometricRunning(false);
+      isometricStartRef.current = null;
+      setIsometricFrozenSeconds(0);
+    };
+
     return (
       <Animated.View style={[styles.card, styles.cardActive, estiloDeEntrada]}>
         {posicao ? (
@@ -589,6 +665,53 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           {alvoDaSerie(exercise, set)}
         </Text>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
+
+        {mostrarCronometroIsometria ? (
+          <View style={styles.isoTimerWrap}>
+            <Text
+              style={styles.isoTimerClock}
+              accessibilityLabel={`Cronômetro: ${formatarCronometroIsometria(isometricElapsedSeconds)}`}
+            >
+              {formatarCronometroIsometria(isometricElapsedSeconds)}
+            </Text>
+            <View style={styles.isoTimerButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.isoTimerBtn,
+                  styles.isoTimerBtnStart,
+                  isometricRunning && styles.controlDisabled,
+                ]}
+                disabled={isometricRunning}
+                accessibilityRole="button"
+                accessibilityLabel="Iniciar cronômetro"
+                onPress={iniciarCronometroIsometria}
+              >
+                <Text style={styles.isoTimerBtnText}>Iniciar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.isoTimerBtn,
+                  styles.isoTimerBtnStop,
+                  !isometricRunning && styles.controlDisabled,
+                ]}
+                disabled={!isometricRunning}
+                accessibilityRole="button"
+                accessibilityLabel="Parar cronômetro"
+                onPress={pararCronometroIsometria}
+              >
+                <Text style={styles.isoTimerBtnText}>Parar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.isoTimerBtn, styles.isoTimerBtnReset]}
+                accessibilityRole="button"
+                accessibilityLabel="Zerar cronômetro"
+                onPress={zerarCronometroIsometria}
+              >
+                <Text style={styles.isoTimerBtnText}>Zerar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.inputsRow}>
           <View style={styles.field}>
@@ -1182,6 +1305,54 @@ const createStyles = (theme: Theme) =>
       fontSize: 44,
       lineHeight: 50,
     },
+
+    // Cronômetro de isometria (Iniciar/Parar/Zerar): mesmos tokens do relógio
+    // de descanso acima (restClock) — fonte de display, mesmo tamanho —, só
+    // que centralizado no próprio card em vez do anel.
+    isoTimerWrap: {
+      marginTop: theme.spacing.lg,
+      alignItems: 'center',
+    },
+    isoTimerClock: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.display,
+      fontSize: 44,
+      lineHeight: 50,
+    },
+    isoTimerButtons: {
+      flexDirection: 'row',
+      gap: theme.spacing.sm,
+      marginTop: theme.spacing.md,
+      alignSelf: 'stretch',
+    },
+    isoTimerBtn: {
+      flex: 1,
+      minHeight: theme.hitTarget.regular,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.sm,
+      borderWidth: 1,
+      borderRadius: theme.borderRadius.lg,
+    },
+    isoTimerBtnStart: {
+      borderColor: theme.colors.accent.border,
+      backgroundColor: theme.colors.accent.soft,
+    },
+    isoTimerBtnStop: {
+      borderColor: theme.colors.status.dangerBorder,
+      backgroundColor: theme.colors.status.dangerSoft,
+    },
+    isoTimerBtnReset: {
+      borderColor: theme.colors.border.subtle,
+      backgroundColor: theme.colors.surface.elevated,
+    },
+    isoTimerBtnText: {
+      color: theme.colors.text.primary,
+      fontFamily: theme.fonts.ui,
+      fontSize: theme.typography.fontSizes.base,
+      fontWeight: theme.typography.fontWeights.semiBold,
+    },
+
     restNext: {
       marginTop: theme.spacing.sm,
       color: theme.colors.text.secondary,

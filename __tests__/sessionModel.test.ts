@@ -24,6 +24,7 @@ import {
   findPendingSetAfter,
   findActiveSet,
   findNextPendingSet,
+  isIsometricHold,
 } from '../src/engine/sessionModel';
 import type { SessionDetail } from '../src/services/trainingRepository';
 import type { DraftExercise, SetRef } from '../src/engine/sessionModel';
@@ -562,6 +563,38 @@ describe('buildDraftFromDetail', () => {
     expect(draft.exercises[0].sets[0].targetLoadKg).toBe(40);
     // e o stepper funciona com número (não concatena string)
     expect(stepLoad(draft.exercises[0].sets[0].targetLoadKg, draft.exercises[0].loadIncrementKg, 1)).toBe(42.5);
+  });
+
+  it('mapeia muscle_group para muscleGroup', () => {
+    const draft = buildDraftFromDetail(detalheExemplo, 'user-1');
+    expect(draft.exercises[0].muscleGroup).toBe('Peito');
+    expect(draft.exercises[1].muscleGroup).toBe('Peito');
+  });
+});
+
+// Cronômetro de isometria (prancha e afins): tempo + grupo fora de
+// Mobilidade/Cardio. Sem grupo conhecido (legado/incompleto) o cronômetro é
+// um assistente inofensivo — nunca escondido por precaução.
+describe('isIsometricHold', () => {
+  it('tempo + grupo fora de Mobilidade/Cardio (ex.: Abdômen) => true', () => {
+    expect(isIsometricHold({ metric: 'tempo', muscleGroup: 'Abdômen' })).toBe(true);
+  });
+  it('tempo + muscleGroup ausente (null/undefined/omitido) => true', () => {
+    expect(isIsometricHold({ metric: 'tempo', muscleGroup: null })).toBe(true);
+    expect(isIsometricHold({ metric: 'tempo', muscleGroup: undefined })).toBe(true);
+    expect(isIsometricHold({ metric: 'tempo' })).toBe(true);
+  });
+  it('tempo + Mobilidade (alongamento) => false', () => {
+    expect(isIsometricHold({ metric: 'tempo', muscleGroup: 'Mobilidade' })).toBe(false);
+  });
+  it('tempo + Cardio (Pular Corda, HIIT) => false — decisão do dono', () => {
+    expect(isIsometricHold({ metric: 'tempo', muscleGroup: 'Cardio' })).toBe(false);
+  });
+  it('carga_reps não é isometria mesmo com grupo elegível', () => {
+    expect(isIsometricHold({ metric: 'carga_reps', muscleGroup: 'Abdômen' })).toBe(false);
+  });
+  it('tempo_distancia com grupo elegível também conta como isometria (é tempo-based)', () => {
+    expect(isIsometricHold({ metric: 'tempo_distancia', muscleGroup: 'Abdômen' })).toBe(true);
   });
 });
 

@@ -103,6 +103,10 @@ export type DraftExercise = {
   // Ausente = plano anterior à 0014 → tratado como carga_reps.
   metric?: ExerciseMetric | null;
   equipment: string | null;
+  // Grupo muscular do plano (planned_exercises.muscle_group). Ausente em
+  // rascunho anterior a este campo — nunca lido como "sem grupo conhecido"
+  // para efeito de exclusão: `isIsometricHold` trata ausência como elegível.
+  muscleGroup?: string | null;
   isBodyweight: boolean;
   // Há alguma flag de lesão? Guardrail da Fase 5: nunca sugere subir carga (F5).
   hasInjury: boolean;
@@ -367,6 +371,24 @@ export const metricOf = (
   ex: Pick<DraftExercise, 'metric'> | { metric?: ExerciseMetric | null },
 ): ExerciseMetric => ex.metric ?? 'carga_reps';
 
+// Grupos onde o cronômetro de isometria NUNCA aparece: alongamento
+// (Mobilidade) e cardio (Cardio — Pular Corda, HIIT etc., decisão do dono).
+const ISOMETRIC_HOLD_EXCLUDED_GROUPS: readonly string[] = ['Mobilidade', 'Cardio'];
+
+/**
+ * Exercício de ISOMETRIA (prancha e afins): medido por tempo E fora dos
+ * grupos excluídos (Mobilidade = alongamento, Cardio = Pular Corda/HIIT).
+ * Sem grupo muscular conhecido (null/undefined/ausente — plano legado ou
+ * dado incompleto), o resultado é `true`: o cronômetro é um assistente
+ * inofensivo que nunca bloqueia o fallback manual, então a ausência do dado
+ * nunca deve escondê-lo por precaução.
+ */
+export const isIsometricHold = (
+  exercise: Pick<DraftExercise, 'metric' | 'muscleGroup'>,
+): boolean =>
+  isTimeBased(metricOf(exercise)) &&
+  !ISOMETRIC_HOLD_EXCLUDED_GROUPS.includes(exercise.muscleGroup ?? '');
+
 /**
  * Série ativa (se houver), ignorando exercício fora de jogo (WR-01): corte do
  * replanejamento OU recusa declarada do aluno, via `exercicioForaDeJogo` —
@@ -553,6 +575,7 @@ export const buildDraftFromDetail = (
     exerciseKey: ex.exercise_key ?? null,
     metric: ex.metric ?? 'carga_reps',
     equipment: ex.equipment,
+    muscleGroup: ex.muscle_group ?? null,
     isBodyweight: isBodyweightEquipment(ex.equipment),
     hasInjury: (ex.injury_flags ?? []).length > 0,
     // numeric do PostgREST pode vir como string → coage (F4 do review).
