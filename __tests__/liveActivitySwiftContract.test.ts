@@ -336,6 +336,48 @@ describe('layout, tipografia e demais elementos preservados', () => {
     }
   });
 
+  // BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26): o Button de
+  // AdjustRepsIntent/AdjustLoadIntent só tinha `.frame(44×44)` no LABEL, não
+  // no próprio Button — nada travava o tamanho do controle, então ele
+  // crescia dentro do HStack da linha e comprimia o valor numérico e o
+  // rótulo REPS/KG a largura zero (no aparelho: quatro elipses de neon
+  // gigantes, nenhum número). Este bloco trava especificamente a correção
+  // — não pode regredir silenciosamente numa refatoração futura do layout.
+  it('trava a correção do bug de campo: botões de stepper com .fixedSize() e valor com .layoutPriority(1), reps/carga empilhados em vez de lado a lado', () => {
+    const corpoLockScreen = widgetSwift.match(
+      /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
+    );
+    expect(corpoLockScreen).not.toBeNull();
+    const casoMeasuring = corpoLockScreen![1].match(/case \.measuring:([\s\S]*?)case \.readyOvertime:/);
+    expect(casoMeasuring).not.toBeNull();
+    const corpo = casoMeasuring![1];
+
+    // Reps e carga ficam em linhas separadas (VStack), uma por valor — não
+    // mais lado a lado no mesmo HStack, que é o que deixava pouca largura
+    // sobrando para o número mesmo depois do fixedSize. O container
+    // imediato dos dois lockScreenStepperGroup precisa ser um VStack —
+    // cada linha interna (botão/valor/rótulo/Spacer/botão) continua um
+    // HStack, então a trava mira o container que os agrupa, não qualquer
+    // HStack(spacing: 8) do arquivo.
+    expect(corpo).toMatch(/VStack\(spacing: 8\) \{\s*\n\s*lockScreenStepperGroup \{/);
+    expect(corpo).not.toMatch(/HStack\(spacing: 8\) \{\s*\n\s*lockScreenStepperGroup \{/);
+
+    // Cada um dos quatro Button de −/+ trava o próprio tamanho com
+    // `.fixedSize()` logo após fechar o corpo do Button (que já contém o
+    // `.frame(width: 44, height: 44)` no label, verificado no teste
+    // acima) — sem isso, o Button aceita a proposta flexível do HStack e
+    // cresce além do seu conteúdo.
+    const botoesTravados = Array.from(
+      corpo.matchAll(/\.frame\(width: 44, height: 44\)\s*\n\s*\}\s*\n\s*\.fixedSize\(\)/g),
+    );
+    expect(botoesTravados.length).toBe(4);
+
+    // O valor (reps e carga) recebe `.layoutPriority(1)` — nunca é o
+    // primeiro a ceder espaço quando o HStack da linha fica apertado.
+    const prioridadeValor = corpo.match(/\.layoutPriority\(1\)/g) ?? [];
+    expect(prioridadeValor.length).toBe(2);
+  });
+
   it('separa o valor do stepper do rótulo REPS/KG — "40 kg" concatenado não sobrevive', () => {
     expect(widgetSwift).not.toContain(' kg")');
     expect(widgetSwift).toMatch(
@@ -433,7 +475,7 @@ describe('layout, tipografia e demais elementos preservados', () => {
 // PRONTO rounded neon, glifos < 44pt) nem reintroduzir glassEffect (proibição
 // já coberta acima, nunca revogada por este bloco).
 describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchidos e tipografia condensada', () => {
-  it('herói do timer de descanso (lockScreenRestHero) usa condensado >= 76pt, preto, em ambos os ramos (com/sem restEndsAt)', () => {
+  it('herói do timer de descanso (lockScreenRestHero) usa condensado >= 60pt, preto, em ambos os ramos (com/sem restEndsAt)', () => {
     const bloco = widgetSwift.match(
       /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState\) -> some View \{([\s\S]*?)\n\}/,
     );
@@ -444,8 +486,12 @@ describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchid
     // Um tamanho por ramo (restEndsAt presente / "—" de fallback) — se a
     // contagem cair, o fallback perdeu a apresentação heroica.
     expect(tamanhos.length).toBe(2);
+    // Correção de orçamento de altura (2026-08-24): caiu de 76 para 60pt na
+    // mesma rodada em que .measuring passou a empilhar reps/carga — 60pt
+    // ainda é hero, só não regride abaixo do piso que preserva a
+    // identidade visual do bloco neon preenchido.
     for (const tamanho of tamanhos) {
-      expect(tamanho).toBeGreaterThanOrEqual(76);
+      expect(tamanho).toBeGreaterThanOrEqual(60);
     }
     // Preto, não mais neon: o texto vive DENTRO do bloco preenchido a
     // neon — cor neon sobre fundo neon não teria contraste nenhum.
@@ -461,7 +507,7 @@ describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchid
     expect(Number(bloco![1])).toBeGreaterThanOrEqual(64);
   });
 
-  it('CONCLUIR SÉRIE continua .controlSize(.large); valores de stepper condensados >= 38pt', () => {
+  it('CONCLUIR SÉRIE continua .controlSize(.large); valores de stepper condensados >= 34pt', () => {
     // Só "CONCLUIR SÉRIE" preserva .controlSize(.large) — "PULAR DESCANSO"
     // virou uma faixa de fundo explícito (.buttonStyle(.plain)) sem chrome
     // de sistema, então não usa mais controlSize nenhum.
@@ -469,8 +515,11 @@ describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchid
     expect(usosControlSizeLarge.length).toBe(1);
 
     // Os DOIS valores de stepper (reps e carga) ficam em condensado preto-
-    // sobre-branco >= 38pt — nenhum uso do padrão antigo baseado em
-    // text style + design: .rounded sobra para eles.
+    // sobre-branco >= 34pt — nenhum uso do padrão antigo baseado em
+    // text style + design: .rounded sobra para eles. Caiu de 38 para 34pt
+    // na correção de orçamento de altura de 2026-08-24 (mesma rodada em
+    // que reps/carga passaram a empilhar em vez de ficar lado a lado —
+    // ver o teste "trava a correção do bug de campo" acima).
     const usosValorStepper = Array.from(
       widgetSwift.matchAll(
         /\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.monospacedDigit\(\)\s*\n\s*\.foregroundColor\(\.white\)/g,
@@ -478,7 +527,7 @@ describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchid
     );
     expect(usosValorStepper.length).toBe(2);
     for (const [, tamanho] of usosValorStepper) {
-      expect(Number(tamanho)).toBeGreaterThanOrEqual(38);
+      expect(Number(tamanho)).toBeGreaterThanOrEqual(34);
     }
 
     // .title3 rounded (usado pelo tempo extra na rodada anterior) não

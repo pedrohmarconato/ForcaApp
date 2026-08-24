@@ -142,9 +142,11 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
 /// (aqui + compactValue), mesmo com o Lock Screen ganhando uma apresentação
 /// diferente da Dynamic Island (.title2 inalterado) — só os modificadores
 /// mudam por chamador, a chamada em si nunca duplica. Apresentação do Lock
-/// Screen: 76pt condensado preto sobre bloco neon preenchido (redesenho
+/// Screen: condensado preto sobre bloco neon preenchido (redesenho
 /// "Identidade Forte", agosto/2026) — sucede a fase anterior (68pt,
 /// .rounded, glow sobre fundo escuro) do mesmo redesenho "card maior".
+/// Tamanho atual em lockScreenRestHero (60pt, reduzido de 76pt na correção
+/// de orçamento de altura de 2026-08-24 — ver comentário lá).
 private func restCountdownText(restEndsAt: Date) -> Text {
     Text(timerInterval: Date.now...restEndsAt, countsDown: true)
 }
@@ -248,7 +250,7 @@ private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentStat
 /// (lockScreenRestNeonBlock) — por isso o texto é preto, não mais a cor
 /// neon (o bloco já é neon; texto neon sobre fundo neon não teria
 /// contraste). Redesenho "Identidade Forte" (agosto/2026, variante D
-/// aprovada pelo dono): tipografia condensada 76pt — sucede os 68pt
+/// aprovada pelo dono): tipografia condensada — sucede os 68pt
 /// .rounded/glow do redesenho "card maior" anterior — porque não precisa
 /// mais competir com a barra de acento lateral (removida desta fase: o
 /// bloco preenchido já carrega a identidade visual). Não recebe mais `neon`
@@ -256,11 +258,19 @@ private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentStat
 /// minimumScaleFactor(0.6) preservado como rede de segurança para Dynamic
 /// Type grande — nunca deveria disparar em uso normal, já que o conteúdo é
 /// sempre "MM:SS" monoespaçado.
+///
+/// BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26, correção do orçamento de
+/// altura): caiu de 76 para 60pt na mesma rodada em que .measuring passou a
+/// empilhar reps/carga em vez de lado a lado (ver comentário do case
+/// .measuring em lockScreenBody) — a fase .measuring ficou mais alta com o
+/// empilhamento, e .resting precisou ceder altura de volta para o card
+/// caber no teto do sistema. 60pt ainda é hero (bem acima do texto padrão),
+/// só não compete mais pelo mesmo espaço que .measuring passou a precisar.
 @ViewBuilder
 private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState) -> some View {
     if let restEndsAt = state.restEndsAt {
         restCountdownText(restEndsAt: restEndsAt)
-            .font(.system(size: 76, weight: .heavy).width(.condensed))
+            .font(.system(size: 60, weight: .heavy).width(.condensed))
             .monospacedDigit()
             .foregroundColor(.black)
             .contentTransition(.numericText())
@@ -268,7 +278,7 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState)
             .lineLimit(1)
     } else {
         Text("—")
-            .font(.system(size: 76, weight: .heavy).width(.condensed))
+            .font(.system(size: 60, weight: .heavy).width(.condensed))
             .foregroundColor(.black)
             .lineLimit(1)
     }
@@ -421,10 +431,11 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     case .resting:
         // Redesenho "Identidade Forte": o bloco neon preenchido
         // (lockScreenRestNeonBlock) é o herói — rótulo "DESCANSO" +
-        // timer 76pt condensado, ambos em preto sobre o fundo neon. Os
-        // botões ±30s (mesmos AdjustRestIntent de sempre) ficam ao lado do
-        // bloco; "PULAR DESCANSO" (mesmo SkipRestIntent) vira uma faixa de
-        // largura total abaixo — nenhuma ação sai do card, só reorganiza.
+        // timer 60pt condensado (76pt até a correção de orçamento de altura
+        // de 2026-08-24), ambos em preto sobre o fundo neon. Os botões ±30s
+        // (mesmos AdjustRestIntent de sempre) ficam ao lado do bloco;
+        // "PULAR DESCANSO" (mesmo SkipRestIntent) vira uma faixa de largura
+        // total abaixo — nenhuma ação sai do card, só reorganiza.
         VStack(alignment: .leading, spacing: 6) {
             lockScreenHeaderLine(state, neon: neon)
             HStack(alignment: .top, spacing: 10) {
@@ -441,74 +452,99 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
         // própria tipografia. prescriptionText() continua fora desta fase
         // (decisão da rodada "card mais alto" preservada: a meta prescrita
         // já está embutida no valor editável do stepper).
+        //
+        // BUG DE CAMPO (2026-08-22, iPhone 13 / iOS 26 — foto do aparelho no
+        // estado .measuring): os Button de AdjustRepsIntent/AdjustLoadIntent
+        // não tinham frame próprio — só o LABEL (a Text "−"/"+") recebia
+        // `.frame(width: 44, height: 44)`. Sem nada travando o tamanho do
+        // Button em si, o HStack tratava os dois botões como flexíveis e
+        // eles cresciam para ocupar toda a largura do grupo, comprimindo o
+        // valor numérico e o rótulo REPS/KG a largura zero
+        // (minimumScaleFactor não segura compressão a zero, só reduz até um
+        // piso). No aparelho: quatro elipses de neon gigantes, nenhum
+        // número. Correção (2026-08-24): fixedSize no Button trava seu
+        // tamanho relatado no de seu label (44×44), então ele para de
+        // aceitar a proposta flexível do HStack; layoutPriority elevada no
+        // valor garante que, mesmo sob pressão, o botão cede espaço antes
+        // do número.
+        //
+        // Na mesma correção, reps e carga deixam de ficar lado a lado
+        // (pouco espaço sobrava por grupo em ~313pt úteis) e passam a
+        // ocupar uma linha inteira cada, empilhadas — decisão aprovada pelo
+        // dono ("o card fica mais alto", já pedido antes). Cada linha:
+        // botão esquerdo, valor com prioridade de layout, rótulo, Spacer,
+        // botão direito.
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
             VStack(alignment: .leading, spacing: 7) {
                 lockScreenHeaderLine(state, neon: neon)
-                // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
-                // omitida para bodyweight, nunca as reps. Os dois grupos ficam
-                // lado a lado na mesma linha (design aprovado).
-                HStack(spacing: 8) {
+                // Reps sempre existem, inclusive bodyweight (D-09) — só a
+                // carga é omitida para bodyweight, nunca as reps.
+                VStack(spacing: 8) {
                     lockScreenStepperGroup {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Button(intent: AdjustRepsIntent(deltaReps: -1)) {
                                 Text("−")
                                     .font(.title3)
                                     .fontWeight(.bold)
                                     .frame(width: 44, height: 44)
                             }
-                            VStack(spacing: 0) {
-                                Text(state.currentReps.map(String.init) ?? "—")
-                                    .font(.system(size: 38, weight: .heavy).width(.condensed))
-                                    .monospacedDigit()
-                                    .foregroundColor(.white)
-                                    .opacity(state.isRepsInherited ? 0.6 : 1.0)
-                                    .contentTransition(.numericText())
-                                    .minimumScaleFactor(0.7)
-                                    .lineLimit(1)
-                                Text("REPS")
-                                    .font(.system(size: 11, weight: .semibold).width(.condensed))
-                                    .tracking(2)
-                                    .foregroundColor(activitySecondary)
-                            }
+                            .fixedSize()
+                            Text(state.currentReps.map(String.init) ?? "—")
+                                .font(.system(size: 34, weight: .heavy).width(.condensed))
+                                .monospacedDigit()
+                                .foregroundColor(.white)
+                                .opacity(state.isRepsInherited ? 0.6 : 1.0)
+                                .contentTransition(.numericText())
+                                .minimumScaleFactor(0.7)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                            Text("REPS")
+                                .font(.system(size: 11, weight: .semibold).width(.condensed))
+                                .tracking(2)
+                                .foregroundColor(activitySecondary)
+                            Spacer(minLength: 0)
                             Button(intent: AdjustRepsIntent(deltaReps: 1)) {
                                 Text("+")
                                     .font(.title3)
                                     .fontWeight(.bold)
                                     .frame(width: 44, height: 44)
                             }
+                            .fixedSize()
                         }
                     }
                     .tint(neon)
                     if !state.isBodyweight {
                         lockScreenStepperGroup {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 8) {
                                 Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
                                     Text("−")
                                         .font(.title3)
                                         .fontWeight(.bold)
                                         .frame(width: 44, height: 44)
                                 }
-                                VStack(spacing: 0) {
-                                    Text(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—")
-                                        .font(.system(size: 38, weight: .heavy).width(.condensed))
-                                        .monospacedDigit()
-                                        .foregroundColor(.white)
-                                        .opacity(state.isLoadInherited ? 0.6 : 1.0)
-                                        .contentTransition(.numericText())
-                                        .minimumScaleFactor(0.7)
-                                        .lineLimit(1)
-                                    Text("KG")
-                                        .font(.system(size: 11, weight: .semibold).width(.condensed))
-                                        .tracking(2)
-                                        .foregroundColor(activitySecondary)
-                                }
+                                .fixedSize()
+                                Text(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—")
+                                    .font(.system(size: 34, weight: .heavy).width(.condensed))
+                                    .monospacedDigit()
+                                    .foregroundColor(.white)
+                                    .opacity(state.isLoadInherited ? 0.6 : 1.0)
+                                    .contentTransition(.numericText())
+                                    .minimumScaleFactor(0.7)
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
+                                Text("KG")
+                                    .font(.system(size: 11, weight: .semibold).width(.condensed))
+                                    .tracking(2)
+                                    .foregroundColor(activitySecondary)
+                                Spacer(minLength: 0)
                                 Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
                                     Text("+")
                                         .font(.title3)
                                         .fontWeight(.bold)
                                         .frame(width: 44, height: 44)
                                 }
+                                .fixedSize()
                             }
                         }
                         .tint(neon)
@@ -671,9 +707,10 @@ struct WidgetLiveActivity: Widget {
 #if DEBUG
 
 /// Descanso, nome curto, acento amarelo (cor padrão) — cobre o bloco neon
-/// preenchido (rótulo "DESCANSO" + timer 76pt condensado, ambos em preto),
-/// os chips ±30s ao lado e o botão "PULAR DESCANSO" de largura total.
-/// "A SEGUIR" não aparece nesta fase (decisão aprovada, card mais alto
+/// preenchido (rótulo "DESCANSO" + timer 60pt condensado, reduzido de 76pt
+/// na correção de orçamento de altura de 2026-08-24, ambos em preto), os
+/// chips ±30s ao lado e o botão "PULAR DESCANSO" de largura total. "A
+/// SEGUIR" não aparece nesta fase (decisão aprovada, card mais alto
 /// agosto/2026, preservada no redesenho "Identidade Forte").
 #Preview("Descanso — amarelo", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-resting")) {
     WidgetLiveActivity()
@@ -702,11 +739,13 @@ struct WidgetLiveActivity: Widget {
 
 /// Série em andamento, nome LONGO (para checar truncamento do cabeçalho
 /// condensado em caixa alta) e acento azul — cobre os dois grupos de
-/// stepper AGORA CONTORNADOS (reps herdadas a 60% de opacidade, carga não
-/// herdada), glifos −/+ de 44×44pt, valor 38pt condensado separado do
-/// rótulo REPS/KG, e o botão "CONCLUIR SÉRIE" preenchido a neon com texto
-/// preto. prescriptionText não aparece nesta fase (decisão aprovada, card
-/// mais alto agosto/2026, preservada no redesenho "Identidade Forte").
+/// stepper CONTORNADOS e EMPILHADOS (correção de 2026-08-24: reps herdadas
+/// a 60% de opacidade, carga não herdada, cada uma na sua própria linha em
+/// vez de lado a lado), glifos −/+ de 44×44pt travados com `.fixedSize()`,
+/// valor 34pt condensado com `.layoutPriority(1)` separado do rótulo
+/// REPS/KG, e o botão "CONCLUIR SÉRIE" preenchido a neon com texto preto.
+/// prescriptionText não aparece nesta fase (decisão aprovada, card mais
+/// alto agosto/2026, preservada no redesenho "Identidade Forte").
 #Preview("Série — nome longo, azul", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-measuring")) {
     WidgetLiveActivity()
 } contentStates: {
