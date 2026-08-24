@@ -52,6 +52,12 @@ private func seriesText(_ state: SessionActivityAttributes.ContentState) -> Stri
 /// `suggestLoad()`), nunca o número cru da prescrição. Quando só
 /// `nextExerciseName` existe (virada para bloco de cardio/alongamento, D-03
 /// da Fase 15), mostra só o nome — sem detalhes de série.
+///
+/// Decisão aprovada (card mais alto, agosto/2026): usada SÓ em
+/// `.readyOvertime` — na transição para a próxima série é o único momento em
+/// que saber o que vem a seguir importa fisicamente (D-15). `.resting` não
+/// chama mais esta função; o espaço que ela ocupava foi para o herói do
+/// timer de descanso.
 private func nextUpDetailText(_ state: SessionActivityAttributes.ContentState) -> String {
     guard let name = state.nextExerciseName else { return "" }
     guard let setIndex = state.nextSetIndex, let setTotal = state.nextSetTotal else {
@@ -128,10 +134,10 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
 /// Screen redesenhado (lockScreenRestHero). Existe para que a chamada de
 /// timer countsDown continue aparecendo exatamente 2 vezes no arquivo
 /// (aqui + compactValue), mesmo com o Lock Screen ganhando uma apresentação
-/// (52pt, rounded, glow — crescido de 44pt para preencher o orçamento
-/// vertical do card, Fase de redesenho "card maior" agosto/2026) diferente
-/// da Dynamic Island (.title2 inalterado) — só os modificadores mudam por
-/// chamador, a chamada em si nunca duplica.
+/// (68pt, rounded, glow — crescido de 44pt→52pt→68pt ao longo das duas
+/// rodadas de redesenho "card maior", agosto/2026) diferente da Dynamic
+/// Island (.title2 inalterado) — só os modificadores mudam por chamador, a
+/// chamada em si nunca duplica.
 private func restCountdownText(restEndsAt: Date) -> Text {
     Text(timerInterval: Date.now...restEndsAt, countsDown: true)
 }
@@ -223,18 +229,20 @@ private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentStat
 }
 
 /// Herói do timer de descanso: mesmo Text(timerInterval:) de sempre
-/// (restCountdownText), com a apresentação nova — 52pt, .rounded, glow —
+/// (restCountdownText), com a apresentação nova — 68pt, .rounded, glow —
 /// que não poderia entrar em primaryValue() sem também mudar a Dynamic
-/// Island. Crescido de 44pt (redesenho "card maior", agosto/2026): é o
-/// elemento lido de mais longe do card, então recebe a maior fatia do
-/// orçamento vertical ganho. minimumScaleFactor(0.6) preservado como rede
-/// de segurança para Dynamic Type grande — nunca deveria disparar em uso
-/// normal, já que o conteúdo é sempre "MM:SS" monoespaçado.
+/// Island. Crescido de 44pt→52pt→68pt ao longo das duas rodadas de
+/// redesenho "card maior" (agosto/2026): é o elemento lido de mais longe do
+/// card, então recebe a maior fatia do orçamento vertical ganho — inclusive
+/// o espaço liberado pela remoção de "A SEGUIR" desta mesma fase (D-decisão
+/// "card mais alto", agosto/2026). minimumScaleFactor(0.6) preservado como
+/// rede de segurança para Dynamic Type grande — nunca deveria disparar em
+/// uso normal, já que o conteúdo é sempre "MM:SS" monoespaçado.
 @ViewBuilder
 private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
     if let restEndsAt = state.restEndsAt {
         restCountdownText(restEndsAt: restEndsAt)
-            .font(.system(size: 52, weight: .heavy, design: .rounded))
+            .font(.system(size: 68, weight: .heavy, design: .rounded))
             .monospacedDigit()
             .foregroundColor(neon)
             .contentTransition(.numericText())
@@ -242,7 +250,7 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState,
             .lineLimit(1)
     } else {
         Text("—")
-            .font(.system(size: 52, weight: .heavy, design: .rounded))
+            .font(.system(size: 68, weight: .heavy, design: .rounded))
             .foregroundColor(.white)
             .lineLimit(1)
     }
@@ -289,9 +297,15 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     let neon = neonAccent(for: state)
     switch state.phase {
     case .resting:
+        // Decisão aprovada (card mais alto, agosto/2026): nextUpLine() sai
+        // desta fase — na transição para .readyOvertime o próximo exercício
+        // volta a aparecer, mas durante a contagem regressiva o herói do
+        // timer é a única coisa que importa ler de longe. O espaço liberado
+        // (mais os -30s/+30s comprimidos em chip) vai inteiro para o timer,
+        // que cresce de 52pt para 68pt.
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 lockScreenHeaderLine(state)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     lockScreenRestHero(state, neon: neon)
@@ -311,32 +325,39 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                         .progressViewStyle(.linear)
                         .tint(neon)
                 }
-                HStack(spacing: 8) {
+                // Chips compactos (controlSize .mini, mesma família de
+                // tamanho reduzido usada nos glifos −/+ dos steppers) — a
+                // ação de ±30s continua existindo e chamando os MESMOS
+                // intents, só o espaço vertical que ela ocupa encolhe.
+                HStack(spacing: 6) {
                     Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
                         Text("-30s")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
                     }
                     Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
                         Text("+30s")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
                     }
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
-                .controlSize(.small)
+                .controlSize(.mini)
                 .tint(neon)
-                nextUpLine(state)
             }
         }
     case .measuring:
+        // Decisão aprovada (card mais alto, agosto/2026): prescriptionText()
+        // sai desta fase — a meta prescrita já está embutida nos steppers
+        // (valor corrente editável, opacidade reduzida quando herdado), então
+        // repeti-la como texto separado era redundante. O espaço liberado vai
+        // para a área de toque dos glifos −/+ (28×28 → 44×44, perto do
+        // mínimo de 44pt da HIG) e para o valor numérico, que cresce.
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 lockScreenHeaderLine(state)
-                Text(prescriptionText(state))
-                    .font(.footnote)
-                    .fontWeight(.regular)
-                    .foregroundColor(activitySecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
                 // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
                 // omitida para bodyweight, nunca as reps. Os dois grupos ficam
                 // lado a lado na mesma linha (design aprovado).
@@ -347,10 +368,10 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                 Text("−")
                                     .font(.title3)
                                     .fontWeight(.bold)
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 44, height: 44)
                             }
                             Text(state.currentReps.map(String.init) ?? "—")
-                                .font(.system(.title2, design: .rounded))
+                                .font(.system(size: 30, design: .rounded))
                                 .fontWeight(.bold)
                                 .monospacedDigit()
                                 .foregroundColor(.white)
@@ -362,7 +383,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                 Text("+")
                                     .font(.title3)
                                     .fontWeight(.bold)
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 44, height: 44)
                             }
                         }
                     }
@@ -374,10 +395,10 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                     Text("−")
                                         .font(.title3)
                                         .fontWeight(.bold)
-                                        .frame(width: 28, height: 28)
+                                        .frame(width: 44, height: 44)
                                 }
                                 Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
-                                    .font(.system(.title2, design: .rounded))
+                                    .font(.system(size: 30, design: .rounded))
                                     .fontWeight(.bold)
                                     .monospacedDigit()
                                     .foregroundColor(.white)
@@ -389,7 +410,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                     Text("+")
                                         .font(.title3)
                                         .fontWeight(.bold)
-                                        .frame(width: 28, height: 28)
+                                        .frame(width: 44, height: 44)
                                 }
                             }
                         }
@@ -414,11 +435,11 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     case .readyOvertime:
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 lockScreenHeaderLine(state)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("PRONTO")
-                        .font(.system(size: 44, weight: .heavy, design: .rounded))
+                        .font(.system(size: 56, weight: .heavy, design: .rounded))
                         .foregroundColor(neon)
                         .shadow(color: neon.opacity(0.5), radius: 8)
                         .lineLimit(1)
@@ -561,7 +582,8 @@ struct WidgetLiveActivity: Widget {
 #if DEBUG
 
 /// Descanso, nome curto, acento amarelo (cor padrão) — cobre o herói do
-/// timer (52pt) e o botão "Pular" com o timer ainda correndo.
+/// timer (68pt) e o botão "Pular" com o timer ainda correndo. "A SEGUIR" não
+/// aparece nesta fase (decisão aprovada, card mais alto agosto/2026).
 #Preview("Descanso — amarelo", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-resting")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -589,7 +611,9 @@ struct WidgetLiveActivity: Widget {
 
 /// Série em andamento, nome LONGO (para checar truncamento do cabeçalho
 /// "exercício · Série X/Y") e acento azul — cobre os dois grupos de
-/// stepper (reps herdadas, carga não herdada) lado a lado.
+/// stepper (reps herdadas, carga não herdada) lado a lado, agora com glifos
+/// −/+ de 44×44pt e valor numérico maior. prescriptionText não aparece
+/// nesta fase (decisão aprovada, card mais alto agosto/2026).
 #Preview("Série — nome longo, azul", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-measuring")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -612,7 +636,7 @@ struct WidgetLiveActivity: Widget {
 }
 
 /// Pronto/tempo extra, nome curto, peso corporal, acento verde — cobre o
-/// herói "PRONTO" (44pt) junto do contador de overtime (restEndsAt no
+/// herói "PRONTO" (56pt) junto do contador de overtime (restEndsAt no
 /// passado) e a linha "A SEGUIR" com o próximo exercício.
 #Preview("Pronto — verde, tempo extra", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-ready-overtime")) {
     WidgetLiveActivity()

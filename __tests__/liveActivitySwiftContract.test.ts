@@ -270,37 +270,62 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(widgetSwift).not.toContain('#available(iOS 26');
   });
 
-  it('ressuscita prescriptionText() no corpo do lock screen e tira nextUpLine da fase .measuring', () => {
+  it('card mais alto (agosto/2026): prescriptionText() sai de .measuring e nextUpLine() sai de .resting', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
     );
     expect(corpoLockScreen).not.toBeNull();
     const corpo = corpoLockScreen![1];
 
-    // prescriptionText() já existia no arquivo (usada por primaryValue, que
-    // só a Dynamic Island chama) mas era código morto dentro do lock
-    // screen — o redesenho ressuscita a meta prescrita na fase .measuring.
-    expect(corpo).toContain('prescriptionText(state)');
-
+    const casoResting = corpo.match(/case \.resting:([\s\S]*?)case \.measuring:/);
     const casoMeasuring = corpo.match(/case \.measuring:([\s\S]*?)case \.readyOvertime:/);
+    const casoReadyOvertime = corpo.match(/case \.readyOvertime:([\s\S]*?)case \.blockOnly:/);
+    expect(casoResting).not.toBeNull();
     expect(casoMeasuring).not.toBeNull();
-    expect(casoMeasuring![1]).toContain('prescriptionText(state)');
-    // Decisão aprovada: nextUpLine() (rodapé "A SEGUIR") não aparece mais
-    // na fase .measuring — só em .resting e .readyOvertime.
-    expect(casoMeasuring![1]).not.toContain('nextUpLine(state)');
+    expect(casoReadyOvertime).not.toBeNull();
+
+    // Decisão aprovada (card mais alto, agosto/2026): a meta prescrita é
+    // redundante com os steppers editáveis — prescriptionText() nunca mais
+    // aparece dentro de .measuring. A função em si continua existindo (é
+    // usada por primaryValue, chamado pela Dynamic Island), só não é mais
+    // invocada aqui.
+    expect(casoMeasuring![1]).not.toContain('prescriptionText(state)');
+
+    // Decisão aprovada: nextUpLine() (rodapé "A SEGUIR") sai de .resting —
+    // o timer de descanso vira o único foco da fase — e continua em
+    // .readyOvertime, onde saber o próximo exercício importa fisicamente.
+    expect(casoResting![1]).not.toContain('nextUpLine(state)');
+    expect(casoReadyOvertime![1]).toContain('nextUpLine(state)');
+  });
+
+  it('trava os -30s/+30s como chip comprimido (controlSize .mini) sem perder os intents', () => {
+    const corpoLockScreen = widgetSwift.match(
+      /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
+    );
+    expect(corpoLockScreen).not.toBeNull();
+    const casoResting = corpoLockScreen![1].match(/case \.resting:([\s\S]*?)case \.measuring:/);
+    expect(casoResting).not.toBeNull();
+    const corpo = casoResting![1];
+    expect(corpo).toContain('AdjustRestIntent(deltaSeconds: -30)');
+    expect(corpo).toContain('AdjustRestIntent(deltaSeconds: 30)');
+    expect(corpo).toContain('.controlSize(.mini)');
+    expect(corpo).not.toContain('.controlSize(.small)');
   });
 });
 
-// Card maior no Lock Screen (agosto/2026): o dono pediu que o card pare de
-// "parecer pequeno" no iPhone 13 sem estourar o teto do sistema (~160pt de
+// Card maior no Lock Screen (agosto/2026, segunda rodada — "ficar mais
+// alto"): o dono pediu presença visual maior, sacrificando o secundário
+// (A SEGUIR fora de .resting, prescrição redundante fora de .measuring,
+// chips de ±30s comprimidos) sem estourar o teto do sistema (~160pt de
 // altura útil na apresentação de Lock Screen). Os blocos abaixo travam o
-// ganho de tamanho dos dois heróis (timer de descanso e "PRONTO") com
-// asserções >=, não ===, para que uma correção futura possa crescer ainda
-// mais sem quebrar o teste — só não pode REGREDIR para o tamanho antigo
-// (44pt/34pt) nem reintroduzir glassEffect (proibição já coberta acima,
-// nunca revogada por este bloco).
+// ganho de tamanho dos dois heróis (timer de descanso e "PRONTO") e da área
+// de toque dos steppers com asserções >=, não ===, para que uma correção
+// futura possa crescer ainda mais sem quebrar o teste — só não pode
+// REGREDIR para o tamanho da rodada anterior (52pt/44pt/28pt) nem
+// reintroduzir glassEffect (proibição já coberta acima, nunca revogada por
+// este bloco).
 describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos heróis', () => {
-  it('herói do timer de descanso (lockScreenRestHero) cresce para >= 52pt em ambos os ramos (com/sem restEndsAt)', () => {
+  it('herói do timer de descanso (lockScreenRestHero) cresce para >= 68pt em ambos os ramos (com/sem restEndsAt)', () => {
     const bloco = widgetSwift.match(
       /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
     );
@@ -312,14 +337,14 @@ describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos her�
     // contagem cair, o fallback perdeu a apresentação heroica.
     expect(tamanhos.length).toBe(2);
     for (const tamanho of tamanhos) {
-      expect(tamanho).toBeGreaterThanOrEqual(52);
+      expect(tamanho).toBeGreaterThanOrEqual(68);
     }
   });
 
-  it('herói "PRONTO" (fase .readyOvertime) cresce para >= 44pt', () => {
+  it('herói "PRONTO" (fase .readyOvertime) cresce para >= 56pt', () => {
     const bloco = widgetSwift.match(/Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: (\d+), weight: \.heavy, design: \.rounded\)\)/);
     expect(bloco).not.toBeNull();
-    expect(Number(bloco![1])).toBeGreaterThanOrEqual(44);
+    expect(Number(bloco![1])).toBeGreaterThanOrEqual(56);
   });
 
   it('cabeçalho comum sai de .caption para .subheadline com minimumScaleFactor (nome de exercício longo não trunca sem chance de encolher)', () => {
@@ -332,7 +357,7 @@ describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos her�
     expect(bloco![1]).not.toContain('.font(.caption)');
   });
 
-  it('grupos de stepper (.measuring) crescem a área de toque: padding maior e glifos +/- com frame explícito', () => {
+  it('grupos de stepper (.measuring) crescem a área de toque perto do mínimo de 44pt da HIG: glifos +/- com frame explícito >= 44pt', () => {
     const bloco = widgetSwift.match(
       /private func lockScreenStepperGroup<Content: View>\(@ViewBuilder content: \(\) -> Content\) -> some View \{([\s\S]*?)\n\}/,
     );
@@ -340,24 +365,43 @@ describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos her�
     expect(bloco![1]).toContain('.padding(.horizontal, 12)');
     expect(bloco![1]).toContain('.padding(.vertical, 8)');
 
-    // Os quatro glifos −/+ (reps e carga) ganham frame explícito >= 28pt —
-    // antes eram Text() sem nenhum modificador de tamanho/tap-target.
-    const framesDosGlifos = widgetSwift.match(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g) ?? [];
+    // Os quatro glifos −/+ (reps e carga) ganham frame explícito — cresceu
+    // de 28pt (rodada anterior) para 44pt (mínimo da HIG, rodada "card mais
+    // alto" agosto/2026).
+    const framesDosGlifos = Array.from(
+      widgetSwift.matchAll(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g),
+    );
     expect(framesDosGlifos.length).toBe(4);
+    for (const [, largura, altura] of framesDosGlifos) {
+      expect(Number(largura)).toBeGreaterThanOrEqual(44);
+      expect(Number(altura)).toBeGreaterThanOrEqual(44);
+    }
   });
 
-  it('botões primários (Pular, Concluir série) e valores de stepper crescem — .controlSize(.large) e fonte .title2', () => {
+  it('botões primários (Pular, Concluir série) continuam .controlSize(.large); valores de stepper crescem além de .title2', () => {
     const usosControlSizeLarge = widgetSwift.match(/\.controlSize\(\.large\)/g) ?? [];
     expect(usosControlSizeLarge.length).toBe(2);
 
-    // Os DOIS valores de stepper (reps e carga) saem de .title3 para
-    // .title2 rounded — crescem porque são "lidos de longe" (D-instrução:
-    // priorizar números sobre texto secundário). overtimeText (readyOvertime)
-    // segue .title3 rounded de propósito — é texto secundário ao lado do
-    // herói "PRONTO" e não deveria crescer junto, então continua existindo
-    // exatamente 1 uso de .title3 rounded no arquivo.
+    // Os DOIS valores de stepper (reps e carga) saem de .title2 rounded
+    // (22pt) para um tamanho explícito >= 24pt (rodada "card mais alto",
+    // agosto/2026) — crescem porque são "lidos de longe" (priorizar números
+    // sobre texto secundário). Não sobra nenhum uso do padrão antigo
+    // baseado em text style (.title2/.title3, design: .rounded) para os
+    // valores de stepper.
+    const usosTamanhoExplicitoRounded = Array.from(
+      widgetSwift.matchAll(/\.font\(\.system\(size: (\d+), design: \.rounded\)\)/g),
+    );
+    expect(usosTamanhoExplicitoRounded.length).toBe(2);
+    for (const [, tamanho] of usosTamanhoExplicitoRounded) {
+      expect(Number(tamanho)).toBeGreaterThanOrEqual(24);
+    }
+
+    // overtimeText (readyOvertime) segue .title3 rounded de propósito — é
+    // texto secundário ao lado do herói "PRONTO" e não deveria crescer
+    // junto, então continua existindo exatamente 1 uso de .title3 rounded
+    // (baseado em text style) no arquivo, e nenhum .title2 rounded sobra.
     const usosTitle2Rounded = widgetSwift.match(/\.font\(\.system\(\.title2, design: \.rounded\)\)/g) ?? [];
-    expect(usosTitle2Rounded.length).toBe(2);
+    expect(usosTitle2Rounded.length).toBe(0);
     const usosTitle3Rounded = widgetSwift.match(/\.font\(\.system\(\.title3, design: \.rounded\)\)/g) ?? [];
     expect(usosTitle3Rounded.length).toBe(1);
   });
