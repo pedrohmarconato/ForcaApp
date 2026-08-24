@@ -223,20 +223,30 @@ describe('widget consome a cor derivada do ContentState', () => {
 });
 
 describe('layout, tipografia e demais elementos preservados', () => {
-  it('mantém cores estruturais e adota a tipografia rounded/numericText do redesenho', () => {
+  it('mantém cores estruturais e adota a tipografia condensada com contentTransition/numericText', () => {
     expect(widgetSwift).toMatch(
       /private let activityBackground = Color\(red: 0\.039, green: 0\.039, blue: 0\.039\)/,
     );
     expect(widgetSwift).toMatch(
       /private let activitySecondary = Color\(red: 0\.545, green: 0\.565, blue: 0\.596\)/,
     );
-    // Redesenho do Lock Screen (design aprovado, agosto/2026): tipografia
-    // display em .rounded e números com transição numérica — substituem a
-    // checagem antiga de .title2/.subheadline soltos no arquivo inteiro,
-    // que não discriminava onde a fonte era usada.
-    expect(widgetSwift).toContain('design: .rounded');
+    // Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo
+    // dono): a tipografia display migra de .rounded para largura condensada
+    // (.width(.condensed)) — condensed e rounded são mutuamente excludentes
+    // por design (D-especificação), então `design: .rounded` NUNCA MAIS
+    // aparece no arquivo.
+    expect(widgetSwift).toContain('.width(.condensed)');
+    expect(widgetSwift).not.toContain('design: .rounded');
     expect(widgetSwift).toContain('.contentTransition(.numericText())');
     expect(widgetSwift).toContain('.monospacedDigit()');
+  });
+
+  it('usa .width(.condensed) largamente nos heróis, cabeçalhos e rótulos do redesenho', () => {
+    // Cabeçalho (3x), DESCANSO, timer de descanso (2 ramos), ±30s (2),
+    // PULAR DESCANSO, valor+rótulo dos dois steppers (2+2+2+2), CONCLUIR
+    // SÉRIE, PRONTO, tempo extra dentro do bloco, A SEGUIR (rótulo+detalhe).
+    const usos = widgetSwift.match(/\.width\(\.condensed\)/g) ?? [];
+    expect(usos.length).toBeGreaterThanOrEqual(16);
   });
 
   it('mantém timers, intents e decoração da Activity', () => {
@@ -245,6 +255,9 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(widgetSwift).toContain('AdjustRestIntent(deltaSeconds: -30)');
     expect(widgetSwift).toContain('SkipRestIntent()');
     expect(widgetSwift).toContain('AdjustRestIntent(deltaSeconds: 30)');
+    expect(widgetSwift).toContain('AdjustRepsIntent(deltaReps: -1)');
+    expect(widgetSwift).toContain('AdjustRepsIntent(deltaReps: 1)');
+    expect(widgetSwift).toContain('AdjustLoadIntent(deltaLoadKg:');
     expect(widgetSwift).toContain('CompleteSetIntent()');
     expect(widgetSwift).toContain('.activityBackgroundTint(activityBackground)');
     expect(widgetSwift).toContain('.activitySystemActionForegroundColor(Color.white)');
@@ -256,21 +269,102 @@ describe('layout, tipografia e demais elementos preservados', () => {
     );
   });
 
-  it('adota o redesenho do Lock Screen aprovado (progress bar, botões prominence, sem "Ajustar no app")', () => {
-    expect(widgetSwift).toContain('ProgressView(timerInterval:');
-    expect(widgetSwift).toContain('.buttonStyle(.borderedProminent)');
-    expect(widgetSwift).toContain('.buttonBorderShape(.capsule)');
-    // Decisão aprovada (D-redesenho Lock Screen 2026-08): a dica "Ajustar no
-    // app" sai da fase .measuring — não sobra em lugar nenhum do arquivo.
+  it('redesenho "Identidade Forte": heróis de .resting/.readyOvertime viram blocos neon preenchidos com texto preto — sem "Ajustar no app", sem ProgressView (o bloco já é o sinal)', () => {
+    expect(widgetSwift).toContain('private func lockScreenRestNeonBlock');
+    expect(widgetSwift).toContain('private func lockScreenReadyNeonBlock');
+    // Os dois blocos preenchem um RoundedRectangle(cornerRadius: 16) com a
+    // cor neon do state — nunca uma cor fixa (trava de "sem acento fixo" já
+    // coberta acima nesta mesma suíte).
+    const blocosPreenchidos = Array.from(
+      widgetSwift.matchAll(/RoundedRectangle\(cornerRadius: 16\)\s*\n\s*\.fill\(neon\)/g),
+    );
+    expect(blocosPreenchidos.length).toBe(2);
+    expect(widgetSwift).toContain('.foregroundColor(.black)');
+    expect(widgetSwift).toContain('Color.black.opacity(0.62)');
+    // Decisão de design (registrada no relatório da implementação): a barra
+    // de acento neon lateral e a ProgressView linear saem de .resting — o
+    // bloco preenchido já carrega toda a identidade visual da fase, uma
+    // segunda pista redundaria. Nenhum ProgressView sobra no arquivo.
+    expect(widgetSwift).not.toContain('ProgressView');
+    // Decisão aprovada (D-redesenho Lock Screen 2026-08, preservada): a
+    // dica "Ajustar no app" continua fora da fase .measuring.
     expect(widgetSwift).not.toContain('Ajustar no app');
   });
 
-  it('proíbe .glassEffect / #available(iOS 26 no widget — Live Activity roda por um motor de render (WidgetKit archive-based) que não suporta Liquid Glass em runtime; o modificador compilava mas derrubava a subárvore inteira em silêncio (grupos de reps/carga sumiam do card em iPhone com iOS 26), então o fallback translúcido plano vira o único estilo permitido', () => {
+  it('cabeçalho das 3 fases visíveis vira neon, caixa alta, condensado, com tracking (D-cabeçalho, redesenho "Identidade Forte")', () => {
+    const bloco = widgetSwift.match(
+      /private func lockScreenHeaderLine\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(bloco).not.toBeNull();
+    expect(bloco![1]).toContain('.font(.system(size: 13, weight: .semibold).width(.condensed))');
+    expect(bloco![1]).toContain('.tracking(1.6)');
+    expect(bloco![1]).toContain('.textCase(.uppercase)');
+    expect(bloco![1]).toContain('.foregroundColor(neon)');
+    expect(bloco![1]).not.toContain('.font(.subheadline)');
+    expect(bloco![1]).toContain('.lineLimit(1)');
+    expect(bloco![1]).toMatch(/\.minimumScaleFactor\(0\.\d+\)/);
+    expect(bloco![1]).toContain('.truncationMode(.tail)');
+
+    // As três chamadas (resting/measuring/readyOvertime) passam `neon`
+    // explicitamente — .blockOnly não chama esta função (sem semântica de
+    // série) e permanece intocado.
+    const chamadas = widgetSwift.match(/lockScreenHeaderLine\(state, neon: neon\)/g) ?? [];
+    expect(chamadas.length).toBe(3);
+  });
+
+  it('grupos de stepper viram contornados (stroke, não fill) e mantêm os glifos −/+ em >= 44×44pt', () => {
+    const bloco = widgetSwift.match(
+      /private func lockScreenStepperGroup<Content: View>\(@ViewBuilder content: \(\) -> Content\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(bloco).not.toBeNull();
+    expect(bloco![1]).toContain('.stroke(Color.white.opacity(0.14))');
+    expect(bloco![1]).not.toContain('.fill(Color.white.opacity(0.08))');
+    expect(bloco![1]).toContain('.padding(.horizontal, 12)');
+    expect(bloco![1]).toContain('.padding(.vertical, 8)');
+
+    // Os quatro glifos −/+ (reps e carga) preservam o ganho de acessibilidade
+    // do commit anterior: 44×44pt é o mínimo, nunca regride para 40×40 (a
+    // medida da maquete original da variante D) nem para 28×28 (a medida
+    // anterior a esse ganho).
+    const framesDosGlifos = Array.from(
+      widgetSwift.matchAll(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g),
+    );
+    expect(framesDosGlifos.length).toBe(4);
+    for (const [, largura, altura] of framesDosGlifos) {
+      expect(Number(largura)).toBeGreaterThanOrEqual(44);
+      expect(Number(altura)).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('separa o valor do stepper do rótulo REPS/KG — "40 kg" concatenado não sobrevive', () => {
+    expect(widgetSwift).not.toContain(' kg")');
+    expect(widgetSwift).toMatch(
+      /Text\("REPS"\)\s*\n\s*\.font\(\.system\(size: 11, weight: \.semibold\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(2\)\s*\n\s*\.foregroundColor\(activitySecondary\)/,
+    );
+    expect(widgetSwift).toMatch(
+      /Text\("KG"\)\s*\n\s*\.font\(\.system\(size: 11, weight: \.semibold\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(2\)\s*\n\s*\.foregroundColor\(activitySecondary\)/,
+    );
+  });
+
+  it('"PULAR DESCANSO" e "CONCLUIR SÉRIE" ficam em caixa alta, condensados, com tracking 1.8', () => {
+    expect(widgetSwift).toMatch(
+      /Text\("PULAR DESCANSO"\)\s*\n\s*\.font\(\.system\(size: 18, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
+    );
+    expect(widgetSwift).toMatch(
+      /Text\("CONCLUIR SÉRIE"\)\s*\n\s*\.font\(\.system\(size: 19, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
+    );
+    expect(widgetSwift).toContain('.buttonBorderShape(.roundedRectangle(radius: 14))');
+    // .capsule saiu de vez — os dois botões de largura total do redesenho
+    // usam cantos arredondados explícitos, não mais cápsula.
+    expect(widgetSwift).not.toContain('.buttonBorderShape(.capsule)');
+  });
+
+  it('proíbe .glassEffect / #available(iOS 26 no widget — Live Activity roda por um motor de render (WidgetKit archive-based) que não suporta Liquid Glass em runtime; o modificador compilava mas derrubava a subárvore inteira em silêncio (grupos de reps/carga sumiam do card em iPhone com iOS 26), então o fallback plano/contornado vira o único estilo permitido', () => {
     expect(widgetSwift).not.toContain('glassEffect');
     expect(widgetSwift).not.toContain('#available(iOS 26');
   });
 
-  it('card mais alto (agosto/2026): prescriptionText() sai de .measuring e nextUpLine() sai de .resting', () => {
+  it('card mais alto (agosto/2026, preservado no redesenho "Identidade Forte"): prescriptionText() sai de .measuring e nextUpLine() sai de .resting', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
     );
@@ -292,121 +386,109 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(casoMeasuring![1]).not.toContain('prescriptionText(state)');
 
     // Decisão aprovada: nextUpLine() (rodapé "A SEGUIR") sai de .resting —
-    // o timer de descanso vira o único foco da fase — e continua em
-    // .readyOvertime, onde saber o próximo exercício importa fisicamente.
+    // o bloco neon do timer de descanso vira o único foco da fase — e
+    // continua em .readyOvertime, onde saber o próximo exercício importa
+    // fisicamente (D-15).
     expect(casoResting![1]).not.toContain('nextUpLine(state)');
     expect(casoReadyOvertime![1]).toContain('nextUpLine(state)');
+
+    // Redesenho "Identidade Forte": a barra de acento lateral também sai de
+    // .resting e .readyOvertime (o bloco neon preenchido já é a identidade);
+    // .measuring e .blockOnly continuam com ela.
+    expect(casoResting![1]).not.toContain('lockScreenAccentBar(neon)');
+    expect(casoReadyOvertime![1]).not.toContain('lockScreenAccentBar(neon)');
+    expect(casoMeasuring![1]).toContain('lockScreenAccentBar(neon)');
   });
 
-  it('trava os -30s/+30s como chip comprimido (controlSize .mini) sem perder os intents', () => {
+  it('mantém os intents de ±30s de descanso como botões contornados ao lado do bloco neon (controlSize .small, borda branca sutil)', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
     );
     expect(corpoLockScreen).not.toBeNull();
     const casoResting = corpoLockScreen![1].match(/case \.resting:([\s\S]*?)case \.measuring:/);
     expect(casoResting).not.toBeNull();
-    const corpo = casoResting![1];
-    expect(corpo).toContain('AdjustRestIntent(deltaSeconds: -30)');
-    expect(corpo).toContain('AdjustRestIntent(deltaSeconds: 30)');
-    expect(corpo).toContain('.controlSize(.mini)');
-    expect(corpo).not.toContain('.controlSize(.small)');
+    expect(casoResting![1]).toContain('lockScreenRestAdjustButtons()');
+    expect(casoResting![1]).toContain('lockScreenSkipRestButton()');
+
+    const bloco = widgetSwift.match(/private func lockScreenRestAdjustButtons\(\) -> some View \{([\s\S]*?)\n\}/);
+    expect(bloco).not.toBeNull();
+    expect(bloco![1]).toContain('AdjustRestIntent(deltaSeconds: -30)');
+    expect(bloco![1]).toContain('AdjustRestIntent(deltaSeconds: 30)');
+    expect(bloco![1]).toContain('.buttonStyle(.bordered)');
+    expect(bloco![1]).toContain('.buttonBorderShape(.roundedRectangle(radius: 12))');
+    expect(bloco![1]).toContain('.controlSize(.small)');
+    // O chip .mini da rodada "card mais alto" anterior não sobrevive — os
+    // botões voltam a ter uma área de toque maior ao lado do bloco neon.
+    expect(widgetSwift).not.toContain('.controlSize(.mini)');
   });
 });
 
-// Card maior no Lock Screen (agosto/2026, segunda rodada — "ficar mais
-// alto"): o dono pediu presença visual maior, sacrificando o secundário
-// (A SEGUIR fora de .resting, prescrição redundante fora de .measuring,
-// chips de ±30s comprimidos) sem estourar o teto do sistema (~160pt de
-// altura útil na apresentação de Lock Screen). Os blocos abaixo travam o
-// ganho de tamanho dos dois heróis (timer de descanso e "PRONTO") e da área
-// de toque dos steppers com asserções >=, não ===, para que uma correção
+// Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo dono):
+// os heróis de .resting e .readyOvertime deixam de ser texto neon sobre
+// preto e viram blocos preenchidos de neon com texto PRETO, tipografia
+// condensada em caixa alta. Os blocos abaixo travam a tipografia e as
+// dimensões desse redesenho com asserções >=, não ===, para que uma correção
 // futura possa crescer ainda mais sem quebrar o teste — só não pode
-// REGREDIR para o tamanho da rodada anterior (52pt/44pt/28pt) nem
-// reintroduzir glassEffect (proibição já coberta acima, nunca revogada por
-// este bloco).
-describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos heróis', () => {
-  it('herói do timer de descanso (lockScreenRestHero) cresce para >= 68pt em ambos os ramos (com/sem restEndsAt)', () => {
+// REGREDIR para o tamanho/estilo da rodada anterior (68pt rounded neon, 56pt
+// PRONTO rounded neon, glifos < 44pt) nem reintroduzir glassEffect (proibição
+// já coberta acima, nunca revogada por este bloco).
+describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchidos e tipografia condensada', () => {
+  it('herói do timer de descanso (lockScreenRestHero) usa condensado >= 76pt, preto, em ambos os ramos (com/sem restEndsAt)', () => {
     const bloco = widgetSwift.match(
-      /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
+      /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState\) -> some View \{([\s\S]*?)\n\}/,
     );
     expect(bloco).not.toBeNull();
-    const tamanhos = Array.from(bloco![1].matchAll(/\.font\(\.system\(size: (\d+), weight: \.heavy, design: \.rounded\)\)/g)).map(
+    const tamanhos = Array.from(bloco![1].matchAll(/\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)/g)).map(
       (m) => Number(m[1]),
     );
     // Um tamanho por ramo (restEndsAt presente / "—" de fallback) — se a
     // contagem cair, o fallback perdeu a apresentação heroica.
     expect(tamanhos.length).toBe(2);
     for (const tamanho of tamanhos) {
-      expect(tamanho).toBeGreaterThanOrEqual(68);
+      expect(tamanho).toBeGreaterThanOrEqual(76);
     }
+    // Preto, não mais neon: o texto vive DENTRO do bloco preenchido a
+    // neon — cor neon sobre fundo neon não teria contraste nenhum.
+    expect(bloco![1]).toContain('.foregroundColor(.black)');
+    expect(bloco![1]).not.toContain('neon');
   });
 
-  it('herói "PRONTO" (fase .readyOvertime) cresce para >= 56pt', () => {
-    const bloco = widgetSwift.match(/Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: (\d+), weight: \.heavy, design: \.rounded\)\)/);
-    expect(bloco).not.toBeNull();
-    expect(Number(bloco![1])).toBeGreaterThanOrEqual(56);
-  });
-
-  it('cabeçalho comum sai de .caption para .subheadline com minimumScaleFactor (nome de exercício longo não trunca sem chance de encolher)', () => {
+  it('herói "PRONTO" (fase .readyOvertime) usa condensado >= 64pt, preto, dentro do bloco neon', () => {
     const bloco = widgetSwift.match(
-      /private func lockScreenHeaderLine\(_ state: SessionActivityAttributes\.ContentState\) -> some View \{([\s\S]*?)\n\}/,
+      /Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.foregroundColor\(\.black\)/,
     );
     expect(bloco).not.toBeNull();
-    expect(bloco![1]).toContain('.font(.subheadline)');
-    expect(bloco![1]).toMatch(/\.minimumScaleFactor\(0\.\d+\)/);
-    expect(bloco![1]).not.toContain('.font(.caption)');
+    expect(Number(bloco![1])).toBeGreaterThanOrEqual(64);
   });
 
-  it('grupos de stepper (.measuring) crescem a área de toque perto do mínimo de 44pt da HIG: glifos +/- com frame explícito >= 44pt', () => {
-    const bloco = widgetSwift.match(
-      /private func lockScreenStepperGroup<Content: View>\(@ViewBuilder content: \(\) -> Content\) -> some View \{([\s\S]*?)\n\}/,
-    );
-    expect(bloco).not.toBeNull();
-    expect(bloco![1]).toContain('.padding(.horizontal, 12)');
-    expect(bloco![1]).toContain('.padding(.vertical, 8)');
-
-    // Os quatro glifos −/+ (reps e carga) ganham frame explícito — cresceu
-    // de 28pt (rodada anterior) para 44pt (mínimo da HIG, rodada "card mais
-    // alto" agosto/2026).
-    const framesDosGlifos = Array.from(
-      widgetSwift.matchAll(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g),
-    );
-    expect(framesDosGlifos.length).toBe(4);
-    for (const [, largura, altura] of framesDosGlifos) {
-      expect(Number(largura)).toBeGreaterThanOrEqual(44);
-      expect(Number(altura)).toBeGreaterThanOrEqual(44);
-    }
-  });
-
-  it('botões primários (Pular, Concluir série) continuam .controlSize(.large); valores de stepper crescem além de .title2', () => {
+  it('CONCLUIR SÉRIE continua .controlSize(.large); valores de stepper condensados >= 38pt', () => {
+    // Só "CONCLUIR SÉRIE" preserva .controlSize(.large) — "PULAR DESCANSO"
+    // virou uma faixa de fundo explícito (.buttonStyle(.plain)) sem chrome
+    // de sistema, então não usa mais controlSize nenhum.
     const usosControlSizeLarge = widgetSwift.match(/\.controlSize\(\.large\)/g) ?? [];
-    expect(usosControlSizeLarge.length).toBe(2);
+    expect(usosControlSizeLarge.length).toBe(1);
 
-    // Os DOIS valores de stepper (reps e carga) saem de .title2 rounded
-    // (22pt) para um tamanho explícito >= 24pt (rodada "card mais alto",
-    // agosto/2026) — crescem porque são "lidos de longe" (priorizar números
-    // sobre texto secundário). Não sobra nenhum uso do padrão antigo
-    // baseado em text style (.title2/.title3, design: .rounded) para os
-    // valores de stepper.
-    const usosTamanhoExplicitoRounded = Array.from(
-      widgetSwift.matchAll(/\.font\(\.system\(size: (\d+), design: \.rounded\)\)/g),
+    // Os DOIS valores de stepper (reps e carga) ficam em condensado preto-
+    // sobre-branco >= 38pt — nenhum uso do padrão antigo baseado em
+    // text style + design: .rounded sobra para eles.
+    const usosValorStepper = Array.from(
+      widgetSwift.matchAll(
+        /\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.monospacedDigit\(\)\s*\n\s*\.foregroundColor\(\.white\)/g,
+      ),
     );
-    expect(usosTamanhoExplicitoRounded.length).toBe(2);
-    for (const [, tamanho] of usosTamanhoExplicitoRounded) {
-      expect(Number(tamanho)).toBeGreaterThanOrEqual(24);
+    expect(usosValorStepper.length).toBe(2);
+    for (const [, tamanho] of usosValorStepper) {
+      expect(Number(tamanho)).toBeGreaterThanOrEqual(38);
     }
 
-    // overtimeText (readyOvertime) segue .title3 rounded de propósito — é
-    // texto secundário ao lado do herói "PRONTO" e não deveria crescer
-    // junto, então continua existindo exatamente 1 uso de .title3 rounded
-    // (baseado em text style) no arquivo, e nenhum .title2 rounded sobra.
-    const usosTitle2Rounded = widgetSwift.match(/\.font\(\.system\(\.title2, design: \.rounded\)\)/g) ?? [];
-    expect(usosTitle2Rounded.length).toBe(0);
+    // .title3 rounded (usado pelo tempo extra na rodada anterior) não
+    // sobra em lugar nenhum — o tempo extra agora mora dentro do bloco
+    // neon, condensado e preto.
     const usosTitle3Rounded = widgetSwift.match(/\.font\(\.system\(\.title3, design: \.rounded\)\)/g) ?? [];
-    expect(usosTitle3Rounded.length).toBe(1);
+    expect(usosTitle3Rounded.length).toBe(0);
   });
 
-  it('proíbe .glassEffect mesmo depois do redesenho maior — a trava de campo original (subárvore descartada em runtime) continua valendo', () => {
+  it('proíbe .glassEffect mesmo depois do redesenho "Identidade Forte" — a trava de campo original (subárvore descartada em runtime) continua valendo', () => {
     expect(widgetSwift).not.toContain('glassEffect');
   });
 });

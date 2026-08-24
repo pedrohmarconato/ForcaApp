@@ -78,19 +78,24 @@ private func nextUpIsExerciseChange(_ state: SessionActivityAttributes.ContentSt
     state.nextExerciseName != nil && state.nextExerciseName != state.exerciseName
 }
 
+/// Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo dono):
+/// tipografia condensada em caixa alta com tracking, igual ao resto do card.
+/// O destaque de mudança de exercício (D-15) é preservado só via COR — neon
+/// no lugar de branco/activitySecondary — nunca mais via peso de fonte, já
+/// que o peso agora é fixo (semibold) para bater com a especificação do
+/// rótulo e do detalhe.
 @ViewBuilder
 private func nextUpLine(_ state: SessionActivityAttributes.ContentState) -> some View {
     if state.nextExerciseName != nil {
         let destaque = nextUpIsExerciseChange(state)
         VStack(alignment: .leading, spacing: 2) {
             Text("A SEGUIR")
-                .font(.caption2)
-                .fontWeight(.regular)
+                .font(.system(size: 11, weight: .semibold).width(.condensed))
+                .tracking(2.2)
                 .foregroundColor(destaque ? neonAccent(for: state) : activitySecondary)
             Text(nextUpDetailText(state))
-                .font(.caption2)
-                .fontWeight(destaque ? .bold : .regular)
-                .foregroundColor(destaque ? neonAccent(for: state) : activitySecondary)
+                .font(.system(size: 17, weight: .semibold).width(.condensed))
+                .foregroundColor(destaque ? neonAccent(for: state) : .white)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -130,14 +135,16 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
 }
 
 /// Bloco de contagem regressiva compartilhado entre a Dynamic Island (via
-/// primaryValue, região trailing — 331-367, NÃO TOCAR) e o herói do Lock
+/// primaryValue, região trailing — bloco `dynamicIsland:` no fim do
+/// arquivo, NÃO TOCAR) e o herói do Lock
 /// Screen redesenhado (lockScreenRestHero). Existe para que a chamada de
 /// timer countsDown continue aparecendo exatamente 2 vezes no arquivo
 /// (aqui + compactValue), mesmo com o Lock Screen ganhando uma apresentação
-/// (68pt, rounded, glow — crescido de 44pt→52pt→68pt ao longo das duas
-/// rodadas de redesenho "card maior", agosto/2026) diferente da Dynamic
-/// Island (.title2 inalterado) — só os modificadores mudam por chamador, a
-/// chamada em si nunca duplica.
+/// diferente da Dynamic Island (.title2 inalterado) — só os modificadores
+/// mudam por chamador, a chamada em si nunca duplica. Apresentação do Lock
+/// Screen: 76pt condensado preto sobre bloco neon preenchido (redesenho
+/// "Identidade Forte", agosto/2026) — sucede a fase anterior (68pt,
+/// .rounded, glow sobre fundo escuro) do mesmo redesenho "card maior".
 private func restCountdownText(restEndsAt: Date) -> Text {
     Text(timerInterval: Date.now...restEndsAt, countsDown: true)
 }
@@ -201,7 +208,8 @@ private func overtimeValue(_ state: SessionActivityAttributes.ContentState, now:
 // mudou de tamanho/fonte — só reaproveitam os helpers que continuam
 // produzindo o MESMO valor/String (neonAccent, seriesText, prescriptionText,
 // overtimeText, nextUpLine, restCountdownText). Isso garante que a Dynamic
-// Island (331-367, intocada) continue renderizando exatamente como antes,
+// Island (bloco `dynamicIsland:` no fim do arquivo, intocada) continue
+// renderizando exatamente como antes,
 // já que primaryValue/secondaryLine/overtimeValue são os helpers que ela usa.
 
 /// Barra vertical de acento neon — identidade visual comum às quatro fases
@@ -218,45 +226,124 @@ private func lockScreenAccentBar(_ neon: Color) -> some View {
 /// .readyOvertime. Na fase .measuring o nome do exercício HOJE não aparecia
 /// no lock screen (secondaryLine só mostrava a série) — o redesenho junta
 /// os dois na mesma linha, como já acontecia em .resting.
-private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentState) -> some View {
+///
+/// Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo
+/// dono): sai do cinza `.subheadline` medium e vira neon condensado em
+/// caixa alta com tracking — mesma linguagem tipográfica dos heróis. `neon`
+/// é recebido do chamador (já resolvido uma única vez por `lockScreenBody`)
+/// em vez de recomputado aqui.
+private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
     Text("\(state.exerciseName) · \(seriesText(state))")
-        .font(.subheadline)
-        .fontWeight(.medium)
-        .foregroundColor(activitySecondary)
+        .font(.system(size: 13, weight: .semibold).width(.condensed))
+        .tracking(1.6)
+        .textCase(.uppercase)
+        .foregroundColor(neon)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .truncationMode(.tail)
 }
 
 /// Herói do timer de descanso: mesmo Text(timerInterval:) de sempre
-/// (restCountdownText), com a apresentação nova — 68pt, .rounded, glow —
-/// que não poderia entrar em primaryValue() sem também mudar a Dynamic
-/// Island. Crescido de 44pt→52pt→68pt ao longo das duas rodadas de
-/// redesenho "card maior" (agosto/2026): é o elemento lido de mais longe do
-/// card, então recebe a maior fatia do orçamento vertical ganho — inclusive
-/// o espaço liberado pela remoção de "A SEGUIR" desta mesma fase (D-decisão
-/// "card mais alto", agosto/2026). minimumScaleFactor(0.6) preservado como
-/// rede de segurança para Dynamic Type grande — nunca deveria disparar em
-/// uso normal, já que o conteúdo é sempre "MM:SS" monoespaçado.
+/// (restCountdownText), agora vivendo DENTRO do bloco neon preenchido
+/// (lockScreenRestNeonBlock) — por isso o texto é preto, não mais a cor
+/// neon (o bloco já é neon; texto neon sobre fundo neon não teria
+/// contraste). Redesenho "Identidade Forte" (agosto/2026, variante D
+/// aprovada pelo dono): tipografia condensada 76pt — sucede os 68pt
+/// .rounded/glow do redesenho "card maior" anterior — porque não precisa
+/// mais competir com a barra de acento lateral (removida desta fase: o
+/// bloco preenchido já carrega a identidade visual). Não recebe mais `neon`
+/// como parâmetro — a cor do texto é sempre preta dentro do bloco.
+/// minimumScaleFactor(0.6) preservado como rede de segurança para Dynamic
+/// Type grande — nunca deveria disparar em uso normal, já que o conteúdo é
+/// sempre "MM:SS" monoespaçado.
 @ViewBuilder
-private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
+private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState) -> some View {
     if let restEndsAt = state.restEndsAt {
         restCountdownText(restEndsAt: restEndsAt)
-            .font(.system(size: 68, weight: .heavy, design: .rounded))
+            .font(.system(size: 76, weight: .heavy).width(.condensed))
             .monospacedDigit()
-            .foregroundColor(neon)
+            .foregroundColor(.black)
             .contentTransition(.numericText())
             .minimumScaleFactor(0.6)
             .lineLimit(1)
     } else {
         Text("—")
-            .font(.system(size: 68, weight: .heavy, design: .rounded))
-            .foregroundColor(.white)
+            .font(.system(size: 76, weight: .heavy).width(.condensed))
+            .foregroundColor(.black)
             .lineLimit(1)
     }
 }
 
-/// Fundo capsule dos grupos de stepper (reps/carga) da fase .measuring.
+/// Bloco neon preenchido do herói de descanso — a peça central do
+/// redesenho "Identidade Forte" (agosto/2026): rótulo "DESCANSO" em preto
+/// 62% de opacidade sobre o timer em preto sólido, dentro de um
+/// `RoundedRectangle` preenchido com `neon`. Substitui a barra de acento
+/// lateral (`lockScreenAccentBar`) desta fase — o bloco já é a identidade
+/// visual, uma barra adicional seria redundante.
+private func lockScreenRestNeonBlock(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+        Text("DESCANSO")
+            .font(.system(size: 11, weight: .heavy).width(.condensed))
+            .tracking(2.2)
+            .foregroundColor(Color.black.opacity(0.62))
+        lockScreenRestHero(state)
+    }
+    .padding(.top, 8)
+    .padding(.horizontal, 16)
+    .padding(.bottom, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+        RoundedRectangle(cornerRadius: 16)
+            .fill(neon)
+    )
+}
+
+/// Botões ±30s de descanso (AdjustRestIntent) — mesmos intents de sempre,
+/// agora ao lado do bloco neon em vez de embutidos na mesma linha do timer.
+/// `.bordered` + tint branco translúcido = "borda branca sutil" (D-especificação
+/// do redesenho "Identidade Forte"); o texto recebe `.foregroundColor(.white)`
+/// explícito para não herdar a cor do tint no rótulo do botão.
+private func lockScreenRestAdjustButtons() -> some View {
+    VStack(spacing: 6) {
+        Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
+            Text("-30s")
+                .font(.system(size: 15, weight: .semibold).width(.condensed))
+                .foregroundColor(.white)
+        }
+        Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
+            Text("+30s")
+                .font(.system(size: 15, weight: .semibold).width(.condensed))
+                .foregroundColor(.white)
+        }
+    }
+    .buttonStyle(.bordered)
+    .buttonBorderShape(.roundedRectangle(radius: 12))
+    .controlSize(.small)
+    .tint(Color.white.opacity(0.3))
+}
+
+/// Botão "PULAR DESCANSO" (SkipRestIntent) — largura total, fundo branco
+/// translúcido explícito (em vez de `.borderedProminent`, para controlar o
+/// raio com precisão via `RoundedRectangle` direto) — texto branco
+/// condensado em caixa alta. `.buttonStyle(.plain)` remove o chrome padrão
+/// do sistema para que só o `.background` desenhado abaixo apareça.
+private func lockScreenSkipRestButton() -> some View {
+    Button(intent: SkipRestIntent()) {
+        Text("PULAR DESCANSO")
+            .font(.system(size: 18, weight: .heavy).width(.condensed))
+            .tracking(1.8)
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+    }
+    .buttonStyle(.plain)
+    .background(
+        RoundedRectangle(cornerRadius: 14)
+            .fill(Color.white.opacity(0.10))
+    )
+}
+
+/// Contorno dos grupos de stepper (reps/carga) da fase .measuring.
 /// BUG DE CAMPO (2026-08-22, iPhone 13 / iOS 26): o modificador de vidro
 /// líquido (Liquid Glass, novo no iOS 26), guardado atrás de um check de
 /// disponibilidade de versão, compilava mas derrubava a subárvore inteira
@@ -265,19 +352,51 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState,
 /// não sustenta esse material mesmo em device iOS 26 onde o app renderiza
 /// normalmente. Resultado: os dois grupos de stepper (reps e carga)
 /// sumiam do card, deixando um vão vazio entre a meta e o botão "Concluir
-/// série". O preenchimento translúcido plano abaixo — que já era o
-/// fallback pré-26 — vira o único estilo suportado; Live Activity não é
-/// lugar de API sem runtime comprovado. (Este comentário evita citar o
-/// nome literal do modificador/gate para não colidir com o teste de
-/// contrato que proíbe essas strings no arquivo.)
+/// série". Nenhuma API sem runtime comprovado volta a este arquivo. (Este
+/// comentário evita citar o nome literal do modificador/gate para não
+/// colidir com o teste de contrato que proíbe essas strings no arquivo.)
+///
+/// Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo
+/// dono): o preenchimento translúcido plano (fallback pós-bug de campo) dá
+/// lugar a um CONTORNO — `.stroke` em vez de `.fill` — para diferenciar
+/// visualmente os steppers (editáveis, secundários) dos blocos neon
+/// preenchidos (heróis de .resting/.readyOvertime, identidade primária).
 private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     content()
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(0.08))
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.14))
         )
+}
+
+/// Bloco neon preenchido do herói "PRONTO" — mesma peça visual do bloco de
+/// descanso (`lockScreenRestNeonBlock`), com "PRONTO" e o tempo extra
+/// (overtimeText, MESMA função usada pela Dynamic Island) alinhados pela
+/// base num HStack. Ambos em preto — "PRONTO" sólido, o tempo extra a 62%
+/// de opacidade para ficar secundário ao lado do herói.
+private func lockScreenReadyNeonBlock(_ state: SessionActivityAttributes.ContentState, now: Date, neon: Color) -> some View {
+    HStack(alignment: .bottom, spacing: 8) {
+        Text("PRONTO")
+            .font(.system(size: 64, weight: .heavy).width(.condensed))
+            .foregroundColor(.black)
+            .lineLimit(1)
+        Text(overtimeText(state, now: now))
+            .font(.system(size: 22, weight: .heavy).width(.condensed))
+            .monospacedDigit()
+            .foregroundColor(Color.black.opacity(0.62))
+            .lineLimit(1)
+    }
+    .padding(.top, 8)
+    .padding(.horizontal, 16)
+    .padding(.bottom, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+        RoundedRectangle(cornerRadius: 16)
+            .fill(neon)
+    )
 }
 
 /// D-04 (Fase 15, Plano 15-07): `state.phase` já foi resolvido pelo chamador
@@ -285,79 +404,47 @@ private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> C
 /// switch nunca vê `.resting` sobrevivendo além de `restEndsAt`, mesmo com o
 /// processo JS suspenso.
 ///
-/// Redesenho do Lock Screen (design aprovado, agosto/2026): as quatro fases
-/// ganham barra de acento neon no leading (lockScreenAccentBar) e cabeçalho
-/// "exercício · Série X/Y" comum (lockScreenHeaderLine, exceto .blockOnly,
-/// que não tem semântica de série). `neon` é resolvido uma única vez para a
-/// função inteira e reaproveitado nas quatro fases — mesma cor que o
-/// resolvedor de acento sempre devolveria para este state, só evita
-/// recomputar o switch fechado a cada uso dentro do mesmo case.
+/// Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo
+/// dono) — sucede o redesenho anterior (D-04/"card maior"): os heróis de
+/// `.resting` e `.readyOvertime` deixam de usar `lockScreenAccentBar` como
+/// identidade — o bloco neon preenchido (`lockScreenRestNeonBlock` /
+/// `lockScreenReadyNeonBlock`) já carrega a marca sozinho, então a barra
+/// lateral saiu dessas duas fases. `.measuring` e `.blockOnly` não têm
+/// bloco preenchido equivalente e continuam com a barra. `neon` é
+/// resolvido uma única vez para a função inteira e reaproveitado nas
+/// quatro fases — mesma cor que o resolvedor de acento sempre devolveria
+/// para este state, só evita recomputar o switch fechado a cada uso.
 @ViewBuilder
 private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now: Date) -> some View {
     let neon = neonAccent(for: state)
     switch state.phase {
     case .resting:
-        // Decisão aprovada (card mais alto, agosto/2026): nextUpLine() sai
-        // desta fase — na transição para .readyOvertime o próximo exercício
-        // volta a aparecer, mas durante a contagem regressiva o herói do
-        // timer é a única coisa que importa ler de longe. O espaço liberado
-        // (mais os -30s/+30s comprimidos em chip) vai inteiro para o timer,
-        // que cresce de 52pt para 68pt.
-        HStack(alignment: .top, spacing: 10) {
-            lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 7) {
-                lockScreenHeaderLine(state)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    lockScreenRestHero(state, neon: neon)
-                    Spacer(minLength: 8)
-                    Button(intent: SkipRestIntent()) {
-                        Text("Pular")
-                            .fontWeight(.bold)
-                            .foregroundColor(.black)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.large)
-                    .tint(neon)
-                }
-                if let restEndsAt = state.restEndsAt {
-                    ProgressView(timerInterval: Date.now...restEndsAt, countsDown: true)
-                        .progressViewStyle(.linear)
-                        .tint(neon)
-                }
-                // Chips compactos (controlSize .mini, mesma família de
-                // tamanho reduzido usada nos glifos −/+ dos steppers) — a
-                // ação de ±30s continua existindo e chamando os MESMOS
-                // intents, só o espaço vertical que ela ocupa encolhe.
-                HStack(spacing: 6) {
-                    Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
-                        Text("-30s")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                    }
-                    Button(intent: AdjustRestIntent(deltaSeconds: 30)) {
-                        Text("+30s")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.mini)
-                .tint(neon)
+        // Redesenho "Identidade Forte": o bloco neon preenchido
+        // (lockScreenRestNeonBlock) é o herói — rótulo "DESCANSO" +
+        // timer 76pt condensado, ambos em preto sobre o fundo neon. Os
+        // botões ±30s (mesmos AdjustRestIntent de sempre) ficam ao lado do
+        // bloco; "PULAR DESCANSO" (mesmo SkipRestIntent) vira uma faixa de
+        // largura total abaixo — nenhuma ação sai do card, só reorganiza.
+        VStack(alignment: .leading, spacing: 6) {
+            lockScreenHeaderLine(state, neon: neon)
+            HStack(alignment: .top, spacing: 10) {
+                lockScreenRestNeonBlock(state, neon: neon)
+                lockScreenRestAdjustButtons()
             }
+            lockScreenSkipRestButton()
         }
     case .measuring:
-        // Decisão aprovada (card mais alto, agosto/2026): prescriptionText()
-        // sai desta fase — a meta prescrita já está embutida nos steppers
-        // (valor corrente editável, opacidade reduzida quando herdado), então
-        // repeti-la como texto separado era redundante. O espaço liberado vai
-        // para a área de toque dos glifos −/+ (28×28 → 44×44, perto do
-        // mínimo de 44pt da HIG) e para o valor numérico, que cresce.
+        // Redesenho "Identidade Forte": os grupos de stepper (reps/carga)
+        // trocam o preenchimento translúcido pelo contorno
+        // (lockScreenStepperGroup) e separam o número do rótulo — "40 kg"
+        // em uma única Text vira "40" + "KG" em duas, cada uma com sua
+        // própria tipografia. prescriptionText() continua fora desta fase
+        // (decisão da rodada "card mais alto" preservada: a meta prescrita
+        // já está embutida no valor editável do stepper).
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
             VStack(alignment: .leading, spacing: 7) {
-                lockScreenHeaderLine(state)
+                lockScreenHeaderLine(state, neon: neon)
                 // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
                 // omitida para bodyweight, nunca as reps. Os dois grupos ficam
                 // lado a lado na mesma linha (design aprovado).
@@ -370,15 +457,20 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                     .fontWeight(.bold)
                                     .frame(width: 44, height: 44)
                             }
-                            Text(state.currentReps.map(String.init) ?? "—")
-                                .font(.system(size: 30, design: .rounded))
-                                .fontWeight(.bold)
-                                .monospacedDigit()
-                                .foregroundColor(.white)
-                                .opacity(state.isRepsInherited ? 0.6 : 1.0)
-                                .contentTransition(.numericText())
-                                .minimumScaleFactor(0.8)
-                                .lineLimit(1)
+                            VStack(spacing: 0) {
+                                Text(state.currentReps.map(String.init) ?? "—")
+                                    .font(.system(size: 38, weight: .heavy).width(.condensed))
+                                    .monospacedDigit()
+                                    .foregroundColor(.white)
+                                    .opacity(state.isRepsInherited ? 0.6 : 1.0)
+                                    .contentTransition(.numericText())
+                                    .minimumScaleFactor(0.7)
+                                    .lineLimit(1)
+                                Text("REPS")
+                                    .font(.system(size: 11, weight: .semibold).width(.condensed))
+                                    .tracking(2)
+                                    .foregroundColor(activitySecondary)
+                            }
                             Button(intent: AdjustRepsIntent(deltaReps: 1)) {
                                 Text("+")
                                     .font(.title3)
@@ -397,15 +489,20 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                         .fontWeight(.bold)
                                         .frame(width: 44, height: 44)
                                 }
-                                Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
-                                    .font(.system(size: 30, design: .rounded))
-                                    .fontWeight(.bold)
-                                    .monospacedDigit()
-                                    .foregroundColor(.white)
-                                    .opacity(state.isLoadInherited ? 0.6 : 1.0)
-                                    .contentTransition(.numericText())
-                                    .minimumScaleFactor(0.8)
-                                    .lineLimit(1)
+                                VStack(spacing: 0) {
+                                    Text(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—")
+                                        .font(.system(size: 38, weight: .heavy).width(.condensed))
+                                        .monospacedDigit()
+                                        .foregroundColor(.white)
+                                        .opacity(state.isLoadInherited ? 0.6 : 1.0)
+                                        .contentTransition(.numericText())
+                                        .minimumScaleFactor(0.7)
+                                        .lineLimit(1)
+                                    Text("KG")
+                                        .font(.system(size: 11, weight: .semibold).width(.condensed))
+                                        .tracking(2)
+                                        .foregroundColor(activitySecondary)
+                                }
                                 Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
                                     Text("+")
                                         .font(.title3)
@@ -421,36 +518,28 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                 // nextUpLine() saem desta fase — a ação principal é concluir a
                 // série, sem distrações.
                 Button(intent: CompleteSetIntent()) {
-                    Text("Concluir série")
-                        .fontWeight(.bold)
+                    Text("CONCLUIR SÉRIE")
+                        .font(.system(size: 19, weight: .heavy).width(.condensed))
+                        .tracking(1.8)
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 14))
                 .controlSize(.large)
                 .tint(neon)
             }
         }
     case .readyOvertime:
-        HStack(alignment: .top, spacing: 10) {
-            lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 7) {
-                lockScreenHeaderLine(state)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("PRONTO")
-                        .font(.system(size: 56, weight: .heavy, design: .rounded))
-                        .foregroundColor(neon)
-                        .shadow(color: neon.opacity(0.5), radius: 8)
-                        .lineLimit(1)
-                    Text(overtimeText(state, now: now))
-                        .font(.system(.title3, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(activitySecondary)
-                        .lineLimit(1)
-                }
-                nextUpLine(state)
-            }
+        // Redesenho "Identidade Forte": mesmo bloco neon preenchido do
+        // herói de descanso, agora com "PRONTO" (preto) + tempo extra
+        // (preto 62% opacidade) alinhados pela base. nextUpLine() continua
+        // só nesta fase (D-15: mudar de exercício é a única transição que
+        // altera o que o dono faz fisicamente).
+        VStack(alignment: .leading, spacing: 6) {
+            lockScreenHeaderLine(state, neon: neon)
+            lockScreenReadyNeonBlock(state, now: now, neon: neon)
+            nextUpLine(state)
         }
     case .blockOnly:
         HStack(alignment: .top, spacing: 10) {
@@ -581,9 +670,11 @@ struct WidgetLiveActivity: Widget {
 // altera nenhum comportamento do card em produção.
 #if DEBUG
 
-/// Descanso, nome curto, acento amarelo (cor padrão) — cobre o herói do
-/// timer (68pt) e o botão "Pular" com o timer ainda correndo. "A SEGUIR" não
-/// aparece nesta fase (decisão aprovada, card mais alto agosto/2026).
+/// Descanso, nome curto, acento amarelo (cor padrão) — cobre o bloco neon
+/// preenchido (rótulo "DESCANSO" + timer 76pt condensado, ambos em preto),
+/// os chips ±30s ao lado e o botão "PULAR DESCANSO" de largura total.
+/// "A SEGUIR" não aparece nesta fase (decisão aprovada, card mais alto
+/// agosto/2026, preservada no redesenho "Identidade Forte").
 #Preview("Descanso — amarelo", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-resting")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -610,10 +701,12 @@ struct WidgetLiveActivity: Widget {
 }
 
 /// Série em andamento, nome LONGO (para checar truncamento do cabeçalho
-/// "exercício · Série X/Y") e acento azul — cobre os dois grupos de
-/// stepper (reps herdadas, carga não herdada) lado a lado, agora com glifos
-/// −/+ de 44×44pt e valor numérico maior. prescriptionText não aparece
-/// nesta fase (decisão aprovada, card mais alto agosto/2026).
+/// condensado em caixa alta) e acento azul — cobre os dois grupos de
+/// stepper AGORA CONTORNADOS (reps herdadas a 60% de opacidade, carga não
+/// herdada), glifos −/+ de 44×44pt, valor 38pt condensado separado do
+/// rótulo REPS/KG, e o botão "CONCLUIR SÉRIE" preenchido a neon com texto
+/// preto. prescriptionText não aparece nesta fase (decisão aprovada, card
+/// mais alto agosto/2026, preservada no redesenho "Identidade Forte").
 #Preview("Série — nome longo, azul", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-measuring")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -636,8 +729,9 @@ struct WidgetLiveActivity: Widget {
 }
 
 /// Pronto/tempo extra, nome curto, peso corporal, acento verde — cobre o
-/// herói "PRONTO" (56pt) junto do contador de overtime (restEndsAt no
-/// passado) e a linha "A SEGUIR" com o próximo exercício.
+/// bloco neon preenchido com "PRONTO" (64pt condensado preto) junto do
+/// contador de overtime (preto 62% opacidade, restEndsAt no passado) e a
+/// linha "A SEGUIR" com o próximo exercício.
 #Preview("Pronto — verde, tempo extra", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-ready-overtime")) {
     WidgetLiveActivity()
 } contentStates: {
