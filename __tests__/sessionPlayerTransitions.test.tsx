@@ -318,6 +318,53 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
     await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
   });
 
+  it('descanso a 5s ou menos (ainda contando, ex.: 3s): CTA "Começar próxima série" aparece; "Pular descanso" some', async () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [serieAtiva('st-1', 1), serie('st-2', 2)]),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByText('Concluir série'));
+    await waitFor(() => expect(screen.getByText('DESCANSO')).toBeTruthy());
+
+    // restSeconds=90; avança para restar 3s — ainda contando (não é tempo
+    // extra), mas dentro da janela de antecipação de 5s (regra do dono: é o
+    // tempo de o aluno apertar o botão e se posicionar).
+    await act(async () => {
+      jest.advanceTimersByTime(87000);
+    });
+
+    expect(screen.getByLabelText('Começar próxima série')).toBeTruthy();
+    expect(screen.queryByLabelText('Pular descanso')).toBeNull();
+
+    fireEvent.press(screen.getByLabelText('Começar próxima série'));
+    await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
+  });
+
+  it('+30s no descanso dentro da janela de 5s: restante volta a >5s e "Pular descanso" reaparece', async () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [serieAtiva('st-1', 1), serie('st-2', 2)]),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByText('Concluir série'));
+    await waitFor(() => expect(screen.getByText('DESCANSO')).toBeTruthy());
+
+    // Restam 3s — CTA ativo.
+    await act(async () => {
+      jest.advanceTimersByTime(87000);
+    });
+    expect(screen.getByLabelText('Começar próxima série')).toBeTruthy();
+
+    // Dono decide esticar o descanso: +30s. 3s + 30s = 33s, volta a >5s —
+    // a troca não é um trinco (latch): deriva de restRemainingDisplay a
+    // cada render, então "Pular descanso" volta.
+    fireEvent.press(screen.getByLabelText('Aumentar descanso em 30 segundos'));
+
+    expect(screen.getByLabelText('Pular descanso')).toBeTruthy();
+    expect(screen.queryByLabelText('Começar próxima série')).toBeNull();
+  });
+
   it('Pular descanso → próximo card IMEDIATAMENTE (sem esperar timer)', async () => {
     const draft = draftCom([
       exercicio('ex-1', 'Supino', [serieAtiva('st-1', 1), serie('st-2', 2)]),

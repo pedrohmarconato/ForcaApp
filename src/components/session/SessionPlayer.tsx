@@ -61,6 +61,11 @@ const RING_R = 80;
 const RING_C = 2 * Math.PI * RING_R;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
+// Janela de antecipação do CTA "Começar próxima série": tempo de o aluno
+// apertar o botão e se posicionar antes da série seguinte (regra do dono,
+// Fase 18). Conta a partir daqui, não só no tempo extra.
+const CTA_ANTECIPACAO_S = 5;
+
 const parseIntOrNull = (t: string): number | null => {
   const only = t.replace(/[^0-9]/g, '');
   if (only === '') return null;
@@ -184,11 +189,17 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     ? Math.round((restEndsAtMs - Date.now()) / 1000)
     : 0;
   const emDescanso = Number.isFinite(restEndsAtMs) && !active;
-  // Tempo extra: a contagem já venceu (restRemainingDisplay negativo — o
-  // mesmo sinal que já acende o prefixo "+" no relógio, linhas 457-459). A
-  // partir daqui a ação de avançar vira o CTA primário, porque "Pular
-  // descanso" não é lido como "seguir para a próxima série" (relato real).
-  const emTempoExtra = emDescanso && restRemainingDisplay < 0;
+  // CTA "Começar próxima série": ativa assim que restam CTA_ANTECIPACAO_S
+  // segundos (ainda contando) e continua ativo durante o tempo extra
+  // (contagem já vencida, restRemainingDisplay negativo — o mesmo sinal que
+  // já acende o prefixo "+" no relógio, linhas 457-459). "Pular descanso"
+  // não é lido como "seguir para a próxima série" (relato real), por isso o
+  // CTA assume mais cedo, não só depois de vencer. Deriva de
+  // restRemainingDisplay a cada render — não é um trinco: se o aluno somar
+  // +30s e o restante voltar a passar de CTA_ANTECIPACAO_S, "Pular
+  // descanso" reaparece.
+  const mostraCtaProximaSerie =
+    emDescanso && restRemainingDisplay <= CTA_ANTECIPACAO_S;
   const proximaDoDescanso = rest?.next ?? next;
   const descanso = rest ?? {
     next: proximaDoDescanso,
@@ -514,8 +525,8 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           )
         ) : null}
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
-        {emTempoExtra ? (
-          // Tempo extra: mesmo botão que "Iniciar série"/"Concluir série"
+        {mostraCtaProximaSerie ? (
+          // Mesmo botão que "Iniciar série"/"Concluir série"
           // (styles.completeBtn) — CTA primário e destacado, mesma ação
           // (endRest(true)) do "Pular descanso" de antes.
           <TouchableOpacity
@@ -1340,8 +1351,22 @@ const createStyles = (theme: Theme) =>
     completeBtn: {
       alignItems: 'center',
       justifyContent: 'center',
+      // cardRest troca alignItems para 'center' (linha ~1055) para centrar o
+      // anel/relógio — mas isso também encolhe QUALQUER filho sem largura
+      // própria para o tamanho do conteúdo (shrink-to-fit), em vez de ocupar
+      // a largura do card. completeBtn não tinha paddingHorizontal nem
+      // alignSelf próprio: o botão colava a borda no texto, sem folga. Para
+      // "Concluir série"/"Iniciar série" (rótulos curtos, sempre dentro de
+      // um card comum, sem cardRest) isso passava despercebido; para
+      // "Começar próxima série" — o rótulo mais longo já usado com este
+      // estilo, e o único caso que vive dentro do cardRest — o texto
+      // estourava a pílula. alignSelf: 'stretch' devolve ao botão a largura
+      // do card (como já era, por padrão, nos outros usos fora do
+      // cardRest) e paddingHorizontal dá a folga que faltava.
+      alignSelf: 'stretch',
       minHeight: theme.hitTarget.regular,
       marginTop: theme.spacing.lg,
+      paddingHorizontal: theme.spacing.xl,
       borderRadius: theme.borderRadius.lg,
       backgroundColor: theme.colors.accent.main,
     },
@@ -1351,6 +1376,7 @@ const createStyles = (theme: Theme) =>
       fontFamily: theme.fonts.ui,
       fontSize: theme.typography.fontSizes.md,
       fontWeight: theme.typography.fontWeights.semiBold,
+      textAlign: 'center',
     },
   });
 
