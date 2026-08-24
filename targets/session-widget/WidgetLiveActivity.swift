@@ -128,8 +128,10 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
 /// Screen redesenhado (lockScreenRestHero). Existe para que a chamada de
 /// timer countsDown continue aparecendo exatamente 2 vezes no arquivo
 /// (aqui + compactValue), mesmo com o Lock Screen ganhando uma apresentação
-/// (44pt, rounded, glow) diferente da Dynamic Island (.title2 inalterado) —
-/// só os modificadores mudam por chamador, a chamada em si nunca duplica.
+/// (52pt, rounded, glow — crescido de 44pt para preencher o orçamento
+/// vertical do card, Fase de redesenho "card maior" agosto/2026) diferente
+/// da Dynamic Island (.title2 inalterado) — só os modificadores mudam por
+/// chamador, a chamada em si nunca duplica.
 private func restCountdownText(restEndsAt: Date) -> Text {
     Text(timerInterval: Date.now...restEndsAt, countsDown: true)
 }
@@ -212,21 +214,27 @@ private func lockScreenAccentBar(_ neon: Color) -> some View {
 /// os dois na mesma linha, como já acontecia em .resting.
 private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentState) -> some View {
     Text("\(state.exerciseName) · \(seriesText(state))")
-        .font(.caption)
-        .fontWeight(.regular)
+        .font(.subheadline)
+        .fontWeight(.medium)
         .foregroundColor(activitySecondary)
         .lineLimit(1)
+        .minimumScaleFactor(0.7)
         .truncationMode(.tail)
 }
 
 /// Herói do timer de descanso: mesmo Text(timerInterval:) de sempre
-/// (restCountdownText), com a apresentação nova — 44pt, .rounded, glow —
-/// que não poderia entrar em primaryValue() sem também mudar a Dynamic Island.
+/// (restCountdownText), com a apresentação nova — 52pt, .rounded, glow —
+/// que não poderia entrar em primaryValue() sem também mudar a Dynamic
+/// Island. Crescido de 44pt (redesenho "card maior", agosto/2026): é o
+/// elemento lido de mais longe do card, então recebe a maior fatia do
+/// orçamento vertical ganho. minimumScaleFactor(0.6) preservado como rede
+/// de segurança para Dynamic Type grande — nunca deveria disparar em uso
+/// normal, já que o conteúdo é sempre "MM:SS" monoespaçado.
 @ViewBuilder
 private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
     if let restEndsAt = state.restEndsAt {
         restCountdownText(restEndsAt: restEndsAt)
-            .font(.system(size: 44, weight: .heavy, design: .rounded))
+            .font(.system(size: 52, weight: .heavy, design: .rounded))
             .monospacedDigit()
             .foregroundColor(neon)
             .contentTransition(.numericText())
@@ -234,7 +242,7 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState,
             .lineLimit(1)
     } else {
         Text("—")
-            .font(.system(size: 44, weight: .heavy, design: .rounded))
+            .font(.system(size: 52, weight: .heavy, design: .rounded))
             .foregroundColor(.white)
             .lineLimit(1)
     }
@@ -256,8 +264,8 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState,
 /// contrato que proíbe essas strings no arquivo.)
 private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     content()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color.white.opacity(0.08))
@@ -283,7 +291,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     case .resting:
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 lockScreenHeaderLine(state)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     lockScreenRestHero(state, neon: neon)
@@ -295,6 +303,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
+                    .controlSize(.large)
                     .tint(neon)
                 }
                 if let restEndsAt = state.restEndsAt {
@@ -320,13 +329,14 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     case .measuring:
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 lockScreenHeaderLine(state)
                 Text(prescriptionText(state))
-                    .font(.caption)
+                    .font(.footnote)
                     .fontWeight(.regular)
                     .foregroundColor(activitySecondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 // Reps sempre existem, inclusive bodyweight (D-09) — só a carga é
                 // omitida para bodyweight, nunca as reps. Os dois grupos ficam
                 // lado a lado na mesma linha (design aprovado).
@@ -335,9 +345,12 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                         HStack(spacing: 6) {
                             Button(intent: AdjustRepsIntent(deltaReps: -1)) {
                                 Text("−")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .frame(width: 28, height: 28)
                             }
                             Text(state.currentReps.map(String.init) ?? "—")
-                                .font(.system(.title3, design: .rounded))
+                                .font(.system(.title2, design: .rounded))
                                 .fontWeight(.bold)
                                 .monospacedDigit()
                                 .foregroundColor(.white)
@@ -347,6 +360,9 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                 .lineLimit(1)
                             Button(intent: AdjustRepsIntent(deltaReps: 1)) {
                                 Text("+")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .frame(width: 28, height: 28)
                             }
                         }
                     }
@@ -356,9 +372,12 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                             HStack(spacing: 6) {
                                 Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
                                     Text("−")
+                                        .font(.title3)
+                                        .fontWeight(.bold)
+                                        .frame(width: 28, height: 28)
                                 }
                                 Text("\(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—") kg")
-                                    .font(.system(.title3, design: .rounded))
+                                    .font(.system(.title2, design: .rounded))
                                     .fontWeight(.bold)
                                     .monospacedDigit()
                                     .foregroundColor(.white)
@@ -368,6 +387,9 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                                     .lineLimit(1)
                                 Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
                                     Text("+")
+                                        .font(.title3)
+                                        .fontWeight(.bold)
+                                        .frame(width: 28, height: 28)
                                 }
                             }
                         }
@@ -385,19 +407,20 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                .controlSize(.large)
                 .tint(neon)
             }
         }
     case .readyOvertime:
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 lockScreenHeaderLine(state)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("PRONTO")
-                        .font(.system(size: 34, weight: .heavy, design: .rounded))
+                        .font(.system(size: 44, weight: .heavy, design: .rounded))
                         .foregroundColor(neon)
-                        .shadow(color: neon.opacity(0.5), radius: 6)
+                        .shadow(color: neon.opacity(0.5), radius: 8)
                         .lineLimit(1)
                     Text(overtimeText(state, now: now))
                         .font(.system(.title3, design: .rounded))

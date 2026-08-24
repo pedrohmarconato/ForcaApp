@@ -290,3 +290,79 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(casoMeasuring![1]).not.toContain('nextUpLine(state)');
   });
 });
+
+// Card maior no Lock Screen (agosto/2026): o dono pediu que o card pare de
+// "parecer pequeno" no iPhone 13 sem estourar o teto do sistema (~160pt de
+// altura útil na apresentação de Lock Screen). Os blocos abaixo travam o
+// ganho de tamanho dos dois heróis (timer de descanso e "PRONTO") com
+// asserções >=, não ===, para que uma correção futura possa crescer ainda
+// mais sem quebrar o teste — só não pode REGREDIR para o tamanho antigo
+// (44pt/34pt) nem reintroduzir glassEffect (proibição já coberta acima,
+// nunca revogada por este bloco).
+describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos heróis', () => {
+  it('herói do timer de descanso (lockScreenRestHero) cresce para >= 52pt em ambos os ramos (com/sem restEndsAt)', () => {
+    const bloco = widgetSwift.match(
+      /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(bloco).not.toBeNull();
+    const tamanhos = Array.from(bloco![1].matchAll(/\.font\(\.system\(size: (\d+), weight: \.heavy, design: \.rounded\)\)/g)).map(
+      (m) => Number(m[1]),
+    );
+    // Um tamanho por ramo (restEndsAt presente / "—" de fallback) — se a
+    // contagem cair, o fallback perdeu a apresentação heroica.
+    expect(tamanhos.length).toBe(2);
+    for (const tamanho of tamanhos) {
+      expect(tamanho).toBeGreaterThanOrEqual(52);
+    }
+  });
+
+  it('herói "PRONTO" (fase .readyOvertime) cresce para >= 44pt', () => {
+    const bloco = widgetSwift.match(/Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: (\d+), weight: \.heavy, design: \.rounded\)\)/);
+    expect(bloco).not.toBeNull();
+    expect(Number(bloco![1])).toBeGreaterThanOrEqual(44);
+  });
+
+  it('cabeçalho comum sai de .caption para .subheadline com minimumScaleFactor (nome de exercício longo não trunca sem chance de encolher)', () => {
+    const bloco = widgetSwift.match(
+      /private func lockScreenHeaderLine\(_ state: SessionActivityAttributes\.ContentState\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(bloco).not.toBeNull();
+    expect(bloco![1]).toContain('.font(.subheadline)');
+    expect(bloco![1]).toMatch(/\.minimumScaleFactor\(0\.\d+\)/);
+    expect(bloco![1]).not.toContain('.font(.caption)');
+  });
+
+  it('grupos de stepper (.measuring) crescem a área de toque: padding maior e glifos +/- com frame explícito', () => {
+    const bloco = widgetSwift.match(
+      /private func lockScreenStepperGroup<Content: View>\(@ViewBuilder content: \(\) -> Content\) -> some View \{([\s\S]*?)\n\}/,
+    );
+    expect(bloco).not.toBeNull();
+    expect(bloco![1]).toContain('.padding(.horizontal, 12)');
+    expect(bloco![1]).toContain('.padding(.vertical, 8)');
+
+    // Os quatro glifos −/+ (reps e carga) ganham frame explícito >= 28pt —
+    // antes eram Text() sem nenhum modificador de tamanho/tap-target.
+    const framesDosGlifos = widgetSwift.match(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g) ?? [];
+    expect(framesDosGlifos.length).toBe(4);
+  });
+
+  it('botões primários (Pular, Concluir série) e valores de stepper crescem — .controlSize(.large) e fonte .title2', () => {
+    const usosControlSizeLarge = widgetSwift.match(/\.controlSize\(\.large\)/g) ?? [];
+    expect(usosControlSizeLarge.length).toBe(2);
+
+    // Os DOIS valores de stepper (reps e carga) saem de .title3 para
+    // .title2 rounded — crescem porque são "lidos de longe" (D-instrução:
+    // priorizar números sobre texto secundário). overtimeText (readyOvertime)
+    // segue .title3 rounded de propósito — é texto secundário ao lado do
+    // herói "PRONTO" e não deveria crescer junto, então continua existindo
+    // exatamente 1 uso de .title3 rounded no arquivo.
+    const usosTitle2Rounded = widgetSwift.match(/\.font\(\.system\(\.title2, design: \.rounded\)\)/g) ?? [];
+    expect(usosTitle2Rounded.length).toBe(2);
+    const usosTitle3Rounded = widgetSwift.match(/\.font\(\.system\(\.title3, design: \.rounded\)\)/g) ?? [];
+    expect(usosTitle3Rounded.length).toBe(1);
+  });
+
+  it('proíbe .glassEffect mesmo depois do redesenho maior — a trava de campo original (subárvore descartada em runtime) continua valendo', () => {
+    expect(widgetSwift).not.toContain('glassEffect');
+  });
+});
