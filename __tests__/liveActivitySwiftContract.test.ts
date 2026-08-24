@@ -366,3 +366,32 @@ describe('redesenho "card maior" (agosto/2026) crava o ganho de tamanho dos her�
     expect(widgetSwift).not.toContain('glassEffect');
   });
 });
+
+// Previews de Live Activity para o canvas do Xcode (loop de iteração sem
+// resign de dispositivo). O bloco inteiro precisa ficar isolado do binário
+// de Release: SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG só existe na
+// configuração Debug do target session-widget (project.pbxproj) — por isso
+// o teste trava que os #Preview vivem dentro de um único `#if DEBUG` /
+// `#endif` e não fora dele, em vez de só checar presença da string em
+// qualquer lugar do arquivo.
+describe('previews de Live Activity (canvas do Xcode)', () => {
+  it('ficam inteiramente dentro de um guard #if DEBUG / #endif — nunca no binário de Release', () => {
+    const blocoDebug = widgetSwift.match(/#if DEBUG\n([\s\S]*?)\n#endif/);
+    expect(blocoDebug).not.toBeNull();
+    const corpo = blocoDebug![1];
+
+    // Nenhum #Preview sobra fora do bloco DEBUG.
+    const totalPreviews = (widgetSwift.match(/#Preview\(/g) ?? []).length;
+    const previewsNoBloco = (corpo.match(/#Preview\(/g) ?? []).length;
+    expect(totalPreviews).toBeGreaterThanOrEqual(3);
+    expect(previewsNoBloco).toBe(totalPreviews);
+  });
+
+  it('cobre as três fases do Lock Screen (.content) via a API nativa de preview de Live Activity', () => {
+    const chamadas = widgetSwift.match(/#Preview\("[^"]+", as: \.content, using: SessionActivityAttributes\([^)]*\)\)/g) ?? [];
+    expect(chamadas.length).toBeGreaterThanOrEqual(3);
+    expect(widgetSwift).toMatch(/phase: \.resting,[\s\S]*?neonColor: "yellow"/);
+    expect(widgetSwift).toMatch(/phase: \.measuring,[\s\S]*?neonColor: "blue"/);
+    expect(widgetSwift).toMatch(/phase: \.readyOvertime,[\s\S]*?neonColor: "green"/);
+  });
+});

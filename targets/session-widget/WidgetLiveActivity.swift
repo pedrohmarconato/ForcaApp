@@ -541,3 +541,97 @@ struct WidgetLiveActivity: Widget {
         }
     }
 }
+
+// MARK: - Previews (canvas do Xcode — loop de iteração sem resign de dispositivo)
+//
+// API nativa de preview de Live Activity do WidgetKit — a macro de preview
+// com os rótulos as:/using:/widget:/contentStates:, confirmada no
+// WidgetKit.swiftinterface do SDK instalado — iOS 26.5, disponível a partir
+// de iOS 17.0, que é o deploymentTarget do target session-widget. Cobre a
+// apresentação de Lock Screen (`.content`) nas três fases visíveis ao dono —
+// `.resting`, `.measuring`, `.readyOvertime` — cada uma num preview nomeado
+// à parte, para trocar entre elas pelo seletor do canvas em vez de esperar
+// ~9 min de resign no device físico.
+//
+// Guardado inteiro sob `#if DEBUG`: no project.pbxproj, o target
+// session-widget define SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG só na
+// configuração Debug — a configuração Release não define a flag — então
+// este bloco nunca entra no binário de Release/App Store Connect, e não
+// altera nenhum comportamento do card em produção.
+#if DEBUG
+
+/// Descanso, nome curto, acento amarelo (cor padrão) — cobre o herói do
+/// timer (52pt) e o botão "Pular" com o timer ainda correndo.
+#Preview("Descanso — amarelo", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-resting")) {
+    WidgetLiveActivity()
+} contentStates: {
+    SessionActivityAttributes.ContentState(
+        phase: .resting,
+        exerciseName: "Supino reto",
+        setIndex: 2,
+        setTotal: 4,
+        targetRepsMin: 8,
+        targetRepsMax: 10,
+        targetLoadKg: 40,
+        isLoadInherited: false,
+        isRepsInherited: false,
+        isBodyweight: false,
+        restEndsAt: Date().addingTimeInterval(75),
+        nextExerciseName: "Rosca direta",
+        nextSetIndex: 1,
+        nextSetTotal: 3,
+        nextSuggestedReps: 12,
+        nextSuggestedLoadKg: 15,
+        nextIsBodyweight: false,
+        neonColor: "yellow"
+    )
+}
+
+/// Série em andamento, nome LONGO (para checar truncamento do cabeçalho
+/// "exercício · Série X/Y") e acento azul — cobre os dois grupos de
+/// stepper (reps herdadas, carga não herdada) lado a lado.
+#Preview("Série — nome longo, azul", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-measuring")) {
+    WidgetLiveActivity()
+} contentStates: {
+    SessionActivityAttributes.ContentState(
+        phase: .measuring,
+        exerciseName: "Elevação lateral unilateral com halteres no banco inclinado",
+        setIndex: 3,
+        setTotal: 5,
+        targetRepsMin: 10,
+        targetRepsMax: 12,
+        targetLoadKg: 12,
+        currentLoadKg: 12.5,
+        isLoadInherited: false,
+        loadIncrementKg: 2.5,
+        currentReps: 11,
+        isRepsInherited: true,
+        isBodyweight: false,
+        neonColor: "blue"
+    )
+}
+
+/// Pronto/tempo extra, nome curto, peso corporal, acento verde — cobre o
+/// herói "PRONTO" (44pt) junto do contador de overtime (restEndsAt no
+/// passado) e a linha "A SEGUIR" com o próximo exercício.
+#Preview("Pronto — verde, tempo extra", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-ready-overtime")) {
+    WidgetLiveActivity()
+} contentStates: {
+    SessionActivityAttributes.ContentState(
+        phase: .readyOvertime,
+        exerciseName: "Agachamento",
+        setIndex: 4,
+        setTotal: 4,
+        isLoadInherited: false,
+        isRepsInherited: false,
+        isBodyweight: true,
+        restEndsAt: Date().addingTimeInterval(-42),
+        nextExerciseName: "Prancha",
+        nextSetIndex: 1,
+        nextSetTotal: 3,
+        nextIsBodyweight: true,
+        neonColor: "green"
+    )
+}
+
+#endif
