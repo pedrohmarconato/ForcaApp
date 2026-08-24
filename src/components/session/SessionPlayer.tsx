@@ -184,6 +184,11 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
     ? Math.round((restEndsAtMs - Date.now()) / 1000)
     : 0;
   const emDescanso = Number.isFinite(restEndsAtMs) && !active;
+  // Tempo extra: a contagem já venceu (restRemainingDisplay negativo — o
+  // mesmo sinal que já acende o prefixo "+" no relógio, linhas 457-459). A
+  // partir daqui a ação de avançar vira o CTA primário, porque "Pular
+  // descanso" não é lido como "seguir para a próxima série" (relato real).
+  const emTempoExtra = emDescanso && restRemainingDisplay < 0;
   const proximaDoDescanso = rest?.next ?? next;
   const descanso = rest ?? {
     next: proximaDoDescanso,
@@ -509,14 +514,28 @@ const SessionPlayer = ({ draft, suggestedLoadFor, suggestedRepsFor }: Props) => 
           )
         ) : null}
         {autoNote ? <Text style={styles.autoNote}>{autoNote}</Text> : null}
-        <TouchableOpacity
-          style={styles.secondaryBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Pular descanso"
-          onPress={() => endRest(true)}
-        >
-          <Text style={styles.secondaryBtnText}>Pular descanso</Text>
-        </TouchableOpacity>
+        {emTempoExtra ? (
+          // Tempo extra: mesmo botão que "Iniciar série"/"Concluir série"
+          // (styles.completeBtn) — CTA primário e destacado, mesma ação
+          // (endRest(true)) do "Pular descanso" de antes.
+          <TouchableOpacity
+            style={styles.completeBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Começar próxima série"
+            onPress={() => endRest(true)}
+          >
+            <Text style={styles.completeBtnText}>Começar próxima série</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Pular descanso"
+            onPress={() => endRest(true)}
+          >
+            <Text style={styles.secondaryBtnText}>Pular descanso</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

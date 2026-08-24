@@ -284,12 +284,38 @@ describe('transições gravação → descanso → próximo card (sem opacity 0)
       useActiveSessionStore.getState().draft?.exercises[0].sets[1].status,
     ).toBe('pending');
 
-    // Só a ação explícita do dono avança para a medição.
-    fireEvent.press(screen.getByLabelText('Pular descanso'));
+    // Tempo extra (contagem vencida): a ação primária vira "Começar próxima
+    // série" — rótulo que o aluno reconhece como avanço (relato real: ele não
+    // via "Pular descanso" como "seguir adiante"). "Pular descanso" some.
+    expect(screen.queryByLabelText('Pular descanso')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Começar próxima série'));
     await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
     expect(opacidadesDaArvore(screen.toJSON()).some((o) => o === 0)).toBe(
       false,
     );
+  });
+
+  it('descanso CONTANDO (antes de vencer): botão é "Pular descanso"; "Começar próxima série" não aparece', async () => {
+    const draft = draftCom([
+      exercicio('ex-1', 'Supino', [serieAtiva('st-1', 1), serie('st-2', 2)]),
+    ]);
+    const screen = renderComDraft(draft);
+
+    fireEvent.press(screen.getByText('Concluir série'));
+    await waitFor(() => expect(screen.getByText('DESCANSO')).toBeTruthy());
+
+    // Ainda dentro da contagem (restSeconds=90): a ação continua "Pular
+    // descanso" — o CTA destacado só aparece depois que a contagem vence.
+    await act(async () => {
+      jest.advanceTimersByTime(10000);
+    });
+
+    expect(screen.getByLabelText('Pular descanso')).toBeTruthy();
+    expect(screen.queryByLabelText('Começar próxima série')).toBeNull();
+
+    // Mesma ação de sempre: avança para a próxima série via endRest(true).
+    fireEvent.press(screen.getByLabelText('Pular descanso'));
+    await waitFor(() => expect(screen.getByText(/SÉRIE 2 DE 2/)).toBeTruthy());
   });
 
   it('Pular descanso → próximo card IMEDIATAMENTE (sem esperar timer)', async () => {
