@@ -11,6 +11,58 @@ private let activitySecondary = Color(red: 0.545, green: 0.565, blue: 0.596)
 /// botões do stepper de carga da Lock Screen.
 private let defaultLoadIncrementKg: Double = 2.5
 
+// MARK: - Orçamento de altura do Lock Screen (correção de 2026-08-24)
+//
+// PESQUISA: a especificação de Live Activities da Human Interface Guidelines
+// (developer.apple.com/design/human-interface-guidelines/components/system-experiences/live-activities)
+// documenta a apresentação expandida de Lock Screen com faixa de altura
+// 84–160pt (a mesma faixa aparece nas larguras de iPhone e iPad da tabela de
+// especificações); 160pt é o topo dessa faixa e é o número citado de forma
+// consistente pela comunidade técnica (Notificare, engenharia da Nature.com,
+// etc.) como o ponto em que o sistema PASSA A CORTAR (clip), não encolher, o
+// conteúdo que excede — nenhuma frase em prosa da HIG usa literalmente a
+// palavra "corta" ao lado do número, mas o comportamento é unânime entre as
+// fontes técnicas encontradas E bate com a evidência de campo: a foto do
+// dono (iPhone 13, iOS 26, sem Dynamic Island — a Dynamic Island não muda o
+// teto do Lock Screen, só a apresentação com tela desbloqueada) mede um
+// envelope visível de ~162pt, a ~2pt do valor pesquisado. Por isso este
+// arquivo usa 160pt como teto apurado e exige que a soma de cada estado
+// fique pelo menos 10% abaixo dele (<=144pt) — ver
+// __tests__/liveActivitySwiftContract.test.ts, describe "orçamento de altura
+// do Lock Screen", que soma estas constantes com a MESMA fórmula usada aqui
+// (altura de linha ≈ arredondar para cima de tamanho da fonte × 1.2) e falha
+// se algum estado passar do teto.
+//
+// Larguras: a HIG cita ~14pt de margem do próprio sistema em cada borda,
+// somados ao NOSSO `.padding()` (cardHorizontalPadding) — o resultado bate
+// com a estimativa empírica já registrada no código antes desta correção
+// ("~313pt úteis" para a coluna de conteúdo depois da barra de acento).
+//
+// Os botões −/+ do stepper (stepperGlyphSize) continuam em 44pt: é o piso de
+// alvo de toque de acessibilidade geral da HIG (não há uma exceção
+// documentada para Live Activity/WidgetKit) e é o MESMO piso que corrigiu o
+// bug de campo anterior (botões sem tamanho travado comprimindo o número a
+// zero) — não regride. Onde a conta abaixo aponta um botão abaixo de 44pt
+// (as duas faixas de ação de largura total), o comentário da função explica
+// o trade-off consciente.
+private let cardHorizontalPadding: CGFloat = 16
+private let cardVerticalPadding: CGFloat = 4
+private let bodySpacing: CGFloat = 3
+private let headerFontSize: CGFloat = 13
+private let heroLabelFontSize: CGFloat = 11
+private let heroBlockInnerSpacing: CGFloat = 2
+private let restHeroSize: CGFloat = 42
+private let readyHeroSize: CGFloat = 46
+private let neonBlockPaddingTop: CGFloat = 4
+private let neonBlockPaddingBottom: CGFloat = 4
+private let stepperGroupHorizontalPadding: CGFloat = 10
+private let stepperRowVerticalPadding: CGFloat = 8
+private let stepperGlyphSize: CGFloat = 44
+private let stepperValueFontSize: CGFloat = 28
+private let stepperLabelFontSize: CGFloat = 10
+private let actionButtonFontSize: CGFloat = 16
+private let actionButtonVerticalPadding: CGFloat = 7
+
 /// Acento neon derivado do ContentState (D-01/D-10). Switch fechado sobre as
 /// quatro chaves com os canais RGB exatos dos hexes aprovados; `default`
 /// cobre nil e string desconhecida — Activities legadas ou valores fora do
@@ -143,10 +195,8 @@ private func secondaryLine(_ state: SessionActivityAttributes.ContentState) -> s
 /// diferente da Dynamic Island (.title2 inalterado) — só os modificadores
 /// mudam por chamador, a chamada em si nunca duplica. Apresentação do Lock
 /// Screen: condensado preto sobre bloco neon preenchido (redesenho
-/// "Identidade Forte", agosto/2026) — sucede a fase anterior (68pt,
-/// .rounded, glow sobre fundo escuro) do mesmo redesenho "card maior".
-/// Tamanho atual em lockScreenRestHero (60pt, reduzido de 76pt na correção
-/// de orçamento de altura de 2026-08-24 — ver comentário lá).
+/// "Identidade Forte", agosto/2026) — tamanho controlado por restHeroSize
+/// (ver bloco de constantes de orçamento de altura no topo do arquivo).
 private func restCountdownText(restEndsAt: Date) -> Text {
     Text(timerInterval: Date.now...restEndsAt, countsDown: true)
 }
@@ -233,10 +283,12 @@ private func lockScreenAccentBar(_ neon: Color) -> some View {
 /// dono): sai do cinza `.subheadline` medium e vira neon condensado em
 /// caixa alta com tracking — mesma linguagem tipográfica dos heróis. `neon`
 /// é recebido do chamador (já resolvido uma única vez por `lockScreenBody`)
-/// em vez de recomputado aqui.
+/// em vez de recomputado aqui. Tamanho controlado por `headerFontSize`
+/// (orçamento de altura, 2026-08-24) — valor inalterado (13pt), só ganhou
+/// nome.
 private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
     Text("\(state.exerciseName) · \(seriesText(state))")
-        .font(.system(size: 13, weight: .semibold).width(.condensed))
+        .font(.system(size: headerFontSize, weight: .semibold).width(.condensed))
         .tracking(1.6)
         .textCase(.uppercase)
         .foregroundColor(neon)
@@ -259,18 +311,21 @@ private func lockScreenHeaderLine(_ state: SessionActivityAttributes.ContentStat
 /// Type grande — nunca deveria disparar em uso normal, já que o conteúdo é
 /// sempre "MM:SS" monoespaçado.
 ///
-/// BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26, correção do orçamento de
-/// altura): caiu de 76 para 60pt na mesma rodada em que .measuring passou a
-/// empilhar reps/carga em vez de lado a lado (ver comentário do case
-/// .measuring em lockScreenBody) — a fase .measuring ficou mais alta com o
-/// empilhamento, e .resting precisou ceder altura de volta para o card
-/// caber no teto do sistema. 60pt ainda é hero (bem acima do texto padrão),
-/// só não compete mais pelo mesmo espaço que .measuring passou a precisar.
+/// ORÇAMENTO DE ALTURA (2026-08-24, correção do corte de card no iPhone 13/
+/// iOS 26): tamanho controlado por `restHeroSize` — caiu de 76pt (rodada
+/// "card maior") para 60pt (correção anterior, 2026-08-22/24) e agora para
+/// 42pt nesta correção, porque a fase .measuring passou a caber tudo numa
+/// única fileira de steppers (ver `lockScreenStepperRow`) e sobrou pouco
+/// espaço para .resting/.readyOvertime dividirem — 42pt ainda é
+/// nitidamente herói (3,2× o corpo de texto de 13pt do cabeçalho) e segue a
+/// recomendação da HIG/WWDC23 ("Design dynamic Live Activities": "look for
+/// ways to reduce the height of your design"). Ver o bloco de constantes no
+/// topo do arquivo para a conta completa por estado.
 @ViewBuilder
 private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState) -> some View {
     if let restEndsAt = state.restEndsAt {
         restCountdownText(restEndsAt: restEndsAt)
-            .font(.system(size: 60, weight: .heavy).width(.condensed))
+            .font(.system(size: restHeroSize, weight: .heavy).width(.condensed))
             .monospacedDigit()
             .foregroundColor(.black)
             .contentTransition(.numericText())
@@ -278,7 +333,7 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState)
             .lineLimit(1)
     } else {
         Text("—")
-            .font(.system(size: 60, weight: .heavy).width(.condensed))
+            .font(.system(size: restHeroSize, weight: .heavy).width(.condensed))
             .foregroundColor(.black)
             .lineLimit(1)
     }
@@ -289,18 +344,21 @@ private func lockScreenRestHero(_ state: SessionActivityAttributes.ContentState)
 /// 62% de opacidade sobre o timer em preto sólido, dentro de um
 /// `RoundedRectangle` preenchido com `neon`. Substitui a barra de acento
 /// lateral (`lockScreenAccentBar`) desta fase — o bloco já é a identidade
-/// visual, uma barra adicional seria redundante.
+/// visual, uma barra adicional seria redundante. Padding vertical
+/// (neonBlockPaddingTop/Bottom) reduzido de 8/10 para 4/4 na correção de
+/// orçamento de altura de 2026-08-24 — a folga entre o texto e a borda do
+/// bloco ainda é perceptível, só não sobra.
 private func lockScreenRestNeonBlock(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: heroBlockInnerSpacing) {
         Text("DESCANSO")
-            .font(.system(size: 11, weight: .heavy).width(.condensed))
+            .font(.system(size: heroLabelFontSize, weight: .heavy).width(.condensed))
             .tracking(2.2)
             .foregroundColor(Color.black.opacity(0.62))
         lockScreenRestHero(state)
     }
-    .padding(.top, 8)
+    .padding(.top, neonBlockPaddingTop)
     .padding(.horizontal, 16)
-    .padding(.bottom, 10)
+    .padding(.bottom, neonBlockPaddingBottom)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
         RoundedRectangle(cornerRadius: 16)
@@ -309,10 +367,14 @@ private func lockScreenRestNeonBlock(_ state: SessionActivityAttributes.ContentS
 }
 
 /// Botões ±30s de descanso (AdjustRestIntent) — mesmos intents de sempre,
-/// agora ao lado do bloco neon em vez de embutidos na mesma linha do timer.
-/// `.bordered` + tint branco translúcido = "borda branca sutil" (D-especificação
-/// do redesenho "Identidade Forte"); o texto recebe `.foregroundColor(.white)`
-/// explícito para não herdar a cor do tint no rótulo do botão.
+/// ao lado do bloco neon. `.bordered` + tint branco translúcido = "borda
+/// branca sutil" (D-especificação do redesenho "Identidade Forte"); o texto
+/// recebe `.foregroundColor(.white)` explícito para não herdar a cor do
+/// tint no rótulo do botão. Não entra no orçamento de altura por constante
+/// própria: sua altura (dois botões `.controlSize(.small)` empilhados) fica
+/// sempre abaixo da altura do bloco neon ao lado (restBlock), então nunca é
+/// o termo que decide a altura da linha — ver comentário do bloco de
+/// constantes no topo do arquivo.
 private func lockScreenRestAdjustButtons() -> some View {
     VStack(spacing: 6) {
         Button(intent: AdjustRestIntent(deltaSeconds: -30)) {
@@ -336,15 +398,29 @@ private func lockScreenRestAdjustButtons() -> some View {
 /// translúcido explícito (em vez de `.borderedProminent`, para controlar o
 /// raio com precisão via `RoundedRectangle` direto) — texto branco
 /// condensado em caixa alta. `.buttonStyle(.plain)` remove o chrome padrão
-/// do sistema para que só o `.background` desenhado abaixo apareça.
+/// do sistema para que só o `.background` desenhado abaixo apareça — o
+/// MESMO motivo pelo qual a correção de 2026-08-24 migra "CONCLUIR SÉRIE"
+/// (ver `lockScreenCompleteSetButton`) para este estilo em vez de
+/// `.controlSize(.large)`: um botão desenhado à mão tem altura PROVÁVEL por
+/// aritmética (fonte + padding declarados), enquanto `.controlSize` delega
+/// a altura ao sistema, que não é somável no orçamento.
+///
+/// TRADE-OFF CONSCIENTE (orçamento de altura, 2026-08-24): com
+/// `actionButtonFontSize`=16 e `actionButtonVerticalPadding`=7, a altura
+/// total desta faixa é ~34pt — abaixo do piso geral de 44pt de alvo de
+/// toque da HIG. Decisão deliberada: é uma faixa de LARGURA TOTAL (não um
+/// glifo isolado), então a área de toque real (largura do card × 34pt)
+/// continua generosa; reduzir os glifos −/+ do stepper abaixo de 44pt
+/// (rejeitado — ver `stepperGlyphSize`) reabriria o bug de campo já
+/// corrigido, então a folga que faltava veio daqui.
 private func lockScreenSkipRestButton() -> some View {
     Button(intent: SkipRestIntent()) {
         Text("PULAR DESCANSO")
-            .font(.system(size: 18, weight: .heavy).width(.condensed))
+            .font(.system(size: actionButtonFontSize, weight: .heavy).width(.condensed))
             .tracking(1.8)
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, actionButtonVerticalPadding)
     }
     .buttonStyle(.plain)
     .background(
@@ -353,7 +429,30 @@ private func lockScreenSkipRestButton() -> some View {
     )
 }
 
-/// Contorno dos grupos de stepper (reps/carga) da fase .measuring.
+/// Botão "CONCLUIR SÉRIE" (CompleteSetIntent) — mesma receita de faixa de
+/// largura total do `lockScreenSkipRestButton`, agora preenchida a `neon`
+/// com texto preto (era a cor primária do card antes desta correção). Migra
+/// de `.buttonStyle(.borderedProminent)` + `.controlSize(.large)` (altura
+/// não somável, delegada ao sistema, estimada em ~50pt) para o mesmo
+/// desenho manual — ver o comentário do trade-off de altura em
+/// `lockScreenSkipRestButton`, que se aplica igualmente aqui.
+private func lockScreenCompleteSetButton(neon: Color) -> some View {
+    Button(intent: CompleteSetIntent()) {
+        Text("CONCLUIR SÉRIE")
+            .font(.system(size: actionButtonFontSize, weight: .heavy).width(.condensed))
+            .tracking(1.8)
+            .foregroundColor(.black)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, actionButtonVerticalPadding)
+    }
+    .buttonStyle(.plain)
+    .background(
+        RoundedRectangle(cornerRadius: 14)
+            .fill(neon)
+    )
+}
+
+/// Contorno do(s) grupo(s) de stepper da fase .measuring.
 /// BUG DE CAMPO (2026-08-22, iPhone 13 / iOS 26): o modificador de vidro
 /// líquido (Liquid Glass, novo no iOS 26), guardado atrás de um check de
 /// disponibilidade de versão, compilava mas derrubava a subárvore inteira
@@ -371,15 +470,129 @@ private func lockScreenSkipRestButton() -> some View {
 /// lugar a um CONTORNO — `.stroke` em vez de `.fill` — para diferenciar
 /// visualmente os steppers (editáveis, secundários) dos blocos neon
 /// preenchidos (heróis de .resting/.readyOvertime, identidade primária).
+/// Padding reduzido (stepperGroupHorizontalPadding=10, era 12;
+/// stepperRowVerticalPadding=8, inalterado) na correção de orçamento de
+/// altura de 2026-08-24 — folga de largura extra para caber reps E carga
+/// na mesma fileira (ver `lockScreenStepperRow`).
 private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     content()
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, stepperGroupHorizontalPadding)
+        .padding(.vertical, stepperRowVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.white.opacity(0.14))
         )
+}
+
+/// Um metro editável (reps OU carga) dentro da fileira única de steppers —
+/// ver `lockScreenStepperRow`. O valor e o rótulo de unidade ficam
+/// EMPILHADOS (valor grande em cima, unidade pequena embaixo) em vez de
+/// lado a lado: essa é a mudança que faz a fileira única caber na largura
+/// do card (a coluna de valor+rótulo só precisa ser tão larga quanto o
+/// MAIOR dos dois, não a SOMA dos dois) — ver a conta de largura no
+/// comentário de `lockScreenStepperRow`. `.layoutPriority(1)` garante que,
+/// sob pressão de largura, é o Spacer entre os dois metros que cede
+/// primeiro, nunca o valor numérico (D-01 do bug de campo original:
+/// "reps e carga precisam mostrar o número").
+private func lockScreenStepperMetric(
+    value: String,
+    unit: String,
+    isInherited: Bool
+) -> some View {
+    VStack(spacing: 0) {
+        Text(value)
+            .font(.system(size: stepperValueFontSize, weight: .heavy).width(.condensed))
+            .monospacedDigit()
+            .foregroundColor(.white)
+            .opacity(isInherited ? 0.6 : 1.0)
+            .contentTransition(.numericText())
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+        Text(unit)
+            .font(.system(size: stepperLabelFontSize, weight: .semibold).width(.condensed))
+            .tracking(1.4)
+            .foregroundColor(activitySecondary)
+            .lineLimit(1)
+    }
+    .layoutPriority(1)
+}
+
+/// Glifo −/+ do stepper (AdjustRepsIntent/AdjustLoadIntent). `.fixedSize()`
+/// trava o tamanho relatado do Button no do label (stepperGlyphSize ×
+/// stepperGlyphSize) — BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26): sem
+/// isso, o HStack tratava o Button como flexível e ele crescia além do seu
+/// conteúdo, comprimindo o valor numérico e o rótulo a largura zero (quatro
+/// elipses de neon no aparelho, nenhum número). `stepperGlyphSize` = 44pt —
+/// piso de acessibilidade geral da HIG, preservado sem regressão nesta
+/// correção de orçamento de altura (só os elementos NÃO interativos do
+/// card encolheram).
+private func lockScreenStepperGlyph(_ symbol: String) -> some View {
+    Text(symbol)
+        .font(.title3)
+        .fontWeight(.bold)
+        .frame(width: stepperGlyphSize, height: stepperGlyphSize)
+}
+
+/// Fileira ÚNICA de steppers da fase .measuring — reps e carga voltam a
+/// ficar na MESMA linha (correção de orçamento de altura, 2026-08-24, ver o
+/// bloco de constantes no topo do arquivo). Antes desta correção (2026-08-24
+/// mais cedo no mesmo dia), reps e carga ficavam EMPILHADOS porque a versão
+/// anterior de "lado a lado" — dois grupos contornados inteiros, cada um
+/// com valor e rótulo LADO A LADO — não cabia em ~313pt úteis. A diferença
+/// desta versão: (1) valor e rótulo de cada metro ficam EMPILHADOS
+/// (lockScreenStepperMetric), então a coluna de cada metro só precisa ser
+/// tão larga quanto o maior dos dois, não a soma; (2) os dois metros
+/// dividem UM contorno só (lockScreenStepperGroup), não dois, eliminando um
+/// padding horizontal inteiro. Conta de largura (iPhone 13, 390pt):
+/// 390 − 28 (margem de 14pt do sistema em cada borda, HIG) − 32
+/// (cardHorizontalPadding nosso, 16pt cada lado) − 3 (barra de acento) − 10
+/// (gap do HStack até a coluna) ≈ 317pt de coluna; menos ~20pt do padding
+/// horizontal do grupo (stepperGroupHorizontalPadding×2) ≈ 297pt para a
+/// fileira. Quatro botões fixos (stepperGlyphSize×4=176) deixam ~121pt para
+/// os dois metros + gaps — folga suficiente até para carga decimal de 3
+/// dígitos ("102.5") com o minimumScaleFactor(0.6) do valor absorvendo o
+/// pior caso. Ganho de ALTURA: duas fileiras empilhadas custavam ~120pt
+/// (2×60); uma fileira só custa ~62pt — a economia de ~58-68pt que fecha o
+/// orçamento de .measuring (ver conta completa no relatório da correção).
+private func lockScreenStepperRow(_ state: SessionActivityAttributes.ContentState, neon: Color) -> some View {
+    lockScreenStepperGroup {
+        HStack(spacing: 6) {
+            Button(intent: AdjustRepsIntent(deltaReps: -1)) {
+                lockScreenStepperGlyph("−")
+            }
+            .fixedSize()
+            lockScreenStepperMetric(
+                value: state.currentReps.map(String.init) ?? "—",
+                unit: "REPS",
+                isInherited: state.isRepsInherited
+            )
+            Button(intent: AdjustRepsIntent(deltaReps: 1)) {
+                lockScreenStepperGlyph("+")
+            }
+            .fixedSize()
+
+            if !state.isBodyweight {
+                Spacer(minLength: 4)
+                Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
+                    lockScreenStepperGlyph("−")
+                }
+                .fixedSize()
+                lockScreenStepperMetric(
+                    value: state.currentLoadKg.map { String(format: "%g", $0) } ?? "—",
+                    unit: "KG",
+                    isInherited: state.isLoadInherited
+                )
+                Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
+                    lockScreenStepperGlyph("+")
+                }
+                .fixedSize()
+            }
+
+            Spacer(minLength: 0)
+        }
+        .tint(neon)
+    }
 }
 
 /// Bloco neon preenchido do herói "PRONTO" — mesma peça visual do bloco de
@@ -387,10 +600,15 @@ private func lockScreenStepperGroup<Content: View>(@ViewBuilder content: () -> C
 /// (overtimeText, MESMA função usada pela Dynamic Island) alinhados pela
 /// base num HStack. Ambos em preto — "PRONTO" sólido, o tempo extra a 62%
 /// de opacidade para ficar secundário ao lado do herói.
+///
+/// ORÇAMENTO DE ALTURA (2026-08-24): tamanho de "PRONTO" controlado por
+/// `readyHeroSize` — caiu de 64pt para 46pt, e o padding vertical do bloco
+/// (neonBlockPaddingTop/Bottom, compartilhado com lockScreenRestNeonBlock)
+/// caiu de 8/10 para 4/4. Ver o bloco de constantes no topo do arquivo.
 private func lockScreenReadyNeonBlock(_ state: SessionActivityAttributes.ContentState, now: Date, neon: Color) -> some View {
     HStack(alignment: .bottom, spacing: 8) {
         Text("PRONTO")
-            .font(.system(size: 64, weight: .heavy).width(.condensed))
+            .font(.system(size: readyHeroSize, weight: .heavy).width(.condensed))
             .foregroundColor(.black)
             .lineLimit(1)
         Text(overtimeText(state, now: now))
@@ -399,9 +617,9 @@ private func lockScreenReadyNeonBlock(_ state: SessionActivityAttributes.Content
             .foregroundColor(Color.black.opacity(0.62))
             .lineLimit(1)
     }
-    .padding(.top, 8)
+    .padding(.top, neonBlockPaddingTop)
     .padding(.horizontal, 16)
-    .padding(.bottom, 10)
+    .padding(.bottom, neonBlockPaddingBottom)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
         RoundedRectangle(cornerRadius: 16)
@@ -424,6 +642,12 @@ private func lockScreenReadyNeonBlock(_ state: SessionActivityAttributes.Content
 /// resolvido uma única vez para a função inteira e reaproveitado nas
 /// quatro fases — mesma cor que o resolvedor de acento sempre devolveria
 /// para este state, só evita recomputar o switch fechado a cada uso.
+///
+/// ORÇAMENTO DE ALTURA (2026-08-24): o espaçamento vertical dos três
+/// VStack de fase (`.resting`/`.measuring`/`.readyOvertime`) foi unificado
+/// em `bodySpacing` (3pt, era 6pt em duas fases e 7pt na terceira) — ver o
+/// bloco de constantes no topo do arquivo para a conta completa por
+/// estado.
 @ViewBuilder
 private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now: Date) -> some View {
     let neon = neonAccent(for: state)
@@ -431,12 +655,12 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
     case .resting:
         // Redesenho "Identidade Forte": o bloco neon preenchido
         // (lockScreenRestNeonBlock) é o herói — rótulo "DESCANSO" +
-        // timer 60pt condensado (76pt até a correção de orçamento de altura
-        // de 2026-08-24), ambos em preto sobre o fundo neon. Os botões ±30s
-        // (mesmos AdjustRestIntent de sempre) ficam ao lado do bloco;
-        // "PULAR DESCANSO" (mesmo SkipRestIntent) vira uma faixa de largura
-        // total abaixo — nenhuma ação sai do card, só reorganiza.
-        VStack(alignment: .leading, spacing: 6) {
+        // timer condensado (restHeroSize), ambos em preto sobre o fundo
+        // neon. Os botões ±30s (mesmos AdjustRestIntent de sempre) ficam
+        // ao lado do bloco; "PULAR DESCANSO" (mesmo SkipRestIntent) vira
+        // uma faixa de largura total abaixo — nenhuma ação sai do card,
+        // só reorganiza.
+        VStack(alignment: .leading, spacing: bodySpacing) {
             lockScreenHeaderLine(state, neon: neon)
             HStack(alignment: .top, spacing: 10) {
                 lockScreenRestNeonBlock(state, neon: neon)
@@ -445,125 +669,28 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
             lockScreenSkipRestButton()
         }
     case .measuring:
-        // Redesenho "Identidade Forte": os grupos de stepper (reps/carga)
-        // trocam o preenchimento translúcido pelo contorno
-        // (lockScreenStepperGroup) e separam o número do rótulo — "40 kg"
-        // em uma única Text vira "40" + "KG" em duas, cada uma com sua
-        // própria tipografia. prescriptionText() continua fora desta fase
-        // (decisão da rodada "card mais alto" preservada: a meta prescrita
-        // já está embutida no valor editável do stepper).
-        //
-        // BUG DE CAMPO (2026-08-22, iPhone 13 / iOS 26 — foto do aparelho no
-        // estado .measuring): os Button de AdjustRepsIntent/AdjustLoadIntent
-        // não tinham frame próprio — só o LABEL (a Text "−"/"+") recebia
-        // `.frame(width: 44, height: 44)`. Sem nada travando o tamanho do
-        // Button em si, o HStack tratava os dois botões como flexíveis e
-        // eles cresciam para ocupar toda a largura do grupo, comprimindo o
-        // valor numérico e o rótulo REPS/KG a largura zero
-        // (minimumScaleFactor não segura compressão a zero, só reduz até um
-        // piso). No aparelho: quatro elipses de neon gigantes, nenhum
-        // número. Correção (2026-08-24): fixedSize no Button trava seu
-        // tamanho relatado no de seu label (44×44), então ele para de
-        // aceitar a proposta flexível do HStack; layoutPriority elevada no
-        // valor garante que, mesmo sob pressão, o botão cede espaço antes
-        // do número.
-        //
-        // Na mesma correção, reps e carga deixam de ficar lado a lado
-        // (pouco espaço sobrava por grupo em ~313pt úteis) e passam a
-        // ocupar uma linha inteira cada, empilhadas — decisão aprovada pelo
-        // dono ("o card fica mais alto", já pedido antes). Cada linha:
-        // botão esquerdo, valor com prioridade de layout, rótulo, Spacer,
-        // botão direito.
+        // Redesenho "Identidade Forte" + correção de orçamento de altura
+        // (2026-08-24): reps e carga voltam a dividir UMA fileira única
+        // (lockScreenStepperRow) em vez de duas empilhadas — ver o
+        // comentário completo (conta de largura e de altura) na própria
+        // função. prescriptionText() continua fora desta fase (decisão da
+        // rodada "card mais alto" preservada: a meta prescrita já está
+        // embutida no valor editável do stepper). "CONCLUIR SÉRIE" migra
+        // de `.controlSize(.large)` para a mesma faixa desenhada à mão do
+        // botão "PULAR DESCANSO" (lockScreenCompleteSetButton) — altura
+        // provável por aritmética em vez de delegada ao sistema.
         HStack(alignment: .top, spacing: 10) {
             lockScreenAccentBar(neon)
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: bodySpacing) {
                 lockScreenHeaderLine(state, neon: neon)
                 // Reps sempre existem, inclusive bodyweight (D-09) — só a
-                // carga é omitida para bodyweight, nunca as reps.
-                VStack(spacing: 8) {
-                    lockScreenStepperGroup {
-                        HStack(spacing: 8) {
-                            Button(intent: AdjustRepsIntent(deltaReps: -1)) {
-                                Text("−")
-                                    .font(.title3)
-                                    .fontWeight(.bold)
-                                    .frame(width: 44, height: 44)
-                            }
-                            .fixedSize()
-                            Text(state.currentReps.map(String.init) ?? "—")
-                                .font(.system(size: 34, weight: .heavy).width(.condensed))
-                                .monospacedDigit()
-                                .foregroundColor(.white)
-                                .opacity(state.isRepsInherited ? 0.6 : 1.0)
-                                .contentTransition(.numericText())
-                                .minimumScaleFactor(0.7)
-                                .lineLimit(1)
-                                .layoutPriority(1)
-                            Text("REPS")
-                                .font(.system(size: 11, weight: .semibold).width(.condensed))
-                                .tracking(2)
-                                .foregroundColor(activitySecondary)
-                            Spacer(minLength: 0)
-                            Button(intent: AdjustRepsIntent(deltaReps: 1)) {
-                                Text("+")
-                                    .font(.title3)
-                                    .fontWeight(.bold)
-                                    .frame(width: 44, height: 44)
-                            }
-                            .fixedSize()
-                        }
-                    }
-                    .tint(neon)
-                    if !state.isBodyweight {
-                        lockScreenStepperGroup {
-                            HStack(spacing: 8) {
-                                Button(intent: AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg ?? defaultLoadIncrementKg))) {
-                                    Text("−")
-                                        .font(.title3)
-                                        .fontWeight(.bold)
-                                        .frame(width: 44, height: 44)
-                                }
-                                .fixedSize()
-                                Text(state.currentLoadKg.map { String(format: "%g", $0) } ?? "—")
-                                    .font(.system(size: 34, weight: .heavy).width(.condensed))
-                                    .monospacedDigit()
-                                    .foregroundColor(.white)
-                                    .opacity(state.isLoadInherited ? 0.6 : 1.0)
-                                    .contentTransition(.numericText())
-                                    .minimumScaleFactor(0.7)
-                                    .lineLimit(1)
-                                    .layoutPriority(1)
-                                Text("KG")
-                                    .font(.system(size: 11, weight: .semibold).width(.condensed))
-                                    .tracking(2)
-                                    .foregroundColor(activitySecondary)
-                                Spacer(minLength: 0)
-                                Button(intent: AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg ?? defaultLoadIncrementKg)) {
-                                    Text("+")
-                                        .font(.title3)
-                                        .fontWeight(.bold)
-                                        .frame(width: 44, height: 44)
-                                }
-                                .fixedSize()
-                            }
-                        }
-                        .tint(neon)
-                    }
-                }
+                // carga é omitida para bodyweight, nunca as reps (ver
+                // `if !state.isBodyweight` dentro de lockScreenStepperRow).
+                lockScreenStepperRow(state, neon: neon)
                 // Decisão aprovada: a dica de abrir o app para ajustar valores e
                 // nextUpLine() saem desta fase — a ação principal é concluir a
                 // série, sem distrações.
-                Button(intent: CompleteSetIntent()) {
-                    Text("CONCLUIR SÉRIE")
-                        .font(.system(size: 19, weight: .heavy).width(.condensed))
-                        .tracking(1.8)
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 14))
-                .controlSize(.large)
-                .tint(neon)
+                lockScreenCompleteSetButton(neon: neon)
             }
         }
     case .readyOvertime:
@@ -572,7 +699,7 @@ private func lockScreenBody(_ state: SessionActivityAttributes.ContentState, now
         // (preto 62% opacidade) alinhados pela base. nextUpLine() continua
         // só nesta fase (D-15: mudar de exercício é a única transição que
         // altera o que o dono faz fisicamente).
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: bodySpacing) {
             lockScreenHeaderLine(state, neon: neon)
             lockScreenReadyNeonBlock(state, now: now, neon: neon)
             nextUpLine(state)
@@ -644,7 +771,16 @@ struct WidgetLiveActivity: Widget {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 lockScreenBody(effectiveState(context.state, now: timeline.date), now: timeline.date)
             }
-            .padding()
+            // ORÇAMENTO DE ALTURA (2026-08-24): `.padding()` (default,
+            // ~16pt nas 4 bordas) trocado por padding horizontal/vertical
+            // explícitos — cardHorizontalPadding mantém 16pt (largura não é
+            // o problema reportado), cardVerticalPadding cai para 4pt. É a
+            // NOSSA margem, somada por cima da margem de ~14pt que o
+            // próprio sistema já reserva ao redor da Live Activity (HIG) —
+            // reduzi-la não tira a respiração do conteúdo, só remove
+            // redundância. Ver o bloco de constantes no topo do arquivo.
+            .padding(.horizontal, cardHorizontalPadding)
+            .padding(.vertical, cardVerticalPadding)
             .activityBackgroundTint(activityBackground)
             .activitySystemActionForegroundColor(Color.white)
             .widgetURL(URL(string: "forcaapp://home/active-session/\(context.attributes.sessionLogId)"))
@@ -707,11 +843,12 @@ struct WidgetLiveActivity: Widget {
 #if DEBUG
 
 /// Descanso, nome curto, acento amarelo (cor padrão) — cobre o bloco neon
-/// preenchido (rótulo "DESCANSO" + timer 60pt condensado, reduzido de 76pt
-/// na correção de orçamento de altura de 2026-08-24, ambos em preto), os
-/// chips ±30s ao lado e o botão "PULAR DESCANSO" de largura total. "A
+/// preenchido (rótulo "DESCANSO" + timer condensado em restHeroSize, preto),
+/// os chips ±30s ao lado e o botão "PULAR DESCANSO" de largura total. "A
 /// SEGUIR" não aparece nesta fase (decisão aprovada, card mais alto
-/// agosto/2026, preservada no redesenho "Identidade Forte").
+/// agosto/2026, preservada no redesenho "Identidade Forte"). Orçamento de
+/// altura (2026-08-24): ~139pt calculados, ~21pt (13%) abaixo do teto de
+/// 160pt apurado na pesquisa — ver bloco de constantes no topo do arquivo.
 #Preview("Descanso — amarelo", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-resting")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -738,14 +875,17 @@ struct WidgetLiveActivity: Widget {
 }
 
 /// Série em andamento, nome LONGO (para checar truncamento do cabeçalho
-/// condensado em caixa alta) e acento azul — cobre os dois grupos de
-/// stepper CONTORNADOS e EMPILHADOS (correção de 2026-08-24: reps herdadas
-/// a 60% de opacidade, carga não herdada, cada uma na sua própria linha em
-/// vez de lado a lado), glifos −/+ de 44×44pt travados com `.fixedSize()`,
-/// valor 34pt condensado com `.layoutPriority(1)` separado do rótulo
-/// REPS/KG, e o botão "CONCLUIR SÉRIE" preenchido a neon com texto preto.
-/// prescriptionText não aparece nesta fase (decisão aprovada, card mais
-/// alto agosto/2026, preservada no redesenho "Identidade Forte").
+/// condensado em caixa alta) e acento azul — cobre a fileira ÚNICA de
+/// steppers (correção de 2026-08-24: reps e carga voltam a ficar lado a
+/// lado, cada um com valor empilhado sobre o rótulo de unidade), glifos
+/// −/+ de 44×44pt travados com `.fixedSize()`, e o botão "CONCLUIR SÉRIE"
+/// como faixa preenchida a neon com texto preto (migrado de
+/// `.controlSize(.large)`). prescriptionText não aparece nesta fase
+/// (decisão aprovada, card mais alto agosto/2026, preservada no redesenho
+/// "Identidade Forte"). Orçamento de altura (2026-08-24): ~126pt
+/// calculados, ~34pt (21%) abaixo do teto de 160pt apurado na pesquisa —
+/// era o estado mais estourado antes da correção (~240pt calculados, ~50%
+/// acima do teto) e o único fotografado cortado no aparelho do dono.
 #Preview("Série — nome longo, azul", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-measuring")) {
     WidgetLiveActivity()
 } contentStates: {
@@ -768,9 +908,11 @@ struct WidgetLiveActivity: Widget {
 }
 
 /// Pronto/tempo extra, nome curto, peso corporal, acento verde — cobre o
-/// bloco neon preenchido com "PRONTO" (64pt condensado preto) junto do
-/// contador de overtime (preto 62% opacidade, restEndsAt no passado) e a
-/// linha "A SEGUIR" com o próximo exercício.
+/// bloco neon preenchido com "PRONTO" (readyHeroSize, condensado preto)
+/// junto do contador de overtime (preto 62% opacidade, restEndsAt no
+/// passado) e a linha "A SEGUIR" com o próximo exercício. Orçamento de
+/// altura (2026-08-24): ~131pt calculados, ~29pt (18%) abaixo do teto de
+/// 160pt apurado na pesquisa.
 #Preview("Pronto — verde, tempo extra", as: .content, using: SessionActivityAttributes(sessionLogId: "preview-ready-overtime")) {
     WidgetLiveActivity()
 } contentStates: {

@@ -10,7 +10,11 @@
 // o campo; (c) o widget resolve as quatro chaves de D-01 para os canais RGB
 // exatos com default yellow para nil/desconhecido; (d) nenhum acento neon
 // fixo independente do state sobrevive; (e) layout/tipografia/intents/
-// timers/activityBackground/activitySecondary não mudaram.
+// timers/activityBackground/activitySecondary não mudaram; (f) — desde
+// 2026-08-24 — o ORÇAMENTO DE ALTURA do card de Lock Screen: soma as
+// constantes CGFloat nomeadas que o widget declara e falha se algum dos 3
+// estados passar do teto apurado na pesquisa (160pt, HIG) com a margem de
+// segurança de 10% exigida.
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -243,10 +247,16 @@ describe('layout, tipografia e demais elementos preservados', () => {
 
   it('usa .width(.condensed) largamente nos heróis, cabeçalhos e rótulos do redesenho', () => {
     // Cabeçalho (3x), DESCANSO, timer de descanso (2 ramos), ±30s (2),
-    // PULAR DESCANSO, valor+rótulo dos dois steppers (2+2+2+2), CONCLUIR
-    // SÉRIE, PRONTO, tempo extra dentro do bloco, A SEGUIR (rótulo+detalhe).
+    // PULAR DESCANSO, CONCLUIR SÉRIE, valor+rótulo do stepper (2, definidos
+    // uma única vez em lockScreenStepperMetric e reaproveitados nas duas
+    // chamadas — reps e carga — pela correção de 2026-08-24 que unificou os
+    // dois blocos duplicados numa função só), PRONTO, tempo extra dentro do
+    // bloco, A SEGUIR (rótulo+detalhe). Piso ajustado de >=16 para >=14 na
+    // correção de 2026-08-24: a DRY-ficação do stepper (lockScreenStepperMetric
+    // chamado 2×) reduz a contagem de OCORRÊNCIAS NO CÓDIGO-FONTE sem reduzir
+    // o uso real (a função ainda roda 2×, só o texto-fonte não duplica mais).
     const usos = widgetSwift.match(/\.width\(\.condensed\)/g) ?? [];
-    expect(usos.length).toBeGreaterThanOrEqual(16);
+    expect(usos.length).toBeGreaterThanOrEqual(14);
   });
 
   it('mantém timers, intents e decoração da Activity', () => {
@@ -296,7 +306,11 @@ describe('layout, tipografia e demais elementos preservados', () => {
       /private func lockScreenHeaderLine\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}/,
     );
     expect(bloco).not.toBeNull();
-    expect(bloco![1]).toContain('.font(.system(size: 13, weight: .semibold).width(.condensed))');
+    // Correção de orçamento de altura (2026-08-24): o tamanho vira a
+    // constante nomeada `headerFontSize` (valor inalterado, 13pt — ver
+    // describe "orçamento de altura do Lock Screen" abaixo, que confere o
+    // valor declarado).
+    expect(bloco![1]).toContain('.font(.system(size: headerFontSize, weight: .semibold).width(.condensed))');
     expect(bloco![1]).toContain('.tracking(1.6)');
     expect(bloco![1]).toContain('.textCase(.uppercase)');
     expect(bloco![1]).toContain('.foregroundColor(neon)');
@@ -312,28 +326,37 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(chamadas.length).toBe(3);
   });
 
-  it('grupos de stepper viram contornados (stroke, não fill) e mantêm os glifos −/+ em >= 44×44pt', () => {
+  it('grupo de stepper contornado (stroke, não fill) com padding via constantes nomeadas', () => {
     const bloco = widgetSwift.match(
       /private func lockScreenStepperGroup<Content: View>\(@ViewBuilder content: \(\) -> Content\) -> some View \{([\s\S]*?)\n\}/,
     );
     expect(bloco).not.toBeNull();
     expect(bloco![1]).toContain('.stroke(Color.white.opacity(0.14))');
     expect(bloco![1]).not.toContain('.fill(Color.white.opacity(0.08))');
-    expect(bloco![1]).toContain('.padding(.horizontal, 12)');
-    expect(bloco![1]).toContain('.padding(.vertical, 8)');
+    // Correção de orçamento de altura (2026-08-24): padding do grupo vira
+    // constante nomeada (stepperGroupHorizontalPadding / stepperRowVerticalPadding)
+    // em vez de literal — os valores exatos são conferidos no describe de
+    // orçamento abaixo.
+    expect(bloco![1]).toContain('.padding(.horizontal, stepperGroupHorizontalPadding)');
+    expect(bloco![1]).toContain('.padding(.vertical, stepperRowVerticalPadding)');
+  });
 
-    // Os quatro glifos −/+ (reps e carga) preservam o ganho de acessibilidade
-    // do commit anterior: 44×44pt é o mínimo, nunca regride para 40×40 (a
-    // medida da maquete original da variante D) nem para 28×28 (a medida
-    // anterior a esse ganho).
-    const framesDosGlifos = Array.from(
-      widgetSwift.matchAll(/Text\("[−+]"\)\s*\n\s*\.font\(\.title3\)\s*\n\s*\.fontWeight\(\.bold\)\s*\n\s*\.frame\(width: (\d+), height: (\d+)\)/g),
+  it('glifo −/+ do stepper usa stepperGlyphSize (>= 44pt, piso de acessibilidade) e trava com .fixedSize() — 4 ocorrências (reps e carga)', () => {
+    const glifo = widgetSwift.match(
+      /private func lockScreenStepperGlyph\(_ symbol: String\) -> some View \{([\s\S]*?)\n\}/,
     );
-    expect(framesDosGlifos.length).toBe(4);
-    for (const [, largura, altura] of framesDosGlifos) {
-      expect(Number(largura)).toBeGreaterThanOrEqual(44);
-      expect(Number(altura)).toBeGreaterThanOrEqual(44);
-    }
+    expect(glifo).not.toBeNull();
+    expect(glifo![1]).toContain('.frame(width: stepperGlyphSize, height: stepperGlyphSize)');
+
+    // Os quatro botões (reps −/+, carga −/+) chamam o glifo e travam o
+    // próprio tamanho com `.fixedSize()` — sem isso, o Button aceita a
+    // proposta flexível do HStack e cresce além do seu conteúdo (BUG DE
+    // CAMPO 2026-08-22/24: sem fixedSize, os botões cresciam e comprimiam o
+    // número a zero — quatro elipses de neon, nenhum número, no aparelho).
+    const chamadasGlifo = widgetSwift.match(/lockScreenStepperGlyph\("[−+]"\)/g) ?? [];
+    expect(chamadasGlifo.length).toBe(4);
+    const travados = widgetSwift.match(/lockScreenStepperGlyph\("[−+]"\)\s*\n\s*\}\s*\n\s*\.fixedSize\(\)/g) ?? [];
+    expect(travados.length).toBe(4);
   });
 
   // BUG DE CAMPO (2026-08-22/24, iPhone 13 / iOS 26): o Button de
@@ -341,9 +364,14 @@ describe('layout, tipografia e demais elementos preservados', () => {
   // no próprio Button — nada travava o tamanho do controle, então ele
   // crescia dentro do HStack da linha e comprimia o valor numérico e o
   // rótulo REPS/KG a largura zero (no aparelho: quatro elipses de neon
-  // gigantes, nenhum número). Este bloco trava especificamente a correção
-  // — não pode regredir silenciosamente numa refatoração futura do layout.
-  it('trava a correção do bug de campo: botões de stepper com .fixedSize() e valor com .layoutPriority(1), reps/carga empilhados em vez de lado a lado', () => {
+  // gigantes, nenhum número). A correção original travou o tamanho do
+  // Button; ESTA correção (2026-08-24, orçamento de altura) vai além: reps
+  // e carga voltam a dividir a MESMA fileira (economia de ~58-68pt de
+  // altura — duas fileiras empilhadas custavam ~120pt, uma custa ~62pt) —
+  // ver o comentário completo de largura em lockScreenStepperRow no
+  // arquivo-fonte. Este bloco trava que a fileira única existe e que os
+  // valores permanecem protegidos por layoutPriority(1).
+  it('trava a fileira única de steppers (correção de orçamento de altura 2026-08-24): UM lockScreenStepperGroup na fase .measuring, reps e carga na mesma linha, valor protegido por layoutPriority(1)', () => {
     const corpoLockScreen = widgetSwift.match(
       /private func lockScreenBody\(_ state: SessionActivityAttributes\.ContentState, now: Date\) -> some View \{([\s\S]*?)\nprivate func effectiveState\(/,
     );
@@ -352,50 +380,90 @@ describe('layout, tipografia e demais elementos preservados', () => {
     expect(casoMeasuring).not.toBeNull();
     const corpo = casoMeasuring![1];
 
-    // Reps e carga ficam em linhas separadas (VStack), uma por valor — não
-    // mais lado a lado no mesmo HStack, que é o que deixava pouca largura
-    // sobrando para o número mesmo depois do fixedSize. O container
-    // imediato dos dois lockScreenStepperGroup precisa ser um VStack —
-    // cada linha interna (botão/valor/rótulo/Spacer/botão) continua um
-    // HStack, então a trava mira o container que os agrupa, não qualquer
-    // HStack(spacing: 8) do arquivo.
-    expect(corpo).toMatch(/VStack\(spacing: 8\) \{\s*\n\s*lockScreenStepperGroup \{/);
-    expect(corpo).not.toMatch(/HStack\(spacing: 8\) \{\s*\n\s*lockScreenStepperGroup \{/);
+    // A fase .measuring chama a fileira única exatamente uma vez — nenhum
+    // segundo lockScreenStepperGroup/VStack empilhando uma segunda fileira
+    // sobra no corpo desta fase.
+    expect(corpo).toContain('lockScreenStepperRow(state, neon: neon)');
+    const chamadasStepperRow = corpo.match(/lockScreenStepperRow\(/g) ?? [];
+    expect(chamadasStepperRow.length).toBe(1);
 
-    // Cada um dos quatro Button de −/+ trava o próprio tamanho com
-    // `.fixedSize()` logo após fechar o corpo do Button (que já contém o
-    // `.frame(width: 44, height: 44)` no label, verificado no teste
-    // acima) — sem isso, o Button aceita a proposta flexível do HStack e
-    // cresce além do seu conteúdo.
-    const botoesTravados = Array.from(
-      corpo.matchAll(/\.frame\(width: 44, height: 44\)\s*\n\s*\}\s*\n\s*\.fixedSize\(\)/g),
+    // A função lockScreenStepperRow, por sua vez, chama lockScreenStepperGroup
+    // (o contorno) exatamente uma vez — reps e carga compartilham UM
+    // contorno, não dois.
+    const funcaoStepperRow = widgetSwift.match(
+      /private func lockScreenStepperRow\(_ state: SessionActivityAttributes\.ContentState, neon: Color\) -> some View \{([\s\S]*?)\n\}\n\n\/\/\/ Bloco neon preenchido do herói "PRONTO"/,
     );
-    expect(botoesTravados.length).toBe(4);
+    expect(funcaoStepperRow).not.toBeNull();
+    const chamadasGroup = funcaoStepperRow![1].match(/lockScreenStepperGroup \{/g) ?? [];
+    expect(chamadasGroup.length).toBe(1);
 
-    // O valor (reps e carga) recebe `.layoutPriority(1)` — nunca é o
-    // primeiro a ceder espaço quando o HStack da linha fica apertado.
-    const prioridadeValor = corpo.match(/\.layoutPriority\(1\)/g) ?? [];
-    expect(prioridadeValor.length).toBe(2);
+    // Os quatro Adjust*Intent (reps −/+, carga −/+) continuam todos
+    // presentes dentro da fileira única — nenhuma ação sumiu na fusão.
+    expect(funcaoStepperRow![1]).toContain('AdjustRepsIntent(deltaReps: -1)');
+    expect(funcaoStepperRow![1]).toContain('AdjustRepsIntent(deltaReps: 1)');
+    expect(funcaoStepperRow![1]).toContain('AdjustLoadIntent(deltaLoadKg: -(state.loadIncrementKg');
+    expect(funcaoStepperRow![1]).toContain('AdjustLoadIntent(deltaLoadKg: state.loadIncrementKg');
+
+    // O valor (reps e carga) recebe `.layoutPriority(1)` dentro de
+    // lockScreenStepperMetric — chamado 2× (reps, carga) por
+    // lockScreenStepperRow, mas declarado uma única vez no arquivo-fonte
+    // (DRY: a duplicação inline anterior virou uma função reutilizável).
+    const metrica = widgetSwift.match(
+      /private func lockScreenStepperMetric\(([\s\S]*?)\n\}/,
+    );
+    expect(metrica).not.toBeNull();
+    expect(metrica![1]).toContain('.layoutPriority(1)');
+    // Exclui a própria declaração ("private func lockScreenStepperMetric(")
+    // — só conta CHAMADAS (reps e carga, dentro de lockScreenStepperRow).
+    const chamadasMetrica = widgetSwift.match(/(?<!func )lockScreenStepperMetric\(\s*\n\s*value:/g) ?? [];
+    expect(chamadasMetrica.length).toBe(2);
   });
 
-  it('separa o valor do stepper do rótulo REPS/KG — "40 kg" concatenado não sobrevive', () => {
+  it('separa o valor do stepper do rótulo REPS/KG — "40 kg" concatenado não sobrevive; valor e rótulo ficam EMPILHADOS (não lado a lado) dentro de cada métrica', () => {
     expect(widgetSwift).not.toContain(' kg")');
-    expect(widgetSwift).toMatch(
-      /Text\("REPS"\)\s*\n\s*\.font\(\.system\(size: 11, weight: \.semibold\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(2\)\s*\n\s*\.foregroundColor\(activitySecondary\)/,
+
+    const metrica = widgetSwift.match(
+      /private func lockScreenStepperMetric\(([\s\S]*?)\n\}/,
     );
-    expect(widgetSwift).toMatch(
-      /Text\("KG"\)\s*\n\s*\.font\(\.system\(size: 11, weight: \.semibold\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(2\)\s*\n\s*\.foregroundColor\(activitySecondary\)/,
-    );
+    expect(metrica).not.toBeNull();
+    // VStack(spacing: 0), não HStack — valor em cima, unidade embaixo: é
+    // essa pilha vertical que faz a fileira única (reps + carga lado a
+    // lado) caber na largura do card (a coluna de cada métrica só precisa
+    // ser tão larga quanto o MAIOR dos dois textos, não a soma).
+    expect(metrica![1]).toMatch(/VStack\(spacing: 0\) \{/);
+    expect(metrica![1]).toContain('Text(value)');
+    expect(metrica![1]).toContain('Text(unit)');
+    expect(metrica![1]).toContain('.foregroundColor(activitySecondary)');
+
+    // Chamadas com unit: "REPS" e unit: "KG" — nenhuma métrica sumiu.
+    expect(widgetSwift).toMatch(/unit: "REPS"/);
+    expect(widgetSwift).toMatch(/unit: "KG"/);
   });
 
-  it('"PULAR DESCANSO" e "CONCLUIR SÉRIE" ficam em caixa alta, condensados, com tracking 1.8', () => {
+  it('"PULAR DESCANSO" e "CONCLUIR SÉRIE" compartilham a mesma faixa desenhada à mão (actionButtonFontSize/actionButtonVerticalPadding), tracking 1.8, sem controlSize/borderedProminent', () => {
     expect(widgetSwift).toMatch(
-      /Text\("PULAR DESCANSO"\)\s*\n\s*\.font\(\.system\(size: 18, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
+      /Text\("PULAR DESCANSO"\)\s*\n\s*\.font\(\.system\(size: actionButtonFontSize, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
     );
     expect(widgetSwift).toMatch(
-      /Text\("CONCLUIR SÉRIE"\)\s*\n\s*\.font\(\.system\(size: 19, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
+      /Text\("CONCLUIR SÉRIE"\)\s*\n\s*\.font\(\.system\(size: actionButtonFontSize, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.tracking\(1\.8\)/,
     );
-    expect(widgetSwift).toContain('.buttonBorderShape(.roundedRectangle(radius: 14))');
+    // Correção de orçamento de altura (2026-08-24): "CONCLUIR SÉRIE" migra
+    // de `.buttonStyle(.borderedProminent)` + `.controlSize(.large)`
+    // (altura delegada ao sistema, não somável no orçamento) para a MESMA
+    // receita de faixa desenhada à mão do botão "PULAR DESCANSO" —
+    // `.buttonStyle(.plain)` + `.background(RoundedRectangle...)`. Nenhum
+    // dos dois usa mais controlSize ou borderedProminent — a busca exclui
+    // comentários citando a história antiga ao checar só os MODIFICADORES
+    // realmente aplicados (linhas iniciadas por espaço + ponto, não `///`
+    // nem `//`).
+    const modificadoresAplicados = widgetSwift
+      .split('\n')
+      .filter((linha) => !linha.trim().startsWith('//'));
+    const corpoSemComentarios = modificadoresAplicados.join('\n');
+    expect(corpoSemComentarios).not.toContain('.controlSize(.large)');
+    expect(corpoSemComentarios).not.toContain('.buttonStyle(.borderedProminent)');
+    expect(widgetSwift).toContain('.buttonBorderShape(.roundedRectangle(radius: 12))'); // só os botões ±30s
+    expect(widgetSwift).not.toContain('.buttonBorderShape(.roundedRectangle(radius: 14))');
     // .capsule saiu de vez — os dois botões de largura total do redesenho
     // usam cantos arredondados explícitos, não mais cápsula.
     expect(widgetSwift).not.toContain('.buttonBorderShape(.capsule)');
@@ -465,79 +533,186 @@ describe('layout, tipografia e demais elementos preservados', () => {
   });
 });
 
+// Correção de orçamento de altura do Lock Screen (2026-08-24). PESQUISA: a
+// especificação de Live Activities da HIG documenta a apresentação
+// expandida de Lock Screen com faixa de altura 84–160pt; 160pt (o topo da
+// faixa) é o número citado de forma consistente pela comunidade técnica como
+// o ponto em que o sistema CORTA (clip) o conteúdo excedente — bate com a
+// evidência de campo (foto do dono, iPhone 13/iOS 26: envelope visível de
+// ~162pt, a ~2pt do valor pesquisado). Este describe prova, por ARITMÉTICA
+// sobre as constantes CGFloat nomeadas que o próprio WidgetLiveActivity.swift
+// declara — não sobre um "parece caber" — que os três estados de Lock Screen
+// ficam pelo menos 10% abaixo desse teto (<=144pt). A fórmula de altura de
+// linha (arredondar para cima de tamanho da fonte × 1.2) é a MESMA usada no
+// relatório da correção; qualquer PR que aumente uma constante o suficiente
+// para estourar o teto quebra este teste ANTES de chegar a um device físico.
+describe('orçamento de altura do Lock Screen (correção 2026-08-24)', () => {
+  const extrairConstantes = (src: string): Record<string, number> => {
+    const mapa: Record<string, number> = {};
+    for (const m of src.matchAll(/private let (\w+): CGFloat = ([\d.]+)/g)) {
+      mapa[m[1]] = Number(m[2]);
+    }
+    return mapa;
+  };
+
+  const alturaDeLinha = (tamanhoDaFonte: number): number => Math.ceil(tamanhoDaFonte * 1.2);
+
+  const TETO_APURADO_PT = 160;
+  const MARGEM_MINIMA_EXIGIDA = 0.1;
+  const TETO_COM_MARGEM_PT = TETO_APURADO_PT * (1 - MARGEM_MINIMA_EXIGIDA); // 144
+
+  // Estimativa NÃO travada em constante nossa: os botões ±30s são
+  // `.controlSize(.small)` do sistema (dois empilhados). Nunca é o termo que
+  // decide a altura da linha do .resting (o bloco neon é sempre mais alto —
+  // ver teste "nunca é o termo decisivo" abaixo), então entra aqui só para
+  // documentar a conta, não como piso ajustável.
+  const ESTIMATIVA_ADJUST_BUTTONS_PT = 66;
+
+  // Literais fora do escopo desta correção (não estouravam o orçamento antes
+  // e continuam com folga depois — não viraram constante para não inflar o
+  // arquivo com nomes que ninguém precisa tunar): tempo extra dentro do
+  // bloco "PRONTO" (22pt) e a linha "A SEGUIR" de nextUpLine (rótulo 11pt,
+  // spacing 2, detalhe 17pt).
+  const OVERTIME_TEXT_FONT_SIZE = 22;
+  const NEXTUP_LABEL_FONT_SIZE = 11;
+  const NEXTUP_INNER_SPACING = 2;
+  const NEXTUP_DETAIL_FONT_SIZE = 17;
+
+  let C: Record<string, number>;
+
+  beforeAll(() => {
+    C = extrairConstantes(widgetSwift);
+  });
+
+  it('declara as 17 constantes de orçamento com os nomes esperados', () => {
+    const nomesEsperados = [
+      'cardHorizontalPadding',
+      'cardVerticalPadding',
+      'bodySpacing',
+      'headerFontSize',
+      'heroLabelFontSize',
+      'heroBlockInnerSpacing',
+      'restHeroSize',
+      'readyHeroSize',
+      'neonBlockPaddingTop',
+      'neonBlockPaddingBottom',
+      'stepperGroupHorizontalPadding',
+      'stepperRowVerticalPadding',
+      'stepperGlyphSize',
+      'stepperValueFontSize',
+      'stepperLabelFontSize',
+      'actionButtonFontSize',
+      'actionButtonVerticalPadding',
+    ];
+    for (const nome of nomesEsperados) {
+      expect(C[nome]).not.toBeUndefined();
+    }
+  });
+
+  it('stepperGlyphSize nunca regride abaixo do piso de acessibilidade de 44pt (mesmo piso do bug de campo original)', () => {
+    expect(C.stepperGlyphSize).toBeGreaterThanOrEqual(44);
+  });
+
+  it('heróis (restHeroSize/readyHeroSize) continuam nitidamente maiores que o corpo de texto — nunca regridem a ponto de deixar de ser "herói"', () => {
+    expect(C.restHeroSize).toBeGreaterThanOrEqual(C.headerFontSize * 2.5);
+    expect(C.readyHeroSize).toBeGreaterThanOrEqual(C.headerFontSize * 2.5);
+  });
+
+  it('.resting: soma das constantes fica pelo menos 10% abaixo do teto de 160pt', () => {
+    const alturaHeader = alturaDeLinha(C.headerFontSize);
+    const alturaRestBlock =
+      alturaDeLinha(C.heroLabelFontSize) +
+      C.heroBlockInnerSpacing +
+      alturaDeLinha(C.restHeroSize) +
+      C.neonBlockPaddingTop +
+      C.neonBlockPaddingBottom;
+    // O bloco neon precisa continuar sendo o termo que decide a altura da
+    // linha — se um dia isso deixar de valer, a conta abaixo (que usa só
+    // alturaRestBlock) fica otimista e este teste precisa ser revisto.
+    expect(alturaRestBlock).toBeGreaterThanOrEqual(ESTIMATIVA_ADJUST_BUTTONS_PT);
+    const alturaLinhaBlocoEAjuste = Math.max(alturaRestBlock, ESTIMATIVA_ADJUST_BUTTONS_PT);
+    const alturaSkip = alturaDeLinha(C.actionButtonFontSize) + 2 * C.actionButtonVerticalPadding;
+
+    const total =
+      2 * C.cardVerticalPadding +
+      alturaHeader +
+      C.bodySpacing +
+      alturaLinhaBlocoEAjuste +
+      C.bodySpacing +
+      alturaSkip;
+
+    expect(total).toBeLessThanOrEqual(TETO_COM_MARGEM_PT);
+  });
+
+  it('.measuring: soma das constantes fica pelo menos 10% abaixo do teto de 160pt (era o estado mais estourado antes da correção)', () => {
+    const alturaHeader = alturaDeLinha(C.headerFontSize);
+    const alturaInfoColuna = alturaDeLinha(C.stepperValueFontSize) + alturaDeLinha(C.stepperLabelFontSize);
+    const alturaFileiraStepper = Math.max(C.stepperGlyphSize, alturaInfoColuna) + 2 * C.stepperRowVerticalPadding;
+    const alturaConcluir = alturaDeLinha(C.actionButtonFontSize) + 2 * C.actionButtonVerticalPadding;
+
+    const total =
+      2 * C.cardVerticalPadding +
+      alturaHeader +
+      C.bodySpacing +
+      alturaFileiraStepper +
+      C.bodySpacing +
+      alturaConcluir;
+
+    expect(total).toBeLessThanOrEqual(TETO_COM_MARGEM_PT);
+  });
+
+  it('.readyOvertime: soma das constantes fica pelo menos 10% abaixo do teto de 160pt', () => {
+    const alturaHeader = alturaDeLinha(C.headerFontSize);
+    const alturaReadyBlock =
+      Math.max(alturaDeLinha(C.readyHeroSize), alturaDeLinha(OVERTIME_TEXT_FONT_SIZE)) +
+      C.neonBlockPaddingTop +
+      C.neonBlockPaddingBottom;
+    const alturaNextUp =
+      alturaDeLinha(NEXTUP_LABEL_FONT_SIZE) + NEXTUP_INNER_SPACING + alturaDeLinha(NEXTUP_DETAIL_FONT_SIZE);
+
+    const total =
+      2 * C.cardVerticalPadding +
+      alturaHeader +
+      C.bodySpacing +
+      alturaReadyBlock +
+      C.bodySpacing +
+      alturaNextUp;
+
+    expect(total).toBeLessThanOrEqual(TETO_COM_MARGEM_PT);
+  });
+});
+
 // Redesenho "Identidade Forte" (agosto/2026, variante D aprovada pelo dono):
-// os heróis de .resting e .readyOvertime deixam de ser texto neon sobre
-// preto e viram blocos preenchidos de neon com texto PRETO, tipografia
-// condensada em caixa alta. Os blocos abaixo travam a tipografia e as
-// dimensões desse redesenho com asserções >=, não ===, para que uma correção
-// futura possa crescer ainda mais sem quebrar o teste — só não pode
-// REGREDIR para o tamanho/estilo da rodada anterior (68pt rounded neon, 56pt
-// PRONTO rounded neon, glifos < 44pt) nem reintroduzir glassEffect (proibição
-// já coberta acima, nunca revogada por este bloco).
-describe('redesenho "Identidade Forte" (agosto/2026) crava blocos neon preenchidos e tipografia condensada', () => {
-  it('herói do timer de descanso (lockScreenRestHero) usa condensado >= 60pt, preto, em ambos os ramos (com/sem restEndsAt)', () => {
+// os heróis de .resting e .readyOvertime são blocos preenchidos de neon com
+// texto PRETO, tipografia condensada em caixa alta. Os tamanhos exatos (antes
+// literais >=60pt/>=64pt, agora as constantes restHeroSize/readyHeroSize)
+// viraram parte do describe de orçamento de altura acima — este bloco trava
+// só a ESTRUTURA/ESTILO que não mudou com a correção de 2026-08-24: preto
+// sobre neon, condensado, sem glassEffect.
+describe('redesenho "Identidade Forte" (agosto/2026) mantém blocos neon preenchidos e tipografia condensada', () => {
+  it('herói do timer de descanso (lockScreenRestHero) usa restHeroSize condensado, preto, em ambos os ramos (com/sem restEndsAt)', () => {
     const bloco = widgetSwift.match(
       /private func lockScreenRestHero\(_ state: SessionActivityAttributes\.ContentState\) -> some View \{([\s\S]*?)\n\}/,
     );
     expect(bloco).not.toBeNull();
-    const tamanhos = Array.from(bloco![1].matchAll(/\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)/g)).map(
-      (m) => Number(m[1]),
-    );
-    // Um tamanho por ramo (restEndsAt presente / "—" de fallback) — se a
-    // contagem cair, o fallback perdeu a apresentação heroica.
+    const tamanhos = bloco![1].match(/\.font\(\.system\(size: restHeroSize, weight: \.heavy\)\.width\(\.condensed\)\)/g) ?? [];
+    // Um por ramo (restEndsAt presente / "—" de fallback) — se a contagem
+    // cair, o fallback perdeu a apresentação heroica.
     expect(tamanhos.length).toBe(2);
-    // Correção de orçamento de altura (2026-08-24): caiu de 76 para 60pt na
-    // mesma rodada em que .measuring passou a empilhar reps/carga — 60pt
-    // ainda é hero, só não regride abaixo do piso que preserva a
-    // identidade visual do bloco neon preenchido.
-    for (const tamanho of tamanhos) {
-      expect(tamanho).toBeGreaterThanOrEqual(60);
-    }
     // Preto, não mais neon: o texto vive DENTRO do bloco preenchido a
     // neon — cor neon sobre fundo neon não teria contraste nenhum.
     expect(bloco![1]).toContain('.foregroundColor(.black)');
     expect(bloco![1]).not.toContain('neon');
   });
 
-  it('herói "PRONTO" (fase .readyOvertime) usa condensado >= 64pt, preto, dentro do bloco neon', () => {
+  it('herói "PRONTO" (fase .readyOvertime) usa readyHeroSize condensado, preto, dentro do bloco neon', () => {
     const bloco = widgetSwift.match(
-      /Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.foregroundColor\(\.black\)/,
+      /Text\("PRONTO"\)\s*\n\s*\.font\(\.system\(size: readyHeroSize, weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.foregroundColor\(\.black\)/,
     );
     expect(bloco).not.toBeNull();
-    expect(Number(bloco![1])).toBeGreaterThanOrEqual(64);
   });
 
-  it('CONCLUIR SÉRIE continua .controlSize(.large); valores de stepper condensados >= 34pt', () => {
-    // Só "CONCLUIR SÉRIE" preserva .controlSize(.large) — "PULAR DESCANSO"
-    // virou uma faixa de fundo explícito (.buttonStyle(.plain)) sem chrome
-    // de sistema, então não usa mais controlSize nenhum.
-    const usosControlSizeLarge = widgetSwift.match(/\.controlSize\(\.large\)/g) ?? [];
-    expect(usosControlSizeLarge.length).toBe(1);
-
-    // Os DOIS valores de stepper (reps e carga) ficam em condensado preto-
-    // sobre-branco >= 34pt — nenhum uso do padrão antigo baseado em
-    // text style + design: .rounded sobra para eles. Caiu de 38 para 34pt
-    // na correção de orçamento de altura de 2026-08-24 (mesma rodada em
-    // que reps/carga passaram a empilhar em vez de ficar lado a lado —
-    // ver o teste "trava a correção do bug de campo" acima).
-    const usosValorStepper = Array.from(
-      widgetSwift.matchAll(
-        /\.font\(\.system\(size: (\d+), weight: \.heavy\)\.width\(\.condensed\)\)\s*\n\s*\.monospacedDigit\(\)\s*\n\s*\.foregroundColor\(\.white\)/g,
-      ),
-    );
-    expect(usosValorStepper.length).toBe(2);
-    for (const [, tamanho] of usosValorStepper) {
-      expect(Number(tamanho)).toBeGreaterThanOrEqual(34);
-    }
-
-    // .title3 rounded (usado pelo tempo extra na rodada anterior) não
-    // sobra em lugar nenhum — o tempo extra agora mora dentro do bloco
-    // neon, condensado e preto.
-    const usosTitle3Rounded = widgetSwift.match(/\.font\(\.system\(\.title3, design: \.rounded\)\)/g) ?? [];
-    expect(usosTitle3Rounded.length).toBe(0);
-  });
-
-  it('proíbe .glassEffect mesmo depois do redesenho "Identidade Forte" — a trava de campo original (subárvore descartada em runtime) continua valendo', () => {
+  it('proíbe .glassEffect mesmo depois da correção de orçamento de altura — a trava de campo original (subárvore descartada em runtime) continua valendo', () => {
     expect(widgetSwift).not.toContain('glassEffect');
   });
 });
