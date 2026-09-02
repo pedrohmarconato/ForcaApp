@@ -233,7 +233,14 @@ export const ThemeProvider = ({
   const message = pendingState ? null : ownsState ? state.message : null;
   const theme = useMemo(() => createTheme(neonColor), [neonColor]);
 
-  const runSaveToken = useCallback(async (token: SaveToken) => {
+  const runSaveToken = useCallback(async (initialToken: SaveToken) => {
+    // `token` é reatribuído a um objeto NOVO a cada iteração enfileirada
+    // (abaixo), nunca mutado — WR-02. `persistNeonColor` ainda escreve
+    // `.queued` na MESMA instância enquanto ela é a corrente em
+    // `inFlightByOwnerRef` (documentado ali); como este loop também
+    // republica essa instância no ref antes de cada `continue`, a leitura
+    // de `token.queued` após o `await` sempre reflete o pedido mais recente.
+    let token = initialToken;
     while (inFlightByOwnerRef.current.get(token.ownerId) === token) {
       const requested = token.requested;
       const rollback = token.rollback;
@@ -265,11 +272,16 @@ export const ThemeProvider = ({
       }
 
       const queued = token.queued;
-      token.queued = null;
 
       if (queued) {
-        token.requested = queued;
-        token.rollback = confirmed;
+        const nextToken: SaveToken = {
+          ...token,
+          queued: null,
+          requested: queued,
+          rollback: confirmed,
+        };
+        inFlightByOwnerRef.current.set(token.ownerId, nextToken);
+        token = nextToken;
         setState((latest) =>
           latest.ownerId === token.ownerId
             ? {

@@ -170,10 +170,14 @@ export const setLiveActivityNeonColor = (value: unknown): Promise<void> => {
   const state = useActiveSessionStore.getState();
   if (state.status !== 'active' || !state.draft) return themeUpdateQueue;
 
-  const draft = state.draft;
-  themeUpdateQueue = themeUpdateQueue.then(() =>
-    publishUpdate(draft, nextNeonColor),
-  );
+  themeUpdateQueue = themeUpdateQueue.then(() => {
+    // Relê o store no momento em que a fila executa, em vez de fechar sobre o
+    // `draft` capturado acima — evita publicar um snapshot que já ficou
+    // obsoleto entre o enfileiramento e a execução (WR-01).
+    const latest = useActiveSessionStore.getState();
+    if (latest.status !== 'active' || !latest.draft) return;
+    return publishUpdate(latest.draft, nextNeonColor);
+  });
   return themeUpdateQueue;
 };
 

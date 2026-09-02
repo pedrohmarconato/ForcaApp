@@ -673,6 +673,65 @@ describe('ThemeProvider por conta', () => {
     expect(maxActiveWrites).toBe(1);
   });
 
+  it('WR-02: rollback da segunda troca em fila volta à cor confirmada pela primeira, não à cor original', async () => {
+    // Exercita diretamente o bookkeeping de `token.rollback` (mutado em
+    // ThemeProvider.tsx runSaveToken) sem troca de conta: a MESMA conta
+    // enfileira uma segunda cor enquanto a primeira ainda está salvando; a
+    // primeira resolve com sucesso, promovendo a fila; a segunda (a que
+    // ficou em fila) falha. O rollback correto é a cor que a PRIMEIRA
+    // gravação confirmou (blue), não a cor original antes de qualquer save
+    // (yellow) — só é possível se o `rollback` repassado entre iterações do
+    // loop refletir o valor mais recente.
+    mockAuthState = {
+      user: { id: 'user-a' },
+      profile: { id: 'user-a', neon_color: 'yellow' },
+    };
+    const blueSave = deferred<{ id: string; neon_color: unknown }>();
+    const greenSave = deferred<{ id: string; neon_color: unknown }>();
+    const save = jest
+      .spyOn(neonPreferenceRepository, 'saveNeonColor')
+      .mockImplementation((_ownerId, color) =>
+        color === 'blue' ? blueSave.promise : greenSave.promise,
+      );
+    const screen = renderProvider();
+
+    let blueSelection!: Promise<void>;
+    act(() => {
+      blueSelection = context().selectNeonColor('blue');
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    let greenSelection!: Promise<void>;
+    act(() => {
+      greenSelection = context().selectNeonColor('green');
+    });
+    expect(screen.getByTestId('neon-color').props.children).toBe('green');
+    expect(screen.getByTestId('confirmed-color').props.children).toBe('yellow');
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      blueSave.resolve({ id: 'user-a', neon_color: 'blue' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save).toHaveBeenNthCalledWith(2, 'user-a', 'green');
+    // Meio do fluxo: a fila promoveu green a "requested" e blue vira o
+    // rollback/confirmed corrente — não yellow.
+    expect(screen.getByTestId('confirmed-color').props.children).toBe('blue');
+    expect(screen.getByTestId('save-status').props.children).toBe('saving');
+
+    await act(async () => {
+      greenSave.reject(new Error('rede indisponível'));
+      await blueSelection;
+      await greenSelection;
+    });
+
+    expect(screen.getByTestId('neon-color').props.children).toBe('blue');
+    expect(screen.getByTestId('confirmed-color').props.children).toBe('blue');
+    expect(screen.getByTestId('save-status').props.children).toBe('error');
+  });
+
   it('owners diferentes podem manter writes independentes sem resposta de A tocar B', async () => {
     mockAuthState = {
       user: { id: 'user-a' },

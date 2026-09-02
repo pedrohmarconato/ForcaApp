@@ -205,6 +205,40 @@ describe('initLiveActivitySync', () => {
     );
   });
 
+  it('WR-01: publica o draft mais recente ao trocar de tema, mesmo se o draft mudar entre o enfileiramento e a execução da fila', async () => {
+    const stop = initLiveActivitySync();
+    const current = draft();
+    useActiveSessionStore.setState({ status: 'active', draft: current });
+    await flushPromises();
+    mockUpdate.mockClear();
+
+    const updated = {
+      ...current,
+      restEndsAt: new Date(Date.now() + 90_000).toISOString(),
+    };
+
+    // Dispara a troca de tema (enfileira publishUpdate no themeUpdateQueue,
+    // capturando — na versão com bug — o draft no momento da chamada) e, no
+    // MESMO tick síncrono, antes do microtask da fila rodar, o draft muda por
+    // outro caminho (ex.: completeSet() resolvendo). O subscriber publica a
+    // versão fresca de imediato; a fila enfileirada não pode reverter para a
+    // versão velha quando finalmente executa.
+    const themeChange = setLiveActivityNeonColor('green');
+    useActiveSessionStore.setState({ status: 'active', draft: updated });
+
+    await themeChange;
+    await flushPromises();
+
+    expect(mockUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        neonColor: 'green',
+        restEndsAt: updated.restEndsAt,
+      }),
+    );
+
+    stop();
+  });
+
   it('não duplica update quando a mesma chave neon é repetida', async () => {
     useActiveSessionStore.setState({ status: 'active', draft: draft() });
 

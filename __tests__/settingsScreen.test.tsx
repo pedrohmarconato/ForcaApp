@@ -248,6 +248,45 @@ describe('SettingsScreen — teclado e estados de autosave', () => {
     expect(mockSelectNeonColor).toHaveBeenNthCalledWith(2, 'red');
   });
 
+  it('WR-03: focusedIndex acompanha neonColor quando o provider hidrata depois do mount, antes de qualquer interação', () => {
+    const screen = renderSettings();
+    const yellow = screen.getByTestId('neon-option-yellow');
+    expect(yellow.props.tabIndex).toBe(0);
+
+    // Provider resolve o profile depois do primeiro paint (ex.: fetch
+    // assíncrono da conta) e a cor confirmada muda para blue — sem
+    // qualquer Tab, seta ou toque do usuário até aqui.
+    setTheme(screen, 'blue', 'idle', 'blue');
+
+    const blue = screen.getByTestId('neon-option-blue');
+    expect(blue.props.tabIndex).toBe(0);
+    expect(screen.getByTestId('neon-option-yellow').props.tabIndex).toBe(-1);
+  });
+
+  it('WR-03: depois de uma interação (Tab/seta), a hidratação tardia do provider NÃO rouba o foco do usuário', () => {
+    const screen = renderSettings();
+    const yellow = screen.getByTestId('neon-option-yellow');
+    const blue = screen.getByTestId('neon-option-blue');
+    const green = screen.getByTestId('neon-option-green');
+
+    // Usuário já navegou com teclado para green antes da hidratação.
+    fireEvent(yellow, 'keyDown', {
+      key: 'ArrowRight',
+      preventDefault: jest.fn(),
+    });
+    fireEvent(blue, 'keyDown', {
+      key: 'ArrowRight',
+      preventDefault: jest.fn(),
+    });
+    expect(green.props.tabIndex).toBe(0);
+
+    // Hidratação tardia do provider resolve para blue depois da interação —
+    // não deve mover o foco que o usuário já colocou em green.
+    setTheme(screen, 'blue', 'idle', 'blue');
+
+    expect(screen.getByTestId('neon-option-green').props.tabIndex).toBe(0);
+  });
+
   it('bloqueia todos os cards durante saving e não abre uma segunda seleção', () => {
     const screen = renderSettings();
     setTheme(screen, 'blue', 'saving', 'yellow');
