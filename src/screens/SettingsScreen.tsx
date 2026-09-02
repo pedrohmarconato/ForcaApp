@@ -91,7 +91,21 @@ const SettingsScreen = () => {
   );
   const cardRefs = useRef<Array<{ focus?: () => void } | null>>([]);
   const announcedStatusRef = useRef<ThemeSaveStatus | null>(null);
+  const touchedRef = useRef(false);
   const saving = status === 'saving';
+
+  // O `useState` acima só roda no mount. Se o `neonColor` confirmado pelo
+  // provider resolve DEPOIS (ex.: hidratação assíncrona do profile) antes de
+  // qualquer interação do usuário, o índice roving-focus ficava preso na
+  // opção do mount até o primeiro Tab/seta — WR-03. Resincroniza enquanto o
+  // usuário não tocou (`touchedRef`); depois da primeira interação a escolha
+  // do usuário nunca é sobrescrita por uma hidratação tardia.
+  useEffect(() => {
+    if (touchedRef.current) return;
+    const index = NEON_OPTIONS.findIndex((option) => option.key === neonColor);
+    if (index === -1) return;
+    setFocusedIndex((current) => (current === index ? current : index));
+  }, [neonColor]);
 
   useEffect(() => {
     if (status === 'idle') {
@@ -106,6 +120,7 @@ const SettingsScreen = () => {
   }, [status]);
 
   const focusOption = useCallback((index: number) => {
+    touchedRef.current = true;
     setFocusedIndex(index);
     if (Platform.OS === 'web') {
       cardRefs.current[index]?.focus?.();
@@ -165,7 +180,10 @@ const SettingsScreen = () => {
         }}
         testID={`neon-option-${option.key}`}
         onPress={() => chooseOption(index)}
-        onFocus={() => setFocusedIndex(index)}
+        onFocus={() => {
+          touchedRef.current = true;
+          setFocusedIndex(index);
+        }}
         onKeyDown={
           Platform.OS === 'web'
             ? (event) => handleKeyDown(event, index)
