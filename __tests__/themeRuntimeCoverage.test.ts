@@ -50,9 +50,11 @@ const CONSUMIDORES_ORIGINAIS = [
   { path: 'src/components/session/CheckInSheet.tsx', owner: '18-07 Task 2' },
   { path: 'src/components/session/ReplanBanner.tsx', owner: '18-07 Task 2' },
   { path: 'src/components/AlertHost.tsx', owner: '18-07 Task 3' },
-  // Halo neon pulsando atrás de ForcaMark na abertura de cold start — cor
-  // vem de useTheme() (dinâmico), não de import estático de theme.ts.
-  { path: 'src/components/AppOpening.tsx', owner: 'Fase 3 (abertura animada)' },
+  // Módulo do topo (skewX + fill) acende em neon no impacto da abertura de
+  // cold start — cor vem de useTheme() no próprio arquivo (dinâmico), não de
+  // import estático de theme.ts nem de prop herdada de AppOpening.tsx (que
+  // hoje é só um reexport de src/components/opening/AppOpening.tsx).
+  { path: 'src/components/opening/ProgressiveSymbol.tsx', owner: 'Fase 3 (abertura animada) — módulos progressivos' },
   { path: 'src/components/UpdateBanner.tsx', owner: '18-07 Task 3' },
   {
     path: 'src/components/progress/CardioEvolucaoChart.tsx',

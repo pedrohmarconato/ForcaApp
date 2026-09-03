@@ -1,39 +1,35 @@
 // __tests__/appOpening.test.tsx
-// Fase 3+ (abertura animada "assinatura de marca"): AppOpening é o overlay de
-// cold start — monta os 3 módulos do símbolo em cascata, acende o módulo do
-// topo em neon com um bloom radial atrás, revela o wordmark "FORÇA" e libera
-// `onFinish` ao fim da sequência (1800ms), no toque, ou de imediato quando o
-// sistema pede reduce-motion.
+// Abertura de cold start — nova arquitetura (src/components/opening/):
+// módulos progressivos (View + skewX + overflow:hidden, sem SVG animado),
+// wordmark "FORÇA" letra a letra ("peso caindo") e sincronismo com o boot
+// via prop `isReady` (fontes + sessão resolvidas). Fonte de verdade da
+// coreografia: scratchpad/intro-proto/abertura-v2.html e abertura-hold.html
+// (ver src/components/opening/timeline.ts).
+//
+// `onFinish` decide a saída por um estado JS (setTimeout), nunca por
+// callback de worklet — mesma convenção documentada no AppOpening.tsx
+// anterior, mantida aqui porque é o que torna o desfecho determinístico e
+// testável com fake timers, independente de o Reanimated animar de verdade.
 //
 // Mock de react-native-reanimated: nenhum outro teste do projeto importa a
-// lib hoje (varredura em __tests__/ e src/ não achou nenhum uso), então não
-// existe jestSetup/mock já configurado para reaproveitar. O `mock.js` que a
-// própria lib publica reexporta `./src/mock` (TypeScript não compilado) —
-// como o preset `react-native` do Jest exclui node_modules de
-// `transformIgnorePatterns`, exigir esse mock quebraria com SyntaxError. Em
-// vez disso, este arquivo define um mock mínimo inline: shared values viram
-// objetos simples com `.value`, `useAnimatedStyle` roda a factory
-// diretamente, e `withTiming`/`withDelay`/`withSequence` só repassam o valor
-// final (sem worklet real — não há thread de UI em Jest). `Animated.Text`
-// entrou no mock junto com `Animated.View` porque o wordmark agora anima via
-// `Animated.Text`.
-// A conclusão da abertura (onFinish) e o háptico de ignição são decididos por
-// setTimeout no próprio componente, não por callback de worklet — de
-// propósito, para não depender de reanimated realmente animar em ambiente de
-// teste. `expo-haptics` não tem mock global no projeto, por isso é mockado
-// aqui.
+// lib (mesma constatação do arquivo anterior), e o `mock.js` publicado pela
+// própria lib reexporta TypeScript não compilado que quebra sob
+// transformIgnorePatterns do preset `react-native`. Mock mínimo inline:
+// shared values viram objetos `{ value }`, `useAnimatedStyle` roda a
+// factory direto, `withTiming`/`withDelay`/`withSequence` repassam o valor
+// final (sem worklet real), `withRepeat` devolve a animação interna,
+// `cancelAnimation` e `runOnJS` são no-ops/pass-through — nenhum deles
+// precisa simular o thread de UI porque nenhuma asserção deste arquivo lê
+// valor de shared value no meio da animação.
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { Path } from 'react-native-svg';
-
-import theme, { createTheme } from '../src/theme/theme';
-import type { ThemeContextValue } from '../src/theme/ThemeProvider';
 
 jest.mock('react-native-reanimated', () => {
   const RN = require('react-native');
 
   const useSharedValue = (initial: number) => ({ value: initial });
   const useAnimatedStyle = (factory: () => Record<string, unknown>) => factory();
+  const bezierFn = () => (t: number) => t;
 
   return {
     __esModule: true,
@@ -44,13 +40,22 @@ jest.mock('react-native-reanimated', () => {
     withTiming: (toValue: unknown) => toValue,
     withDelay: (_delayMs: number, value: unknown) => value,
     withSequence: (...values: unknown[]) => values[values.length - 1],
+    withRepeat: (animation: unknown) => animation,
+    cancelAnimation: jest.fn(),
+    runOnJS:
+      (fn: (...args: unknown[]) => unknown) =>
+      (...args: unknown[]) =>
+        fn(...args),
     Easing: {
+      linear: (t: number) => t,
       out: (fn: unknown) => fn,
       in: (fn: unknown) => fn,
       inOut: (fn: unknown) => fn,
       back: (_factor: number) => (t: number) => t,
       cubic: (t: number) => t,
       ease: (t: number) => t,
+      bezier: (..._args: number[]) => ({ factory: () => (t: number) => t }),
+      bezierFn,
     },
   };
 });
@@ -67,12 +72,8 @@ jest.mock('expo-haptics', () => ({
   },
 }));
 
-// Mock de useTheme() — necessário para o teste de ignição neon (abaixo)
-// poder trocar o tema por um NÃO-default (blue). Sem isso, um fill
-// hardcoded na cor do tema default (yellow, '#EBFF00') passaria no teste
-// mesmo estando errado. Mesma convenção de __tests__/settingsScreen.test.tsx.
-const mockSelectNeonColor = jest.fn(async () => undefined);
-const mockRetryNeonColor = jest.fn(async () => undefined);
+import theme from '../src/theme/theme';
+import type { ThemeContextValue } from '../src/theme/ThemeProvider';
 
 let mockThemeContext: ThemeContextValue = {
   theme,
@@ -80,34 +81,23 @@ let mockThemeContext: ThemeContextValue = {
   confirmedNeonColor: 'yellow',
   status: 'idle',
   message: null,
-  selectNeonColor: mockSelectNeonColor,
-  retryNeonColor: mockRetryNeonColor,
+  selectNeonColor: jest.fn(async () => undefined),
+  retryNeonColor: jest.fn(async () => undefined),
 };
 
 jest.mock('../src/theme/ThemeProvider', () => ({
   useTheme: () => mockThemeContext,
 }));
 
-import { AppOpening, TOTAL_DURATION_MS } from '../src/components/AppOpening';
-import { FORCA_MARK_MODULE_PATHS } from '../src/components/ui/Logo';
+import { AppOpening } from '../src/components/AppOpening';
+import { LETTERS, READY_EXIT_MS, ABSOLUTE_CEILING_MS } from '../src/components/opening/timeline';
 import { useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 
 const mockedUseReducedMotion = useReducedMotion as jest.Mock;
-const mockedImpactAsync = Haptics.impactAsync as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockedUseReducedMotion.mockReturnValue(false);
-  mockThemeContext = {
-    theme,
-    neonColor: 'yellow',
-    confirmedNeonColor: 'yellow',
-    status: 'idle',
-    message: null,
-    selectNeonColor: mockSelectNeonColor,
-    retryNeonColor: mockRetryNeonColor,
-  };
 });
 
 afterEach(() => {
@@ -115,121 +105,167 @@ afterEach(() => {
 });
 
 describe('AppOpening', () => {
-  it('renderiza os 3 módulos do símbolo (geometria intocada) e chama onFinish após a duração total', () => {
+  it('não chama onFinish antes de isReady, mesmo depois de 1700ms', () => {
     jest.useFakeTimers();
     const onFinish = jest.fn();
-    const utils = render(<AppOpening onFinish={onFinish} />);
+    render(<AppOpening isReady={false} onFinish={onFinish} />);
 
-    const renderedPathData = utils
-      .UNSAFE_getAllByType(Path)
-      .map((path) => path.props.d);
-    expect(renderedPathData).toEqual(
-      expect.arrayContaining([
-        FORCA_MARK_MODULE_PATHS.base,
-        FORCA_MARK_MODULE_PATHS.mid,
-        FORCA_MARK_MODULE_PATHS.top,
-      ]),
-    );
+    act(() => {
+      jest.advanceTimersByTime(READY_EXIT_MS + 500);
+    });
+
+    expect(onFinish).not.toHaveBeenCalled();
+  });
+
+  it('com isReady desde o início, chama onFinish em >= 1700ms e não antes', () => {
+    jest.useFakeTimers();
+    const onFinish = jest.fn();
+    render(<AppOpening isReady onFinish={onFinish} />);
+
+    act(() => {
+      jest.advanceTimersByTime(READY_EXIT_MS - 1);
+    });
     expect(onFinish).not.toHaveBeenCalled();
 
     act(() => {
-      jest.advanceTimersByTime(2000);
+      jest.advanceTimersByTime(1);
     });
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  it('isReady chega tarde (3000ms) — onFinish dispara logo em seguida, não em 1700ms', () => {
+    jest.useFakeTimers();
+    const onFinish = jest.fn();
+    const utils = render(<AppOpening isReady={false} onFinish={onFinish} />);
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(onFinish).not.toHaveBeenCalled();
+
+    utils.rerender(<AppOpening isReady onFinish={onFinish} />);
+
+    // "Logo após": não precisa esperar até um novo marco de 1700ms — uma
+    // margem pequena já basta, bem menor que o resto até 6000ms.
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  it('teto absoluto: sem isReady, chama onFinish em 6000ms', () => {
+    jest.useFakeTimers();
+    const onFinish = jest.fn();
+    render(<AppOpening isReady={false} onFinish={onFinish} />);
+
+    act(() => {
+      jest.advanceTimersByTime(ABSOLUTE_CEILING_MS - 1);
+    });
+    expect(onFinish).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  it('reduce-motion + isReady — onFinish imediato, sem esperar a duração', () => {
+    jest.useFakeTimers();
+    mockedUseReducedMotion.mockReturnValue(true);
+    const onFinish = jest.fn();
+    render(<AppOpening isReady onFinish={onFinish} />);
 
     expect(onFinish).toHaveBeenCalledTimes(1);
   });
 
-  it('toque em qualquer ponto pula a animação, chama onFinish imediatamente e cancela o timer e o háptico pendentes', () => {
+  it('toque chama skip: se pronto, finaliza imediatamente', () => {
     jest.useFakeTimers();
     const onFinish = jest.fn();
-    const utils = render(<AppOpening onFinish={onFinish} />);
+    const utils = render(<AppOpening isReady onFinish={onFinish} />);
 
     fireEvent.press(utils.getByLabelText('Pular abertura'));
 
     expect(onFinish).toHaveBeenCalledTimes(1);
-
-    // O guard interno não pode disparar onFinish de novo quando o timer da
-    // animação (já cancelado) chegaria ao fim — e o háptico agendado para
-    // ~600ms também não pode disparar depois do skip.
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
-    expect(onFinish).toHaveBeenCalledTimes(1);
-    expect(mockedImpactAsync).not.toHaveBeenCalled();
   });
 
-  it('com reduce-motion ativo, onFinish é chamado imediatamente sem esperar a duração nem agendar háptico', () => {
-    jest.useFakeTimers();
-    mockedUseReducedMotion.mockReturnValue(true);
-    const onFinish = jest.fn();
-    render(<AppOpening onFinish={onFinish} />);
-
-    expect(onFinish).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
-    expect(onFinish).toHaveBeenCalledTimes(1);
-    expect(mockedImpactAsync).not.toHaveBeenCalled();
-  });
-
-  it('renderiza o wordmark "FORÇA" abaixo do símbolo', () => {
-    jest.useFakeTimers();
-    const utils = render(<AppOpening onFinish={jest.fn()} />);
-
-    expect(utils.getByText('FORÇA')).toBeTruthy();
-  });
-
-  it('acende o módulo do topo na cor accent.main do TEMA ATUAL (ignição neon) — não numa cor hardcoded', () => {
-    // Tema propositalmente NÃO-default: se o componente hardcodear
-    // '#EBFF00' (accent.main do tema default 'yellow') em vez de ler
-    // theme.colors.accent.main, este teste falha — o accent.main de 'blue'
-    // é outra cor ('#00E5FF').
-    jest.useFakeTimers();
-    const blueTheme = createTheme('blue');
-    mockThemeContext = {
-      ...mockThemeContext,
-      theme: blueTheme,
-      neonColor: 'blue',
-      confirmedNeonColor: 'blue',
-    };
-    expect(blueTheme.colors.accent.main).toBe('#00E5FF');
-    expect(blueTheme.colors.accent.main).not.toBe(theme.colors.accent.main);
-
-    const utils = render(<AppOpening onFinish={jest.fn()} />);
-
-    const topNeonPath = utils
-      .UNSAFE_getAllByType(Path)
-      .find(
-        (path) =>
-          path.props.d === FORCA_MARK_MODULE_PATHS.top &&
-          path.props.fill === blueTheme.colors.accent.main,
-      );
-
-    expect(topNeonPath).toBeTruthy();
-  });
-
-  it('dispara o háptico Soft exatamente uma vez ao passar do delay de ignição (~600ms), no fluxo normal', () => {
-    // Caminho feliz: sem skip, sem reduce-motion, Platform.OS default do
-    // Jest (iOS via preset jest-expo) — o mesmo cenário em que os testes de
-    // skip/reduce-motion acima só provam AUSÊNCIA de chamada. Este prova a
-    // PRESENÇA: o háptico dispara, uma única vez, com o estilo certo.
+  it('toque com skip antes de pronto não finaliza (app ainda não pode ser mostrado)', () => {
     jest.useFakeTimers();
     const onFinish = jest.fn();
-    render(<AppOpening onFinish={onFinish} />);
+    const utils = render(<AppOpening isReady={false} onFinish={onFinish} />);
 
-    expect(mockedImpactAsync).not.toHaveBeenCalled();
+    fireEvent.press(utils.getByLabelText('Pular abertura'));
 
-    act(() => {
-      jest.advanceTimersByTime(700); // IGNITION_START_MS (600ms) + margem
-    });
-
-    expect(mockedImpactAsync).toHaveBeenCalledTimes(1);
-    expect(mockedImpactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Soft);
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it('exporta TOTAL_DURATION_MS igual a 1800ms — duração total da nova coreografia', () => {
-    expect(TOTAL_DURATION_MS).toBe(1800);
+  it('renderiza as 5 letras de "FORÇA", incluindo a cedilha', () => {
+    jest.useFakeTimers();
+    const utils = render(<AppOpening isReady={false} onFinish={jest.fn()} />);
+
+    LETTERS.forEach((letter) => {
+      expect(utils.getByText(letter)).toBeTruthy();
+    });
+    expect(utils.getByText('Ç')).toBeTruthy();
+  });
+
+  // Achado MÉDIO do review adversarial do PR #81: isReady regredindo de
+  // true para false (cenário real — AuthContext.js:461-468 faz
+  // setLoadingProfile(true) num TOKEN_REFRESHED/USER_UPDATED do boot frio,
+  // e App.tsx:73 deriva isReady de !sessionLoading) não podia deixar o
+  // timer de saída já armado (readyTimeoutRef) disparar `onFinish` mesmo
+  // com o app de volta a não-pronto — revelaria o spinner de
+  // RootNavigator.js atrás de uma abertura que já tinha saído.
+  it('isReady regride para false antes da saída: onFinish não dispara em 1700ms; retoma quando isReady volta a true', () => {
+    jest.useFakeTimers();
+    const onFinish = jest.fn();
+    const utils = render(<AppOpening isReady onFinish={onFinish} />);
+
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    utils.rerender(<AppOpening isReady={false} onFinish={onFinish} />);
+
+    // Passa do marco original de 1700ms (contado do mount) com isReady
+    // continuando false — o timer que a saída em isReady=true tinha armado
+    // não pode sobreviver à regressão.
+    act(() => {
+      jest.advanceTimersByTime(READY_EXIT_MS);
+    });
+    expect(onFinish).not.toHaveBeenCalled();
+
+    // isReady volta a true bem depois do marco de 1700ms original: finaliza
+    // logo em seguida (mesma regra de "chegou tarde" dos outros testes).
+    utils.rerender(<AppOpening isReady onFinish={onFinish} />);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  // Achado BAIXO do review: reduce-motion + isReady desde o mount finaliza
+  // sincronamente, mas o teto de 6000ms ainda era armado incondicionalmente
+  // DEPOIS — um setTimeout pendurado por até 6s sem nenhum propósito, já
+  // que `finish()` já rodou.
+  it('reduce-motion + isReady: depois de onFinish não sobra nenhum timer pendurado (teto não é armado à toa)', () => {
+    jest.useFakeTimers();
+    mockedUseReducedMotion.mockReturnValue(true);
+    const onFinish = jest.fn();
+    render(<AppOpening isReady onFinish={onFinish} />);
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  // Achado BAIXO do review: o toque em "Pular abertura" é no-op enquanto
+  // isReady é false (teste acima) — o estado de acessibilidade precisa
+  // refletir isso para leitor de tela, não só o comportamento do onPress.
+  it('accessibilityState.disabled do botão "Pular abertura" reflete !isReady', () => {
+    jest.useFakeTimers();
+    const utils = render(<AppOpening isReady={false} onFinish={jest.fn()} />);
+    expect(utils.getByLabelText('Pular abertura').props.accessibilityState).toEqual(
+      expect.objectContaining({ disabled: true }),
+    );
+
+    utils.rerender(<AppOpening isReady onFinish={jest.fn()} />);
+    expect(utils.getByLabelText('Pular abertura').props.accessibilityState).toEqual(
+      expect.objectContaining({ disabled: false }),
+    );
   });
 });
