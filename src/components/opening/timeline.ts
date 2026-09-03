@@ -48,6 +48,11 @@ export const MODULE_LEFT_INSET_UNITS = MODULE_SKEW_DX; // 8
 
 // --- Escala responsiva ---------------------------------------------------
 export const REFERENCE_SCREEN_WIDTH = 390;
+// Teto da escala: acima disso (tablet, ex. 768px de largura) o símbolo e o
+// wordmark parariam de crescer proporcionalmente à tela e ficariam grandes
+// demais (achado do review adversarial do PR #81) — 1.25 mantém o símbolo
+// em até 168*1.25=210px mesmo em telas bem largas.
+export const MAX_OPENING_SCALE = 1.25;
 // Largura da caixa delimitadora do símbolo numa tela de 390px; proporcional
 // em telas menores (ver useSymbolScale em ProgressiveSymbol.tsx).
 export const SYMBOL_WIDTH_AT_REFERENCE = 168;
@@ -130,6 +135,13 @@ export const PULSE_PERIOD_MS = 900;
 export const PULSE_OPACITY_MIN = 0.7;
 export const PULSE_OPACITY_MAX = 1.0;
 export const ABSOLUTE_CEILING_MS = 6000; // teto: sai mesmo sem estar pronto
+
+// Escala do símbolo/wordmark a partir da largura da tela — linear até
+// MAX_OPENING_SCALE, depois trava (achado do review adversarial do PR #81:
+// sem teto, um tablet de 768px levava o símbolo a 331px). Pura (sem
+// React/Reanimated) — usada por AppOpening.tsx.
+export const computeOpeningScale = (screenWidth: number): number =>
+  Math.min(screenWidth / REFERENCE_SCREEN_WIDTH, MAX_OPENING_SCALE);
 
 // --- Geometria derivada (px) -----------------------------------------------
 // Converte a geometria em unidades (acima) para pixels, a partir da largura

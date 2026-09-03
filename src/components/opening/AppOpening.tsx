@@ -23,12 +23,12 @@ import {
   IMPACT_MS,
   LAST_LETTER_LAND_MS,
   MARK_BOUNDING_WIDTH_UNITS,
-  REFERENCE_SCREEN_WIDTH,
   SCREEN_TREMOR_STEPS_PX,
   SCREEN_TREMOR_STEP_MS,
   SYMBOL_TO_WORDMARK_GAP_UNITS,
   SYMBOL_WIDTH_AT_REFERENCE,
   WORDMARK_FONT_SIZE_AT_REFERENCE,
+  computeOpeningScale,
 } from './timeline';
 
 // Bump de impacto (2px, seno, 90ms) + tremor de tela no pouso da 1ª e da
@@ -69,8 +69,10 @@ export const AppOpening = ({ isReady, onFinish }: AppOpeningProps) => {
   });
 
   // Escala responsiva: símbolo e wordmark encolhem juntos em telas menores
-  // que a referência (390px), mantendo a mesma proporção do protótipo.
-  const scale = screenWidth / REFERENCE_SCREEN_WIDTH;
+  // que a referência (390px), mantendo a mesma proporção do protótipo —
+  // travada em MAX_OPENING_SCALE (computeOpeningScale) para não inflar em
+  // tablet (achado BAIXO do review adversarial do PR #81).
+  const scale = computeOpeningScale(screenWidth);
   const symbolWidth = SYMBOL_WIDTH_AT_REFERENCE * scale;
   const wordmarkFontSize = WORDMARK_FONT_SIZE_AT_REFERENCE * scale;
   const symbolToWordmarkGap =
