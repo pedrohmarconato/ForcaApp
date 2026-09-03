@@ -130,3 +130,34 @@ export const PULSE_PERIOD_MS = 900;
 export const PULSE_OPACITY_MIN = 0.7;
 export const PULSE_OPACITY_MAX = 1.0;
 export const ABSOLUTE_CEILING_MS = 6000; // teto: sai mesmo sem estar pronto
+
+// --- Geometria derivada (px) -----------------------------------------------
+// Converte a geometria em unidades (acima) para pixels, a partir da largura
+// alvo do símbolo. Pura (sem Reanimated/React) — usada por
+// ProgressiveSymbol.tsx no cálculo do layout de cada módulo.
+export type SymbolGeometry = {
+  unitScale: number;
+  markWidthPx: number;
+  markHeightPx: number;
+  moduleHeightPx: number;
+  moduleGapPx: number;
+  leftInsetPx: number;
+  topWidthPx: number;
+  midWidthPx: number;
+  baseWidthPx: number;
+};
+
+export const computeSymbolGeometry = (symbolWidthPx: number): SymbolGeometry => {
+  const unitScale = symbolWidthPx / MARK_BOUNDING_WIDTH_UNITS;
+  return {
+    unitScale,
+    markWidthPx: symbolWidthPx,
+    markHeightPx: MARK_BOUNDING_HEIGHT_UNITS * unitScale,
+    moduleHeightPx: MODULE_HEIGHT_UNITS * unitScale,
+    moduleGapPx: MODULE_GAP_UNITS * unitScale,
+    leftInsetPx: MODULE_LEFT_INSET_UNITS * unitScale,
+    topWidthPx: MODULE_TOP_WIDTH_UNITS * unitScale,
+    midWidthPx: MODULE_MID_WIDTH_UNITS * unitScale,
+    baseWidthPx: MODULE_BASE_WIDTH_UNITS * unitScale,
+  };
+};
