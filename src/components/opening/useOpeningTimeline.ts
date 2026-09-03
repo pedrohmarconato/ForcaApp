@@ -155,14 +155,44 @@ export const useOpeningTimeline = ({
     );
   };
 
+  // Arma (ou reativa) o pulso de espera de forma correta em relação ao
+  // tempo já decorrido — usado tanto no mount quanto quando isReady regride
+  // de volta a false (achado MÉDIO do review adversarial do PR #81: sem
+  // isto, o timer original de pulso já tinha sido cancelado por
+  // `stopPulse()` na ida a `isReady=true`, e uma regressão posterior nunca
+  // re-agendava o pulso).
+  const armPulseTimer = () => {
+    if (hasFinishedRef.current || isReadyRef.current || reduceMotion) return;
+    if (pulseStartTimeoutRef.current || pulsingRef.current) return;
+    const elapsed = Date.now() - mountTimeRef.current;
+    if (elapsed >= PULSE_START_MS) {
+      startPulse();
+      return;
+    }
+    pulseStartTimeoutRef.current = setTimeout(startPulse, PULSE_START_MS - elapsed);
+  };
+
   useEffect(() => {
     isReadyRef.current = isReady;
     if (isReady) {
       stopPulse();
       scheduleFinish();
+    } else if (!hasFinishedRef.current) {
+      // isReady regrediu (ex.: AuthContext volta a `loading` num
+      // TOKEN_REFRESHED/USER_UPDATED do boot frio — achado MÉDIO do review
+      // adversarial do PR #81): cancela a saída já armada por
+      // `scheduleFinish` na ida anterior a isReady=true — senão `finish()`
+      // dispararia sozinho no marco de 1700ms mesmo com o app não pronto de
+      // novo, revelando o spinner de RootNavigator atrás de uma abertura já
+      // finalizada — e volta ao estado de espera (pulso).
+      if (readyTimeoutRef.current) {
+        clearTimeout(readyTimeoutRef.current);
+        readyTimeoutRef.current = null;
+      }
+      armPulseTimer();
     }
-    // scheduleFinish/stopPulse leem refs sempre atuais — não precisam entrar
-    // nas deps.
+    // scheduleFinish/stopPulse/armPulseTimer leem refs sempre atuais — não
+    // precisam entrar nas deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady]);
 
@@ -175,7 +205,7 @@ export const useOpeningTimeline = ({
         duration: CLOCK_DURATION_MS,
         easing: Easing.linear,
       });
-      pulseStartTimeoutRef.current = setTimeout(startPulse, PULSE_START_MS);
+      armPulseTimer();
       impactHapticTimeoutRef.current = setTimeout(() => {
         runOnJS(triggerHaptic)(Haptics.ImpactFeedbackStyle.Medium);
       }, IMPACT_HAPTIC_DELAY_MS);

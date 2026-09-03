@@ -207,4 +207,35 @@ describe('AppOpening', () => {
     });
     expect(utils.getByText('Ç')).toBeTruthy();
   });
+
+  // Achado MÉDIO do review adversarial do PR #81: isReady regredindo de
+  // true para false (cenário real — AuthContext.js:461-468 faz
+  // setLoadingProfile(true) num TOKEN_REFRESHED/USER_UPDATED do boot frio,
+  // e App.tsx:73 deriva isReady de !sessionLoading) não podia deixar o
+  // timer de saída já armado (readyTimeoutRef) disparar `onFinish` mesmo
+  // com o app de volta a não-pronto — revelaria o spinner de
+  // RootNavigator.js atrás de uma abertura que já tinha saído.
+  it('isReady regride para false antes da saída: onFinish não dispara em 1700ms; retoma quando isReady volta a true', () => {
+    jest.useFakeTimers();
+    const onFinish = jest.fn();
+    const utils = render(<AppOpening isReady onFinish={onFinish} />);
+
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    utils.rerender(<AppOpening isReady={false} onFinish={onFinish} />);
+
+    // Passa do marco original de 1700ms (contado do mount) com isReady
+    // continuando false — o timer que a saída em isReady=true tinha armado
+    // não pode sobreviver à regressão.
+    act(() => {
+      jest.advanceTimersByTime(READY_EXIT_MS);
+    });
+    expect(onFinish).not.toHaveBeenCalled();
+
+    // isReady volta a true bem depois do marco de 1700ms original: finaliza
+    // logo em seguida (mesma regra de "chegou tarde" dos outros testes).
+    utils.rerender(<AppOpening isReady onFinish={onFinish} />);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
 });
