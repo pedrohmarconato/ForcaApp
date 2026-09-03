@@ -215,8 +215,14 @@ export const useOpeningTimeline = ({
     }
 
     scheduleFinish();
-    // Teto absoluto: sai mesmo que o app nunca fique pronto.
-    ceilingTimeoutRef.current = setTimeout(finish, ABSOLUTE_CEILING_MS);
+    // Teto absoluto: sai mesmo que o app nunca fique pronto. Só arma se
+    // ainda não terminamos — reduce-motion+isReady já finaliza
+    // sincronamente logo acima (via scheduleFinish), e armar um setTimeout
+    // depois disso deixaria um timer pendurado por até 6s à toa (achado
+    // BAIXO do review adversarial do PR #81).
+    if (!hasFinishedRef.current) {
+      ceilingTimeoutRef.current = setTimeout(finish, ABSOLUTE_CEILING_MS);
+    }
 
     return () => clearAllTimers();
     // Roda uma única vez, no mount — mesma convenção do AppOpening.tsx

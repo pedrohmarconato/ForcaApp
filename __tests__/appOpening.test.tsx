@@ -238,4 +238,18 @@ describe('AppOpening', () => {
     utils.rerender(<AppOpening isReady onFinish={onFinish} />);
     expect(onFinish).toHaveBeenCalledTimes(1);
   });
+
+  // Achado BAIXO do review: reduce-motion + isReady desde o mount finaliza
+  // sincronamente, mas o teto de 6000ms ainda era armado incondicionalmente
+  // DEPOIS — um setTimeout pendurado por até 6s sem nenhum propósito, já
+  // que `finish()` já rodou.
+  it('reduce-motion + isReady: depois de onFinish não sobra nenhum timer pendurado (teto não é armado à toa)', () => {
+    jest.useFakeTimers();
+    mockedUseReducedMotion.mockReturnValue(true);
+    const onFinish = jest.fn();
+    render(<AppOpening isReady onFinish={onFinish} />);
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
 });
