@@ -36,12 +36,27 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 // nunca importa AuthContext/supabaseClient (guarda estática em
 // __tests__/themeModuleGraphSentinel.test.ts) — userId/profile chegam por
 // prop, lidos aqui via useAuth() e repassados adiante.
+//
+// Fase 3 (abertura animada, sincronismo com o boot): AppOpening também
+// precisa do sinal de sessão resolvida (`loading` do AuthContext — combina
+// !initialAuthDone e loadingProfile), só acessível aqui dentro de
+// AuthProvider. Por isso a abertura é montada NESTE componente (não em
+// App(), que fica fora do provider) — `isAppReady`/`isOpeningFinished`/
+// `onOpeningFinish` chegam por prop de App().
 type ThemedRootProps = {
   children: ReactNode;
+  isAppReady: boolean;
+  isOpeningFinished: boolean;
+  onOpeningFinish: () => void;
 };
 
-const ThemedRoot = ({ children }: ThemedRootProps) => {
-  const { user, profile } = useAuth();
+const ThemedRoot = ({
+  children,
+  isAppReady,
+  isOpeningFinished,
+  onOpeningFinish,
+}: ThemedRootProps) => {
+  const { user, profile, loading: sessionLoading } = useAuth();
   const userId = typeof user?.id === 'string' ? user.id : null;
   return (
     <ThemeProvider
@@ -50,6 +65,13 @@ const ThemedRoot = ({ children }: ThemedRootProps) => {
       onThemeChange={setLiveActivityNeonColor}
     >
       {children}
+      {/* Fase 3: por último, para pintar por cima de tudo acima — o app
+          real já montou atrás, a abertura só decora os primeiros instantes
+          e se desmonta sozinha via onFinish (pronto+sustentação, teto de
+          6s, ou toque com o app já pronto). */}
+      {!isOpeningFinished && (
+        <AppOpening isReady={isAppReady && !sessionLoading} onFinish={onOpeningFinish} />
+      )}
     </ThemeProvider>
   );
 };
@@ -117,7 +139,11 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <ThemedRoot>
+      <ThemedRoot
+        isAppReady={fontsLoaded || Boolean(fontError)}
+        isOpeningFinished={openingFinished}
+        onOpeningFinish={() => setOpeningFinished(true)}
+      >
         <StatusBar style="light" />
         <RootNavigator />
         <UpdateBanner />
@@ -128,12 +154,6 @@ export default function App() {
             prontos para receber o showAlert() do convite único de opt-in
             (PUSH-01, Fase 13 Plano 05). */}
         <PushInviteHost />
-        {/* Fase 3: por último, para pintar por cima de tudo acima — o app
-            real já montou atrás, a abertura só decora os primeiros
-            instantes e se desmonta sozinha via onFinish. */}
-        {!openingFinished && (
-          <AppOpening onFinish={() => setOpeningFinished(true)} />
-        )}
       </ThemedRoot>
     </AuthProvider>
   );
