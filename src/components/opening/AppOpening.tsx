@@ -103,6 +103,10 @@ export const AppOpening = ({ isReady, onFinish }: AppOpeningProps) => {
         onPress={skip}
         accessibilityRole="button"
         accessibilityLabel="Pular abertura"
+        // skip() é no-op enquanto o app não está pronto (useOpeningTimeline)
+        // — reflete isso para leitor de tela, não só no comportamento do
+        // onPress (achado BAIXO do review adversarial do PR #81).
+        accessibilityState={{ disabled: !isReady }}
       >
         <View style={styles.center}>
           <Animated.View style={[styles.lockup, bumpStyle]}>

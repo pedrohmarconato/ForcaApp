@@ -252,4 +252,20 @@ describe('AppOpening', () => {
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);
   });
+
+  // Achado BAIXO do review: o toque em "Pular abertura" é no-op enquanto
+  // isReady é false (teste acima) — o estado de acessibilidade precisa
+  // refletir isso para leitor de tela, não só o comportamento do onPress.
+  it('accessibilityState.disabled do botão "Pular abertura" reflete !isReady', () => {
+    jest.useFakeTimers();
+    const utils = render(<AppOpening isReady={false} onFinish={jest.fn()} />);
+    expect(utils.getByLabelText('Pular abertura').props.accessibilityState).toEqual(
+      expect.objectContaining({ disabled: true }),
+    );
+
+    utils.rerender(<AppOpening isReady onFinish={jest.fn()} />);
+    expect(utils.getByLabelText('Pular abertura').props.accessibilityState).toEqual(
+      expect.objectContaining({ disabled: false }),
+    );
+  });
 });
